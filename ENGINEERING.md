@@ -90,12 +90,18 @@ Not ported:
 - **Antigravity payload adapter.** Its payload nests under `toolCall` and its
   decision dialect is its own (`{decision, reason}` on stdout, exit 0). Claude
   Code, Codex and OpenCode all share the flat shape already implemented.
-- **The layers that run before policy**: tamper protection, ghost, prompt
-  injection, and the DLP read-redaction plan. This is why the Go binary is not
-  the installed guard. It is faster than the Node hook and agrees with it on
-  everything the suite covers, but it does not yet cover everything the Node
-  hook enforces, and shipping it as the live guard before it does would be
-  exactly the "fast but unguarded" trade the rule above forbids.
+- **Prompt injection scoring and the DLP read-redaction plan.** Both are
+  PORTED — `injection.go` and `dlpredact.go` carry the Node hook's patterns and
+  arithmetic — and neither is wired into `main.go`, so they are dead code until
+  they are. That is why the Go binary is not the installed guard: it is faster
+  than the Node hook and agrees with it on everything the suite covers, and it
+  does not yet enforce everything the Node hook enforces. Shipping it as the
+  live guard before it does would be exactly the "fast but unguarded" trade the
+  rule above forbids.
+
+  Tamper protection and ghost ARE wired and enforced — `tamperCheck` and
+  `ghostLayer` run before policy in main.go — which an earlier version of this
+  list said otherwise about.
 - **The deny flag** (`.last-deny`), which tells the audit hook not to log a
   second, ALLOW-looking entry for a call the guard already blocked. Left out
   deliberately rather than guessed: it carries a fingerprint of the raw

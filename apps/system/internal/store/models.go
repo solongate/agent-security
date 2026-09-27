@@ -515,15 +515,6 @@ type McpServer struct {
 
 // ── 26. solon_usage ─────────────────────────────────────────────────────────
 
-// SolonUsage is `solon_usage`, the AI quota counters, keyed by user id rather
-// than by project. The limits themselves are in solonusage.go.
-type SolonUsage struct {
-	UserID       string
-	ChatsUsed    int64
-	PoliciesUsed int64
-	UpdatedAt    int64
-}
-
 // The value sets the write paths check against. They are the enums from
 // schema.ts, which SQLite does not enforce: the columns are plain TEXT, so a
 // value outside these would be stored happily and read back as garbage by

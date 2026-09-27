@@ -115,10 +115,6 @@ var routes = []route{
 	{path: "/api/v1/agents/{id}", methods: []string{"GET"}, source: "src/app/api/v1/agents/[id]/route.ts", auth: authKey},
 	{path: "/api/v1/agents/live", methods: []string{"GET"}, source: "src/app/api/v1/agents/live/route.ts", auth: authKey},
 
-	{path: "/api/v1/ai/chat", methods: []string{"POST"}, source: "src/app/api/v1/ai/chat/route.ts", auth: authKey, limit: limAI},
-	{path: "/api/v1/ai/usage/reset", methods: []string{"POST"}, source: "src/app/api/v1/ai/usage/reset/route.ts", auth: authKey},
-	{path: "/api/v1/ai/usage", methods: []string{"GET"}, source: "src/app/api/v1/ai/usage/route.ts", auth: authKey},
-
 	// The conversation record. Written here rather than ported, so there is no
 	// source file to name.
 	{path: "/api/v1/conversations", methods: []string{"GET", "POST"}, auth: authKey, done: true},
@@ -222,7 +218,7 @@ var routes = []route{
 // a row disappearing, and a row is a row whoever wrote it; splitting the count
 // into "ported" and "ours" would make the assertion weaker in exchange for a
 // distinction the source column already draws.
-const routeCount = 67
+const routeCount = 64
 
 // routeHandlers is how a finished route slice replaces a stub.
 //

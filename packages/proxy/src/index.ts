@@ -41,7 +41,7 @@
 // to the proxy runtime; the human-facing CLI subcommands (login/etc.) and
 // the bare-run welcome screen keep normal console output so their banners aren't
 // mangled with a [SolonGate] prefix.
-const CLI_SUBCOMMANDS = new Set(['update', 'repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'ghost', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks', 'dataroom']);
+const CLI_SUBCOMMANDS = new Set(['repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'ghost', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks', 'dataroom']);
 // Human-facing flags/aliases that print a banner and must keep normal console
 // output (no [SolonGate] prefix): help, version, and the removed `login` alias.
 const CLI_INFO_ARGS = new Set(['login', 'help', '--help', '-h', '--version', '-v', 'version']);
@@ -122,8 +122,6 @@ function printHelp() {
 
   head('Setup & status');
   cmd('solongate', 'open the dataroom UI (login, policies, audit, settings)');
-  cmd('update', 'update SolonGate and refresh the guard (tells you if it needs sudo)');
-  cmd('update auto on|off', 'background auto-update (default off — on macOS npm -g often needs sudo)');
   cmd('repair', 'restore the guard + hook + settings files if they were deleted or disarmed');
   cmd('doctor', 'health check: login, policy, guard, local logs');
   cmd('trace [--limit N]', 'what the guard saw in this directory, allows included');
@@ -256,24 +254,7 @@ async function main() {
     return;
   }
 
-  // Update check (human CLI only, never the MCP proxy runtime): look at the
-  // registry in the background and, when auto-update is ON, kick off a detached
-  // `npm install -g` so the NEXT run is the new version. Auto-update ships OFF
-  // (macOS global installs usually need sudo, so a background install there can
-  // only fail) — then this just prints one throttled "run solongate update"
-  // line. TUI paths are handled by the dataroom itself (App.tsx tuiUpdateFlow).
   if (IS_HUMAN_CLI) {
-    const tuiBound = subcommand === 'dataroom' || (process.argv.length <= 2 && process.stdout.isTTY && process.stdin.isTTY);
-    // `update` is excluded because it is ABOUT to install: letting the
-    // background updater fire first put two `npm install -g` runs on the same
-    // global tree, and the loser fails on a bin symlink the winner is midway
-    // through replacing — after npm has already removed the old package. The
-    // machine is then left with no `solongate` on PATH, from one command that
-    // was supposed to update it.
-    if (!tuiBound && subcommand !== 'update') {
-      const { maybeSelfUpdate } = await import('./self-update.js');
-      maybeSelfUpdate();
-    }
     // The logs-server is a SERVICE: once enabled it must survive Ctrl+C,
     // closed terminals and reboots — resurrect it here unless the user
     // explicitly disabled it (dataroom Settings → dashboard link row).
@@ -314,17 +295,6 @@ async function main() {
     const { runCommand } = await import('./commands/index.js');
     const code = await runCommand(subcommand!, process.argv.slice(3));
     process.exit(code);
-  }
-
-  if (subcommand === 'update') {
-    // `update auto [on|off]` reads/changes the background updater; a bare
-    // `update` still just updates now, so the two can never be confused.
-    if (process.argv[3] === 'auto') {
-      const { runAutoUpdateCommand } = await import('./self-update.js');
-      process.exit(await runAutoUpdateCommand(process.argv[4]));
-    }
-    const { runUpdateCommand } = await import('./self-update.js');
-    process.exit(await runUpdateCommand());
   }
 
   if (subcommand === 'repair') {

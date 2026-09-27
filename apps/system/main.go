@@ -202,7 +202,7 @@ func main() {
 	//
 	// EnsureRuntimeTables stays retryable after a failure, so a route slice
 	// that touches device_codes, sessions, agent_baselines, anomaly_events or
-	// solon_usage should call it first — that is what `await schemaReady` at
+	// should call it first — that is what `await schemaReady` at
 	// the top of those routes means.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	if err := db.EnsureRuntimeTables(ctx); err != nil {

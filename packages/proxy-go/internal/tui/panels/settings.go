@@ -17,7 +17,6 @@ import (
 	"github.com/codeyevsky/solongate/proxy/internal/config"
 	"github.com/codeyevsky/solongate/proxy/internal/install"
 	"github.com/codeyevsky/solongate/proxy/internal/logsserver"
-	"github.com/codeyevsky/solongate/proxy/internal/selfupdate"
 	"github.com/codeyevsky/solongate/proxy/internal/tui"
 )
 
@@ -30,7 +29,6 @@ func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { ret
 //	ACCOUNTS   accounts logged in on this device: view · make active · add
 //	           (device login, in-panel) · remove
 //	PROTECTION the guard hook, self-protection, doctor and repair
-//	UPDATES    this CLI's version, and the background auto-updater (off unless
 //	           turned on: `npm i -g` needs sudo on most macOS setups, so it must
 //	           not run unasked)
 //	LOCAL LOGS mirror path and enable, plus the dashboard link
@@ -309,7 +307,6 @@ type Settings struct {
 	llSetting config.LocalLogSetting
 	srvState  config.LogsServerState
 	srvUp     bool
-	autoUp    bool
 
 	sel        int
 	editing    string // "" · path · wh-url · alert-target
@@ -353,7 +350,6 @@ func NewSettings(d tui.Deps) *Settings {
 		input:    ti,
 		tok:      nextToken(),
 		accounts: config.ListAccounts(),
-		autoUp:   config.LoadSelfUpdateState().Auto,
 	}
 }
 
@@ -390,7 +386,6 @@ func (p *Settings) readDisk() {
 	p.llSetting = config.LocalLogsSetting()
 	p.srvState = config.LoadLogsServerState()
 	p.srvUp = pidAlive(p.srvState.Pid)
-	p.autoUp = config.LoadSelfUpdateState().Auto
 }
 
 func (p *Settings) reloadAll() tea.Cmd {
@@ -834,7 +829,7 @@ func (p *Settings) allRows() []setRow {
 			rows = append(rows, setRow{kind: "ws", ws: ws})
 		}
 	}
-	for _, k := range []string{"guard", "self", "doctor", "repair", "cli-update", "auto-update", "ll-enabled", "ll-path", "ll-server"} {
+	for _, k := range []string{"guard", "self", "doctor", "repair", "ll-enabled", "ll-path", "ll-server"} {
 		rows = append(rows, setRow{kind: k})
 	}
 	for _, w := range p.visibleWebhooks() {
@@ -1079,22 +1074,6 @@ func (p *Settings) activate(r setRow) tea.Cmd {
 			},
 		)
 
-	case "cli-update":
-		if p.installBusy {
-			return nil
-		}
-		p.installBusy = true
-		p.msg = &setMessage{text: "checking for an update…"}
-		t := p.tag()
-		return tea.Batch(
-			tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return setSpinMsg{t} }),
-			func() tea.Msg {
-				st := selfupdate.UpdateNow(bg())
-				ok := st.Kind != selfupdate.KindFailed && st.Kind != selfupdate.KindNeedsAdmin
-				return setInstallMsg{genTag: t, verb: "update", ok: ok, message: updateLine(st)}
-			},
-		)
-
 	case "self":
 		if !p.haveSelf {
 			return nil
@@ -1108,28 +1087,6 @@ func (p *Settings) activate(r setRow) tea.Cmd {
 			_, err := p.deps.API.Settings.SetSelfProtection(bg(), want)
 			return err
 		}, "self")
-
-	case "auto-update":
-		if autoUpdateForcedByEnv() {
-			p.msg = &setMessage{text: "SOLONGATE_AUTO_UPDATE is set — unset it to change this here", bad: true}
-			return nil
-		}
-		next := !p.autoUp
-		st := config.LoadSelfUpdateState()
-		st.Auto = next
-		if err := config.SaveSelfUpdateState(st); err != nil {
-			p.msg = &setMessage{text: "✗ could not save the setting: " + errText(err), bad: true}
-			return nil
-		}
-		p.autoUp = next
-		if next {
-			// Honest about the half of this that is missing: the flag is what
-			// the npm package's background updater reads, and this binary has
-			// no updater of its own yet.
-			p.msg = &setMessage{text: "✓ auto-update on — the npm package installs new versions in the background", bad: false}
-		} else {
-			p.msg = &setMessage{text: "✓ auto-update off — update with: npx @solongate/proxy update"}
-		}
 
 	case "ll-enabled":
 		if !p.haveLocal {
@@ -1235,7 +1192,7 @@ func (p *Settings) makeActive(r setRow) tea.Cmd {
 			return p.deps.API.Settings.SetAlertEnabled(bg(), id, want)
 		}, "alert")
 
-	case "wh", "self", "auto-update", "ll-enabled", "ll-server":
+	case "wh", "self", "ll-enabled", "ll-server":
 		return p.activate(r)
 	}
 	return nil
@@ -1535,8 +1492,6 @@ func acctLabel(a config.SavedAccount) string {
 	}
 	return "account …" + tail
 }
-
-func autoUpdateForcedByEnv() bool { return os.Getenv("SOLONGATE_AUTO_UPDATE") != "" }
 
 // pidAlive probes a recorded pid without touching it.
 func pidAlive(pid int) bool {
@@ -1911,8 +1866,6 @@ func sectionOf(r setRow) string {
 		return "WORKSPACES"
 	case "guard", "self", "doctor", "repair":
 		return "PROTECTION"
-	case "cli-update", "auto-update":
-		return "UPDATES"
 	case "ll-enabled", "ll-path", "ll-server":
 		return "LOCAL LOGS"
 	case "wh", "wh-add":
@@ -1929,8 +1882,6 @@ func (p *Settings) sectionDesc(sec string) string {
 		return "this account's projects (" + itoa(len(p.spaces)) + ") · enter moves this machine · the guard follows"
 	case "PROTECTION":
 		return "guard hook, self-protection, doctor and repair"
-	case "UPDATES":
-		return "the solongate CLI itself · background auto-update is off unless you turn it on"
 	case "LOCAL LOGS":
 		return "mirror every decision to a file + dashboard link"
 	case "WEBHOOKS":
@@ -2034,24 +1985,6 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 		l.put("restore every protection file after tampering or deletion", stDim)
 		l.put(" · enter runs it", stDim)
 
-	case "cli-update":
-		l.put(pad("version", 11), stDim)
-		l.put("v"+Version, stOK)
-		l.put("   enter checks npm and updates · needs admin rights on most macOS setups", stDim)
-
-	case "auto-update":
-		l.put(pad("auto", 11), stDim)
-		txt, st := onOff(p.autoUp)
-		l.put(txt, st)
-		switch {
-		case autoUpdateForcedByEnv():
-			l.put("   set by SOLONGATE_AUTO_UPDATE", stDim)
-		case p.autoUp:
-			l.put("   the npm package installs new versions in the background · enter toggles", stDim)
-		default:
-			l.put("   off: nothing installs on its own (npm -g may need sudo) · enter toggles", stDim)
-		}
-
 	case "ll-enabled":
 		l.put(pad("enabled", 11), stDim)
 		txt, st := onOff(p.haveLocal && p.local.Enabled)
@@ -2139,26 +2072,3 @@ func chanOf(r api.AlertRule) string {
 type errString string
 
 func (e errString) Error() string { return string(e) }
-
-// updateLine turns an update Status into the one line the panel shows.
-//
-// It lives here rather than in internal/selfupdate because the CLI prints
-// several lines with colour and this is a single row in a list; a shared
-// formatter would end up serving neither well.
-func updateLine(st selfupdate.Status) string {
-	switch st.Kind {
-	case selfupdate.KindUpdated:
-		return "updated to " + st.Version + " · restart the CLI to use it"
-	case selfupdate.KindCurrent:
-		return "already on the latest version (" + st.Version + ")"
-	case selfupdate.KindNeedsAdmin:
-		// Not a failure, and saying "failed" here would send someone looking for
-		// a bug instead of typing sudo.
-		return "an update is available but the install needs admin rights · run `sudo npm i -g @solongate/proxy`"
-	case selfupdate.KindUnreachable:
-		return "could not reach the registry · the installed version keeps working"
-	case selfupdate.KindFailed:
-		return "the update did not complete · the installed version keeps working"
-	}
-	return "no update available"
-}

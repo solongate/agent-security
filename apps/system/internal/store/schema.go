@@ -24,12 +24,6 @@ import (
 
 // migrations are the statements that must succeed.
 var migrations = []string{
-	`CREATE TABLE IF NOT EXISTS solon_usage (
-      user_id TEXT PRIMARY KEY,
-      chats_used INTEGER NOT NULL DEFAULT 0,
-      policies_used INTEGER NOT NULL DEFAULT 0,
-      updated_at INTEGER NOT NULL
-    )`,
 	`CREATE INDEX IF NOT EXISTS audit_logs_session_id_idx ON audit_logs (project_id, session_id)`,
 	// COVERING, and that is the whole point: every column the query needs is in
 	// the index, so SQLite answers from it and never touches a row.

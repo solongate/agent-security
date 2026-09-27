@@ -93,7 +93,6 @@ func TestStubsDoNotReportSuccess(t *testing.T) {
 		// of date. The updater refuses an unstamped build now (see
 		// selfupdate.VersionKnown), and neither belongs in a list of commands
 		// this test INVOKES.
-		"update": true,
 		"repair": true,
 	}
 	for _, n := range commands.Names {

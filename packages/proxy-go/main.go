@@ -17,11 +17,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/mattn/go-isatty"
 
@@ -29,7 +27,6 @@ import (
 	"github.com/codeyevsky/solongate/proxy/internal/install"
 	"github.com/codeyevsky/solongate/proxy/internal/logsserver"
 	"github.com/codeyevsky/solongate/proxy/internal/proxy"
-	"github.com/codeyevsky/solongate/proxy/internal/selfupdate"
 	"github.com/codeyevsky/solongate/proxy/internal/term"
 	"github.com/codeyevsky/solongate/proxy/internal/tui"
 	"github.com/codeyevsky/solongate/proxy/internal/tui/panels"
@@ -56,7 +53,7 @@ const exitNotPorted = 69
 // decides two things: whether output is a banner or MCP protocol traffic, and
 // whether the human-only gate applies.
 var cliSubcommands = map[string]bool{
-	"update": true, "repair": true, "logs-server": true, "local-logs": true,
+	"repair": true, "logs-server": true, "local-logs": true,
 	"policy": true, "ratelimit": true, "dlp": true, "ghost": true, "stats": true, "audit": true,
 	"sessions": true, "session": true, "doctor": true, "trace": true, "watch": true,
 	"alerts": true, "webhooks": true, "dataroom": true,
@@ -76,10 +73,6 @@ func run(args []string) int {
 		sub = args[0]
 	}
 	isHumanCLI := len(args) == 0 || cliSubcommands[sub] || cliInfoArgs[sub]
-
-	// The updater compares against the version of the npm package that shipped
-	// this binary, which only main knows.
-	selfupdate.Version = buildVersion
 
 	// The MCP proxy runtime is NOT gated: it is launched by a client, it never
 	// edits security configuration, and gating it would mean the guard cannot
@@ -123,25 +116,6 @@ func run(args []string) int {
 		// compare the pair against a number and fail. Stderr is where a human
 		// reads it and a pipe does not.
 		//
-		// Not throttled either, unlike the passing notice: the six-hour memo
-		// exists so an unrelated command does not nag, and this command is the
-		// question.
-		//
-		// NOT WHEN THE AGENT IS ASKING. The Shadow agent's version watcher runs
-		// `solongate --version` under SOLONGATE_INTERNAL=1 every few seconds to
-		// learn what is installed. A registry round trip on each of those was two
-		// things at once: a poll of npmjs.org nobody asked for, every five
-		// seconds, and slow enough to blow the watcher's four-second read - so on
-		// a cold or slow line the roster never heard the new number and the agent
-		// kept trying to restart into a version it could not confirm. The notice
-		// is for a person at a terminal; the marker says this is not one.
-		if isHumanCLI && os.Getenv("SOLONGATE_INTERNAL") != "1" {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			if latest, ok := selfupdate.LatestVersion(ctx); ok && selfupdate.Newer(latest, buildVersion) {
-				fmt.Fprintf(os.Stderr, "\n%s is out. Run `solongate update` to install it.\n", latest)
-			}
-		}
 		return 0
 	}
 
@@ -159,21 +133,6 @@ func run(args []string) int {
 		// compare, see InstallGoBinaries), so it costs nothing on the runs
 		// between updates.
 		install.InstallGoBinaries()
-	}
-
-	// Tell the user when a newer version is out. Throttled to one registry poll
-	// every thirty minutes and one notice every six hours, so it costs nothing on
-	// the runs in between.
-	//
-	// Never on a dataroom run: the dataroom has its own updater
-	// (selfupdate.TUIFlow) that reports into the status line, and a stray line of
-	// stderr over a Bubble Tea screen corrupts the frame the program believes it
-	// drew. Never on the proxy runtime either — this is the human CLI only, and
-	// the deferred wait below is why: an update must never be something a tool
-	// call sits behind.
-	if isHumanCLI && sub != "dataroom" && !(len(args) == 0 && isInteractive()) {
-		waitForUpdateNotice := selfupdate.NotifyAsync(term.Log)
-		defer waitForUpdateNotice()
 	}
 
 	// Bare invocation. On an interactive terminal this opens the dataroom even
@@ -322,7 +281,6 @@ func table() []command {
 		{"alerts", "spike alerts on denials, DLP and rate limits", commands.Runner("alerts")},
 		{"webhooks", "stream events to a URL", commands.Runner("webhooks")},
 
-		{"update", "update SolonGate and refresh the guard", selfupdate.RunUpdateCommand},
 		{"repair", "restore the guard, hooks and settings files", commands.RunRepair},
 		// Two names for one service, as the npm package has them. `local-logs`
 		// is the older spelling and is kept because instructions carrying it are
@@ -456,7 +414,6 @@ func printHelp() {
 
 	head("Setup & status")
 	cmd("solongate", "open the dataroom UI (login, policies, audit, settings)")
-	cmd("update", "update SolonGate and refresh the guard (tells you if it needs sudo)")
 	cmd("update auto on|off", "background auto-update (default off — on macOS npm -g often needs sudo)")
 	cmd("repair", "restore the guard + hook + settings files if they were deleted or disarmed")
 	cmd("doctor", "health check: login, policy, guard, local logs")

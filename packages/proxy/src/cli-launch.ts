@@ -38,7 +38,7 @@ import { dirname, join, resolve } from 'node:path';
 // packages/proxy-go/main.go; a name in one and not the other means a command
 // that either never reaches Go or reaches it and is not understood.
 const GO_SUBCOMMANDS = new Set([
-  'update', 'repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp',
+  'repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp',
   'stats', 'audit', 'sessions', 'session', 'doctor', 'watch', 'alerts',
   'webhooks', 'dataroom',
   // The `browser` command is gone on purpose: the agent installs, arranges and

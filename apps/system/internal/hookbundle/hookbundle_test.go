@@ -21,7 +21,7 @@ import (
 
 // hookChecks are the installed hook's OWN acceptance tests, copied from
 // packages/proxy/hooks/guard.bundled.mjs (fetchAndInstallHook) and from
-// packages/proxy-go/internal/selfupdate/hooks.go, which agree with it.
+// the hooks that fetch them, which agree with it.
 //
 // They are duplicated deliberately: this is the one place where writing the
 // far end's rules down a second time is the point. If the payload we serve

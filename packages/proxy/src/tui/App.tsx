@@ -21,8 +21,6 @@ import { enforcingKey, listAccounts, saveAccount, setViewCredentials } from '../
 import type { SavedAccount } from '../api-client/client.js';
 import { api } from '../api-client/index.js';
 import { ensureLocalLogOwner } from './local-log.js';
-import { tuiUpdateFlow } from '../self-update.js';
-import type { UpdateStatus } from '../self-update.js';
 
 type PanelComponent = (props: { active: boolean; focused: boolean }) => JSX.Element;
 
@@ -113,20 +111,6 @@ export function App(): JSX.Element {
     [],
   );
   const [help, setHelp] = useState(false);
-
-  // Claude Code-style auto-update: check on open + every 30 min while the
-  // dataroom runs, install in the background, surface "restart to apply".
-  const [update, setUpdate] = useState<UpdateStatus>({ kind: 'idle' });
-  useEffect(() => {
-    let alive = true;
-    const run = () => void tuiUpdateFlow((s) => alive && setUpdate(s));
-    run();
-    const t = setInterval(run, 30 * 60_000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, []);
 
   const acctIdx = Math.max(0, accounts.findIndex((a) => a.apiKey === viewKey));
   const cur = accounts[acctIdx];
@@ -278,15 +262,6 @@ export function App(): JSX.Element {
         ) : (
           <Text color={theme.dim}>{'  · Settings to add another'}</Text>
         )}
-        {update.kind === 'updating' ? (
-          <Text color={theme.warn}>{`  ↑ updating to v${update.version}…`}</Text>
-        ) : update.kind === 'updated' ? (
-          <Text color={theme.ok} bold>{`  ↑ v${update.version} installed · restart (q, then solongate) to apply`}</Text>
-        ) : update.kind === 'available' ? (
-          <Text color={theme.warn}>{`  ↑ v${update.version} out · Settings → UPDATES`}</Text>
-        ) : update.kind === 'needs-admin' ? (
-          <Text color={theme.warn}>{`  ↑ v${update.version} needs admin rights · Settings → UPDATES`}</Text>
-        ) : null}
       </Text>
 
       <Box key={viewNonce} marginTop={1} flexGrow={1}>

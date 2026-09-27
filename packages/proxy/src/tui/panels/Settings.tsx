@@ -6,9 +6,6 @@
  *                     add (device login) / remove
  *   GUARD           : installed vs latest hook version + device count (read-only)
  *   SELF-PROTECTION : block agents from touching SolonGate's own files (toggle)
- *   UPDATES         : this CLI's version + update now, and the background
- *                     auto-updater (off unless turned on — `npm i -g` needs
- *                     sudo on most macOS setups, so it must not run unasked)
  *   LOCAL LOGS      : mirror path + enable, plus the background dashboard link
  *   WEBHOOKS        : POST every matching event to a URL (add/toggle/events/test/delete)
  *   ALERTS          : spike alerts to ONE email + ONE telegram — signal,
@@ -38,7 +35,6 @@ import { openBrowser, pollDeviceLogin, startDeviceLogin } from '../../api-client
 import { codexDetected, codexHooksStatus, guardHookOutdated, installedGuardVersion, installGlobalQuiet, isGuardInstalled, repairQuiet, uninstallGlobalQuiet } from '../../global-install.js';
 import { collectChecks } from '../../commands/doctor.js';
 import { logsServerStatus, startLogsServerDaemon, stopLogsServerDaemon } from '../../logs-server-daemon.js';
-import { adminUpdateSteps, autoUpdateEnabled, autoUpdateForcedByEnv, currentVersion, globalInstallCheck, latestVersion, newerThan, setAutoUpdate, updateNow } from '../../self-update.js';
 import type { LogsServerStatus } from '../../logs-server-daemon.js';
 import { DataView } from '../components.js';
 import { useLoader, usePanelSize } from '../hooks.js';
@@ -68,8 +64,6 @@ type Row =
   | { kind: 'self' }
   | { kind: 'doctor' }
   | { kind: 'repair' }
-  | { kind: 'cli-update' }
-  | { kind: 'auto-update' }
   | { kind: 'll-enabled' }
   | { kind: 'll-path' }
   | { kind: 'll-server' }
@@ -130,15 +124,12 @@ export function SettingsPanel({
   const [msg, setMsg] = useState<{ text: string; level: 'ok' | 'bad' } | null>(null);
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<AlertEditor | null>(null);
-  const [latest, setLatest] = useState<string | null>(null);
   // Result of the last doctor / repair run, rendered as read-only lines under
   // the row that produced it. Kept here rather than printed, because Ink owns
   // the terminal — writing to the stream would tear the frame.
   const [diagBusy, setDiagBusy] = useState<null | 'doctor' | 'repair'>(null);
   // Background updater: opt-in, read from disk so it survives restarts. Held in
   // state so the row flips the instant it is toggled.
-  const [autoUp, setAutoUp] = useState(() => autoUpdateEnabled());
-  const [updBusy, setUpdBusy] = useState(false);
   // Whether npm can install globally as this user. Resolved in the background
   // (it shells out to `npm prefix -g`) so opening the panel stays instant, and
   // shown on the row BEFORE the user presses enter — on macOS the answer is
@@ -153,13 +144,7 @@ export function SettingsPanel({
     const t = setInterval(read, 5000);
     return () => clearInterval(t);
   }, []);
-  const [canInstall, setCanInstall] = useState<boolean | null>(null);
-  useEffect(() => {
-    let live = true;
-    globalInstallCheck().then((r) => { if (live) setCanInstall(r.writable); }).catch(() => {});
-    return () => { live = false; };
-  }, []);
-  const [diag, setDiag] = useState<null | { of: 'doctor' | 'repair' | 'cli-update'; lines: { text: string; level: 'ok' | 'warn' | 'bad' | 'dim' }[] }>(null);
+  const [diag, setDiag] = useState<null | { of: 'doctor' | 'repair'; lines: { text: string; level: 'ok' | 'warn' | 'bad' | 'dim' }[] }>(null);
   // Progress animation for those two. Repair is synchronous and usually
   // finishes in a few ms, so without a paced screen the panel would flash and
   // look like nothing ran. The steps are honest about what each pass does; the
@@ -183,12 +168,6 @@ export function SettingsPanel({
     const step = setInterval(() => setDiagStep((s) => Math.min(s + 1, total - 1)), 220);
     return () => clearInterval(step);
   }, [diagBusy]);
-  const ver = currentVersion();
-  useEffect(() => {
-    let live = true;
-    latestVersion().then((v) => { if (live) setLatest(v); }).catch(() => {});
-    return () => { live = false; };
-  }, []);
 
   // ── accounts on this device ───────────────────────────────────────────────
   const [accounts, setAccounts] = useState<SavedAccount[]>(() => listAccounts());
@@ -231,10 +210,10 @@ export function SettingsPanel({
     // Same frame clock drives the login overlay, the doctor/repair progress and
     // the update spinner — an npm install is slow enough that a frozen glyph
     // would read as a hang.
-    if (!loggingIn && !diagBusy && !updBusy) return;
+    if (!loggingIn && !diagBusy) return;
     const t = setInterval(() => setTick((n) => n + 1), 120);
     return () => clearInterval(t);
-  }, [login, diagBusy, updBusy]);
+  }, [login, diagBusy]);
 
   // Cloud config — skipped while unpaired (there is no key to call with).
   const localQ = useLoader(() => (listAccounts().length ? api.settings.getLocalLogs() : Promise.resolve(null)));
@@ -280,8 +259,6 @@ export function SettingsPanel({
           { kind: 'self' as const },
           { kind: 'doctor' as const },
           { kind: 'repair' as const },
-          { kind: 'cli-update' as const },
-          { kind: 'auto-update' as const },
           { kind: 'll-enabled' as const },
           { kind: 'll-path' as const },
           { kind: 'll-server' as const },
@@ -494,52 +471,6 @@ export function SettingsPanel({
     } else if (r.kind === 'self') {
       if (!selfProt) return;
       run(selfProt.enabled ? 'self-protection disabled' : 'self-protection enabled', () => api.settings.setSelfProtection(!selfProt.enabled), selfQ.reload);
-    } else if (r.kind === 'cli-update') {
-      if (updBusy) return;
-      setUpdBusy(true);
-      setMsg({ text: 'updating…', level: 'ok' });
-      setDiag(null);
-      void (async () => {
-        try {
-          const res = await updateNow();
-          if (res.status === 'updated') setMsg({ text: `✓ v${res.version} installed · restart (q, then solongate) to apply`, level: 'ok' });
-          else if (res.status === 'current') setMsg({ text: `✓ already on the latest version (v${res.version})`, level: 'ok' });
-          else if (res.status === 'needs-admin') {
-            // Two commands and a reason do not fit the one-line status, so they
-            // go under the row the way doctor/repair results do.
-            setMsg({ text: `✗ v${res.version} needs admin rights — run the two commands below`, level: 'bad' });
-            setDiag({
-              of: 'cli-update',
-              lines: [
-                { text: 'npm’s global folder belongs to root on this machine (the usual macOS', level: 'warn' },
-                { text: 'setup), so SolonGate cannot install there by itself. In a terminal:', level: 'warn' },
-                ...adminUpdateSteps().map((s) => ({ text: s.trim(), level: 'ok' as const })),
-                { text: 'run repair WITHOUT sudo, or the guard hooks land in root’s home', level: 'dim' },
-              ],
-            });
-          } else if (res.status === 'unreachable') setMsg({ text: '✗ could not reach the npm registry', level: 'bad' });
-          else setMsg({ text: `✗ update to v${res.version} failed — see ~/.solongate/self-update.log`, level: 'bad' });
-          setLatest(await latestVersion());
-          setCanInstall((await globalInstallCheck()).writable);
-        } finally {
-          setUpdBusy(false);
-        }
-      })();
-    } else if (r.kind === 'auto-update') {
-      if (autoUpdateForcedByEnv()) {
-        setMsg({ text: 'SOLONGATE_AUTO_UPDATE is set — unset it to change this here', level: 'bad' });
-        return;
-      }
-      const next = !autoUp;
-      setAutoUpdate(next);
-      setAutoUp(next);
-      setMsg(
-        next
-          ? canInstall === false
-            ? { text: '✓ auto-update on — but npm needs sudo here, so it still cannot install on its own', level: 'bad' }
-            : { text: '✓ auto-update on — new versions install in the background', level: 'ok' }
-          : { text: '✓ auto-update off — update from this row or with: solongate update', level: 'ok' },
-      );
     } else if (r.kind === 'll-enabled') {
       if (!local) return;
       if (!local.enabled && !local.path.trim()) {
@@ -648,7 +579,7 @@ export function SettingsPanel({
           if (ok) clearLocalLog();
           setMsg(ok ? { text: `✓ ${acctLabel(cur.acc)} is now the ACTIVE key (guard + logging)`, level: 'ok' } : { text: '✗ could not set active', level: 'bad' });
           refreshAccounts();
-        } else if (cur.kind === 'wh' || cur.kind === 'alert' || cur.kind === 'self' || cur.kind === 'auto-update' || cur.kind === 'll-enabled' || cur.kind === 'll-server') {
+        } else if (cur.kind === 'wh' || cur.kind === 'alert' || cur.kind === 'self' || cur.kind === 'll-enabled' || cur.kind === 'll-server') {
           if (cur.kind === 'alert') run(cur.rule.enabled ? 'alert disabled' : 'alert enabled', () => api.settings.setAlertEnabled(cur.rule.id, !cur.rule.enabled), alertQ.reload);
           else activate(cur);
         }
@@ -941,43 +872,6 @@ export function SettingsPanel({
             )}
           </Text>
         );
-      case 'cli-update': {
-        const behind = latest ? newerThan(latest, ver) : false;
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            <Text color={theme.dim}>{'version'.padEnd(11)}</Text>
-            <Text color={behind ? theme.warn : theme.ok}>{`v${ver}`}</Text>
-            {updBusy ? (
-              <Text color={theme.accentBright}>{`   ${spin} updating…`}</Text>
-            ) : behind && canInstall === false ? (
-              // Said before they press enter, not after a minute of npm noise.
-              <Text color={theme.warn}>{`   v${latest} on npm · needs sudo here · enter shows how`}</Text>
-            ) : behind ? (
-              <Text color={theme.dim}>{`   v${latest} on npm · enter updates now`}</Text>
-            ) : (
-              <Text color={theme.dim}>{latest ? '   latest · enter checks again' : '   enter checks npm and updates'}</Text>
-            )}
-          </Text>
-        );
-      }
-      case 'auto-update':
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            <Text color={theme.dim}>{'auto'.padEnd(11)}</Text>
-            {onOff(autoUp)}
-            <Text color={theme.dim}>
-              {autoUpdateForcedByEnv()
-                ? '   set by SOLONGATE_AUTO_UPDATE'
-                : canInstall === false
-                  ? '   cannot work here: npm needs sudo, so updates stay manual · enter toggles'
-                  : autoUp
-                    ? '   installs new versions in the background · enter toggles'
-                    : '   off: nothing installs on its own (npm -g may need sudo) · enter toggles'}
-            </Text>
-          </Text>
-        );
       case 'll-enabled':
         return (
           <Text wrap="truncate">
@@ -1067,9 +961,7 @@ export function SettingsPanel({
       ? 'ACCOUNTS'
       : r.kind === 'guard' || r.kind === 'self' || r.kind === 'doctor' || r.kind === 'repair'
         ? 'PROTECTION'
-        : r.kind === 'cli-update' || r.kind === 'auto-update'
-          ? 'UPDATES'
-          : r.kind === 'll-enabled' || r.kind === 'll-path' || r.kind === 'll-server'
+        : r.kind === 'll-enabled' || r.kind === 'll-path' || r.kind === 'll-server'
             ? 'LOCAL LOGS'
             : r.kind === 'wh' || r.kind === 'wh-add'
               ? 'WEBHOOKS'
@@ -1077,7 +969,6 @@ export function SettingsPanel({
   const SECTION_DESC: Record<string, string> = {
     ACCOUNTS: `on this device (${accounts.length}) · ● viewing · ACTIVE = guard key · x removes`,
     PROTECTION: 'guard hook: enter install/update · d remove · self-protection · doctor + repair',
-    UPDATES: 'the solongate CLI itself · background auto-update is off unless you turn it on',
     'LOCAL LOGS': 'mirror every decision to a file + dashboard link',
     WEBHOOKS: `POST events to a URL (${webhooks.length}) · t tests`,
     ALERTS: `one email + one telegram (${alerts.length}) · enter edits · m on/off`,
@@ -1137,7 +1028,7 @@ export function SettingsPanel({
     }
     // Read-only result lines from the last doctor / repair run, directly under
     // the row that produced them. '' in lineKey keeps them unselectable.
-    if (diag && ((r.kind === 'doctor' && diag.of === 'doctor') || (r.kind === 'repair' && diag.of === 'repair') || (r.kind === 'cli-update' && diag.of === 'cli-update'))) {
+    if (diag && ((r.kind === 'doctor' && diag.of === 'doctor') || (r.kind === 'repair' && diag.of === 'repair'))) {
       diag.lines.forEach((l, i) => {
         lineEls.push(
           <Text
@@ -1162,18 +1053,6 @@ export function SettingsPanel({
   }
 
   // Version, at the very bottom of the scrollable list (scroll down to see it).
-  lineEls.push(<Text key="ver-sp"> </Text>);
-  lineKey.push('');
-  lineEls.push(
-    <Text key="ver" wrap="truncate" color={theme.dim}>
-      {`solongate v${ver}`}
-      {latest
-        ? newerThan(latest, ver)
-          ? <Text color={theme.warn}>{`  · v${latest} on npm — ${autoUp ? 'auto-updating' : 'UPDATES above'}`}</Text>
-          : <Text color={theme.ok}>{'  · latest'}</Text>
-        : null}
-    </Text>,
-  );
   lineKey.push('');
 
   // hint + status line consume 2; the auth banner (when shown) takes one more —

@@ -77,7 +77,16 @@ function apply(db, sql) {
   return { applied, skipped };
 }
 
-const { DatabaseSync } = await import('node:sqlite');
+// node:sqlite arrived in Node 22.5. Said plainly, because the failure without
+// this is ERR_UNKNOWN_BUILTIN_MODULE, which reads as a broken script rather
+// than as an old runtime.
+let DatabaseSync;
+try {
+  ({ DatabaseSync } = await import('node:sqlite'));
+} catch {
+  console.error(`\n  This needs Node 22.5 or newer for node:sqlite. You have ${process.version}.\n`);
+  process.exit(1);
+}
 
 if (!seedOnly) {
   rmSync(out, { recursive: true, force: true });

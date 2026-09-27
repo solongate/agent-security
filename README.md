@@ -181,7 +181,7 @@ watching it.
 
 ## Developing
 
-Go 1.25 and Node 20+.
+Go 1.25 and Node 22.5+ (tools/local-db.mjs seeds through `node:sqlite`).
 
 ```bash
 pnpm install

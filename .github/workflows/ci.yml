@@ -187,7 +187,20 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-          cache-dependency-path: packages/proxy-go/go.sum
+          # BOTH modules. This job builds the system as well as the client, and
+          # naming only one leaves the other downloading OPA from cold — which
+          # is minutes, and which used to happen inside a sixty-second wait loop
+          # that then reported the system as never having come up.
+          cache-dependency-path: |
+            packages/proxy-go/go.sum
+            apps/system/go.sum
+
+      # 22, not the runner's default. tools/local-db.mjs seeds through
+      # node:sqlite, which arrived in 22.5 — on an older one it fails with
+      # ERR_UNKNOWN_BUILTIN_MODULE, which reads as a broken script.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       # docker run, NOT a services: block. The Keycloak image needs `start-dev`
       # as its command — without one it prints its help and exits 0 — and a
@@ -225,6 +238,13 @@ jobs:
                  "emailVerified":true,"enabled":true,
                  "credentials":[{"type":"password","value":"hunter2","temporary":false}]}'
 
+      # Built in its OWN step, not inside the wait loop. A compile failure here
+      # is a compile failure; inside the loop it was sixty seconds of silence
+      # followed by "the system did not come up".
+      - name: build the system
+        working-directory: apps/system
+        run: go build -o /tmp/system .
+
       - name: seed a database and start the system
         env:
           SG_OIDC_ISSUER: http://127.0.0.1:8080/realms/solongate
@@ -232,9 +252,9 @@ jobs:
           PORT: '3002'
         run: |
           node tools/local-db.mjs > /dev/null
-          cd apps/system
-          DATABASE_URL="file:$GITHUB_WORKSPACE/.local-db/solongate.sqlite" go run . > /tmp/system.log 2>&1 &
-          for i in $(seq 1 60); do
+          DATABASE_URL="file:$GITHUB_WORKSPACE/.local-db/solongate.sqlite" \
+            /tmp/system > /tmp/system.log 2>&1 &
+          for i in $(seq 1 30); do
             curl -sf -o /dev/null "http://127.0.0.1:3002/api/v1/auth/config" && exit 0
             sleep 1
           done

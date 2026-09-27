@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - apps/api-go
+          - apps/system
           - packages/proxy-go
           - packages/guard-go
           - packages/sgpolicy
@@ -58,7 +58,7 @@ jobs:
       # so they do not run here — but they must still COMPILE, or the tag becomes
       # a place broken code hides. This is how one of them was found broken.
       - name: postgres-tagged tests compile
-        if: matrix.module == 'apps/api-go'
+        if: matrix.module == 'apps/system'
         working-directory: ${{ matrix.module }}
         run: go vet -tags postgres ./internal/store/
 
@@ -137,12 +137,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-          cache-dependency-path: apps/api-go/go.sum
+          cache-dependency-path: apps/system/go.sum
 
       # The checked-in files are generated. If they have drifted from the
       # generator, the file a DBA would apply is not the one the product means.
       - name: the checked-in schema matches the generator
-        working-directory: apps/api-go
+        working-directory: apps/system
         run: go test ./internal/store/ -run TestCheckedInSchema
 
       # And the file actually applies. ON_ERROR_STOP with a single transaction,
@@ -159,7 +159,7 @@ jobs:
       # everything already there and change nothing, which is the claim a
       # hardened installation without CREATE rights depends on.
       - name: the API starts against it
-        working-directory: apps/api-go
+        working-directory: apps/system
         env:
           DATABASE_URL: postgres://solongate:solongate@127.0.0.1:5432/solongate?sslmode=disable
           PORT: '3002'

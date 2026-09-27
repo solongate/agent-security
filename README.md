@@ -19,7 +19,7 @@ Supported agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
 | `packages/proxy` | The CLI and TUI (npm package `@solongate/proxy`, command `solongate`). |
 | `packages/proxy-go` | The same CLI in Go, which is what ships as the binary. |
 | `packages/sgpolicy` | The policy engine: JSON rules → Rego. |
-| `apps/api-go` | The service that stores policies and receives the audit log. |
+| `apps/system` | The server side: policies, the audit log, sign-in, alerts and webhooks. |
 | `packages/sgshared` | Shapes more than one program has to agree about. |
 | `packages/aicatalog` | The model catalogue. |
 
@@ -42,11 +42,11 @@ Do not edit those files. Regenerate them, and read the complete schema for eithe
 dialect without starting anything, with:
 
 ```bash
-cd apps/api-go && go run ./cmd/schemadump -dialect postgres
+cd apps/system && go run ./cmd/schemadump -dialect postgres
 ```
 
 A hardened installation can apply the file and never give the application CREATE
-rights: the API's own `EnsureRuntimeTables` then finds everything already there
+rights: the system's own `EnsureRuntimeTables` then finds everything already there
 and does nothing, which is the same code path either way.
 
 For a seeded sqlite database to develop against, with a credential printed:
@@ -59,7 +59,7 @@ node tools/local-db.mjs
 
 ```bash
 cp .env.example .env      # then fill in DATABASE_URL
-cd apps/api-go && go run .
+cd apps/system && go run .
 ```
 
 It listens on `:3002`. Every option is in [`.env.example`](.env.example); the
@@ -78,8 +78,8 @@ credential to use directly.
 With Docker instead:
 
 ```bash
-docker build -f Dockerfile.api-go -t solongate-api .
-docker run -p 3002:8080 -e DATABASE_URL=… solongate-api
+docker build -f Dockerfile.system -t solongate-system .
+docker run -p 3002:8080 -e DATABASE_URL=… solongate-system
 ```
 
 ### 3. The guard, on each developer's machine
@@ -153,12 +153,12 @@ Go 1.25 and Node 20+.
 ```bash
 pnpm install
 
-cd apps/api-go       && go test ./...
+cd apps/system       && go test ./...
 cd packages/guard-go && go test ./...
 cd packages/proxy-go && go test ./...
 cd packages/proxy    && npx tsc --noEmit -p tsconfig.json
 
-node tools/dev-go.mjs        # build and run the API locally
+node tools/dev-go.mjs        # build and run the system locally
 ```
 
 **The conformance suite is the contract.** It runs the guard as a subprocess,

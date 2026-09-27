@@ -44,7 +44,7 @@ coverage/
 # the machine that wrote it. baseschema.sql is //go:embed-ed, so leaving it out
 # is not a missing file at runtime — it is `pattern baseschema.sql: no matching
 # files found` for whoever clones, and nothing on the author's machine says so.
-!apps/api-go/internal/store/baseschema.sql
+!apps/system/internal/store/baseschema.sql
 !tools/schema/*.sql
 
 # Test files

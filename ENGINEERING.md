@@ -70,7 +70,7 @@ Policy evaluation compiles the policy JSON to Rego **in the guard**, rather than
 fetching it. `/policies/:id/rego` exists and works, but compiling locally takes
 the network off the decision path entirely: the guard decides the same way on a
 plane as in an office. `packages/guard-go/rego.go` is the generator, and it
-produces byte-identical Rego for every policy the API compiles, plus valid Rego
+produces byte-identical Rego for every policy the system compiles, plus valid Rego
 for one case where the original did not (a policy whose first rule is disabled
 emits a chain opening with `} else :=`).
 
@@ -106,9 +106,9 @@ Not ported:
 
 ## The schema
 
-The API writes SQL by hand against 21 base tables plus 7 it creates itself.
+The system writes SQL by hand against 21 base tables plus 7 it creates itself.
 
-**One source, two dialects.** `apps/api-go/internal/store/baseschema.sql` is the
+**One source, two dialects.** `apps/system/internal/store/baseschema.sql` is the
 base schema — drizzle's SQLite output, kept as it was written. `BaseDDL` renders
 it for a dialect and `RuntimeDDL` adds what `EnsureRuntimeTables` runs;
 `cmd/schemadump` prints the two together, and `tools/schema/{sqlite,postgres}.sql`
@@ -137,7 +137,7 @@ a schema that fails loudly at apply time beats one that applied as something els
 The API still does not create the base schema at boot — apply the file first. Two
 ways to read the shape without guessing:
 
-    cd apps/api-go && go run ./cmd/schemadump -dialect postgres
+    cd apps/system && go run ./cmd/schemadump -dialect postgres
     node tools/local-db.mjs                       # a seeded sqlite copy to run against
 
 ## Signing in from a terminal

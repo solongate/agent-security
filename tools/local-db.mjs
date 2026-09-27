@@ -10,11 +10,11 @@
  * the real shape and enough rows to reach the SQL, in about four seconds.
  *
  * The schema is tools/schema/sqlite.sql, which is GENERATED — do not edit it.
- * Its source is apps/api-go/internal/store/baseschema.sql plus the statements
+ * Its source is apps/system/internal/store/baseschema.sql plus the statements
  * EnsureRuntimeTables runs, and both dialects are regenerated with
  *
- *   cd apps/api-go && go run ./cmd/schemadump -dialect sqlite   > ../../tools/schema/sqlite.sql
- *   cd apps/api-go && go run ./cmd/schemadump -dialect postgres > ../../tools/schema/postgres.sql
+ *   cd apps/system && go run ./cmd/schemadump -dialect sqlite   > ../../tools/schema/sqlite.sql
+ *   cd apps/system && go run ./cmd/schemadump -dialect postgres > ../../tools/schema/postgres.sql
  *
  *   node tools/local-db.mjs                 # build it
  *   node tools/local-db.mjs --seed-only     # keep the schema, re-seed
@@ -168,7 +168,7 @@ writeFileSync(join(out, 'api-key.txt'), API_KEY + '\n');
 console.log(`
 Run the API against it:
 
-  cd apps/api-go && PORT=8098 DATABASE_URL="file:${dbFile}" go run .
+  cd apps/system && PORT=8098 DATABASE_URL="file:${dbFile}" go run .
 
   curl -H "Authorization: Bearer ${API_KEY}" http://localhost:8098/api/v1/policies
 `);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Brings the API up locally on its own port.
+ * Brings the system up locally on its own port.
  *
  * It is built before it is started because a binary that was never compiled is
  * the classic way to spend twenty minutes on a change that never ran.
@@ -30,7 +30,7 @@ const env = {
 // The port is the app's own default, so anything already pointed at a local
 // install keeps working.
 const APPS = [
-  { name: 'api', dir: 'apps/api-go', port: 3002 },
+  { name: 'system', dir: 'apps/system', port: 3002 },
 ];
 
 const children = [];

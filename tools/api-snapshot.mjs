@@ -3,7 +3,7 @@
  * Record what the live API answers on every route, so a cutover can be judged
  * by comparison instead of by looking at it and feeling fine.
  *
- * The route list is READ OUT OF apps/api-go rather than typed here, so a route
+ * The route list is READ OUT OF apps/system rather than typed here, so a route
  * this file does not know about cannot quietly go unchecked.
  *
  *   node tools/api-snapshot.mjs before.json          # record
@@ -32,7 +32,7 @@ function routes() {
   const out = execFileSync('grep', [
     '-rhno', '--include=*.go',
     '-e', '"\\(GET\\|POST\\|PUT\\|PATCH\\|DELETE\\) /[^"]*"',
-    join(repo, 'apps/api-go'),
+    join(repo, 'apps/system'),
   ]).toString();
   const seen = new Set();
   for (const line of out.split('\n')) {

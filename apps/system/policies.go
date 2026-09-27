@@ -181,7 +181,6 @@ func (s *server) policiesCreate(w http.ResponseWriter, r *http.Request, key apia
 		return
 	}
 	body.Set("rules", policyjson.NormalizeRules(rules))
-	policyNormalizeBundle(body)
 
 	reason := store.Clip(policyJSString(body.Get("description"), "New policy created"), 500)
 	s.policyWriteVersion(w, r, key, policyWrite{
@@ -215,7 +214,6 @@ func (s *server) policyUpdate(w http.ResponseWriter, r *http.Request, key apiaut
 		return
 	}
 	body.Set("rules", policyjson.NormalizeRules(rules))
-	policyNormalizeBundle(body)
 
 	// The path wins over the body. Without this a caller could PUT to one
 	// policy's URL and write a version of ANOTHER policy — same project, but a

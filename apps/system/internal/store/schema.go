@@ -425,10 +425,6 @@ var addColumnsAfter = []string{
 	// The compiled Rego and wasm for every variant OTHER than the default one,
 	// as {"<variantId>": {"rego": "...", "wasm": "<base64>"}}.
 	//
-	// rego_source and wasm_bundle keep holding the default variant's build, so
-	// GET /policies/{id}/rego, the wasm route and every hook that reads them are
-	// untouched by a policy growing variants.
-	`ALTER TABLE policy_versions ADD COLUMN variant_artifacts TEXT`,
 
 	// The duplicate guard org_members never had. It is in this list rather than
 	// in migrations because it FAILS on any database that already holds a

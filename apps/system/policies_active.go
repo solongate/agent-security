@@ -63,7 +63,6 @@ type activePolicyResponse struct {
 	Security              *store.GuardSecurity `json:"security"`
 	HookVersions          activeHookVersions   `json:"hook_versions"`
 
-	// Variant names which setting of a bundled policy this machine was handed.
 	//
 	// omitempty, and that is load bearing twice over. On the no-policy branch
 	// there is no variant and the response has to keep the exact key set the
@@ -72,7 +71,6 @@ type activePolicyResponse struct {
 	// byte-for-byte what it was. It is here for the dashboard and for `solongate
 	// policy active`, which can say WHICH of the host's settings is running; a
 	// deployed guard decodes into a map and ignores it.
-	Variant string `json:"variant,omitempty"`
 
 	// Managed says this key belongs to a developer working under somebody
 	// else's policy.
@@ -159,12 +157,6 @@ func (s *server) policyActiveGet(w http.ResponseWriter, r *http.Request, key api
 	go func() { defer wg.Done(); override = s.store.ActivePolicyOverride(ctx, key.ProjectID) }()
 	wg.Wait()
 
-	// Which setting of a bundled policy this machine gets. Always the policy's
-	// own default here: the pin came off a fleet grant, and this build has no
-	// fleet. Kept as a named value rather than inlined so the three
-	// policyApplyBundle calls below keep reading the same way.
-	variantPin := ""
-
 	// Only the policy read can fail the request. The other four swallow their
 	// errors into safe defaults inside the store — self-protection ON, layers
 	// in detect — because a settings blip must not stop a policy from being
@@ -205,7 +197,7 @@ func (s *server) policyActiveGet(w http.ResponseWriter, r *http.Request, key api
 			out.Version = pinned.Version
 			out.Hash = pinned.Hash
 			out.MatchedBy = "pinned"
-			policyApplyBundle(&out, pinned.PolicyData, variantPin, localLogs)
+			policyApplyBundle(&out, pinned.PolicyData, localLogs)
 			apiauth.JSON(w, http.StatusOK, out)
 			return
 		}
@@ -225,16 +217,16 @@ func (s *server) policyActiveGet(w http.ResponseWriter, r *http.Request, key api
 	out.Version = chosen.Version
 	out.Hash = chosen.Hash
 	out.MatchedBy = matchedBy
-	policyApplyBundle(&out, chosen.PolicyData, variantPin, localLogs)
+	policyApplyBundle(&out, chosen.PolicyData, localLogs)
 	apiauth.JSON(w, http.StatusOK, out)
 }
 
 // policyApplyBundle is the one place a bundled policy meets the wire.
 //
 // It does two things and both are about what a guard sees. The document is
-// projected — the chosen variant's rules moved to the top level, the bundle
-// keys stripped — so an installed binary parses exactly the shape it always
-// has. And the security block is replaced when the policy carries one, because
+// projected — the bundle keys stripped — so an installed binary parses exactly
+// the shape it always has. And the security block is replaced when the policy
+// carries one, because
 // a policy that names its own DLP means to override the project's setting
 // rather than to sit beside it.
 //
@@ -244,10 +236,9 @@ func (s *server) policyActiveGet(w http.ResponseWriter, r *http.Request, key api
 // without it drops the key. A guard reads an absent key as "no answer" and
 // freezes whatever it had, which is how local logging would become impossible
 // to switch off on a machine that had it on.
-func policyApplyBundle(out *activePolicyResponse, policyData []byte, pinnedVariant string, localLogs store.LocalLogsConfig) {
-	p := policyProject(policyData, pinnedVariant)
+func policyApplyBundle(out *activePolicyResponse, policyData []byte, localLogs store.LocalLogsConfig) {
+	p := policyProject(policyData)
 	out.Policy = p.Document
-	out.Variant = p.VariantID
 	if !p.HasLayers {
 		return
 	}

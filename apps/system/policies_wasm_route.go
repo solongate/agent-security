@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"errors"
 	"log"
@@ -73,22 +72,6 @@ func (s *server) policyWasm(w http.ResponseWriter, r *http.Request, key apiauth.
 		return
 	}
 
-	// A bundled policy is not one policy here. The caller enforces ONE variant,
-	// and a wasm module is enforced as though it were the whole policy, so
-	// handing a guest pinned to the strict variant the default variant's bundle
-	// is not a stale answer, it is the wrong rules.
-	//
-	// The projection is the same one /policies/active applies, so the bundle
-	// built here and the document cached there are two forms of exactly one
-	// thing. Only a NON-default variant takes this path: the default's build is
-	// already in wasm_bundle, which is what every policy without variants has
-	// always used.
-	if err == nil {
-		if variant := s.policyWasmVariant(ctx, key, latest); variant != "" {
-			bundleB64 = s.variantBundle(ctx, key, latest, variant)
-		}
-	}
-
 	if bundleB64 == "" && err == nil {
 		// Not compiled yet: build THIS revision now and store both forms, so
 		// whichever of /rego and /wasm is asked first fills in the other.
@@ -142,34 +125,5 @@ func (s *server) policyWasm(w http.ResponseWriter, r *http.Request, key apiauth.
 // policyWasmVariant is which variant this caller enforces, and empty whenever
 // the answer is "the one already in wasm_bundle".
 //
-// Always empty here, which is the existing path: the only thing that ever
-// diverged from the stored bundle was a variant pinned to one person by a fleet
-// grant, and this build has no fleet. It stays a function rather than being
-// inlined because the caller's branch on it is what documents that the second
-// build exists for a reason.
-func (s *server) policyWasmVariant(ctx context.Context, key apiauth.KeyInfo, latest store.PolicyVersion) string {
-	return ""
-}
-
 // variantBundle is the cached build for one variant, compiled on the first ask.
 //
-// A compilation that fails answers empty rather than an error, which drops the
-// request into the branch below it and ends in the 404 that tells the operator
-// to re-save. That is the same failure a policy that will not build has always
-// produced, and the guard's own fallback — its deterministic evaluator over the
-// document it holds — is what runs meanwhile.
-func (s *server) variantBundle(ctx context.Context, key apiauth.KeyInfo, latest store.PolicyVersion, variantID string) string {
-	if cached, ok := s.store.VariantArtifact(ctx, key.ProjectID, latest.ID, variantID); ok && cached.Wasm != "" {
-		return cached.Wasm
-	}
-	projected := policyProject(latest.PolicyData, variantID)
-	opa, ok := policycompile.Compile(ctx, projected.Document)
-	if !ok {
-		return ""
-	}
-	if err := s.store.SetVariantArtifact(ctx, key.ProjectID, latest.ID, variantID,
-		store.VariantArtifact{Rego: opa.RegoSource, Wasm: opa.WasmBundleB64}); err != nil {
-		log.Printf("[API:api] could not cache the compiled variant: %v", err)
-	}
-	return opa.WasmBundleB64
-}

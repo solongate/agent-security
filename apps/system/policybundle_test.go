@@ -27,20 +27,17 @@ const bundleDoc = `{"id":"p1","name":"Production","version":3,"mode":"denylist",
 
 func TestAPolicyWithNoBundleIsHandedBackUntouched(t *testing.T) {
 	stored := `{"id":"p1","name":"Old","rules":[{"id":"r1"}],"mode":"denylist","agents":["*"]}`
-	got := policyProject([]byte(stored), "")
+	got := policyProject([]byte(stored))
 	if string(got.Document) != stored {
 		t.Errorf("the document was rewritten.\n got %s\nwant %s", got.Document, stored)
 	}
 	if got.HasLayers {
 		t.Error("a policy that says nothing about DLP must leave the project's own setting alone")
 	}
-	if got.VariantID != "" {
-		t.Errorf("VariantID = %q for a policy with no variants", got.VariantID)
-	}
 }
 
 func TestTheProjectedDocumentCarriesNoBundleKeys(t *testing.T) {
-	got := policyProject([]byte(bundleDoc), "")
+	got := policyProject([]byte(bundleDoc))
 	for _, key := range []string{"variants", "defaultVariant", `"security"`} {
 		if strings.Contains(string(got.Document), key) {
 			t.Errorf("%s reached the guard:\n%s", key, got.Document)
@@ -61,74 +58,11 @@ func TestTheProjectedDocumentCarriesNoBundleKeys(t *testing.T) {
 // The rules a guard enforces are the chosen variant's, not the mirror at the
 // top of the stored document. This is the substitution the whole file exists
 // for.
-func TestTheChosenVariantsRulesBecomeTheTopLevelRules(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		pin    string
-		wantID string
-		rule   string
-	}{
-		{"no pin takes the default", "", "base", "r-base"},
-		{"the host's pin wins", "strict", "strict", "r-strict"},
-		{"a deleted pin falls back to the default", "gone", "base", "r-base"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := policyProject([]byte(bundleDoc), tc.pin)
-			if got.VariantID != tc.wantID {
-				t.Errorf("VariantID = %q, want %q", got.VariantID, tc.wantID)
-			}
-			if !strings.Contains(string(got.Document), tc.rule) {
-				t.Errorf("the document does not carry %s:\n%s", tc.rule, got.Document)
-			}
-			if strings.Contains(string(got.Document), `"mirror"`) {
-				t.Error("the stored top-level rules survived, so the variant did not replace them")
-			}
-		})
-	}
-}
-
 // A variant's own DLP beats the policy's, and the policy's is what a variant
 // with none inherits. Without this the strict variant would be strict about
 // rules and identical about secrets.
-func TestTheVariantsSecurityBeatsThePolicys(t *testing.T) {
-	base := policyProject([]byte(bundleDoc), "base")
-	if !base.HasLayers {
-		t.Fatal("the bundle carries a security block and it was not read")
-	}
-	if base.Layers.DLP.Mode != "detect" || base.Layers.RateLimit.PerMinute != 90 {
-		t.Errorf("base layers = %+v, want the variant's detect/90 rather than the policy's off", base.Layers)
-	}
-	strict := policyProject([]byte(bundleDoc), "strict")
-	if strict.Layers.DLP.Mode != "block" || strict.Layers.RateLimit.PerMinute != 10 {
-		t.Errorf("strict layers = %+v, want the variant's block/10", strict.Layers)
-	}
-
-	// A variant with no block of its own inherits the policy's.
-	doc := `{"id":"p","name":"P","rules":[],"defaultVariant":"only",` +
-		`"variants":[{"id":"only","name":"Only","rules":[]}],` +
-		`"security":{"dlp":{"mode":"block","patterns":["JWT"]}}}`
-	inherited := policyProject([]byte(doc), "")
-	if !inherited.HasLayers || inherited.Layers.DLP.Mode != "block" {
-		t.Errorf("layers = %+v, want the policy's block inherited by the variant", inherited.Layers)
-	}
-}
-
 // A bundle whose variants are unusable must still hand a guard something to
 // enforce, and it must be the stored rules rather than nothing.
-func TestAnUnusableVariantsArrayLeavesTheStoredRules(t *testing.T) {
-	doc := `{"id":"p","name":"P","rules":[{"id":"kept"}],"variants":[{"name":"no id"},"nonsense"]}`
-	got := policyProject([]byte(doc), "")
-	if got.VariantID != "" {
-		t.Errorf("VariantID = %q, want empty: neither entry is a variant anyone could pin", got.VariantID)
-	}
-	if !strings.Contains(string(got.Document), `"kept"`) {
-		t.Errorf("the stored rules were dropped:\n%s", got.Document)
-	}
-	if strings.Contains(string(got.Document), "variants") {
-		t.Error("the variants key still reached the guard")
-	}
-}
-
 // The hash spelling. A bundle must not go through the property-list
 // projection, because a variant's security members are not top-level policy
 // keys and would be filtered out of the hash entirely: two policies differing
@@ -157,34 +91,5 @@ func TestOnlyABundleChangesTheHashSpelling(t *testing.T) {
 // The top-level rules are kept equal to the default variant's, because three
 // readers in the field take only $.rules and an empty rule set is silently a
 // denylist that denies nothing.
-func TestNormalizingABundleMirrorsTheDefaultVariantsRules(t *testing.T) {
-	o, ok := policyjson.ParseObject([]byte(`{"id":"p","name":"P","rules":[],"defaultVariant":"two",` +
-		`"variants":[{"id":"one","rules":[{"id":"r1","effect":"DENY"}]},` +
-		`{"id":"two","rules":[{"id":"r2","effect":"DENY"}]}]}`))
-	if !ok {
-		t.Fatal("could not parse the bundle")
-	}
-	policyNormalizeBundle(o)
-	mirrored := policyjson.Stringify(o.Get("rules"), nil)
-	if !strings.Contains(mirrored, `"r2"`) {
-		t.Errorf("top-level rules = %s, want the default variant's r2", mirrored)
-	}
-	// And every variant has been through NormalizeRules, which writes `enabled`
-	// explicitly. Without it the Rego compiler reads an absent enabled as
-	// disabled and the deterministic evaluator reads it as enabled.
-	whole := policyjson.Stringify(o, nil)
-	if strings.Count(whole, `"enabled"`) < 3 {
-		t.Errorf("not every rule carries an explicit enabled:\n%s", whole)
-	}
-}
-
 // With no defaultVariant named, the first variant is the mirror. A bundle
 // halfway through being written must still enforce something.
-func TestABundleWithNoDefaultMirrorsTheFirstVariant(t *testing.T) {
-	o, _ := policyjson.ParseObject([]byte(`{"id":"p","name":"P","rules":[],` +
-		`"variants":[{"id":"one","rules":[{"id":"r1","effect":"DENY"}]}]}`))
-	policyNormalizeBundle(o)
-	if !strings.Contains(policyjson.Stringify(o.Get("rules"), nil), `"r1"`) {
-		t.Error("the first variant's rules were not mirrored to the top level")
-	}
-}

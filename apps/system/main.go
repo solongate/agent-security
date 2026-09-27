@@ -50,6 +50,23 @@ type server struct {
 	cfg   config
 	store *store.Store
 	auth  *apiauth.Authenticator
+
+	// verifyAccessToken proves who a sign-in belongs to, and is a field so a
+	// test can present an identity without standing up a signing provider.
+	//
+	// Nil means authVerifyAccessToken, which is the only thing production ever
+	// uses. It is NOT a way to switch verification off: authSession refuses
+	// outright when no provider is configured, so a nil field and an
+	// unconfigured deployment are different questions with the same answer.
+	verifyAccessToken func(ctx context.Context, token string) (string, bool)
+}
+
+// verifyToken is the seam's read side, so callers do not repeat the nil check.
+func (s *server) verifyToken(ctx context.Context, token string) (string, bool) {
+	if s.verifyAccessToken != nil {
+		return s.verifyAccessToken(ctx, token)
+	}
+	return authVerifyAccessToken(ctx, token)
 }
 
 // env reads a variable, preferring the NEXT_PUBLIC_ form.

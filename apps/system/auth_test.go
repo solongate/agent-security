@@ -396,7 +396,22 @@ func authSessionServer(t *testing.T) *server {
 		t.Fatalf("opening the scratch database: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return &server{store: st}
+
+	// A stub verifier, and an OIDC issuer so authIdentityConfigured agrees this
+	// deployment can prove who somebody is. The route reads the address off the
+	// token now and never off the body, so a test that wants to BE somebody
+	// presents a token whose value is their address — which is also why these
+	// bodies carry an access_token rather than an email.
+	t.Setenv("SG_OIDC_ISSUER", "https://idp.test")
+	return &server{
+		store: st,
+		verifyAccessToken: func(_ context.Context, token string) (string, bool) {
+			if token == "" || !strings.Contains(token, "@") {
+				return "", false
+			}
+			return token, true
+		},
+	}
 }
 
 // authSessionAnswer is the response as a caller reads it. The two pointers are
@@ -446,7 +461,7 @@ func authSessionCount(t *testing.T, s *server, query string, args ...any) int {
 func TestAuthSessionCreatesAProjectWhenTheFieldIsAbsent(t *testing.T) {
 	s := authSessionServer(t)
 
-	status, out, _ := authSessionPost(t, s, `{"email":"ada@example.com","project_name":"Ada's Project"}`)
+	status, out, _ := authSessionPost(t, s, `{"access_token":"ada@example.com","project_name":"Ada's Project"}`)
 	if status != 200 {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -480,7 +495,7 @@ func TestAuthSessionCreatesAProjectWhenTheFieldIsAbsent(t *testing.T) {
 func TestAuthSessionCreatesAProjectWhenTheFieldIsTrue(t *testing.T) {
 	s := authSessionServer(t)
 
-	status, out, _ := authSessionPost(t, s, `{"email":"ada@example.com","create_project":true}`)
+	status, out, _ := authSessionPost(t, s, `{"access_token":"ada@example.com","create_project":true}`)
 	if status != 200 {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -502,7 +517,7 @@ func TestAuthSessionAnswersForTheWorkspaceThatWasAskedFor(t *testing.T) {
 	// One workspace from signing in, and a second made the way the dashboard
 	// makes them - so the newer one is the "latest" this route used to hand
 	// back no matter which one anybody was looking at.
-	_, first, _ := authSessionPost(t, s, `{"email":"ada@example.com","project_name":"First"}`)
+	_, first, _ := authSessionPost(t, s, `{"access_token":"ada@example.com","project_name":"First"}`)
 	if first.Project == nil {
 		t.Fatal("the fixture did not produce a workspace")
 	}
@@ -522,12 +537,12 @@ func TestAuthSessionAnswersForTheWorkspaceThatWasAskedFor(t *testing.T) {
 	// the whole point: with nothing asked for this route picks by created_at and
 	// the caller has no say at all.
 	if _, other, _ := authSessionPost(t, s,
-		`{"email":"ada@example.com","create_project":false,"project_id":"p-second"}`); other.Project == nil || other.Project.ID != "p-second" {
+		`{"access_token":"ada@example.com","create_project":false,"project_id":"p-second"}`); other.Project == nil || other.Project.ID != "p-second" {
 		t.Fatalf("asking for the newer workspace answered with %+v", other.Project)
 	}
 
 	status, out, _ := authSessionPost(t, s,
-		`{"email":"ada@example.com","create_project":false,"project_id":"`+older+`"}`)
+		`{"access_token":"ada@example.com","create_project":false,"project_id":"`+older+`"}`)
 	if status != 200 {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -540,19 +555,19 @@ func TestAuthSessionAnswersForTheWorkspaceThatWasAskedFor(t *testing.T) {
 
 	// AN ID IS NOT A PERMISSION. Somebody else's workspace falls back to this
 	// account's own rather than handing over a key to it.
-	_, mallory, _ := authSessionPost(t, s, `{"email":"mallory@example.com","project_name":"Mallory's"}`)
+	_, mallory, _ := authSessionPost(t, s, `{"access_token":"mallory@example.com","project_name":"Mallory's"}`)
 	if mallory.Project == nil {
 		t.Fatal("the second account has no workspace to be stolen from")
 	}
 	_, stolen, _ := authSessionPost(t, s,
-		`{"email":"ada@example.com","create_project":false,"project_id":"`+mallory.Project.ID+`"}`)
+		`{"access_token":"ada@example.com","create_project":false,"project_id":"`+mallory.Project.ID+`"}`)
 	if stolen.Project != nil && stolen.Project.ID == mallory.Project.ID {
 		t.Fatal("a key was minted for somebody else's workspace, for the asking")
 	}
 	// And a workspace that does not exist is not an error: it is the answer this
 	// route gave before anybody could ask.
 	_, gone, _ := authSessionPost(t, s,
-		`{"email":"ada@example.com","create_project":false,"project_id":"no-such-project"}`)
+		`{"access_token":"ada@example.com","create_project":false,"project_id":"no-such-project"}`)
 	if gone.Project == nil || gone.Project.ID == "" {
 		t.Error("a stale id in a cookie signs somebody out of their own account")
 	}
@@ -563,7 +578,7 @@ func TestAuthSessionAnswersForTheWorkspaceThatWasAskedFor(t *testing.T) {
 func TestAuthSessionOptOutCreatesNoProjectAndNoKey(t *testing.T) {
 	s := authSessionServer(t)
 
-	status, out, raw := authSessionPost(t, s, `{"email":"ada@example.com","create_project":false}`)
+	status, out, raw := authSessionPost(t, s, `{"access_token":"ada@example.com","create_project":false}`)
 	if status != 200 {
 		t.Fatalf("status = %d, want 200 — having no workspace is not a failed sign-in", status)
 	}
@@ -604,11 +619,11 @@ func TestAuthSessionOptOutCreatesNoProjectAndNoKey(t *testing.T) {
 func TestAuthSessionOptOutStillReturnsAProjectThatExists(t *testing.T) {
 	s := authSessionServer(t)
 
-	if _, out, _ := authSessionPost(t, s, `{"email":"ada@example.com"}`); out.Project == nil {
+	if _, out, _ := authSessionPost(t, s, `{"access_token":"ada@example.com"}`); out.Project == nil {
 		t.Fatal("the first sign-in made no project to test against")
 	}
 
-	status, out, _ := authSessionPost(t, s, `{"email":"ada@example.com","create_project":false}`)
+	status, out, _ := authSessionPost(t, s, `{"access_token":"ada@example.com","create_project":false}`)
 	if status != 200 {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -644,5 +659,71 @@ func TestNewIDIsAVersion4UUID(t *testing.T) {
 	}
 	if authNewID() == id {
 		t.Error("two ids are identical")
+	}
+}
+
+// ── who a sign-in belongs to ────────────────────────────────────────────────
+
+// A BODY CANNOT NAME AN ACCOUNT. This is the hole the route had, and the reason
+// it is worth a test of its own rather than a line in another one.
+//
+// The gate used to be `if authSupabaseBase() != ""`, which asked the wrong
+// question twice: a deployment on OIDC has no Supabase, so the token was never
+// verified — and with neither configured the route logged "running unverified"
+// and provisioned whatever address the request body named. A credential for any
+// account, to anybody who could reach the port.
+func TestAuthSessionWillNotTakeAnAddressFromTheBody(t *testing.T) {
+	s := authSessionServer(t)
+
+	// The old shape: an address and no token. It must not mint anything.
+	status, out, body := authSessionPost(t, s, `{"email":"boss@example.com","project_name":"Theirs"}`)
+	if status == 200 {
+		t.Fatalf("a body-named address signed in and got %s", body)
+	}
+	if status != 401 {
+		t.Errorf("status = %d, want 401", status)
+	}
+	if out.APIKey != nil {
+		t.Error("a credential was issued")
+	}
+	// And nothing was created on the way to refusing.
+	if n := authSessionCount(t, s, `SELECT count(*) FROM users WHERE email = ?`, "boss@example.com"); n != 0 {
+		t.Errorf("the refusal still provisioned %d account(s)", n)
+	}
+}
+
+// A token the provider will not vouch for is a 401, not an account.
+func TestAuthSessionRefusesAnUnverifiableToken(t *testing.T) {
+	s := authSessionServer(t)
+
+	// The stub verifier refuses anything without an "@"; production refuses
+	// anything the provider's keys do not sign.
+	status, out, _ := authSessionPost(t, s, `{"access_token":"not-a-real-token"}`)
+	if status != 401 {
+		t.Errorf("status = %d, want 401", status)
+	}
+	if out.APIKey != nil {
+		t.Error("a credential was issued for an unverifiable token")
+	}
+}
+
+// With no provider configured there is nothing to verify against, so the route
+// refuses instead of trusting the caller.
+//
+// 503 rather than 401: the caller did nothing wrong and nothing they can send
+// will help. It is the deployment that is unfinished, and the message says which
+// variable finishes it.
+func TestAuthSessionRefusesWhenNoProviderIsConfigured(t *testing.T) {
+	s := authSessionServer(t)
+	t.Setenv("SG_OIDC_ISSUER", "")
+	t.Setenv("SUPABASE_URL", "")
+	t.Setenv("NEXT_PUBLIC_SUPABASE_URL", "")
+
+	status, _, body := authSessionPost(t, s, `{"access_token":"ada@example.com"}`)
+	if status != 503 {
+		t.Errorf("status = %d, want 503", status)
+	}
+	if !strings.Contains(body, "SG_OIDC_ISSUER") {
+		t.Errorf("the refusal does not name what to configure: %s", body)
 	}
 }

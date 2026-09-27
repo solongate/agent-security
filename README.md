@@ -65,11 +65,44 @@ cd apps/system && go run .
 It listens on `:3002`. Every option is in [`.env.example`](.env.example); the
 only required one is `DATABASE_URL`.
 
-Sign-in is against **your** identity provider. Set `SG_OIDC_ISSUER` and
-`SG_OIDC_CLIENT_ID` — the client has to allow the device authorization grant, and
-being public (no secret) is correct for one that runs on a laptop. The API then
-verifies the ID tokens that provider issues, and `GET /api/v1/auth/config` is how
-each CLI learns where to send somebody, so nothing is configured per machine.
+Sign-in is against **your** identity provider, and it is required: with none
+configured `/auth/session` answers 503 rather than trusting the caller.
+
+Set `SG_OIDC_ISSUER` and `SG_OIDC_CLIENT_ID`. The client needs two properties and
+no others:
+
+- the **device authorization grant** enabled — it is the only sign-in a terminal
+  can complete
+- **public**, with no client secret, which is correct for one that runs on a
+  laptop and can hold none
+
+The system verifies the ID tokens that provider issues, and
+`GET /api/v1/auth/config` is how each CLI learns where to send somebody, so
+nothing is configured per machine.
+
+<details>
+<summary>Keycloak, as a worked example</summary>
+
+```bash
+KC=http://localhost:8080
+TOKEN=$(curl -s -d client_id=admin-cli -d username=admin -d password=admin \
+          -d grant_type=password "$KC/realms/master/protocol/openid-connect/token" \
+        | python3 -c "import json,sys;print(json.load(sys.stdin)['access_token'])")
+
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$KC/admin/realms" -d '{"realm":"solongate","enabled":true}'
+
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$KC/admin/realms/solongate/clients" \
+  -d '{"clientId":"solongate-cli","publicClient":true,"standardFlowEnabled":false,
+       "attributes":{"oauth2.device.authorization.grant.enabled":"true"}}'
+```
+
+Then `SG_OIDC_ISSUER=$KC/realms/solongate` and `SG_OIDC_CLIENT_ID=solongate-cli`.
+CI runs exactly this against a real Keycloak and signs in end to end, so these
+instructions are executed rather than believed.
+
+</details>
 
 Without `SG_OIDC_ISSUER` there is nobody to sign in against and the CLI says so.
 For local development, `tools/local-db.mjs` seeds a project and prints a

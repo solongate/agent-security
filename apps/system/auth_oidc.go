@@ -140,3 +140,10 @@ func firstAddress(candidates ...string) string {
 	}
 	return ""
 }
+
+// authIdentityConfigured reports whether this deployment can prove who somebody
+// is. It is the gate on /auth/session: without one there is nothing to verify a
+// token against, and a sign-in that cannot be verified must not mint anything.
+func authIdentityConfigured() bool {
+	return oidcConfigured() || authSupabaseBase() != ""
+}

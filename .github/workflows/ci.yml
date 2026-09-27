@@ -179,6 +179,81 @@ jobs:
           code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:3002/api/v1/policies")
           test "$code" = "401" || { echo "::error::unauthenticated read answered $code, want 401"; exit 1; }
 
+  device-grant:
+    name: device grant against a real provider
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: packages/proxy-go/go.sum
+
+      # docker run, NOT a services: block. The Keycloak image needs `start-dev`
+      # as its command — without one it prints its help and exits 0 — and a
+      # services: block has no way to pass an argument. It would come up dead
+      # and this job would fail on a connection refused rather than on anything
+      # about the product.
+      - name: start keycloak
+        run: |
+          docker run -d --name kc -p 8080:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            quay.io/keycloak/keycloak:26.0 start-dev
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8080/realms/master/.well-known/openid-configuration >/dev/null && exit 0
+            sleep 2
+          done
+          docker logs kc; echo "::error::keycloak did not come up"; exit 1
+
+      # A realm, a PUBLIC client with the device grant enabled, and a person.
+      # This is the whole configuration an operator does once, so scripting it
+      # is also a check that the instructions in the README are complete.
+      - name: configure the provider
+        run: |
+          KC=http://127.0.0.1:8080
+          TOKEN=$(curl -s -d client_id=admin-cli -d username=admin -d password=admin \
+                    -d grant_type=password "$KC/realms/master/protocol/openid-connect/token" \
+                  | python3 -c "import json,sys;print(json.load(sys.stdin)['access_token'])")
+          A="Authorization: Bearer $TOKEN"
+          curl -sf -X POST -H "$A" -H 'Content-Type: application/json' "$KC/admin/realms" \
+            -d '{"realm":"solongate","enabled":true}'
+          curl -sf -X POST -H "$A" -H 'Content-Type: application/json' "$KC/admin/realms/solongate/clients" \
+            -d '{"clientId":"solongate-cli","publicClient":true,"standardFlowEnabled":false,
+                 "attributes":{"oauth2.device.authorization.grant.enabled":"true"}}'
+          curl -sf -X POST -H "$A" -H 'Content-Type: application/json' "$KC/admin/realms/solongate/users" \
+            -d '{"username":"ada","email":"ada@example.com","firstName":"Ada","lastName":"L",
+                 "emailVerified":true,"enabled":true,
+                 "credentials":[{"type":"password","value":"hunter2","temporary":false}]}'
+
+      - name: seed a database and start the system
+        env:
+          SG_OIDC_ISSUER: http://127.0.0.1:8080/realms/solongate
+          SG_OIDC_CLIENT_ID: solongate-cli
+          PORT: '3002'
+        run: |
+          node tools/local-db.mjs > /dev/null
+          cd apps/system
+          DATABASE_URL="file:$GITHUB_WORKSPACE/.local-db/solongate.sqlite" go run . > /tmp/system.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null "http://127.0.0.1:3002/api/v1/auth/config" && exit 0
+            sleep 1
+          done
+          cat /tmp/system.log; echo "::error::the system did not come up"; exit 1
+
+      # The whole path: a code, a person signing in at the provider, the token
+      # it issues, and the credential this system mints from the token's claims.
+      # This is what found the /auth/session gate reading an address out of a
+      # request body — no stub would have.
+      - name: sign in end to end
+        working-directory: packages/proxy-go
+        env:
+          SG_TEST_SYSTEM: http://127.0.0.1:3002
+        run: go test ./internal/api/ -run TestDeviceGrantAgainstRealKeycloak -v -timeout 180s
+
+      - name: the system's log, if anything failed
+        if: failure()
+        run: cat /tmp/system.log || true
+
   secrets:
     name: secret scan
     runs-on: ubuntu-latest

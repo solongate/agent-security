@@ -188,10 +188,36 @@ device-flow client is public by definition because it runs on a laptop and can
 hold no secret. What authorises anything is the token the provider issues
 afterwards.
 
-With no provider configured there is nobody to sign in against, and the CLI says
-so in one line naming the variable rather than failing later in a browser. Local
-development uses `tools/local-db.mjs`, which seeds a project and prints a
-credential — the person who sees it there is the developer running the harness.
+With no provider configured there is nobody to sign in against. The CLI says so
+in one line naming the variable, and `/auth/session` answers 503 rather than
+trusting the caller — which it used to do, and which is the next thing here.
+
+Local development uses `tools/local-db.mjs`, which seeds a project and prints a
+credential; the person who sees it there is the developer running the harness.
+
+### The gate that asked the wrong question
+
+`/auth/session` read the address out of the REQUEST BODY, and a stub could never
+have shown it. The gate was:
+
+    if authSupabaseBase() != "" { ...verify the token... }
+
+which is wrong twice. A deployment on OIDC has no Supabase, so the branch was
+skipped and the token was never verified at all. And with neither configured it
+logged "provisioning is running unverified" and minted a credential for whatever
+address the body named — a credential for any account, to anybody who could
+reach the port. The same shape as the device-approve hole, on the route that
+replaced it.
+
+It was found by running the flow against a real Keycloak: the provider signed
+Ada in, the CLI presented her token, and the system answered
+`Missing required field: email` — because it wanted the field it should never
+have been reading.
+
+Now a provider must be configured, a token must be presented, and the address is
+the one its verified claims carry. `body.Email` is not read on this route at all.
+Three tests pin it, and the end-to-end job in CI is what would notice if the gate
+ever moved back.
 
 ## Traps worth not rediscovering
 

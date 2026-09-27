@@ -24,7 +24,7 @@ func TestAWorkspaceKeyIsMintedForAnotherOfYourOwnProjects(t *testing.T) {
 	ctx := context.Background()
 
 	// One account, two workspaces, and a key belonging to the first.
-	_, first, _ := authSessionPost(t, s, `{"email":"ada@example.com","project_name":"First"}`)
+	_, first, _ := authSessionPost(t, s, `{"access_token":"ada@example.com","project_name":"First"}`)
 	if first.Project == nil {
 		t.Fatal("the fixture has no workspace")
 	}
@@ -82,7 +82,7 @@ func TestAWorkspaceKeyIsMintedForAnotherOfYourOwnProjects(t *testing.T) {
 	// A WORKSPACE SOMEBODY ELSE OWNS IS NOT MINTABLE, and is answered exactly
 	// as one that does not exist - so this is not a way to test whether a
 	// project id is real either.
-	_, mallory, _ := authSessionPost(t, s, `{"email":"mallory@example.com","project_name":"Mallory's"}`)
+	_, mallory, _ := authSessionPost(t, s, `{"access_token":"mallory@example.com","project_name":"Mallory's"}`)
 	if mallory.Project == nil {
 		t.Fatal("the second account has no workspace")
 	}

@@ -845,23 +845,37 @@ func (s *server) authSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email := strings.ToLower(strings.TrimSpace(body.Email))
-	if authSupabaseBase() != "" {
-		if body.AccessToken == "" {
-			apiauth.Error(w, http.StatusUnauthorized, "UNVERIFIED", "Missing required field: access_token")
-			return
-		}
-		verified, ok := authVerifyAccessToken(ctx, body.AccessToken)
-		if !ok {
-			apiauth.Error(w, http.StatusUnauthorized, "UNVERIFIED", "Could not verify the session")
-			return
-		}
-		email = verified
-	} else {
-		log.Printf("[auth/session] SUPABASE_URL is unset — provisioning is running unverified")
+	// WHO THIS IS COMES OFF A VERIFIED TOKEN AND FROM NOWHERE ELSE.
+	//
+	// The gate used to be `if authSupabaseBase() != ""`, which asked the wrong
+	// question twice over. A deployment using OIDC has no Supabase, so the
+	// branch was skipped and the token was never verified — and with neither
+	// configured it logged "running unverified" and provisioned whatever address
+	// the REQUEST BODY named. That is a credential for any account, to anybody
+	// who can reach the port, and it is the same hole the device-approve
+	// endpoint had before it was deleted.
+	//
+	// So: a provider must be configured, a token must be presented, and the
+	// address is the one its claims carry. body.Email is no longer read at all.
+	if !authIdentityConfigured() {
+		apiauth.Error(w, http.StatusServiceUnavailable, "NO_IDENTITY_PROVIDER",
+			"This deployment has no identity provider configured, so a sign-in cannot be verified. "+
+				"Set SG_OIDC_ISSUER (or SUPABASE_URL) and restart.")
+		return
 	}
+	if body.AccessToken == "" {
+		apiauth.Error(w, http.StatusUnauthorized, "UNVERIFIED", "Missing required field: access_token")
+		return
+	}
+	email, ok := s.verifyToken(ctx, body.AccessToken)
+	if !ok {
+		apiauth.Error(w, http.StatusUnauthorized, "UNVERIFIED", "Could not verify the session")
+		return
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
-		apiauth.BadRequest(w, "Missing required field: email")
+		apiauth.Error(w, http.StatusUnauthorized, "UNVERIFIED",
+			"The token carried no address claim (email, upn or preferred_username)")
 		return
 	}
 

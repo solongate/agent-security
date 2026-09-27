@@ -1,0 +1,698 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"sync"
+)
+
+// The port of src/db/index.ts's `schemaReady`.
+//
+// Four tables and several columns exist nowhere but here: they were added after
+// the drizzle schema stopped being the migration source, and the Next app
+// creates them in a promise every route awaits. Reproducing that is not
+// optional. This binary and the Next app will run against the same database
+// during the cutover, and a table created differently — a missing column, a
+// missing index — is a divergence that shows up only as a query failing on one
+// of them.
+//
+// So the statements below are src/db/index.ts's, in its order, including the
+// ALTER TABLE calls whose failure is the EXPECTED outcome: they add a column to
+// a table that already has it, and SQLite has no ADD COLUMN IF NOT EXISTS.
+// That is why they are a separate list — an error from one of them is normal
+// and must not stop the run, while an error from a CREATE TABLE is real.
+
+// migrations are the statements that must succeed.
+var migrations = []string{
+	`CREATE TABLE IF NOT EXISTS device_codes (
+      device_code TEXT PRIMARY KEY,
+      user_code TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      api_key TEXT,
+      project_id TEXT,
+      project_name TEXT,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    )`,
+	`CREATE TABLE IF NOT EXISTS solon_usage (
+      user_id TEXT PRIMARY KEY,
+      chats_used INTEGER NOT NULL DEFAULT 0,
+      policies_used INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    )`,
+	`CREATE INDEX IF NOT EXISTS audit_logs_session_id_idx ON audit_logs (project_id, session_id)`,
+	// COVERING, and that is the whole point: every column the query needs is in
+	// the index, so SQLite answers from it and never touches a row.
+	//
+	// Measured against production, where this project has some twenty thousand
+	// audit rows. GET /stats took 1.4 to 5 SECONDS, and its four queries already
+	// run in parallel — the cost was one of them, `SELECT decision, COUNT(*) …
+	// GROUP BY decision`, walking every row of the project. The existing
+	// (project_id, created_at) index finds those rows but still has to read each
+	// one to learn its decision. COUNT(*) behind the paged audit list has the
+	// same shape and is served by this too.
+	//
+	// It matters more than a settings page usually would because the dataroom's
+	// Live panel opens with five of these calls at once and re-runs stats every
+	// eight seconds, so this is the number a person watches the terminal fill in.
+	`CREATE INDEX IF NOT EXISTS audit_logs_project_decision_idx ON audit_logs (project_id, decision)`,
+	// The burst scan behind every page of the audit log: calls per agent per
+	// minute over the window the page spans. Covering for the same reason as the
+	// one above — agent_name is the only other column it reads, so with it in
+	// the index the group-by never touches a row.
+	`CREATE INDEX IF NOT EXISTS audit_logs_project_created_agent_idx ON audit_logs (project_id, created_at, agent_name)`,
+	// conversation_turns: what a person said to their agent and what it said
+	// back, one row per turn.
+	//
+	// It is NOT a column on audit_logs and the reason is size. That row is a
+	// ledger entry capped at sixteen kilobytes of arguments; a turn is prose,
+	// and GET /audit-logs already allows limit=10000, so a large text column on
+	// that table would push existing reads into libSQL's RESPONSE_TOO_LARGE.
+	// Two tables, joined by session_id, which is the same id the agent's own
+	// transcript file is named after.
+	//
+	// Storing this at all is a decision and not a detail. The guard's other
+	// tables record what a machine DID; this records what a person WROTE. It
+	// it is written only for machines that are in one — the handler refuses a
+	// turn from an account with no accepted grant. Nobody's private
+	// conversation is collected because they happen to have installed this.
+	//
+	// prompt and reply are separate rows rather than one blob so that a
+	// retention sweep, an export, or a redaction can address either half.
+	`CREATE TABLE IF NOT EXISTS conversation_turns (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      api_key_id TEXT,
+      user_id TEXT,
+      session_id TEXT NOT NULL,
+      agent_id TEXT,
+      agent_name TEXT,
+      source TEXT,
+      role TEXT NOT NULL,
+      body TEXT NOT NULL,
+      redacted INTEGER NOT NULL DEFAULT 0,
+      truncated INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`,
+	// index is that query and nothing else.
+	`CREATE INDEX IF NOT EXISTS conversation_turns_project_user_created_idx ON conversation_turns (project_id, user_id, created_at)`,
+	`CREATE INDEX IF NOT EXISTS conversation_turns_session_idx ON conversation_turns (session_id)`,
+
+	// token_usage: what a turn cost, one row per turn.
+	//
+	// NOT a column on audit_logs, and the reason is the GRAIN. Tokens are spent
+	// per TURN — one exchange with the model — while an audit row is one TOOL
+	// CALL, and a turn makes several. Writing a turn's tokens onto its calls
+	// multiplies them by however many tools the model happened to reach for.
+	//
+	// NOT a column on conversation_turns either, though the grain matches
+	// the conversation record is on; what a turn cost is a different question
+	// from what was said in it, and a host who has switched transcripts off
+	// should still be able to see spend.
+	//
+	// unchanged — the same WHERE that scopes calls to one person or to the host
+	// scopes their tokens, and the two numbers cannot end up describing
+	// different sets of people.
+	//
+	// `measure` says what KIND of number this is, because the clients do not
+	// all report the same one. See the note on TokenMeasure.
+	`CREATE TABLE IF NOT EXISTS token_usage (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      api_key_id TEXT,
+      user_id TEXT,
+      session_id TEXT,
+      agent_id TEXT,
+      agent_name TEXT,
+      source TEXT,
+      measure TEXT NOT NULL DEFAULT 'billed',
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+      reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`,
+	// The two reads: a project over a window, and one person over a window.
+	`CREATE INDEX IF NOT EXISTS token_usage_project_created_idx ON token_usage (project_id, created_at)`,
+	`CREATE INDEX IF NOT EXISTS token_usage_project_key_created_idx ON token_usage (project_id, api_key_id, created_at)`,
+	// A third read: one sitting, in the order it was spent, so a transcript can
+	// show what each exchange cost between the messages.
+	`CREATE INDEX IF NOT EXISTS token_usage_session_idx ON token_usage (session_id, created_at)`,
+
+	//
+	// The DOCUMENT is stored, not the numbers to rebuild it from. A report is a
+	// statement about a period that has ended, and rebuilding one later reads
+	// through retention: a span whose audit rows have since been swept would
+	// come back thinner than the report a host actually acted on. What is in
+	//
+	// The id is derived from (project, span, period end) and rows are inserted
+	// with OR IGNORE, so two instances ticking at the same second cannot file
+	// the same report twice.
+	// One read: a project's shelf, newest first.
+	`CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      agent_id TEXT,
+      agent_name TEXT,
+      api_key_id TEXT,
+      started_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      total_calls INTEGER NOT NULL DEFAULT 0,
+      allowed_calls INTEGER NOT NULL DEFAULT 0,
+      denied_calls INTEGER NOT NULL DEFAULT 0,
+      dlp_events INTEGER NOT NULL DEFAULT 0,
+      rate_limit_events INTEGER NOT NULL DEFAULT 0,
+      pi_detections INTEGER NOT NULL DEFAULT 0,
+      read_calls INTEGER NOT NULL DEFAULT 0,
+      write_calls INTEGER NOT NULL DEFAULT 0,
+      execute_calls INTEGER NOT NULL DEFAULT 0,
+      network_calls INTEGER NOT NULL DEFAULT 0
+    )`,
+	`CREATE INDEX IF NOT EXISTS sessions_project_id_last_seen_idx ON sessions (project_id, last_seen_at)`,
+	`CREATE INDEX IF NOT EXISTS sessions_project_agent_idx ON sessions (project_id, agent_id)`,
+	`CREATE TABLE IF NOT EXISTS agent_baselines (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      tool_distribution TEXT DEFAULT '{}',
+      permission_mix TEXT DEFAULT '{}',
+      known_paths TEXT DEFAULT '[]',
+      known_domains TEXT DEFAULT '[]',
+      known_tools TEXT DEFAULT '[]',
+      avg_calls_per_hour REAL DEFAULT 0,
+      deny_rate REAL DEFAULT 0,
+      sample_size INTEGER NOT NULL DEFAULT 0,
+      character TEXT,
+      trust_score REAL DEFAULT 50,
+      computed_at INTEGER NOT NULL
+    )`,
+	`CREATE INDEX IF NOT EXISTS agent_baselines_project_agent_idx ON agent_baselines (project_id, agent_id)`,
+	`CREATE TABLE IF NOT EXISTS anomaly_events (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      session_id TEXT,
+      audit_log_id TEXT,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'low',
+      score REAL DEFAULT 0,
+      description TEXT,
+      detail TEXT,
+      created_at INTEGER NOT NULL
+    )`,
+	`CREATE INDEX IF NOT EXISTS anomaly_events_project_created_idx ON anomaly_events (project_id, created_at)`,
+	`CREATE INDEX IF NOT EXISTS anomaly_events_project_agent_idx ON anomaly_events (project_id, agent_id)`,
+
+	// A host's request to a developer, and the developer's answer.
+	//
+	// The whole model is in `status`: a row is `pending` until the invited
+	// person accepts it, and NOTHING is enforced on their machine before that.
+	// because "cannot leave" is the point of the arrangement — and `revoked` is
+	// reachable only by the host.
+	//
+	// somebody who has no account yet. That is why this is not `org_members`
+	// with an extra column: a membership row needs a user, and an invitation
+	// exists precisely before there is one.
+	//
+	// It is also not `user_invitations`, which has neither an org nor a project
+	// on it, so its token resolves to an email and a role and to nothing that
+	// could be joined to a policy. That table has no writer and one reader with
+	// no callers.
+	// The host's own groups, as things rather than as labels.
+	//
+	// is what lets one be created EMPTY and filled afterwards, which is the
+	// order people actually organise in, and it is the only place a rename or a
+	// colour could live. A label that exists only while somebody wears it
+	// cannot be made first, renamed, or coloured.
+	//
+	// Not a foreign key onto an id, deliberately. Every read path in the
+	// product resolves a group by its name already — the analytics scope, the
+	// filters, the roster — and moving to an id would be a migration of live
+	// data plus a rewrite of those queries to buy an atomic rename. See
+	// One group per name per project. Two rows under one name would be two
+	// answers to "what colour is this group", and the membership — which is
+	// the name — could not tell them apart at all.
+	// Where the HOST's own group lives.
+	//
+	// whole difference between them and everybody else on the page. A grant is
+	// an arrangement between two people — a token, an invitation, an acceptance,
+	// a revocation — and every one of those is meaningless pointed at the person
+	// who owns the project, so they get a row that holds a label and nothing
+	// else. It is also not a seat, which a grant would be.
+	// One outstanding grant per address per project. A host who invites the
+	// same developer twice is correcting a typo or resending, not creating a
+	// second seat, and two rows would be two answers to "is this person a
+	// hold an accepted grant on this project", and it runs on the guard's poll.
+	// all, and how many developers they may invite.
+	//
+	// It is created here as well as in manage-go because either binary may boot
+	// first against a fresh database, and a read of a table that does not exist
+	// is an error rather than an empty answer. Both CREATEs are IF NOT EXISTS
+	// and identical.
+	//
+	// granted_by is a literal rather than an identity: the admin session token
+	// carries {admin:true} and no user at all, and adding a claim to it would
+	// change a cookie shape that live browsers already hold.
+	//
+	// What people paste into a chat assistant in their BROWSER. Every other
+	// table above records a machine acting through a guarded CLI; these three
+	// record a person acting through Chrome, which is a different actor, a
+	//
+	// arrangement between two people: it has an email address, a token, an
+	// invitation to accept and a revocation. A device has none of those. One
+	// person runs three browsers on two laptops and every one of them is its
+	// own row here; a browser cannot accept anything, and there is nobody to
+	// invite. Reusing the grants table would mean either four grants for one
+	// developer, which breaks the seat count a host is billed on, or four
+	// browsers hidden behind one row, which is the whole feature gone.
+	//
+	// user_id and api_key_id are how a device is attributed back to a person
+	// when the extension was installed with a key that carries one. Both are
+	// nullable, because a browser that has only ever reported and never been
+	// paired is still a browser a host needs to see on the roster.
+	// The roster is read one way: a project's devices, most recently seen
+	// first. The index is that query and nothing else.
+	//
+	// Per person rather than per device, because an operator adds a PERSON to a
+	// this on its heartbeat and applies or removes the managed policy where the
+	// machine gives it the rights. Absent is not enforced, which is the safe
+	// default: enforcement is opt-in and has to be turned on deliberately.
+	//
+	// This is the one table in the schema that keeps the actual text - the
+	// prompt somebody sent, the assistant's answer, the paste, the copy. Every
+	// Sessions feature, where an operator reads what was actually said. It is a
+	// deliberate reversal of "the text never leaves the machine", turned on for
+	// this feature and this table only.
+	//
+	// conversation_id groups a thread; seq orders it. role is who spoke. text is
+	// the content. detectors and verdict carry what DLP found and did, so a
+	// message that was blocked shows why inline.
+	// The retention sweep, which is the one read on this table with no project
+	// database on a timer, and this is the widest table in the schema because
+	//
+	// This is the half that was missing, and its absence is why every mistake in
+	// a transcript was permanent. A session is built by folding the acts a
+	// person performed into the turns the page drew - and the act was DELETED
+	// once folded, because it had become a line. So the line was the last copy
+	// of it: a fold that put the wrong act in a seat could never be undone, a
+	// turn the site renamed took its verdict to the grave, and a row that one
+	// bad reading overwrote stayed overwritten for the life of the thread.
+	//
+	// So the acts live here, untouched by anything the transcript does, and
+	// reading of the conversation and this table. Every sync recomputes the
+	// whole thread from them. Nothing accumulates, nothing has to be repaired,
+	// and a reading that was wrong is wrong exactly until the next one arrives.
+	//
+	// A session is rebuilt out of the turns the browser reports - which turns
+	// there are, in what order, whose they are. That reading arrives on its own
+	// schedule, and every act filed BETWEEN two of them had nowhere to be
+	// placed until the next one came: a paste sat in the transcript as a loose
+	// line, its finding not on the turn it belonged to, for as long as the page
+	// happened to stay still. Measured against somebody watching the screen,
+	// that is minutes, and the whole point of the feature is that the log and
+	// the session agree the moment either of them moves.
+	//
+	// So the reading is KEPT, and every batch of lines is folded into it as it
+	// arrives rather than waiting to be told the thread again. One row per
+	// conversation per machine, replaced whole: this is a cache of the last
+	// truth, never a history of it.
+	// browser agent looked at.
+	//
+	// NOT audit_logs, and this is the decision the whole feature rests on.
+	// That table's twenty-five columns are a TOOL-CALL ledger. Its POST body is
+	// a frozen contract with hooks already installed on other people's laptops,
+	// so a column cannot be added to it without a version of the hook that
+	// nobody has yet; its decision vocabulary is ALLOW and DENY over tool
+	// calls, and this one is allow, warn, block and report over a clipboard.
+	// The actor is different too: a row there is a machine calling a tool, a
+	// row here is a PERSON pasting into a text box. Mixing them would corrupt
+	// every count a host reads off the dataroom, because "calls" would silently
+	// start including pastes and "denies" would start including warnings.
+	//
+	// THE PASTED TEXT IS NEVER STORED. Not truncated, not redacted, not
+	// encrypted: absent. What is here is the detector NAMES that fired, how
+	// many bytes went across, which site it went to, and content_hash, which is
+	// what makes "they pasted this same thing again" answerable without the
+	// thing being here. The text a person pastes into ChatGPT is the most
+	// sensitive payload this service could ever hold, and the only way it stays
+	// safe is by not existing. A column added here to hold it, however well
+	// meant, is this product becoming the leak it was bought to prevent.
+	//
+	// detectors is a JSON array of pattern names, so a row records that `tckn`
+	// and `iban` matched and not what they matched. It is NOT NULL with a '[]'
+	// default because the detector breakdown reads it through json_each, and
+	// one malformed row there fails the whole query rather than that row.
+	// The audit list, its COUNT, and every window aggregate on the overview.
+	//
+	// Deliberately not covering, unlike audit_logs_project_decision_idx. The
+	// overview also counts DISTINCT devices, sites and people over the same
+	// window, and no index answers those without the rows, so carrying verdict
+	// along would pay for itself on one aggregate out of four while making
+	// every insert on the busiest table in this schema dearer.
+	// One device's stream, which is the roster's per-device counts and the
+	// The retention sweep, which is the one read here with no project on it.
+	// ONE PERSON'S EVENTS. Every per-person screen filters by user_id inside a
+	// project and a time window, and without this the query walks the whole
+	// project's window to find them. That is survivable while a project is one
+	// team and is not survivable at fifteen thousand people: ninety days at
+	// four hundred thousand events a day is forty million rows to scan for one
+	// person's page.
+	//
+	// created_at is in the index rather than only in the filter because the
+	// same screens order by it, so the index answers the ordering too instead
+	// of handing a sort the rows it found.
+	//
+	// A ROW SAYING A SCREENSHOT CARRIED A NATIONAL ID IS A CLAIM SOMEBODY HAS
+	// TO BE ABLE TO CHECK. Until this table the only thing beside it was the
+	// RECOGNISED text - an engine's reading of a picture, wrong in the places
+	// engines are wrong - and no way at all to answer "what did they actually
+	// send". So the picture is kept, reduced to something worth keeping (see
+	// sgocr.Thumb), and shown on the row.
+	//
+	// A SEPARATE TABLE AND NOT A COLUMN, for one reason: every read of the
+	// audit list would carry it. The list is the busiest query in this schema
+	// and it wants twenty short columns, not a JPEG per row; this is fetched by
+	// primary key, once, by somebody who opened one row.
+	//
+	// AND IT IS KEPT FOR A SUBSET. The agent sends one only for pictures a rule
+	// found something in or acted on, never for the clean ones - the same gate
+	// the transcript has. A screenshot nobody's rule cared about is not
+	// evidence of anything and is the majority of them.
+	// The retention sweep, which runs with no project on it exactly as the
+	// events one does. A picture that outlived the row it belongs to would be
+	// the one thing in this schema nobody could find to delete.
+	//
+	// NOT policy_versions, and the reason is what the GUARD does with that
+	// table. A guarded CLI polls for EVERY policy its project holds and picks
+	// downloaded by every installed guard on every poll, forever, to be
+	// discarded every time. It would also break ListPolicies, which GROUPs BY
+	// policy to find each one's newest version: a row with a different shape
+	// and no agent binding is an extra group in a list the dashboard renders
+	// as the project's policies.
+	//
+	// project_id is the primary key because there is exactly one of these per
+	// project. That makes the agent's poll a lookup by primary key, which is
+	// the request this table serves most and the one that must stay cheap.
+	//
+	// version is a content hash rather than a counter: the agent polls with the
+	// version it holds and a save that changed nothing must not make every
+}
+
+// addColumns are the ALTER TABLE statements. Every one of them fails on a
+// database that has already been through this, which is every real database, so
+// the error is discarded by design.
+//
+// The order matters for one of them: `policy_versions.rego_source` and
+// `wasm_bundle` were added before `device_codes` existed, and
+// `device_codes.user_email`/`user_name` after — so the device_codes CREATE has
+// to run before those two ALTERs or they fail for the wrong reason and the
+// columns never appear. Hence the split into two phases rather than one list.
+var addColumnsBefore = []string{
+	`ALTER TABLE policy_versions ADD COLUMN rego_source TEXT`,
+	`ALTER TABLE policy_versions ADD COLUMN wasm_bundle TEXT`,
+}
+
+var addColumnsAfter = []string{
+	//
+	// It is a second closed vocabulary rather than more entries in `detectors`,
+	// because the two answer different questions and a column holding both is a
+	// column nobody can filter: `iban` is a finding, `ocr` is how we came to
+	// have it, and a row that lists them side by side reads as two findings.
+	//
+	// Defaulted to '[]' for the same reason `detectors` is: it is read through
+	// json_each, and one NULL there fails the whole query rather than that row.
+	// Rows written before this column existed get the default and mean "we did
+	// not record how", which is true of every one of them.
+	// The attachment names, masked on the machine before they were sent.
+	//
+	// A filename is content and this column is the one place that fact is easy
+	// to forget: it looks like metadata and reads like a label, and
+	// "Ahmet_Yilmaz_TCKN_12345678901.pdf" is a national id in a field nobody
+	// thought to protect. The masking happens in the agent, where the detectors
+	// and the text still are; what happens here is a bound.
+	// How much the findings on a row were worth, as the agent scored them.
+	// Zero on every row written before this column existed, which is also what
+	// a row with no findings scores — and the two are the same claim: this row
+	// is not making one.
+	// WHAT WAS ACTUALLY PASTED, AND THE THING TO UNDERSTAND BEFORE ADDING TO IT.
+	//
+	// This table used to hold the NAMES of what a scan found and never the
+	// content, and the whole half was built around that: the verdict engine is
+	// handed detector names rather than text, the events endpoint answers a
+	// client that sends `text` by naming the field in dropped_fields, and the
+	// card the browser draws says "nothing you typed left this machine". An
+	// operator reading a row could see that a national id went to ChatGPT and
+	// not which one.
+	//
+	// The product owner asked for the content, and the cost is exactly the one
+	// that design was avoiding: this column is a second copy of the values the
+	// the row it belongs to at ninety days, and the browser's card no longer
+	// makes the claim it would have made false.
+	//
+	// It is called `body` and not `text`: `text` is a type name in every one of
+	// these statements and a column of that name is a query nobody can read.
+	// The answer an operator picked, beside the outcome it produced. Nullable
+	// and with no default, because empty is a real value here: a row no rule
+	// covered was decided by the document's catch-all, and a default would put
+	// a setting nobody chose on every row written before this column existed.
+	// THE MILLISECOND, BECAUSE A SECOND CANNOT ORDER A CONVERSATION.
+	//
+	// created_at is seconds, which every table in this product agrees on and
+	// which nothing here is going to change - the dashboard renders it as
+	// seconds and a column quietly holding milliseconds would date every row to
+	// 1970. But a question and the answer to it are routinely inside one second,
+	// and with nothing to break that tie the audit put them in whatever order
+	// the rows came back in: the answer above the question that produced it.
+	//
+	// So the millisecond is kept beside the second rather than instead of it,
+	// and the list orders by created_at first - which is the indexed column -
+	// and by this only within a second. Rows written before this column existed
+	// hold 0 and keep the order they had.
+	// WHICH BROWSER AND WHICH MACHINE, beside what happened in them.
+	//
+	// side by side files both under one device row, and "which browser was
+	// that" was a question the audit could not answer. Names only — the agent
+	// sends "chrome" and "mac", never a user-agent string, which is version
+	// numbers nobody filters by in a field nobody bounded. '' on every row
+	// written before these columns existed, which is the honest answer:
+	// nobody recorded it.
+	`ALTER TABLE device_codes ADD COLUMN user_email TEXT`,
+	`ALTER TABLE device_codes ADD COLUMN user_name TEXT`,
+	`ALTER TABLE audit_logs ADD COLUMN session_id TEXT`,
+
+	// whoever. It is theirs to choose, so there is no enum and no list to keep
+	// runs it thinks about it, not the way this schema guessed they would.
+	//
+	// NULL is ungrouped, which is what every grant written before this means
+	// and what a new invitation is until somebody says otherwise.
+	// What the browser extension is doing on each of a device's browsers -
+	// enabled, disabled or removed - as a small JSON array. It is how a device
+	// that stopped being watched shows up as one instead of merely going quiet:
+	// an employee who disabled the extension, or a force-install policy someone
+	// undid, is otherwise invisible.
+	// update_to is the version an operator has asked this machine to install,
+	// machine arriving on that version or newer, so a device that updates by
+	// itself in the meantime is not told to do it again.
+	// update_note is why the last install this machine was asked for did not
+	// happen. Only ever set when it went wrong: an install that works answers
+	// with the version on the roster changing.
+	// scan_to is the assistant hosts an operator has asked this machine to read
+	// the history of, comma separated, or empty.
+	//
+	// IT IS TAKEN WHEN IT IS READ, which is the one way it differs from
+	// update_to beside it. An install request is cleared by the machine
+	// arriving on that version - there is a fact to compare against. A scan has
+	// none: the API cannot tell a machine that scanned from one that never
+	// picked the request up, and a request that stood until it could would open
+	// a panel on somebody's screen every five seconds forever.
+	// scan_state is what a footprint scan on this machine is doing RIGHT NOW, as
+	// the small JSON document the agent posts while one runs.
+	//
+	// IT IS A LIVE VALUE AND NOT A RECORD. The audit is the record, and it keeps
+	// only the conversations that had something in them - which is correct, and
+	// which is exactly why it cannot answer "is this scan moving": a history is
+	// mostly ordinary afternoons, so most of a running scan is conversations that
+	// file nothing. This column is overwritten on every post, holds no content,
+	// and is meaningless once the run it describes has ended.
+	// restart_at is a request an operator made from the Devices page for this
+	// machine's agent to restart itself, or empty. It is a token (the moment it
+	// was asked), TAKEN when it is read for the same reason scan_to is: there is
+	// nothing on the machine's side to compare against, and a request that stood
+	// forever would restart the agent on every poll. The agent, seeing it, exits
+	// cleanly - and the OS service registration brings it straight back up. See
+	// connect_to is a browser name an operator asked this machine's agent to
+	// connect from the Devices page, or empty. It is a request the same shape as
+	// restart_at - a value TAKEN when it is read, for the same reason: there is
+	// nothing on the machine's side to compare against, and a request that stood
+	// forever would re-launch the browser on every poll. The agent, seeing a
+	// browser name, launches and attaches that browser. Unlike restart_at, the
+	// content matters: it names WHICH browser to connect, so the roster's Connect
+	// button beside a chip sends the chip's own browser. See
+	// installing / installing_at are the DISPLAY half of the extension-install
+	// request whose directive half is connect_to above. The directive is taken
+	// when it is read - it must be, or the agent re-runs the ceremony on every
+	// poll - and that left the roster with nothing to show: the "Installing…"
+	// mark lived exactly one roster tick, then the Install button was back
+	// while the agent was still mid-ceremony, and people pressed it again.
+	// This half is written at the press and never taken: the roster shows it
+	// while it is FRESH (its own clock, see the reader) and the browser is not
+	// yet watching, and simply stops when either changes.
+	// Which HALF of the product a person is managed in: 'agent' for the guard on
+	//
+	// It is on the grant rather than on the account because the two halves are
+	// bought and run separately: a company that has SolonGate for its developers'
+	// agents and not for its browsers has to be able to add a contractor to one
+	// without that meaning the other.
+	//
+	// NULL is what every grant written before this column means, and it reads as
+	// 'agent' — see GrantScopeOf, which is the only place that decision is made.
+	// Reading a blank as 'both' would put a browser page in front of every
+	// guard on their tool calls and to nothing else.
+	// Which policy a GROUP runs.
+	//
+	// The project already holds several policies and the guard's poll already
+	// picks one per machine — by agent id, then by wildcard. This is the tier
+	// above those: a host says "the contractors run this one" once, and
+	// everybody in that group inherits it on their next poll rather than being
+	// moved one selection at a time, forever.
+	//
+	// A column rather than a table because a group runs one policy. NULL means
+	// the group states nothing and its members fall through to whatever the
+	// project-wide selection gives them.
+	// WHICH HALF A GROUP BELONGS TO, and the two membership columns that go
+	// with it.
+	//
+	// The two halves of this product manage different people for different
+	// reasons: Agent Security groups developers by what their agents may do,
+	// Sharing one set meant a group made for one half appeared in the other,
+	// which is a screen offering somebody a control over a set they did not
+	// because there was nothing better to say.
+	//
+	// 'agent' IS THE DEFAULT AND THAT IS THE MIGRATION. Every group that
+	// the only page that could make one. Defaulting the column is the whole of
+	// moving them.
+	// The old index made a name unique across the project, which would now stop
+	// the two halves each having a group called Finance. Dropped and replaced
+	// rather than added beside: leaving it would enforce the rule this change
+	// exists to lift, and its name is not reused so a half-applied migration
+	// cannot end up with both.
+	// A person can be in a group on each side, so the membership needs a column
+	// existing membership in the half that created it.
+	// Who a key belongs to, as opposed to which project it opens.
+	//
+	// PROJECT OWNER for every key, so a developer working under somebody else's
+	// policy is byte-for-byte the person who wrote it, at every route. NULL is
+	// what every key issued before this column means, and it reads as "acts as
+	// the owner" so nothing already paired changes behaviour.
+	//
+	// No foreign key: SQLite cannot add one through ALTER TABLE. It is declared
+	// in baseschema.sql, which is what a database created from scratch
+	// gets.
+	`ALTER TABLE api_keys ADD COLUMN user_id TEXT`,
+
+	// The revoke that runs before every dashboard sign-in.
+	//
+	// authSession revokes the previous "Dashboard Session" key and mints a new
+	// one, filtering on (project_id, name). The only index this table had was
+	// project_id alone, so that statement narrows to a project and then walks
+	// every key it has ever held — and the table only grows, because a revoked
+	// key is stamped rather than deleted. On a project signed into for months,
+	// that walk IS the sign-in.
+	//
+	// It is here rather than in the migrations above for the same reason the
+	// ALTER is: api_keys is declared in baseschema.sql and is not created
+	// by this binary, so a statement naming it must not be able to abort the
+	// list. In the must-succeed list it took down every migration after it on a
+	// database that had not been created yet — which is how a fresh test
+	// database found this within a minute of it being written.
+	`CREATE INDEX IF NOT EXISTS api_keys_project_name_idx ON api_keys (project_id, name)`,
+
+	// The compiled Rego and wasm for every variant OTHER than the default one,
+	// as {"<variantId>": {"rego": "...", "wasm": "<base64>"}}.
+	//
+	// rego_source and wasm_bundle keep holding the default variant's build, so
+	// GET /policies/{id}/rego, the wasm route and every hook that reads them are
+	// untouched by a policy growing variants.
+	`ALTER TABLE policy_versions ADD COLUMN variant_artifacts TEXT`,
+
+	// The duplicate guard org_members never had. It is in this list rather than
+	// in migrations because it FAILS on any database that already holds a
+	// duplicate row, and that is a real possibility: the check in orgMembersAdd
+	// is a read followed by a write, so two concurrent adds both insert.
+	//
+	// Failing here is the right outcome. It leaves the existing read-then-write
+	// guard in place, which is what those databases have today.
+	`CREATE UNIQUE INDEX IF NOT EXISTS org_members_org_user_unique ON org_members (org_id, user_id)`,
+}
+
+// EnsureRuntimeTables runs the statements above, once per process.
+//
+// The Next app awaits `schemaReady` inside the routes that need these tables,
+// which means a cold start pays for it on the first request. This runs it at
+// boot instead: a route slice does not have to remember, and the failure — if
+// there is one — is in the deploy log rather than in one unlucky request.
+//
+// It is idempotent and retried on demand, because the first attempt can fail
+// against a database that is briefly unreachable and refusing to serve at all
+// in that case would be worse: eleven of these objects already exist in every
+// real database.
+func (s *Store) EnsureRuntimeTables(ctx context.Context) error {
+	s.schemaOnce.Lock()
+	defer s.schemaOnce.Unlock()
+	if s.schemaDone {
+		return nil
+	}
+
+	for _, stmt := range addColumnsBefore {
+		// Discarded on purpose: see addColumnsBefore.
+		_, _ = s.exec(ctx, s.ddl(stmt))
+	}
+	for _, stmt := range migrations {
+		if _, err := s.exec(ctx, s.ddl(stmt)); err != nil {
+			// The statement is quoted, not the error alone, because "table
+			// already exists" and "no such table: audit_logs" are very
+			// different problems and only the statement says which.
+			return fmt.Errorf("runtime schema: %.60s...: %w", stmt, err)
+		}
+	}
+	for _, stmt := range addColumnsAfter {
+		_, _ = s.exec(ctx, s.ddl(stmt))
+	}
+
+	s.schemaDone = true
+	return nil
+}
+
+// schemaGuard is embedded in Store. It is here rather than in store.go so the
+// whole runtime-schema concern reads as one file.
+type schemaGuard struct {
+	schemaOnce sync.Mutex
+	schemaDone bool
+}
+
+// RuntimeDDL is every statement EnsureRuntimeTables would run, rendered for a
+// dialect, in order.
+//
+// It exists for one reason: an on-premise installation's DBA wants the whole
+// schema in a file they can read, apply, and hand to a change review — and a
+// hardened installation does not give the application role CREATE on the
+// schema at all. With this, the file they apply is complete and
+// EnsureRuntimeTables finds everything already there and does nothing, which
+// is the same code path either way.
+//
+// The optional column additions are included. They are the statements
+// EnsureRuntimeTables deliberately ignores errors from, because they are
+// ALTERs that have already been applied on any database older than the column;
+// rendered for PostgreSQL they carry IF NOT EXISTS and so are safe to apply
+// directly.
+func RuntimeDDL(d Dialect) []string {
+	out := make([]string, 0, len(addColumnsBefore)+len(migrations)+len(addColumnsAfter))
+	for _, group := range [][]string{addColumnsBefore, migrations, addColumnsAfter} {
+		for _, stmt := range group {
+			out = append(out, ddlFor(d, stmt))
+		}
+	}
+	return out
+}

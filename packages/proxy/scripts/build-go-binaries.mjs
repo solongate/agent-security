@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+/**
+ * Cross-compile the Go guard and CLI, and lay them out as npm platform packages.
+ *
+ *   node scripts/build-go-binaries.mjs            # build every target
+ *   node scripts/build-go-binaries.mjs linux-x64  # just one, for a quick loop
+ *
+ * WHY PLATFORM PACKAGES rather than a postinstall download: npm installs only
+ * the optionalDependency whose `os`/`cpu` match the host, so a user downloads
+ * one binary rather than six, and it arrives through the same registry, lockfile
+ * and integrity hash as everything else. A postinstall that fetches from a
+ * release URL is a second supply chain, and for a security tool that is the
+ * wrong trade even when it is smaller.
+ *
+ * Both binaries go in ONE platform package. They are separate programs — the
+ * guard runs per tool call, the CLI is what a human types — but they ship and
+ * version together, and two packages would let a machine hold one of each from
+ * different releases.
+ *
+ * The guard's version is NOT the npm version. It prints the HOOK_VERSION it
+ * implements, because that is what the Node hook compares against before handing
+ * over a call; see the comment on hookVersion in packages/guard-go/main.go. The
+ * npm version is stamped separately and is diagnostic only.
+ */
+import { execFileSync } from 'node:child_process';
+
+import { goBin } from '../../../scripts/gobin.mjs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const proxyDir = resolve(here, '..');
+const repo = resolve(proxyDir, '..', '..');
+const outRoot = join(proxyDir, 'platforms');
+
+const pkgPath = join(proxyDir, 'package.json');
+const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+
+// npm's own names for a host, which are also each package's name and the values
+// of its `os` and `cpu` fields. Go spells two of them differently.
+const TARGETS = [
+  { tag: 'linux-x64', os: 'linux', cpu: 'x64', GOOS: 'linux', GOARCH: 'amd64' },
+  { tag: 'linux-arm64', os: 'linux', cpu: 'arm64', GOOS: 'linux', GOARCH: 'arm64' },
+  { tag: 'darwin-x64', os: 'darwin', cpu: 'x64', GOOS: 'darwin', GOARCH: 'amd64' },
+  { tag: 'darwin-arm64', os: 'darwin', cpu: 'arm64', GOOS: 'darwin', GOARCH: 'arm64' },
+  { tag: 'win32-x64', os: 'win32', cpu: 'x64', GOOS: 'windows', GOARCH: 'amd64' },
+  { tag: 'win32-arm64', os: 'win32', cpu: 'arm64', GOOS: 'windows', GOARCH: 'arm64' },
+];
+
+const only = process.argv[2];
+const targets = only ? TARGETS.filter((t) => t.tag === only) : TARGETS;
+if (targets.length === 0) {
+  console.error(`unknown target ${only}; known: ${TARGETS.map((t) => t.tag).join(', ')}`);
+  process.exit(1);
+}
+
+const go = process.env.GO_BIN || goBin();
+try {
+  execFileSync(go, ['version'], { stdio: 'ignore' });
+} catch {
+  console.error(`no Go toolchain on PATH (looked for \`${go}\`). Set GO_BIN, or add it:`);
+  console.error('  export PATH="$HOME/.local/opt/go/bin:$PATH"');
+  process.exit(1);
+}
+
+/**
+ * The two programs, and where each one's module lives.
+ *
+ * `bin` is the name the hook and the launcher look for, so it is part of the
+ * contract rather than a build detail — packages/proxy/hooks/guard.mjs resolves
+ * exactly `solongate-guard` inside the platform package.
+ */
+const PROGRAMS = [
+  { bin: 'solongate-guard', module: join(repo, 'packages', 'guard-go') },
+  { bin: 'solongate', module: join(repo, 'packages', 'proxy-go') },
+  // The Shadow AI agent: the process a browser asks before it lets somebody
+  // paste customer records into a chat window. Built for every target like the
+  // others, and only REACHABLE by a browser on Windows, because Google's own
+  // SDK stubs the macOS and Linux transports. Building it everywhere costs a
+  // few megabytes and means the machine somebody develops on runs the same
+  // binary the fleet does.
+  //
+  // `pkg` is the package to build inside the module, defaulting to its root. It
+  // exists because packages/proxy-go/cmd/solongate-audit has sat there unbuilt
+  // and unshipped for months: a Go main package does not reach anybody by
+  // existing, and a build script that could only build a module root is why.
+  {
+    bin: 'solongate-browser',
+    module: join(repo, 'packages', 'shadowbridge'),
+    pkg: './cmd/solongate-browser',
+  },
+];
+
+function build(target, program) {
+  const exe = program.bin + (target.os === 'win32' ? '.exe' : '');
+  const dest = join(outRoot, target.tag, exe);
+  mkdirSync(dirname(dest), { recursive: true });
+  execFileSync(go, [
+    'build',
+    // -trimpath keeps the building machine's directory layout out of the binary,
+    // which is both smaller and one less thing published to a registry.
+    '-trimpath',
+    '-ldflags', `-s -w -X main.buildVersion=${pkg.version}`,
+    '-o', dest,
+    program.pkg || '.',
+  ], {
+    cwd: program.module,
+    env: { ...process.env, GOOS: target.GOOS, GOARCH: target.GOARCH, CGO_ENABLED: '0' },
+    stdio: ['ignore', 'ignore', 'inherit'],
+  });
+  if (target.os !== 'win32') chmodSync(dest, 0o755);
+  return { exe, bytes: statSync(dest).size };
+}
+
+console.log(`building ${targets.length} target(s) at version ${pkg.version}\n`);
+
+for (const t of targets) {
+  const dir = join(outRoot, t.tag);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+
+  const built = PROGRAMS.map((p) => build(t, p));
+
+  // `os` and `cpu` are what make this an optionalDependency npm can decline:
+  // on a host that does not match, install skips it without failing, which is
+  // exactly the "no binary here, use Node" case the hook already handles.
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({
+    name: `@solongate/guard-${t.tag}`,
+    version: pkg.version,
+    description: `SolonGate guard and CLI binaries for ${t.tag}`,
+    license: pkg.license,
+    repository: pkg.repository,
+    os: [t.os],
+    cpu: [t.cpu],
+    files: built.map((b) => b.exe),
+    // No main, no exports: there is no JavaScript in here. The hook resolves
+    // this package.json and reads the binary beside it.
+    preferUnplugged: true,
+  }, null, 2) + '\n');
+
+  writeFileSync(join(dir, 'README.md'),
+    `# @solongate/guard-${t.tag}\n\n`
+    + `Prebuilt SolonGate binaries for \`${t.os}\`/\`${t.cpu}\`.\n\n`
+    + 'Installed automatically as an optional dependency of\n'
+    + '[`@solongate/proxy`](https://www.npmjs.com/package/@solongate/proxy). There is no\n'
+    + 'reason to depend on it directly, and nothing in it to import: it contains two\n'
+    + 'executables and this file.\n\n'
+    + 'If npm skipped it — an unsupported platform, `--no-optional`, a restricted\n'
+    + 'registry — SolonGate still works. The guard falls back to its Node\n'
+    + 'implementation, which enforces the same policy more slowly. A missing binary\n'
+    + 'costs speed and never protection.\n');
+
+  const total = built.reduce((n, b) => n + b.bytes, 0);
+  console.log(`  ${t.tag.padEnd(14)} ${built.map((b) => b.exe).join(', ').padEnd(34)} ${(total / 1048576).toFixed(1)} MB`);
+}
+
+// The optionalDependencies block, WRITTEN rather than printed.
+//
+// It used to be printed with a note to copy it across, on the grounds that a
+// script editing package.json silently is how a version range nobody chose gets
+// published. That reasoning was wrong in the one way that matters: these six
+// entries are not a choice anybody makes. They are this package's own version,
+// six times, and the only value they can hold that is not a bug is pkg.version.
+//
+// Left to a person, they were bumped separately from the version — and a proxy
+// published at 0.83.53 whose optionalDependencies still say 0.83.52 installs the
+// PREVIOUS release's binaries beside the new JavaScript. Everything reports
+// success: npm installs cleanly, `update` prints the new version, and the
+// launcher then runs the old binary, so `--version` answers with the release the
+// user just left. Nothing in that chain is detectably broken from the outside.
+const deps = Object.fromEntries(TARGETS.map((t) => [`@solongate/guard-${t.tag}`, pkg.version]));
+const current = pkg.optionalDependencies || {};
+if (JSON.stringify(deps) === JSON.stringify(current)) {
+  console.log('\noptionalDependencies are up to date');
+} else {
+  pkg.optionalDependencies = deps;
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  console.log(`\noptionalDependencies rewritten to ${pkg.version} in packages/proxy/package.json`);
+}
+
+console.log(`\nlaid out under ${outRoot}`);
+console.log('publish the platform packages BEFORE the proxy package, or an install');
+console.log('will resolve optionalDependencies that do not exist yet.');

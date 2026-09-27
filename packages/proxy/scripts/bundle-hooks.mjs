@@ -1,0 +1,33 @@
+// Bundles the cloud guard hook into a single self-contained .mjs so it can run
+// from ~/.solongate/hooks/ WITHOUT a node_modules directory next to it.
+//
+// The guard hook evaluates policy through OPA WASM (@open-policy-agent/opa-wasm).
+// A GLOBAL install (init --global) drops the hook as a lone file referenced from
+// ~/.claude/settings.json, so the opa-wasm runtime must be inlined here at build
+// time — otherwise `import('@open-policy-agent/opa-wasm')` would MODULE_NOT_FOUND
+// on the host and enforcement would silently fail-closed (DENY everything).
+//
+// Output (guard.bundled.mjs) is committed and shipped in the npm package; the
+// installer prefers it over the readable guard.mjs when present.
+import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const hooks = resolve(here, '..', 'hooks');
+
+await build({
+  entryPoints: [resolve(hooks, 'guard.mjs')],
+  bundle: true,
+  platform: 'node',     // keeps node:* built-ins external
+  format: 'esm',
+  target: 'node18',
+  outfile: resolve(hooks, 'guard.bundled.mjs'),
+  banner: {
+    js: '// AUTO-GENERATED from guard.mjs by scripts/bundle-hooks.mjs — DO NOT EDIT.\n'
+      + '// Edit guard.mjs and run `pnpm --filter @solongate/proxy build:hooks` to regenerate.',
+  },
+  legalComments: 'none',
+});
+
+console.log('[bundle-hooks] guard.mjs -> guard.bundled.mjs');

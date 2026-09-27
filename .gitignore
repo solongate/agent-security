@@ -1,0 +1,160 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# Turbo
+.turbo/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug / Logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# Coverage
+coverage/
+
+# SQL files — scratch dumps, not schema.
+*.sql
+**/*.sql
+# ...except the schema itself, which SHIPS.
+#
+# ADD A NEW SCHEMA FILE HERE OR THE BUILD BREAKS ON A CLEAN CLONE, silently on
+# the machine that wrote it. baseschema.sql is //go:embed-ed, so leaving it out
+# is not a missing file at runtime — it is `pattern baseschema.sql: no matching
+# files found` for whoever clones, and nothing on the author's machine says so.
+!apps/api-go/internal/store/baseschema.sql
+!tools/schema/*.sql
+
+# Test files
+**/__tests__/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/test/
+**/tests/
+# ...except the guard's conformance suite. It is not a dev scratch dir: it is the
+# contract any reimplementation has to pass, so it ships with the source.
+!packages/proxy/test/
+!packages/proxy/test/**
+
+# Shell scripts (dev/test only)
+**/*.sh
+
+# Icon/Logo files (served from CDN)
+**/public/icon-*.png
+**/public/apple-icon.png
+**/public/favicon.ico
+**/public/solongate-logo.png
+
+# Deploy packages
+deploy-package/
+
+*.md
+# ...except the ones that are documentation rather than scratch notes. The blanket
+# rule above exists to keep stray AI/plan files out; these are meant to ship.
+#
+# ADD A NEW DOC HERE OR IT IS INVISIBLE. The blanket rule is silent: `git add`
+# refuses without being asked, `git status` does not list the file, and the first
+# anybody notices is a clone with no README in it.
+!README.md
+!ENGINEERING.md
+!packages/proxy/test/README.md
+# Lock files (pnpm only)
+package-lock.json
+yarn.lock
+
+# Python
+__pycache__/
+*.pyc
+
+# Windows
+nul
+
+# Claude
+.claude/settings.local.json
+.claude/projects/
+
+# Test MCP server sandbox (runtime-generated)
+apps/test-mcp-server/sandbox/
+
+# Dev/temp files
+*.html
+.mcp.json
+*tmp_deploy*
+*.tgz
+
+# Playwright test artifacts
+.playwright-mcp
+
+# Build metadata (exposes internal structure)
+**/meta.json
+
+# Wrangler
+.wrangler/
+.env*.local
+.solongate/
+.gemini/
+.openclaw/
+
+# Local SQLite dev database (runtime artifact; dir kept via apps/api/data/.gitkeep)
+apps/api/data/*.db
+apps/api/data/*.db-shm
+apps/api/data/*.db-wal
+
+# SolonGate
+.env.local
+.solongate/**
+.claude/**
+.gemini/**
+.openclaw/**
+fs/
+packages/proxy/hooks/.solongate/
+
+# Cross-compiled npm platform packages (built by scripts/build-go-binaries.mjs).
+# ~45 MB per target x 6; the Go source is what is tracked.
+packages/proxy/platforms/
+
+# Go guard build output (the source is tracked, the binary is not)
+packages/guard-go/solongate-guard
+packages/guard-go/solongate-guard.exe
+# A bare `go build` names its output after the module, which is `guard`.
+packages/guard-go/guard
+packages/guard-go/guard.exe
+packages/guard-go/dist-platforms/
+
+# The same, for the CLI module, whose name is `proxy`. This one WAS committed:
+# 9.3 MB of x86-64 ELF that no Dockerfile, script or package.json ever named.
+packages/proxy-go/proxy
+packages/proxy-go/proxy.exe
+
+# tools/dev-go.mjs builds each Go app to <app>/.dev-server before running it
+# (dev-go.mjs:96). Also committed once, 11 MB, and rebuilt on every dev run.
+apps/*/.dev-server
+apps/*/.dev-server.exe
+
+# Local database built by tools/local-db.mjs (schema is generated, never edited)
+.local-db/
+

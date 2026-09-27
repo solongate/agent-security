@@ -1,0 +1,176 @@
+name: ci
+
+# Every job here corresponds to something that was found by running it rather
+# than by reading the code: the schema job exists because applying the DDL to a
+# real PostgreSQL is what caught three conversion bugs, and the conformance job
+# exists because it is the contract the guard is judged against.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - apps/api-go
+          - packages/proxy-go
+          - packages/guard-go
+          - packages/sgpolicy
+          - packages/sgshared
+          - packages/aicatalog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      # gofmt before the tests: a formatting failure is cheap to find and
+      # reading a diff is not what a reviewer should spend attention on.
+      - name: gofmt
+        working-directory: ${{ matrix.module }}
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt'd:"; echo "$unformatted"
+            gofmt -d $unformatted
+            exit 1
+          fi
+
+      - name: vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+      - name: test
+        working-directory: ${{ matrix.module }}
+        run: go test ./...
+
+      # The store's PostgreSQL tests are behind a build tag and need a database,
+      # so they do not run here — but they must still COMPILE, or the tag becomes
+      # a place broken code hides. This is how one of them was found broken.
+      - name: postgres-tagged tests compile
+        if: matrix.module == 'apps/api-go'
+        working-directory: ${{ matrix.module }}
+        run: go vet -tags postgres ./internal/store/
+
+  typescript:
+    name: typescript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: typecheck
+        working-directory: packages/proxy
+        run: npx tsc --noEmit -p tsconfig.json
+
+  conformance:
+    name: guard conformance suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # The suite imports the BUILT javascript. Without this it fails to resolve
+      # a module rather than reporting a test failure, which reads as the suite
+      # being broken instead of unbuilt.
+      - name: build
+        working-directory: packages/proxy
+        run: npx tsc -p tsconfig.json
+
+      - name: run the suite
+        run: node packages/proxy/test/run-all.mjs
+
+  schema:
+    name: schema applies to postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: solongate
+          POSTGRES_PASSWORD: solongate
+          POSTGRES_DB: solongate
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U solongate"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: apps/api-go/go.sum
+
+      # The checked-in files are generated. If they have drifted from the
+      # generator, the file a DBA would apply is not the one the product means.
+      - name: the checked-in schema matches the generator
+        working-directory: apps/api-go
+        run: go test ./internal/store/ -run TestCheckedInSchema
+
+      # And the file actually applies. ON_ERROR_STOP with a single transaction,
+      # because a schema that half-applies is the worst outcome of the three.
+      - name: apply tools/schema/postgres.sql
+        env:
+          PGPASSWORD: solongate
+        run: |
+          psql -h 127.0.0.1 -U solongate -d solongate \
+               -v ON_ERROR_STOP=1 --single-transaction \
+               -f tools/schema/postgres.sql
+
+      # Then the product's own EnsureRuntimeTables over the top: it has to find
+      # everything already there and change nothing, which is the claim a
+      # hardened installation without CREATE rights depends on.
+      - name: the API starts against it
+        working-directory: apps/api-go
+        env:
+          DATABASE_URL: postgres://solongate:solongate@127.0.0.1:5432/solongate?sslmode=disable
+          PORT: '3002'
+        run: |
+          go build -o /tmp/api .
+          /tmp/api > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS -o /dev/null "http://127.0.0.1:3002/api/v1/policies" && break
+            curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:3002/api/v1/policies" | grep -q 401 && break
+            sleep 1
+          done
+          cat /tmp/api.log
+          if grep -q "runtime tables not ready" /tmp/api.log; then
+            echo "::error::EnsureRuntimeTables could not apply over the checked-in schema"
+            exit 1
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:3002/api/v1/policies")
+          test "$code" = "401" || { echo "::error::unauthenticated read answered $code, want 401"; exit 1; }
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml

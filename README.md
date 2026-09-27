@@ -1,0 +1,170 @@
+# SolonGate
+
+A policy gate for AI coding agents. It sits in front of every tool call an agent
+makes — every shell command, every file read, every write — and decides whether
+it runs, against rules you wrote.
+
+The decision happens **on the machine**, in a hook the agent calls before it
+acts. There is no round trip on the decision path: the policy is compiled to
+Rego and evaluated locally, so a laptop on a plane enforces the same rules as one
+in an office.
+
+Supported agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
+
+## What is here
+
+| | |
+| --- | --- |
+| `packages/guard-go` | The hook. Runs on every tool call and decides. |
+| `packages/proxy` | The CLI and TUI (npm package `@solongate/proxy`, command `solongate`). |
+| `packages/proxy-go` | The same CLI in Go, which is what ships as the binary. |
+| `packages/sgpolicy` | The policy engine: JSON rules → Rego. |
+| `apps/api-go` | The service that stores policies and receives the audit log. |
+| `packages/sgshared` | Shapes more than one program has to agree about. |
+| `packages/aicatalog` | The model catalogue. |
+
+Everything runs on infrastructure you operate. There is no hosted service, and no
+default in this repository points at one.
+
+## Running it
+
+### 1. The database
+
+PostgreSQL, or a local sqlite file. Apply the schema for your dialect — both are
+generated from one source and checked in:
+
+```bash
+createdb solongate
+psql solongate -v ON_ERROR_STOP=1 -f tools/schema/postgres.sql
+```
+
+Do not edit those files. Regenerate them, and read the complete schema for either
+dialect without starting anything, with:
+
+```bash
+cd apps/api-go && go run ./cmd/schemadump -dialect postgres
+```
+
+A hardened installation can apply the file and never give the application CREATE
+rights: the API's own `EnsureRuntimeTables` then finds everything already there
+and does nothing, which is the same code path either way.
+
+For a seeded sqlite database to develop against, with a credential printed:
+
+```bash
+node tools/local-db.mjs
+```
+
+### 2. The API
+
+```bash
+cp .env.example .env      # then fill in DATABASE_URL
+cd apps/api-go && go run .
+```
+
+It listens on `:3002`. Every option is in [`.env.example`](.env.example); the
+only required one is `DATABASE_URL`.
+
+Sign-in is against **your** identity provider. Set `SG_OIDC_ISSUER` (and
+`SG_OIDC_CLIENT_ID` so the token's audience is checked) and the API verifies the
+ID tokens it issues.
+
+With Docker instead:
+
+```bash
+docker build -f Dockerfile.api-go -t solongate-api .
+docker run -p 3002:8080 -e DATABASE_URL=… solongate-api
+```
+
+### 3. The guard, on each developer's machine
+
+```bash
+npm i -g @solongate/proxy
+solongate
+```
+
+That opens the dataroom — the terminal UI where you add an account, write
+policies, and read the audit log.
+
+> **Pairing does not work in this build yet.** Adding an account starts a device
+> flow that finishes in a browser, on a page the deleted web dashboard used to
+> serve. `POST /api/v1/auth/device/approve` also takes the address out of the
+> request body without verifying it, which was safe only while that dashboard
+> was its one caller. Both have to be settled before anybody self-hosts this; see
+> [ENGINEERING.md](ENGINEERING.md#pairing-is-unfinished).
+
+Point it at your API:
+
+```bash
+export SOLONGATE_API_URL=https://solongate.internal.example.com
+```
+
+It defaults to `http://127.0.0.1:3002`.
+
+Nobody types a credential. Pairing writes one, and every command reads it from
+there.
+
+## The CLI
+
+```
+solongate                    the dataroom (policies, audit, settings)
+solongate policy             list, create, edit and activate policies
+solongate ratelimit          show and edit rate limits
+solongate dlp                show and edit secret detection
+solongate ghost              show and edit hidden paths
+solongate audit              browse the audit log
+solongate watch              live-tail tool calls
+solongate sessions           live agent-session feed
+solongate session <id>       one session's detail
+solongate trace              what the guard saw in this directory
+solongate stats              traffic and security statistics
+solongate alerts             spike alerts on denials, DLP and rate limits
+solongate webhooks           stream events to a URL
+solongate doctor             health check: policy, guard, local logs
+solongate repair             restore the guard, hooks and settings files
+solongate update             update SolonGate and refresh the guard
+solongate logs-server        the local audit-log service
+```
+
+Every one of these reads or changes a security posture, so they refuse to run
+without an interactive terminal and refuse when an agent marker is in the
+environment. A prompt-injected agent must not be able to switch off the thing
+watching it.
+
+## Developing
+
+Go 1.25 and Node 20+.
+
+```bash
+pnpm install
+
+cd apps/api-go       && go test ./...
+cd packages/guard-go && go test ./...
+cd packages/proxy-go && go test ./...
+cd packages/proxy    && npx tsc --noEmit -p tsconfig.json
+
+node tools/dev-go.mjs        # build and run the API locally
+```
+
+**The conformance suite is the contract.** It runs the guard as a subprocess,
+feeds it a client payload, and asserts on the exit code, the files touched and
+what reached a stub cloud — without importing any implementation's internals.
+
+It imports the built JavaScript, so `dist/` has to exist first — on a fresh
+clone it does not, and the suite fails to resolve a module rather than saying so:
+
+```bash
+cd packages/proxy && npx tsc -p tsconfig.json    # once, or after a change
+node packages/proxy/test/run-all.mjs
+```
+
+A change to the guard is correct exactly when this passes unchanged. Every case
+in it exists because the behaviour it pins was once wrong, and the comments say
+which.
+
+[ENGINEERING.md](ENGINEERING.md) is the rest: why Go, where the guard stands, and
+the failure modes that cost somebody a day.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

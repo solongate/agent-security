@@ -1,0 +1,45 @@
+[extend]
+useDefault = true
+
+# THE ALLOWLIST USED TO SAY `sg_test_[a-f0-9]+`, and that is the bug this file
+# exists to not repeat.
+#
+# It reads as "test keys are fine" and means "anything beginning sg_test_ is
+# fine". A test key is a real credential against a real project. Four of them
+# reached the history of the repository this one was carved out of, and that
+# pattern is exactly why nothing objected.
+#
+# So a fixture is allowed by BEING OBVIOUSLY NOT A CREDENTIAL, never by its
+# prefix. A real key is 48 or more hex digits of entropy, which gives two
+# properties nothing random has to be guessed at:
+#
+#   1. It is long. A body under twenty characters cannot be one.
+#   2. It is hex. A body containing any letter after `f` cannot be one.
+#
+# Every fixture in this repository fails at least one of those, and every real
+# key passes both. Checked against all 32 fixtures and the 7 real keys that were
+# found in the old history — none of the 7 is allowed by either rule.
+#
+# A new fixture needs no entry here as long as it is padded, short, or contains a
+# word. If one ever does need an entry, that is the signal it looks too much like
+# a credential to be a good fixture.
+[allowlist]
+description = "SolonGate — fixtures that cannot be credentials"
+regexTarget = "match"
+regexes = [
+  # 1. Too short to be a key.
+  '''^sg_(live|test)_[A-Za-z0-9_]{0,19}$''',
+  # 2. Carries a character hex does not have.
+  '''^sg_(live|test)_[A-Za-z0-9_]*[g-zG-Z_][A-Za-z0-9_]*$''',
+  # Test JWTs, whose whole payload is `{"admin":…,"iat":…}`. A real Supabase
+  # token carries an `iss` and a project `ref` and matches none of this.
+  '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJhZG1pbi[A-Za-z0-9_-]+''',
+]
+
+paths = [
+  '''\.env\.example''',
+  '''node_modules/''',
+  '''dist/''',
+  '''platforms/''',
+  '''dist-platforms/''',
+]

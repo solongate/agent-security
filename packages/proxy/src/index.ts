@@ -1,0 +1,368 @@
+#!/usr/bin/env node
+
+/**
+ * SolonGate MCP Proxy — Security gateway for MCP servers.
+ *
+ * Wraps any MCP server with security policies, input validation,
+ * rate limiting, and audit logging — without modifying the server's code.
+ *
+ * Usage:
+ *   solongate-proxy [options] -- <command> [args...]
+ *   solongate-proxy --config solongate.json
+ *
+ * Examples:
+ *   solongate-proxy -- node my-server.js
+ *   solongate-proxy --policy ./policy.json -- npx @playwright/mcp@latest
+ *   solongate-proxy --config solongate.json
+ *
+ * Options:
+ *   --policy <file>          Policy JSON file (default: policy.json or cloud fetch)
+ *   --name <name>            Proxy display name
+ *   --verbose                Show detailed error messages
+ *   --no-input-guard         Disable input validation
+ *   --rate-limit <n>         Per-tool rate limit (calls/min)
+ *   --global-rate-limit <n>  Global rate limit (calls/min)
+ *   --config <file>          Load full config from JSON file
+ *   --api-key <key>          SolonGate Cloud API key (enables cloud policy sync + audit)
+ *   --api-url <url>          SolonGate API URL (default: http://127.0.0.1:3002)
+ *   --upstream-url <url>     Connect to upstream via URL (SSE or HTTP)
+ *   --upstream-transport <t> Transport: stdio (default), sse, http
+ *   --port <n>               Serve downstream on HTTP port (default: stdio)
+ *   --policy-id <id>         Cloud policy ID to use (default: auto-select first)
+ *
+ * Subcommands:
+ *   solongate-proxy list                          List all policies
+ *   solongate-proxy list --policy-id <ID>         Show policy details
+ *   solongate-proxy pull --policy-id <ID>         Pull policy to local file
+ *   solongate-proxy push --policy-id <ID>         Push local file to cloud
+ */
+
+// Redirect console to stderr — MCP uses stdout for JSON-RPC. This ONLY applies
+// to the proxy runtime; the human-facing CLI subcommands (login/etc.) and
+// the bare-run welcome screen keep normal console output so their banners aren't
+// mangled with a [SolonGate] prefix.
+const CLI_SUBCOMMANDS = new Set(['update', 'repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'ghost', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks', 'dataroom']);
+// Human-facing flags/aliases that print a banner and must keep normal console
+// output (no [SolonGate] prefix): help, version, and the removed `login` alias.
+const CLI_INFO_ARGS = new Set(['login', 'help', '--help', '-h', '--version', '-v', 'version']);
+const IS_HUMAN_CLI = process.argv.length <= 2 || CLI_SUBCOMMANDS.has(process.argv[2] ?? '') || CLI_INFO_ARGS.has(process.argv[2] ?? '');
+if (!IS_HUMAN_CLI) {
+  console.log = (...args: unknown[]) => {
+    process.stderr.write(`[SolonGate] ${args.map(String).join(' ')}\n`);
+  };
+  console.warn = (...args: unknown[]) => {
+    process.stderr.write(`[SolonGate WARN] ${args.map(String).join(' ')}\n`);
+  };
+  console.error = (...args: unknown[]) => {
+    process.stderr.write(`[SolonGate ERROR] ${args.map(String).join(' ')}\n`);
+  };
+}
+
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { parseArgs } from './config.js';
+import { SolonGateProxy } from './proxy.js';
+import { c } from './cli-utils.js';
+
+// Package version for `solongate --version`, read from the shipped package.json
+// (dist/index.js sits one level below it). Falls back gracefully if unreadable.
+const PKG_VERSION: string = (() => {
+  try {
+    const p = join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
+    return (JSON.parse(readFileSync(p, 'utf-8')).version as string) || 'unknown';
+  } catch { return 'unknown'; }
+})();
+
+/**
+ * Bare-run welcome — printed when a human runs `npx @solongate/proxy` with no
+ * arguments. The proxy normally runs under an MCP client (`-- <command>`); a
+ * plain invocation means someone is trying it out, so the only thing we ask of
+ * them is the single onboarding command. No upstream wiring, no API keys.
+ */
+function printWelcome() {
+  console.log('');
+  console.log(`  ${c.bold}${c.blue4}SolonGate${c.reset} ${c.dim}secure gateway for your AI agents${c.reset}`);
+  console.log('');
+  console.log('  Get started with one command:');
+  console.log('');
+  console.log(`    ${c.cyan}solongate${c.reset}             ${c.dim}open the dataroom (login, policies, audit, settings)${c.reset}`);
+  console.log(`    ${c.cyan}solongate --help${c.reset}      ${c.dim}list every command${c.reset}`);
+  console.log('');
+  console.log(`  ${c.dim}Open the dataroom, log in from the Accounts panel to pair this${c.reset}`);
+  console.log(`  ${c.dim}device, then the guard protects every AI session with your policy.${c.reset}`);
+  console.log(`  ${c.dim}Manage it with ${c.reset}${c.cyan}solongate policy${c.reset}`);
+  console.log('');
+}
+
+/**
+ * `solongate --help` / `-h` / `help` — the FULL command tree, every sub-command
+ * and its exact syntax, so config commands (how to edit a rate limit, a policy,
+ * a DLP rule) are discoverable from the CLI without opening the dataroom. Kept in
+ * sync with the individual commands' own `help` usage blocks.
+ */
+function printHelp() {
+  const W = 46; // syntax column width
+  const head = (t: string) => console.log(`\n  ${c.bold}${t}${c.reset}`);
+  // Print a command line: cyan syntax + dim description. Long syntaxes drop to
+  // their own line with the description indented under them.
+  const cmd = (syntax: string, desc = '') => {
+    if (!desc) { console.log(`    ${c.cyan}${syntax}${c.reset}`); return; }
+    if (syntax.length <= W) {
+      console.log(`    ${c.cyan}${syntax}${c.reset}${' '.repeat(W - syntax.length)}${c.dim}${desc}${c.reset}`);
+    } else {
+      console.log(`    ${c.cyan}${syntax}${c.reset}`);
+      console.log(`    ${' '.repeat(W)}${c.dim}${desc}${c.reset}`);
+    }
+  };
+  console.log('');
+  console.log(`  ${c.bold}${c.blue4}SolonGate${c.reset} ${c.dim}secure gateway for your AI agents${c.reset}  ${c.dim}v${PKG_VERSION}${c.reset}`);
+  console.log('');
+  console.log(`  ${c.dim}Usage:${c.reset} ${c.cyan}solongate${c.reset} ${c.dim}[command]${c.reset}   ${c.dim}(no command opens the dataroom: all of this in a terminal UI)${c.reset}`);
+
+  head('Setup & status');
+  cmd('solongate', 'open the dataroom UI (login, policies, audit, settings)');
+  cmd('update', 'update SolonGate and refresh the guard (tells you if it needs sudo)');
+  cmd('update auto on|off', 'background auto-update (default off — on macOS npm -g often needs sudo)');
+  cmd('repair', 'restore the guard + hook + settings files if they were deleted or disarmed');
+  cmd('doctor', 'health check: login, policy, guard, local logs');
+  cmd('trace [--limit N]', 'what the guard saw in this directory, allows included');
+  cmd('doctor --json', 'the same health check as machine-readable JSON');
+  cmd('logs-server start', 'start the local audit-log service for the dashboard (background)');
+  cmd('logs-server stop', 'stop AND disable it (only this makes it stay down)');
+  cmd('logs-server status', 'show the local audit-log service status');
+
+  head('Policies');
+  cmd('policy list', 'list all policies');
+  cmd('policy create <name>', 'create a new empty policy');
+  cmd('policy delete <id>', 'delete a policy');
+  cmd('policy show <id>', 'show one policy (rules, mode)');
+  cmd('policy allow <id> [--command|--path|--filename|--url <val>]', 'add an ALLOW rule');
+  cmd('policy deny <id> [--command|--path|--filename|--url <val>]', 'add a DENY rule');
+  cmd('  --permission READ,WRITE,EXECUTE,NETWORK', 'scope an allow/deny to a class of call');
+  cmd('policy mode <id> <denylist|whitelist>', 'switch deny-by-default / allow-by-default');
+  cmd('policy rule <id> <ruleId> <enable|disable>', 'turn one rule on or off without deleting it');
+  cmd('policy revoke <id> <ruleId>', 'remove a rule');
+  cmd('policy activate <id> | --off', 'pin the active policy, or enforce nothing');
+  cmd('policy active', 'show the resolved active policy');
+  cmd('policy dry-run <id|file.json> [--mode denylist|whitelist]', 'replay recent traffic against rules');
+
+  head('Rate limits');
+  cmd('ratelimit show', 'current limits + change history');
+  cmd('ratelimit set --minute N [--hour N] [--day N] [--mode off|detect|block]', 'edit limits (unset fields kept)');
+  cmd('ratelimit history', 'recent limit changes');
+
+  head('DLP (secrets)');
+  cmd('dlp show', 'current mode + enabled patterns');
+  cmd('dlp mode <off|detect|block>', 'set enforcement mode');
+  cmd('dlp enable <pattern>', 'enable a built-in pattern');
+  cmd('dlp disable <pattern>', 'disable a built-in pattern');
+  cmd('dlp add-custom --name X --re <regex>', 'add a custom pattern');
+  cmd('dlp remove-custom <name>', 'remove a custom pattern');
+
+  head('Ghost (hidden paths)');
+  cmd('ghost show', 'current mode + routes');
+  cmd('ghost on | off', 'start or stop hiding the routes');
+  cmd('ghost add <glob>', 'hide one more path');
+  cmd('ghost remove <glob>', 'stop hiding one path');
+
+  head('Monitoring');
+  cmd('audit [--filter ALLOW|DENY] [--tool <s>] [--signal dlp|ratelimit] [--limit N]', 'browse the audit log');
+  cmd('audit whitelist <logId> [--scope exact|tool]', 'turn a denial into an ALLOW rule');
+  cmd('audit block <logId> [--scope exact|tool]', 'turn a call into a DENY rule');
+  cmd('stats [timeseries|drift]', 'traffic & security statistics');
+  cmd('watch [--filter DENY] [--tool <s>]', 'live-tail tool calls (Ctrl+C to stop)');
+  cmd('sessions [--all]', 'live agent-session feed (calls, denies, trust)');
+  cmd('session <id>', "one session's detail");
+
+  head('Alerts & webhooks');
+  cmd('alerts list');
+  cmd('alerts add --signal deny|dlp|ratelimit|any --threshold N --window S (--email <a> | --telegram <id> | --slack <url>)', 'spike alert');
+  cmd('alerts remove <id>');
+  cmd('webhooks list');
+  cmd('webhooks add --url <https://…> [--events denials|allowed|all]', 'event webhook');
+  cmd('webhooks remove <id>');
+
+  console.log('');
+  console.log(`  ${c.dim}Add ${c.reset}${c.cyan}--json${c.reset}${c.dim} to most read commands for machine output.${c.reset}`);
+  console.log(`  ${c.dim}Details for a command: ${c.reset}${c.cyan}solongate <command> help${c.reset}`);
+  console.log('');
+}
+
+/**
+ * HUMAN-ONLY GATE.
+ *
+ * Every command in this CLI reads or changes your security posture (policies,
+ * rate limits, DLP, the guard itself). An AI agent must never be able to run
+ * them as a tool call — otherwise a compromised or prompt-injected agent could
+ * simply disable the thing that is supposed to be watching it.
+ *
+ * Two independent signals, either one refuses:
+ *   1. No interactive terminal. An agent tool call pipes stdin/stdout, so there
+ *      is no TTY on both ends. A person at a terminal always has one.
+ *   2. A known agent marker in the environment, even if a TTY somehow exists.
+ *
+ * Our own detached logs-server daemon sets SOLONGATE_INTERNAL=1 (it is spawned
+ * by this CLI, not by an agent) and is the only exemption.
+ */
+// Env-name PREFIXES that only ever exist inside an AI agent's process tree, not
+// a plain human shell. Prefix-matched (not exact) so we catch whichever specific
+// variable a given agent leaks into a tool subprocess — e.g. Antigravity/agy
+// leaks many ANTIGRAVITY_* / CORTEX_* / GEMINI_* vars; we don't need to know
+// which one, only the family. A human who runs these commands from inside an
+// agent's integrated terminal is refused too, on purpose ("no exceptions").
+const AGENT_ENV_PREFIXES = [
+  'CLAUDECODE', 'CLAUDE_CODE', 'CLAUDE_AGENT',
+  'ANTIGRAVITY', 'CORTEX_', 'CASCADE_', 'WINDSURF', 'JETSKI', 'EXA_',
+  'GEMINI_CLI', 'GEMINI_SESSION', 'GEMINI_PROJECT', 'GEMINI_CWD',
+  'CURSOR', 'AIDER', 'OPENAI_CODEX', 'CODEX_', 'OPENCLAW', 'REPLIT', 'DEVIN',
+];
+function agentMarker(): string | null {
+  for (const k of Object.keys(process.env)) {
+    if (AGENT_ENV_PREFIXES.some((p) => k === p || k.startsWith(p))) return k;
+  }
+  return null;
+}
+function assertHumanTerminal(): void {
+  if (process.env['SOLONGATE_INTERNAL'] === '1') return;
+  const marker = agentMarker();
+  const isTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (isTty && !marker) return;
+  const w = (s: string): void => void process.stderr.write(s + '\n');
+  w('');
+  w('  SolonGate is human-only.');
+  w('  These commands control your security policy, so they cannot be run by an AI');
+  w('  agent or any non-interactive process. Run them yourself, in a terminal.');
+  w(marker ? `  (refused: agent environment detected via ${marker})` : '  (refused: no interactive terminal)');
+  w('');
+  process.exit(1);
+}
+
+async function main() {
+  // Check for subcommands: `npx @solongate/proxy <subcommand>`
+  const subcommand = process.argv[2];
+
+  // Gate the human-facing CLI. The MCP proxy runtime (`-- <cmd>`) is not gated:
+  // it is meant to be launched by a client and never edits security config.
+  if (IS_HUMAN_CLI) assertHumanTerminal();
+
+  // Help / version — print and exit before any runtime setup.
+  if (subcommand === '--help' || subcommand === '-h' || subcommand === 'help') {
+    printHelp();
+    return;
+  }
+  if (subcommand === '--version' || subcommand === '-v' || subcommand === 'version') {
+    console.log(PKG_VERSION);
+    return;
+  }
+
+  // Update check (human CLI only, never the MCP proxy runtime): look at the
+  // registry in the background and, when auto-update is ON, kick off a detached
+  // `npm install -g` so the NEXT run is the new version. Auto-update ships OFF
+  // (macOS global installs usually need sudo, so a background install there can
+  // only fail) — then this just prints one throttled "run solongate update"
+  // line. TUI paths are handled by the dataroom itself (App.tsx tuiUpdateFlow).
+  if (IS_HUMAN_CLI) {
+    const tuiBound = subcommand === 'dataroom' || (process.argv.length <= 2 && process.stdout.isTTY && process.stdin.isTTY);
+    // `update` is excluded because it is ABOUT to install: letting the
+    // background updater fire first put two `npm install -g` runs on the same
+    // global tree, and the loser fails on a bin symlink the winner is midway
+    // through replacing — after npm has already removed the old package. The
+    // machine is then left with no `solongate` on PATH, from one command that
+    // was supposed to update it.
+    if (!tuiBound && subcommand !== 'update') {
+      const { maybeSelfUpdate } = await import('./self-update.js');
+      maybeSelfUpdate();
+    }
+    // The logs-server is a SERVICE: once enabled it must survive Ctrl+C,
+    // closed terminals and reboots — resurrect it here unless the user
+    // explicitly disabled it (dataroom Settings → dashboard link row).
+    if (subcommand !== 'logs-server' && subcommand !== 'local-logs') {
+      const { ensureLogsServerDaemon } = await import('./logs-server-daemon.js');
+      ensureLogsServerDaemon();
+    }
+  }
+
+  // Bare invocation (no subcommand, no upstream). When the device is paired and
+  // we're on an interactive terminal, open the management TUI ("solongate in the
+  // CLI"). Otherwise fall back to the onboarding welcome (unpaired, or piped/CI).
+  if (process.argv.length <= 2) {
+    // On an interactive terminal, open the dataroom — even when unpaired, so the
+    // user can log in from inside it (Accounts panel). Non-TTY / piped / CI keeps
+    // the plain onboarding welcome.
+    if (process.stdout.isTTY && process.stdin.isTTY) {
+      const { launchTui } = await import('./tui/index.js');
+      await launchTui();
+      return;
+    }
+    printWelcome();
+    return;
+  }
+
+  // Interactive management TUI.
+  if (subcommand === 'dataroom') {
+    const { launchTui } = await import('./tui/index.js');
+    await launchTui();
+    return;
+  }
+
+  // Scriptable management commands (policy / ratelimit / dlp / stats / audit /
+  // agents). Kept behind a dynamic import so the proxy runtime never loads the
+  // API-client / command layer.
+  const MGMT_COMMANDS = new Set(['policy', 'ratelimit', 'dlp', 'ghost', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks']);
+  if (MGMT_COMMANDS.has(subcommand ?? '')) {
+    const { runCommand } = await import('./commands/index.js');
+    const code = await runCommand(subcommand!, process.argv.slice(3));
+    process.exit(code);
+  }
+
+  if (subcommand === 'update') {
+    // `update auto [on|off]` reads/changes the background updater; a bare
+    // `update` still just updates now, so the two can never be confused.
+    if (process.argv[3] === 'auto') {
+      const { runAutoUpdateCommand } = await import('./self-update.js');
+      process.exit(await runAutoUpdateCommand(process.argv[4]));
+    }
+    const { runUpdateCommand } = await import('./self-update.js');
+    process.exit(await runUpdateCommand());
+  }
+
+  if (subcommand === 'repair') {
+    const { runRepair } = await import('./global-install.js');
+    process.exit(await runRepair());
+  }
+
+  if (subcommand === 'logs-server' || subcommand === 'local-logs') {
+    // Serve local audit logs to the dashboard over 127.0.0.1 (no file picker).
+    const { runLogsServer } = await import('./logs-server.js');
+    await runLogsServer();
+    return;
+  }
+
+  // Everything below is the MCP PROXY runtime. It is entered ONLY for a genuine
+  // proxy invocation: an explicit upstream command after `--`, or proxy flags
+  // (`--config`, `--upstream-url`, ...). A bare unrecognized token (e.g. a typo
+  // like `solongate h`) must NOT be spawned as an upstream program — that used
+  // to fail with "spawn h ENOENT" under a wall of proxy startup logs. Show the
+  // command list instead. Written via stdout directly so it is not wrapped in a
+  // [SolonGate] prefix (an unknown token isn't in the human-CLI set).
+  const hasProxySeparator = process.argv.includes('--');
+  const looksLikeProxyFlag = (subcommand ?? '').startsWith('-');
+  if (subcommand && !hasProxySeparator && !looksLikeProxyFlag) {
+    process.stdout.write(`\n  Unknown command: ${subcommand}\n`);
+    process.stdout.write(`  Run \`solongate --help\` to see every command, or \`solongate\` for the dataroom.\n\n`);
+    process.exit(1);
+  }
+
+  try {
+    const config = parseArgs(process.argv);
+    const proxy = new SolonGateProxy(config);
+    await proxy.start();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[SolonGate] Fatal: ${message}\n`);
+    process.exit(1);
+  }
+}
+
+main();

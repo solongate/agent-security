@@ -1,0 +1,66 @@
+# SolonGate's API, in Go.
+#
+# The build context is the REPO ROOT, not this directory: go.mod reaches its
+# sibling modules through relative replaces, so they have to be inside the
+# context.
+#
+# This is the service everything else talks to. A guard hook on somebody's laptop
+# polls it for policy, the audit hook posts denials to it, and the CLI reads it —
+# and none of those is redeployed alongside it, so a change here has to stay
+# compatible with the version already on people's machines.
+#
+# Three sibling modules come with it: packages/sgshared holds the shapes more
+# than one program must agree about, packages/sgpolicy holds the policy engine
+# this service compiles WASM with and the guard evaluates with, and
+# packages/aicatalog is the model catalogue.
+
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+
+# EVERY MODULE go.mod REPLACES HAS TO BE COPIED HERE. The replaces are relative
+# - ../../packages/x from /src is /packages/x - so a new dependency with no COPY
+# here fails the build.
+#
+# `grep replace apps/api-go/go.mod` and this list are the same list.
+COPY packages/sgshared/ /packages/sgshared/
+COPY packages/sgpolicy/ /packages/sgpolicy/
+COPY packages/aicatalog/ /packages/aicatalog/
+
+# ONE FILE THAT IS NOT A DEPENDENCY, and it is here so a test can run rather
+# than so the program can build.
+#
+# securitylayers_dlp_sync_test.go reads the guard's own pattern list and fails
+# if this service publishes a different one, because the two are hand-kept
+# copies and a name missing from this side silently stops enforcing rather than
+# erroring. guard-go is package main in another module, so the test reads its
+# source; and `go test ./...` in the builder is the only gate this repo has, so
+# a test that cannot find the file in the image is a check that never runs where
+# it counts. Nothing compiles this file: it sits outside every module the build
+# resolves.
+COPY packages/guard-go/dlp.go /packages/guard-go/dlp.go
+
+COPY apps/api-go/go.mod apps/api-go/go.sum ./
+RUN go mod download
+
+COPY apps/api-go/ ./
+
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/api .
+# Tests run in the image build. Two of them are the reason: the hook bundles
+# carry a sha256 that installed guards VERIFY and refuse on mismatch, and the
+# policy JSON hashing decides whether a version history stays continuous. A
+# build that breaks either must not become an image.
+RUN go test ./...
+
+FROM alpine:3.20
+# Certificates for Turso and for the outbound calls this service makes.
+RUN apk add --no-cache ca-certificates && adduser -D -u 10001 app
+USER app
+WORKDIR /app
+COPY --from=build /out/api /app/api
+
+# No secrets here. DATABASE_URL, DATABASE_AUTH_TOKEN and the provider keys are
+# already on the service, and baking a default is how one ships by accident.
+ENV PORT=8080
+EXPOSE 8080
+
+ENTRYPOINT ["/app/api"]

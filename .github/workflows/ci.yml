@@ -67,9 +67,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No `version` input: package.json's `packageManager` field is the one
+      # source, and action-setup v4 REFUSES when both are set rather than
+      # picking one. That refusal is what failed the two pnpm jobs on the first
+      # run, five seconds in, before pnpm existed to report anything.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -84,9 +86,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No `version` input: package.json's `packageManager` field is the one
+      # source, and action-setup v4 REFUSES when both are set rather than
+      # picking one. That refusal is what failed the two pnpm jobs on the first
+      # run, five seconds in, before pnpm existed to report anything.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

@@ -3,7 +3,9 @@ package install
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -23,7 +25,50 @@ func sandbox(t *testing.T) string {
 	t.Setenv("SOLONGATE_API_URL", "http://127.0.0.1:1")
 	t.Setenv("SOLONGATE_NO_OS_LOCK", "1")
 	t.Setenv("SOLONGATE_HOOKS_DIR", "")
+
+	// UNPIN THE WHOLE TREE BEFORE t.TempDir() TRIES TO REMOVE IT.
+	//
+	// On Linux the install's lock is `chattr +i`, and where that takes — a
+	// privileged container, and a GitHub runner — an immutable file cannot be
+	// unlinked by anyone, so TempDir's cleanup fails with
+	// "unlinkat …/.solongate: directory not empty" and the test reports a
+	// failure that has nothing to do with what it was testing.
+	//
+	// UnlockProtected would seem to be the answer and is not: it walks
+	// protectedTargets(), a fixed list, and a list is exactly the thing that
+	// goes stale the next time the installer writes one more file. So this
+	// clears the bit on everything under the sandbox instead. Best effort by
+	// design — on a machine where chattr never took there is nothing to clear,
+	// and the errors from that are noise.
+	//
+	// Registered AFTER TempDir, which means it runs BEFORE it: t.Cleanup is
+	// LIFO.
+	t.Cleanup(func() { unpinTree(home) })
 	return home
+}
+
+// unpinTree clears the OS-level lock from every file under root.
+func unpinTree(root string) {
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// A directory this cannot read is one it cannot unpin either, and
+			// stopping here would leave the rest pinned.
+			return nil
+		}
+		switch runtime.GOOS {
+		case "darwin":
+			_ = exec.Command("chflags", "nouchg", path).Run()
+		case "windows":
+			// The lock is an ACL there and the temp directory is the test
+			// framework's business; nothing to do.
+		default:
+			_ = exec.Command("chattr", "-i", path).Run()
+		}
+		if !info.IsDir() {
+			_ = os.Chmod(path, 0o644)
+		}
+		return nil
+	})
 }
 
 func writeFile(t *testing.T, path, body string) {

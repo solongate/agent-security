@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -63,7 +64,7 @@ func TestDeviceGrantAgainstRealKeycloak(t *testing.T) {
 	// ── be the person at the browser ────────────────────────────────────────
 	jar, _ := cookiejar.New(nil)
 	browser := &http.Client{Jar: jar}
-	approveWithKeycloak(t, browser, start.VerifyURL)
+	approveWithKeycloak(t, browser, start.VerifyURL, start.UserCode)
 
 	// ── and now the CLI should finish ───────────────────────────────────────
 	//
@@ -93,43 +94,98 @@ func TestDeviceGrantAgainstRealKeycloak(t *testing.T) {
 }
 
 var (
-	reAction = regexp.MustCompile(`action="([^"]*)"`)
-	reCode   = regexp.MustCompile(`name="code"\s+value="([^"]*)"`)
+	reForm   = regexp.MustCompile(`(?is)<form[^>]*action="([^"]*)"[^>]*>(.*?)</form>`)
+	reField  = regexp.MustCompile(`(?is)<(?:input|button)[^>]*name="([^"]*)"[^>]*>`)
+	reHidden = regexp.MustCompile(`(?is)<input[^>]*type="hidden"[^>]*>`)
+	reName   = regexp.MustCompile(`(?is)name="([^"]*)"`)
+	reValue  = regexp.MustCompile(`(?is)value="([^"]*)"`)
+	reTitle  = regexp.MustCompile(`(?is)<title>(.*?)</title>`)
 )
 
 // approveWithKeycloak signs in and consents, the way a person would.
-func approveWithKeycloak(t *testing.T, browser *http.Client, verifyURL string) {
+//
+// IT FOLLOWS WHATEVER FORM IT IS GIVEN rather than expecting a fixed order.
+// Keycloak decides how many screens there are: a realm may ask for the code
+// first, then credentials, then consent — or skip a step because a cookie
+// already answered it, or because the version changed. Naming the steps in
+// advance is how this failed in CI while passing locally, on the same image
+// tag, because the two were handed different first pages.
+//
+// So: read the first form, fill in the fields it names from what we know, post
+// it, repeat. It stops when there is no form left, which is the status page.
+func approveWithKeycloak(t *testing.T, browser *http.Client, verifyURL, userCode string) {
 	t.Helper()
+
+	known := map[string]string{
+		"username":  "ada",
+		"password":  "hunter2",
+		"user_code": userCode,
+		"accept":    "Yes",
+		"login":     "Sign In",
+	}
 
 	page, base := get(t, browser, verifyURL)
-	loginAction := absolute(t, base, firstAction(t, page, "authenticate"))
+	for step := 1; step <= 6; step++ {
+		m := reForm.FindStringSubmatch(page)
+		if m == nil {
+			t.Logf("step %d: no form left, at %s (%s)", step, base, firstTitle(page))
+			return
+		}
+		action, body := html.UnescapeString(m[1]), m[2]
 
-	page, base = post(t, browser, loginAction, url.Values{
-		"username": {"ada"},
-		"password": {"hunter2"},
-	})
+		form := url.Values{}
+		// Hidden fields are carried verbatim: they are Keycloak's session,
+		// execution and tab ids, and dropping one restarts the flow.
+		for _, h := range reHidden.FindAllString(body, -1) {
+			n := reName.FindStringSubmatch(h)
+			v := reValue.FindStringSubmatch(h)
+			if n != nil {
+				val := ""
+				if v != nil {
+					val = html.UnescapeString(v[1])
+				}
+				form.Set(n[1], val)
+			}
+		}
+		for _, f := range reField.FindAllStringSubmatch(body, -1) {
+			if val, ok := known[f[1]]; ok {
+				form.Set(f[1], val)
+			}
+		}
+		// "cancel" is a button on the consent form and must never be sent.
+		form.Del("cancel")
 
-	// A first sign-in shows consent; a later one may not.
-	consent := firstAction(t, page, "consent")
-	if consent == "" {
-		t.Log("no consent screen; already granted")
-		return
+		t.Logf("step %d: posting %v to %s", step, formKeys(form), shorten(action))
+		page, base = post(t, browser, absolute(t, base, action), form)
 	}
-	form := url.Values{"accept": {"Yes"}}
-	if m := reCode.FindStringSubmatch(page); m != nil {
-		form.Set("code", m[1])
-	}
-	post(t, browser, absolute(t, base, consent), form)
+	t.Fatalf("the provider kept asking for more than six screens; last was %s", base)
 }
 
-func firstAction(t *testing.T, page, contains string) string {
-	t.Helper()
-	for _, m := range reAction.FindAllStringSubmatch(page, -1) {
-		if strings.Contains(m[1], contains) {
-			return html.UnescapeString(m[1])
+func formKeys(v url.Values) []string {
+	out := make([]string, 0, len(v))
+	for k := range v {
+		// The password is in here and must not reach a log.
+		if k == "password" {
+			k = "password(set)"
 		}
+		out = append(out, k)
 	}
-	return ""
+	sort.Strings(out)
+	return out
+}
+
+func shorten(s string) string {
+	if i := strings.Index(s, "?"); i > 0 {
+		return s[:i] + "?…"
+	}
+	return s
+}
+
+func firstTitle(p string) string {
+	if m := reTitle.FindStringSubmatch(p); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return "no title"
 }
 
 func absolute(t *testing.T, base *url.URL, ref string) string {

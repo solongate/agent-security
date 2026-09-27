@@ -147,7 +147,7 @@ type APIKey struct {
 
 // PolicyVersion is `policy_versions`: one row per saved revision, never
 // updated in place. Version is per-project and monotonic, which is what
-// /policies/{id}/rollback and /policies/{id}/versions are built on.
+// the append-only history is built on.
 //
 // PolicyData is the full PolicySet as stored. Hash is the SHA-256 of its
 // serialisation and travels to the guard in the /policies/active response, so

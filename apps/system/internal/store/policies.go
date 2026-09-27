@@ -9,8 +9,8 @@ import (
 // The `policy_versions` table.
 //
 // Rows are append-only: an edit writes a new version rather than updating one,
-// which is what makes /policies/{id}/versions and /policies/{id}/rollback
-// possible at all. Nothing here updates policy_data.
+// which is what keeps a hash stable once it is issued. Nothing here updates
+// policy_data.
 //
 // The hash travels to the guard and is the integrity check on a cached policy,
 // so it must be the hash of the bytes that were STORED. Re-serialising a
@@ -181,45 +181,6 @@ func (s *Store) MaxVersionByID(ctx context.Context, projectID, policyID string) 
 	return intVal(v), nil
 }
 
-// PolicyVersionPage is GET /policies/{id}/versions: one page and the total
-// behind it.
-//
-// LIMIT and OFFSET are BOUND, not interpolated, which is the parameter people
-// skip because "it is only a number" — until it is `10; DROP TABLE`, or until
-// it is 10000000 and this endpoint is how somebody reads the whole table. The
-// caller has already clamped them to the live app's 1..200; the bounds here are
-// the backstop.
-func (s *Store) PolicyVersionPage(ctx context.Context, projectID, policyID string, limit, offset int) ([]PolicyVersion, int64, error) {
-	where, args := s.policyScope(projectID, policyID)
-
-	var total int64
-	if err := s.queryRow(ctx,
-		`SELECT COUNT(*) FROM policy_versions WHERE `+where, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-
-	if offset < 0 {
-		offset = 0
-	}
-	pageArgs := append(append([]any{}, args...), ClampLimit(limit, 50, 200), offset)
-	rows, err := s.query(ctx, `SELECT `+policyColumns+` FROM policy_versions WHERE `+where+
-		` ORDER BY version DESC LIMIT ? OFFSET ?`, pageArgs...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	out := []PolicyVersion{}
-	for rows.Next() {
-		p, err := scanPolicy(rows)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, p)
-	}
-	return out, total, rows.Err()
-}
-
 // DeletePolicyByID removes every revision of one logical policy.
 func (s *Store) DeletePolicyByID(ctx context.Context, projectID, policyID string) (int64, error) {
 	where, args := s.scopeByID(projectID, policyID)
@@ -302,12 +263,11 @@ func (s *Store) ListPolicies(ctx context.Context, projectID string) ([]PolicyLis
 	return out, rows.Err()
 }
 
-// PolicyVersionHistory is GET /v1/policies/{id}/versions.
+// PolicyRulesHistory reads a policy's revisions WITHOUT their payloads.
 //
 // The limit is BOUND, not interpolated. A LIMIT is the parameter people skip
 // because "it is only a number" — until it is `10; DROP TABLE`, or until it is
-// 10000000 and this endpoint is how somebody reads the whole table.
-// PolicyRulesHistory is PolicyVersionHistory without the payloads.
+// 10000000 and this is how somebody reads the whole table.
 //
 // The audit list calls this on every page to put a NAME to a matched rule id,
 // and it only ever reads policy_data. The full history selects rego_source and
@@ -335,28 +295,6 @@ func (s *Store) PolicyRulesHistory(ctx context.Context, projectID string, limit 
 		}
 		v.ProjectID = projectID
 		out = append(out, v)
-	}
-	return out, rows.Err()
-}
-
-func (s *Store) PolicyVersionHistory(ctx context.Context, projectID string, limit int) ([]PolicyVersion, error) {
-	rows, err := s.query(ctx, `
-		SELECT id, project_id, version, policy_data, hash, reason, created_by,
-		       rego_source, wasm_bundle, created_at
-		FROM policy_versions WHERE project_id = ?
-		ORDER BY version DESC LIMIT ?`, projectID, ClampLimit(limit, 50, 500))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := []PolicyVersion{}
-	for rows.Next() {
-		p, err := scanPolicy(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, p)
 	}
 	return out, rows.Err()
 }

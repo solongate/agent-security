@@ -335,8 +335,6 @@ func TestEveryPolicyRouteRefusesWithoutAKey(t *testing.T) {
 		{"DELETE", "/api/v1/policies/p1"},
 		{"POST", "/api/v1/policies/p1/rules"},
 		{"DELETE", "/api/v1/policies/p1/rules/r1"},
-		{"GET", "/api/v1/policies/p1/versions"},
-		{"POST", "/api/v1/policies/p1/rollback"},
 		{"GET", "/api/v1/policies/p1/rego"},
 		{"POST", "/api/v1/policies/dry-run"},
 		{"POST", "/api/v1/policies/backtest"},

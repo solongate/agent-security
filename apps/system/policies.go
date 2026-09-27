@@ -33,8 +33,9 @@ import (
 // own note where it happens:
 //
 //   - policy_versions is APPEND-ONLY. Every write below inserts version N+1;
-//     nothing updates a policy in place. That is what makes /versions and
-//     /rollback possible and what makes a hash stable once it is issued.
+//     nothing updates a policy in place. That is what makes a hash stable once
+//     it is issued, which is how a guard tells whether the policy it cached is
+//     still the current one.
 //   - The HASH is SHA-256 over JavaScript's serialisation of the policy, which
 //     is not Go's. internal/policyjson exists for that and the two spellings of
 //     it here — with and without a property list — are both the live app's.
@@ -54,8 +55,6 @@ func init() {
 	Register("POST /api/v1/policies/{id}/rules", buildPolicyHandler((*server).policyAddRule))
 	Register("DELETE /api/v1/policies/{id}/rules/{ruleId}", buildPolicyHandler((*server).policyRevokeRule))
 
-	Register("GET /api/v1/policies/{id}/versions", buildPolicyHandler((*server).policyVersions))
-	Register("POST /api/v1/policies/{id}/rollback", buildPolicyHandler((*server).policyRollback))
 	Register("GET /api/v1/policies/{id}/rego", buildPolicyHandler((*server).policyRego))
 
 	Register("GET /api/v1/policies/active", buildPolicyHandler((*server).policyActiveGet))
@@ -237,7 +236,7 @@ func (s *server) policyUpdate(w http.ResponseWriter, r *http.Request, key apiaut
 // hashWithAll picks between the two hashes the live app computes, and they are
 // NOT the same function. POST and PUT hash `JSON.stringify(body,
 // Object.keys(body).sort())` — an array replacer, which is a property
-// allow-list applied at every level, not a sort. The rules routes and rollback
+// allow-list applied at every level, not a sort. The rules routes
 // hash `JSON.stringify(x)` with no replacer. Both are in front of stored data,
 // so both are reproduced; see internal/policyjson.
 type policyWrite struct {
@@ -773,175 +772,6 @@ func (s *server) policyRevokeRule(w http.ResponseWriter, r *http.Request, key ap
 	}{true, ruleID, policyID, saved.Version})
 }
 
-// ── GET /api/v1/policies/{id}/versions ──────────────────────────────────────
-
-type policyVersionEntry struct {
-	Version    int64   `json:"version"`
-	Hash       string  `json:"hash"`
-	Reason     *string `json:"reason"`
-	CreatedBy  *string `json:"created_by"`
-	CreatedAt  string  `json:"created_at"`
-	RulesCount int     `json:"rules_count"`
-}
-
-func (s *server) policyVersions(w http.ResponseWriter, r *http.Request, key apiauth.KeyInfo) {
-	policyID := r.PathValue("id")
-	q := r.URL.Query()
-
-	// `Math.min(Math.max(parseInt(x) || 50, 1), 200)`. The `|| 50` catches NaN
-	// AND zero, so `?limit=0` is fifty rather than nothing — which looks like a
-	// bug and is the deployed behaviour, and a client asking for zero rows is
-	// not a client anyone is trying to satisfy.
-	limit := policyParseIntDefault(q.Get("limit"), 50)
-	if limit == 0 {
-		limit = 50
-	}
-	if limit < 1 {
-		limit = 1
-	}
-	if limit > 200 {
-		limit = 200
-	}
-	offset := policyParseIntDefault(q.Get("offset"), 0)
-	if offset < 0 {
-		offset = 0
-	}
-
-	rows, total, err := s.store.PolicyVersionPage(r.Context(), key.ProjectID, policyID, int(limit), int(offset))
-	if err != nil {
-		apiauth.Internal(w, "api", err)
-		return
-	}
-
-	versions := make([]policyVersionEntry, 0, len(rows))
-	for _, row := range rows {
-		count := 0
-		if policy, ok := policyjson.ParseObject(row.PolicyData); ok {
-			if rules, isArr := policyjson.Array(policy.Get("rules")); isArr {
-				count = len(rules)
-			}
-		}
-		versions = append(versions, policyVersionEntry{
-			Version:    row.Version,
-			Hash:       row.Hash,
-			Reason:     policyNullableString(row.Reason),
-			CreatedBy:  policyNullableString(row.CreatedBy),
-			CreatedAt:  store.ISO(row.CreatedAt),
-			RulesCount: count,
-		})
-	}
-
-	apiauth.JSON(w, http.StatusOK, struct {
-		Versions   []policyVersionEntry `json:"versions"`
-		Pagination struct {
-			Total  int64 `json:"total"`
-			Limit  int64 `json:"limit"`
-			Offset int64 `json:"offset"`
-		} `json:"pagination"`
-	}{
-		Versions: versions,
-		Pagination: struct {
-			Total  int64 `json:"total"`
-			Limit  int64 `json:"limit"`
-			Offset int64 `json:"offset"`
-		}{Total: total, Limit: limit, Offset: offset},
-	})
-}
-
-// ── POST /api/v1/policies/{id}/rollback ─────────────────────────────────────
-
-func (s *server) policyRollback(w http.ResponseWriter, r *http.Request, key apiauth.KeyInfo) {
-	policyID := r.PathValue("id")
-	ctx := r.Context()
-
-	raw, err := io.ReadAll(r.Body)
-	if err != nil {
-		apiauth.Internal(w, "api", err)
-		return
-	}
-	parsed, err := policyjson.Parse(raw)
-	if err != nil {
-		// `await request.json()` with no catch: a malformed body lands in the
-		// route's try/catch and answers 500, not 400. Kept, because a client
-		// that has been handling a 500 here for a year is not helped by a new
-		// status code.
-		apiauth.Internal(w, "api", err)
-		return
-	}
-	body, _ := parsed.(*policyjson.Object)
-	target, isNumber := body.Get("version").(float64)
-	if !isNumber {
-		// `typeof body.version !== 'number'` — a string "3" is refused, which
-		// is stricter than it looks and is what stops a rollback to whatever
-		// SQLite decides "3abc" compares equal to.
-		apiauth.BadRequest(w, "Missing required field: version (number)")
-		return
-	}
-
-	row, err := s.store.PolicyVersionAt(ctx, key.ProjectID, policyID, policyNumberArg(target))
-	if errors.Is(err, store.ErrNotFound) {
-		apiauth.Error(w, http.StatusNotFound, "ERROR",
-			"Version "+policyjson.NumberString(target)+" not found for this policy")
-		return
-	}
-	if err != nil {
-		apiauth.Internal(w, "api", err)
-		return
-	}
-
-	next, err := s.store.MaxVersionForPolicy(ctx, key.ProjectID, policyID)
-	if err != nil {
-		apiauth.Internal(w, "api", err)
-		return
-	}
-	newVersion := next + 1
-
-	// The rolled-back policy is re-serialised rather than copied byte for byte,
-	// because the original hashes `JSON.stringify(targetEntry.policyData)` —
-	// the DECODED column, put back through the serialiser. For a row this
-	// service wrote the two are identical; for one written with whitespace they
-	// are not, and the hash has to match what the live app would have computed.
-	restored, ok := policyjson.ParseObject(row.PolicyData)
-	if !ok {
-		apiauth.Internal(w, "api", errors.New("policies: stored policy is not an object"))
-		return
-	}
-	stored := policyjson.Stringify(restored, nil)
-	hash := policySHA256(stored)
-
-	opa, _ := policycompile.Compile(ctx, json.RawMessage(stored))
-
-	id := policyNewID()
-	if id == "" {
-		apiauth.Internal(w, "api", errors.New("policies: could not generate an id"))
-		return
-	}
-	err = s.store.InsertPolicyVersion(ctx, store.PolicyVersion{
-		ID:         id,
-		ProjectID:  key.ProjectID,
-		Version:    newVersion,
-		PolicyData: json.RawMessage(stored),
-		Hash:       hash,
-		Reason:     "Rolled back to version " + policyjson.NumberString(target),
-		// The literal string "api", not a user id. It is what the live app
-		// writes and what the version list shows for a rollback.
-		CreatedBy:  "api",
-		RegoSource: opa.RegoSource,
-		WasmBundle: opa.WasmBundleB64,
-		CreatedAt:  store.Now(),
-	})
-	if err != nil {
-		apiauth.Internal(w, "api", err)
-		return
-	}
-
-	apiauth.JSON(w, http.StatusCreated, json.RawMessage(
-		`{"version":`+strconv.FormatInt(newVersion, 10)+
-			`,"rolled_back_from":`+policyjson.NumberString(target)+
-			`,"policy_id":`+policyjson.Stringify(policyID, nil)+
-			`,"hash":`+policyjson.Stringify(hash, nil)+`}`))
-}
-
 // ── GET /api/v1/policies/{id}/rego ──────────────────────────────────────────
 
 // policyRego serves the policy as Rego source.
@@ -1021,7 +851,9 @@ func policyReadObject(w http.ResponseWriter, r *http.Request) (*policyjson.Objec
 	v, err := policyjson.Parse(raw)
 	if err != nil {
 		// `await request.json()` throws into the route's catch, which answers
-		// 500 with INTERNAL_ERROR. Not 400 — see the note in policyRollback.
+		// 500 with INTERNAL_ERROR rather than 400. That is the live behaviour
+		// and it is reproduced rather than corrected: a caller matching on the
+		// status would break on a change that gains nobody anything.
 		apiauth.Internal(w, "api", err)
 		return nil, false
 	}

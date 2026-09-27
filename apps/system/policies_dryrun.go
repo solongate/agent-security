@@ -130,7 +130,7 @@ func policyReadReplayRequest(w http.ResponseWriter, r *http.Request) (policyRepl
 	parsed, err := policyjson.Parse(raw)
 	if err != nil {
 		// `await request.json()` with no catch, so a malformed body is a 500
-		// here rather than a 400. See the note in policyRollback.
+		// here rather than a 400: the caller sent nothing wrong.
 		apiauth.Internal(w, "api", err)
 		return req, false
 	}

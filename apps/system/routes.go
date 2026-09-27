@@ -162,10 +162,8 @@ var routes = []route{
 	{path: "/api/v1/policies/backtest", methods: []string{"POST"}, source: "src/app/api/v1/policies/backtest/route.ts", auth: authKey, limit: limValidation},
 	{path: "/api/v1/policies/dry-run", methods: []string{"POST"}, source: "src/app/api/v1/policies/dry-run/route.ts", auth: authKey, limit: limValidation},
 	{path: "/api/v1/policies/{id}/rego", methods: []string{"GET"}, source: "src/app/api/v1/policies/[id]/rego/route.ts", auth: authKey},
-	{path: "/api/v1/policies/{id}/rollback", methods: []string{"POST"}, source: "src/app/api/v1/policies/[id]/rollback/route.ts", auth: authKey},
 	{path: "/api/v1/policies/{id}/rules/{ruleId}", methods: []string{"DELETE"}, source: "src/app/api/v1/policies/[id]/rules/[ruleId]/route.ts", auth: authKey},
 	{path: "/api/v1/policies/{id}/rules", methods: []string{"POST"}, source: "src/app/api/v1/policies/[id]/rules/route.ts", auth: authKey},
-	{path: "/api/v1/policies/{id}/versions", methods: []string{"GET"}, source: "src/app/api/v1/policies/[id]/versions/route.ts", auth: authKey},
 	{path: "/api/v1/policies/{id}/wasm", methods: []string{"GET"}, source: "src/app/api/v1/policies/[id]/wasm/route.ts", auth: authKey},
 	{path: "/api/v1/policies/{id}", methods: []string{"GET", "PUT", "DELETE"}, source: "src/app/api/v1/policies/[id]/route.ts", auth: authKey},
 	{path: "/api/v1/policies/learn", methods: []string{"POST"}, source: "src/app/api/v1/policies/learn/route.ts", auth: authKey, limit: limValidation},
@@ -218,7 +216,7 @@ var routes = []route{
 // a row disappearing, and a row is a row whoever wrote it; splitting the count
 // into "ported" and "ours" would make the assertion weaker in exchange for a
 // distinction the source column already draws.
-const routeCount = 64
+const routeCount = 62
 
 // routeHandlers is how a finished route slice replaces a stub.
 //

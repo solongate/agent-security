@@ -64,7 +64,7 @@ const (
 // cached policy changed by comparing that hash.
 //
 // So a bundle hashes over its whole serialisation, which is the spelling
-// rollback and the rules routes already use. A document with no bundle keys
+// the rules routes already use. A document with no bundle keys
 // hashes exactly as it does today, byte for byte, so nothing already stored
 // changes hash when it is saved again unchanged.
 func policyCarriesBundle(o *policyjson.Object) bool {

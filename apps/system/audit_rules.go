@@ -25,8 +25,9 @@ import (
 // They are symmetric: whitelist takes a DENY and adds an ALLOW so the call
 // stops being refused; block takes an ALLOW and adds a DENY so it starts being.
 // Both write a NEW policy version rather than editing one, because
-// policy_versions is append-only and the version history is what /rollback is
-// built on.
+// policy_versions is append-only — which is what keeps a hash stable once it is
+// issued, and a stable hash is how a guard tells whether the policy it cached is
+// still the current one.
 //
 // Both authenticate on an API key, and the project is the key's. There used to
 // be a second path here: an `x-manage-admin` header matching a shared secret let

@@ -35,11 +35,18 @@ subprocess, feeds it a client payload, and asserts on the exit code, the files
 touched, and what reached a stub cloud. Nothing in it imports any
 implementation's internals.
 
-    node packages/proxy/test/run-all.mjs                    # installed hook
-    SG_HOOK=/abs/path/to/solongate-guard node ...           # a candidate
+    SG_HOOK=$PWD/packages/proxy/hooks/guard.bundled.mjs node packages/proxy/test/run-all.mjs
+    SG_HOOK=/abs/path/to/solongate-guard               node packages/proxy/test/run-all.mjs
 
-The path has to be absolute: the suite spawns the guard with `cwd` set to a
-sandbox, so a relative one resolves against that and fails with ENOENT.
+The path has to be ABSOLUTE: the suite spawns the guard with `cwd` set to a
+sandbox, so a relative one resolves against that and fails with ENOENT on every
+case, reading as a total failure rather than a bad invocation.
+
+And it has to be GIVEN. The default is the hook installed in your home
+directory, which means the suite passes on a machine that has SolonGate
+installed and fails five of its ten files on one that does not — including every
+CI runner. That is the wrong way round for a contract: it should be judging the
+build in front of it, not whatever the developer happens to have.
 
 A reimplementation is correct exactly when it passes this unchanged. Every case
 in there exists because the behaviour it pins was once wrong; the comments say

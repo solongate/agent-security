@@ -165,13 +165,23 @@ node tools/dev-go.mjs        # build and run the API locally
 feeds it a client payload, and asserts on the exit code, the files touched and
 what reached a stub cloud — without importing any implementation's internals.
 
-It imports the built JavaScript, so `dist/` has to exist first — on a fresh
-clone it does not, and the suite fails to resolve a module rather than saying so:
+Two things it needs, and neither announces itself:
+
+- `dist/` has to exist — it imports the built JavaScript, and on a fresh clone it
+  fails to resolve a module rather than saying so.
+- `SG_HOOK` has to name a guard. The default is the hook installed in your home
+  directory, so a machine with SolonGate installed passes and a fresh one fails
+  five of the ten files against a path that is not there.
 
 ```bash
 cd packages/proxy && npx tsc -p tsconfig.json    # once, or after a change
-node packages/proxy/test/run-all.mjs
+SG_HOOK=$PWD/packages/proxy/hooks/guard.bundled.mjs \
+  node packages/proxy/test/run-all.mjs
 ```
+
+The bundled build is the one that ships — the installer prefers it, with
+opa-wasm inlined — so it is the one worth judging. Point `SG_HOOK` at any other
+implementation to judge that instead; nothing in the suite imports internals.
 
 A change to the guard is correct exactly when this passes unchanged. Every case
 in it exists because the behaviour it pins was once wrong, and the comments say

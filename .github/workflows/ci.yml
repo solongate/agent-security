@@ -104,7 +104,18 @@ jobs:
         working-directory: packages/proxy
         run: npx tsc -p tsconfig.json
 
+      # SG_HOOK, because the suite defaults to the hook INSTALLED in the home
+      # directory and a runner has none. Without it five of the ten files fail
+      # against a path that does not exist, which reads as the guard being
+      # broken rather than absent — and it passes on a developer's laptop, where
+      # one is installed, so nothing says so until CI.
+      #
+      # The bundled build is the one under test because it is the one that
+      # ships: readGuard in global-install.ts prefers it, with opa-wasm inlined,
+      # and writes it out as the installed hook.
       - name: run the suite
+        env:
+          SG_HOOK: ${{ github.workspace }}/packages/proxy/hooks/guard.bundled.mjs
         run: node packages/proxy/test/run-all.mjs
 
   schema:

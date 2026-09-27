@@ -219,11 +219,15 @@ func (s *Store) timeBucket(column string, b Bucket) string {
 // they stand: TEXT means the same thing in both, and both take
 // `CREATE TABLE IF NOT EXISTS`. Three things differ and all three matter.
 //
-// INTEGER is 32 bits in PostgreSQL and 64 in SQLite. device_codes.expires_at
-// holds milliseconds since the epoch, which is about 1.7e12 — it does not fit,
-// and the failure would be an insert error on a customer's database rather than
-// anything this code could catch. The swap is blanket rather than per column for
-// that reason: the next millisecond column must not have to be remembered.
+// INTEGER is 32 bits in PostgreSQL and 64 in SQLite, and the swap is BLANKET
+// rather than per column on purpose.
+//
+// The source cannot tell you which columns need it: SQLite's INTEGER is already
+// 64 bits, so a column holding milliseconds since the epoch (about 1.7e12) and a
+// column holding a small count are spelled identically and behave identically
+// there. Widening the ones somebody remembered would leave the rest to fail as
+// an insert error on a customer's database, years in, on the row that finally
+// exceeded two billion.
 //
 // REAL is 32-bit floating point in PostgreSQL and 64-bit in SQLite, so a trust
 // score written as 0.8271 would come back as 0.8271000385284424.

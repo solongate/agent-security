@@ -72,8 +72,8 @@ func (s *server) mintProjectKey(w http.ResponseWriter, r *http.Request, key apia
 		return
 	}
 
-	// The shape /auth/device/approve answers with, so a CLI that already knows
-	// how to read a pairing can read this without learning a second one.
+	// The shape /auth/session answers with, so a CLI that already knows how to
+	// read a sign-in can read this without learning a second one.
 	apiauth.JSON(w, http.StatusOK, map[string]any{
 		"api_key": liveKey,
 		"project": map[string]any{"id": project.ID, "name": project.Name},

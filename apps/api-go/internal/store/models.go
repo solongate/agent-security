@@ -4,7 +4,7 @@ import "encoding/json"
 
 // The tables, as Go.
 //
-// These are src/db/schema.ts's twenty-six, in its order, plus device_codes —
+// These are the schema's tables, in its order —
 // which src/db/index.ts creates at runtime and never declared in the drizzle
 // schema, and which the whole CLI login flow is built on.
 //
@@ -524,31 +524,6 @@ type SolonUsage struct {
 	UpdatedAt    int64
 }
 
-// ── created by src/db/index.ts at runtime ───────────────────────────────────
-
-// DeviceCode is `device_codes`, the CLI's device-authorisation flow.
-//
-// CreatedAt and ExpiresAt are MILLISECONDS, unlike every other table here,
-// because the routes write Date.now(). Storing seconds would make every code
-// look fifty-five years expired.
-//
-// APIKey holds a live key in plaintext between approval and the CLI's next
-// poll, and the poll route nulls it in the same statement that marks the row
-// consumed. That window is the design; widening it — by logging the row, by
-// returning it twice — hands out a project credential.
-type DeviceCode struct {
-	DeviceCode  string
-	UserCode    string
-	Status      string
-	APIKey      string
-	ProjectID   string
-	ProjectName string
-	UserEmail   string
-	UserName    string
-	CreatedAtMS int64
-	ExpiresAtMS int64
-}
-
 // The value sets the write paths check against. They are the enums from
 // schema.ts, which SQLite does not enforce: the columns are plain TEXT, so a
 // value outside these would be stored happily and read back as garbage by
@@ -563,7 +538,6 @@ var (
 	DelegationStatuses    = []string{"active", "revoked", "expired"}
 	Permissions           = []string{"READ", "WRITE", "EXECUTE", "NETWORK"}
 	AnomalySeverities     = []string{"low", "medium", "high"}
-	DeviceCodeStatuses    = []string{"pending", "approved", "consumed"}
 	PolicyDecisionEffects = []string{"ALLOW", "DENY"}
 )
 

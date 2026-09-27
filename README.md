@@ -65,9 +65,15 @@ cd apps/api-go && go run .
 It listens on `:3002`. Every option is in [`.env.example`](.env.example); the
 only required one is `DATABASE_URL`.
 
-Sign-in is against **your** identity provider. Set `SG_OIDC_ISSUER` (and
-`SG_OIDC_CLIENT_ID` so the token's audience is checked) and the API verifies the
-ID tokens it issues.
+Sign-in is against **your** identity provider. Set `SG_OIDC_ISSUER` and
+`SG_OIDC_CLIENT_ID` — the client has to allow the device authorization grant, and
+being public (no secret) is correct for one that runs on a laptop. The API then
+verifies the ID tokens that provider issues, and `GET /api/v1/auth/config` is how
+each CLI learns where to send somebody, so nothing is configured per machine.
+
+Without `SG_OIDC_ISSUER` there is nobody to sign in against and the CLI says so.
+For local development, `tools/local-db.mjs` seeds a project and prints a
+credential to use directly.
 
 With Docker instead:
 
@@ -86,12 +92,24 @@ solongate
 That opens the dataroom — the terminal UI where you add an account, write
 policies, and read the audit log.
 
-> **Pairing does not work in this build yet.** Adding an account starts a device
-> flow that finishes in a browser, on a page the deleted web dashboard used to
-> serve. `POST /api/v1/auth/device/approve` also takes the address out of the
-> request body without verifying it, which was safe only while that dashboard
-> was its one caller. Both have to be settled before anybody self-hosts this; see
-> [ENGINEERING.md](ENGINEERING.md#pairing-is-unfinished).
+Adding an account signs in **against your identity provider**, not against us.
+The CLI shows a code, the person enters it at the provider — on the laptop, or on
+a phone if the laptop is headless — and the provider issues a token the service
+verifies against the provider's own keys. That is the OAuth device grant
+(RFC 8628), the same flow `gh` and `az` use, and for the same reason: a terminal
+cannot receive a redirect, and a browser is the only place anybody should type a
+password.
+
+```
+  Enter this code:
+  WDJB-MJHT
+
+  at:
+  https://idp.example.com/activate
+```
+
+Nobody types a credential. The exchange writes one and every command reads it
+from there.
 
 Point it at your API:
 
@@ -100,9 +118,6 @@ export SOLONGATE_API_URL=https://solongate.internal.example.com
 ```
 
 It defaults to `http://127.0.0.1:3002`.
-
-Nobody types a credential. Pairing writes one, and every command reads it from
-there.
 
 ## The CLI
 

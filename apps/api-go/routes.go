@@ -131,10 +131,11 @@ var routes = []route{
 	// read as a promise to bring the delete back.
 	{path: "/api/v1/audit-logs", methods: []string{"GET", "POST"}, source: "src/app/api/v1/audit-logs/route.ts", auth: authKey},
 
-	{path: "/api/v1/auth/device/approve", methods: []string{"POST"}, source: "src/app/api/v1/auth/device/approve/route.ts", auth: authIP, limit: limAuth, ipPrefix: "device-approve"},
-	{path: "/api/v1/auth/device/check", methods: []string{"GET"}, source: "src/app/api/v1/auth/device/check/route.ts", auth: authIP, limit: limDevicePoll, ipPrefix: "device-check"},
-	{path: "/api/v1/auth/device/poll", methods: []string{"POST"}, source: "src/app/api/v1/auth/device/poll/route.ts", auth: authIP, limit: limDevicePoll, ipPrefix: "device-poll"},
-	{path: "/api/v1/auth/device/start", methods: []string{"POST"}, source: "src/app/api/v1/auth/device/start/route.ts", auth: authIP, limit: limAuth, ipPrefix: "device-start"},
+	// Which identity provider a CLI should sign in against. Public by nature —
+	// an issuer URL and a public client id — and answered before any credential
+	// exists, so it is per-IP limited like the rest of the pre-credential
+	// routes. See auth_config.go.
+	{path: "/api/v1/auth/config", methods: []string{"GET"}, auth: authIP, limit: limAuth, ipPrefix: "auth-config", done: true},
 	{path: "/api/v1/auth/me", methods: []string{"GET"}, source: "src/app/api/v1/auth/me/route.ts", auth: authKey},
 	{path: "/api/v1/auth/profile", methods: []string{"GET", "PUT"}, source: "src/app/api/v1/auth/profile/route.ts", auth: authKey},
 	{path: "/api/v1/auth", methods: []string{"POST"}, source: "src/app/api/v1/auth/route.ts", auth: authIP, limit: limAuth},
@@ -221,7 +222,7 @@ var routes = []route{
 // a row disappearing, and a row is a row whoever wrote it; splitting the count
 // into "ported" and "ours" would make the assertion weaker in exchange for a
 // distinction the source column already draws.
-const routeCount = 70
+const routeCount = 67
 
 // routeHandlers is how a finished route slice replaces a stub.
 //

@@ -215,7 +215,7 @@ func TestISOMatchesToISOString(t *testing.T) {
 	if got := ISOPtr(nil); got != nil {
 		t.Errorf("ISOPtr(nil) = %v, want a JSON null", got)
 	}
-	// device_codes is the one table in milliseconds.
+	// Milliseconds, which is what NowMS and every timestamp on the wire use.
 	if got := ISOms(1_700_000_000_123); got != "2023-11-14T22:13:20.123Z" {
 		t.Errorf("ISOms = %q, want the millisecond reading", got)
 	}

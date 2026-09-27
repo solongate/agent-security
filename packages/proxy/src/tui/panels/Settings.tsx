@@ -82,6 +82,8 @@ type Row =
 interface LoginState {
   phase: 'starting' | 'waiting' | 'done' | 'error';
   url?: string;
+  /** The code the person types at the identity provider. */
+  code?: string;
   msg?: string;
 }
 
@@ -330,12 +332,12 @@ export function SettingsPanel({
         setLogin({ phase: 'error', msg: 'could not reach SolonGate: ' + (e instanceof Error ? e.message : String(e)) });
         return;
       }
-      setLogin({ phase: 'waiting', url: start.verifyUrl });
+      setLogin({ phase: 'waiting', url: start.verifyUrlPlain || start.verifyUrl, code: start.userCode });
       openBrowser(start.verifyUrl);
       while (Date.now() < start.expiresAt && !abort.current) {
         await new Promise((r) => setTimeout(r, start.intervalMs));
         if (abort.current) return;
-        const res = await pollDeviceLogin(DEFAULT_API_URL, start.deviceCode);
+        const res = await pollDeviceLogin(DEFAULT_API_URL, start);
         if (res.status === 'approved' && res.apiKey) {
           saveAccount({ apiKey: res.apiKey, apiUrl: DEFAULT_API_URL, project: res.project, user: res.user, email: res.email });
           setLogin({ phase: 'done', msg: `✓ added ${res.email || res.user || res.project || 'account'}` });
@@ -344,8 +346,15 @@ export function SettingsPanel({
           reloadAll();
           return;
         }
-        if (res.status === 'expired' || res.status === 'not_found') {
-          setLogin({ phase: 'error', msg: 'code expired — press n to retry' });
+        if (res.status === 'expired') {
+          setLogin({ phase: 'error', msg: 'the code expired — press n to retry' });
+          return;
+        }
+        // The provider, or this service, said no. The reason is the useful
+        // half: "refused at the identity provider" and "minted for a different
+        // audience" are the same screen otherwise.
+        if (res.status === 'denied') {
+          setLogin({ phase: 'error', msg: res.message || 'the sign-in was refused — press n to retry' });
           return;
         }
       }
@@ -745,15 +754,33 @@ export function SettingsPanel({
           Add an account
         </Text>
         {login.phase === 'starting' ? (
-          <Text color={theme.dim}>{spin} starting device pairing…</Text>
+          <Text color={theme.dim}>{spin} asking your identity provider…</Text>
         ) : (
+          // THE CODE IS THE POINT AND IT IS SHOWN. A provider may or may not
+          // honour verification_uri_complete, the browser may not open at all,
+          // and the whole reason this grant exists is that the person can
+          // finish on a DIFFERENT device — a phone, with the laptop headless.
           <Box flexDirection="column" marginTop={1}>
-            <Text color={theme.dim}>Opening your browser to authorize. If it didn't open, visit:</Text>
-            <Text color={theme.accentBright} bold wrap="truncate">
-              {login.url}
-            </Text>
+            <Text color={theme.dim}>Sign in with your organisation's identity provider.</Text>
+            <Box marginTop={1} flexDirection="column">
+              <Text color={theme.dim}> Enter this code:</Text>
+              <Text color={theme.accentBright} bold>
+                {' '}
+                {login.code}
+              </Text>
+            </Box>
+            <Box marginTop={1} flexDirection="column">
+              <Text color={theme.dim}> at:</Text>
+              <Text color={theme.accentBright} bold wrap="truncate">
+                {' '}
+                {login.url}
+              </Text>
+            </Box>
             <Box marginTop={1}>
-              <Text color={theme.warn}>{spin} waiting for authorization… </Text>
+              <Text color={theme.dim}>Your browser should have opened there. It works from a phone too.</Text>
+            </Box>
+            <Box marginTop={1}>
+              <Text color={theme.warn}>{spin} waiting for you to finish… </Text>
               <Text color={theme.dim}>esc to cancel</Text>
             </Box>
           </Box>

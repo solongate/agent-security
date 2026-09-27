@@ -711,10 +711,13 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 			p.loginMsg = "timed out — press n to retry"
 			return p, nil
 		}
-		code := p.loginStart.DeviceCode
+		// The whole flight, not just a code: Poll talks to the identity
+		// provider's token endpoint, and DeviceStart is what knows where that
+		// is. See internal/api/device.go.
+		start := p.loginStart
 		t := p.tag()
 		return p, func() tea.Msg {
-			return setLoginPollMsg{genTag: t, token: m.token, res: p.deps.API.Device.Poll(bg(), config.DefaultAPIURL, code)}
+			return setLoginPollMsg{genTag: t, token: m.token, res: p.deps.API.Device.Poll(bg(), config.DefaultAPIURL, start)}
 		}
 
 	case setLoginPollMsg:
@@ -760,9 +763,20 @@ func (p *Settings) onLoginPoll(m setLoginPollMsg) tea.Cmd {
 			func() tea.Msg { return tui.ViewAccountMsg{APIKey: acc.APIKey, APIURL: acc.APIURL} },
 		)
 
-	case api.DeviceExpired, api.DeviceNotFound:
+	case api.DeviceExpired:
 		p.login = loginError
-		p.loginMsg = "code expired — press n to retry"
+		p.loginMsg = "the code expired — press n to retry"
+		return nil
+
+	// The provider, or this service, said no. It carries a reason and the
+	// reason is the useful half: "refused at the identity provider" and "minted
+	// for a different audience" are the same screen otherwise.
+	case api.DeviceDenied:
+		p.login = loginError
+		p.loginMsg = m.res.Message
+		if p.loginMsg == "" {
+			p.loginMsg = "the sign-in was refused — press n to retry"
+		}
 		return nil
 	}
 	t, token := p.tag(), p.loginToken
@@ -1560,19 +1574,40 @@ func (p *Settings) View(ctx tui.PanelContext) string {
 	return clip(p.viewList(), p.cols, p.rows)
 }
 
+// viewLogin is the device grant, on screen.
+//
+// THE CODE IS THE POINT AND IT IS SHOWN. A provider may or may not honour
+// verification_uri_complete, the browser may not open at all, and the whole
+// reason this grant exists is that the person can finish on a DIFFERENT device —
+// a phone, with the laptop headless. So the code is rendered large and plainly,
+// beside the address without it in, and the convenience URL is the third line
+// rather than the only one.
 func (p *Settings) viewLogin() string {
 	spin := spinFrames[p.spin%len(spinFrames)]
 	var out []string
 	out = append(out, stAccentB.Render("Add an account"))
 	if p.login == loginStarting {
-		out = append(out, stDim.Render(spin+" starting device pairing…"))
+		out = append(out, stDim.Render(spin+" asking your identity provider…"))
 		return joinLines(out)
 	}
+
 	out = append(out, "")
-	out = append(out, stDim.Render("Opening your browser to authorize. If it didn't open, visit:"))
-	out = append(out, stAccentB.Render(truncate(p.loginURL, p.cols)))
+	out = append(out, stDim.Render("Sign in with your organisation's identity provider."))
 	out = append(out, "")
-	out = append(out, stWarn.Render(spin+" waiting for authorization… ")+stDim.Render("esc to cancel"))
+	out = append(out, stDim.Render("  Enter this code:"))
+	out = append(out, "  "+stAccentB.Render(p.loginStart.UserCode))
+	out = append(out, "")
+
+	where := p.loginStart.VerifyURLPlain
+	if where == "" {
+		where = p.loginURL
+	}
+	out = append(out, stDim.Render("  at:"))
+	out = append(out, "  "+stAccentB.Render(truncate(where, p.cols-2)))
+	out = append(out, "")
+	out = append(out, stDim.Render("Your browser should have opened there. It works from a phone too."))
+	out = append(out, "")
+	out = append(out, stWarn.Render(spin+" waiting for you to finish… ")+stDim.Render("esc to cancel"))
 	return joinLines(out)
 }
 

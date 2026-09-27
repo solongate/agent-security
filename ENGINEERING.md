@@ -133,39 +133,58 @@ ways to read the shape without guessing:
     cd apps/api-go && go run ./cmd/schemadump -dialect postgres
     node tools/local-db.mjs                       # a seeded sqlite copy to run against
 
-## Pairing is unfinished
+## Signing in from a terminal
 
-A machine gets its credential by device flow: the CLI asks the API for a code,
-the person approves it, and the CLI polls until a credential comes back. Two
-things about that are not finished, and they are the same thing seen twice.
+A machine gets its credential through the OAuth 2.0 Device Authorization Grant
+(RFC 8628), run against **the operator's identity provider** and not against this
+service. The CLI shows a code, the person enters it at the provider, the CLI
+polls the provider's token endpoint, and the ID token it gets back is exchanged
+at `/auth/session` for a project-scoped credential.
 
-**There is no page to approve on.** `POST /auth/device/start` answers with a
-`verification_uri` built from `DASHBOARD_URL`, pointing at a `/cli` page the web
-dashboard served. That dashboard is not part of this build. With `DASHBOARD_URL`
-unset the API now OMITS the two URI fields rather than emitting a relative path a
-CLI would try to open — absent keys are something a caller can detect, a
-malformed URL is not — but omitting them does not give anybody somewhere to click.
+THE PREVIOUS FLOW HAD A HOLE AND THIS CLOSES IT BY CONSTRUCTION. The device
+endpoints used to be ours, finished on a page the hosted dashboard served, and
+`POST /auth/device/approve` took the person's address out of the REQUEST BODY
+without verifying it — possession of a user code was the whole authorisation.
+That was defensible only while the dashboard was its one caller and had already
+authenticated somebody. With no dashboard it would have been the only way in and
+it verified nothing. It is deleted: four routes, the `device_codes` table and its
+store.
 
-**And approve trusts the request body.** `POST /auth/device/approve` takes
-`{user_code, email}` and mints a live credential for that address WITHOUT
-verifying it. Possession of a pending user code is the whole authorisation; the
-only other protection is a per-IP rate limit. That was defensible while the
-dashboard was the one caller, because the dashboard had already authenticated the
-person. With no dashboard it is the only way in and it verifies nothing.
+Now nothing reads an address from a request. `authVerifyOIDCToken` verifies the
+token's signature against the provider's published keys, checks the audience
+against `SG_OIDC_CLIENT_ID`, and takes the address from the claims. A caller can
+assert whatever it likes in a body; none of it is read.
 
-Either shape closes both:
+Three things worth knowing before changing any of it:
 
-- **Serve the approval page from the API.** Keeps the contract the installed CLIs
-  already speak, and `approve` starts requiring a verified session — the email
-  comes from the token instead of the body. Needs the OIDC authorization-code
-  flow, which the deleted dashboard had and this service does not.
-- **Drop the device flow.** The operator provisions the credential and the
-  machine reads it from the environment. Smaller, and it fits a CLI-only product
-  — but it puts a credential in somebody's hands, which is the thing the pairing
-  flow exists to avoid.
+- **The code is shown, not hidden in the URL.** `verification_uri_complete` is a
+  convenience a provider may not offer and a browser may not open, and the whole
+  reason this grant exists is that somebody can finish on a different device —
+  a phone, with the laptop headless. Both addresses come back from `Start`.
+- **A transport failure is `pending`, never an error.** The person is in a
+  browser during the poll loop; a dropped frame must not end a sign-in they are
+  halfway through. `ExpiresAt` is what ends it. Only the provider saying
+  `expired_token` or `access_denied` ends it early.
+- **A non-2xx is decoded rather than refused.** RFC 6749 puts the error in the
+  body with a 400, and `authorization_pending` — the normal state for most of the
+  flow — arrives exactly that way. Treating the status as the answer turns every
+  poll into a failure.
 
-Until one of them lands, treat this build as running only where a credential is
-placed by hand: `SOLONGATE_API_KEY`, or a row seeded by `tools/local-db.mjs`.
+The flow exists twice, in `packages/proxy-go/internal/api/device.go` and
+`packages/proxy/src/api-client/device-login.ts`, because the CLI does. They are
+read together when either changes.
+
+`GET /auth/config` is how a CLI learns which provider to use: the operator sets
+`SG_OIDC_ISSUER` once on the service and no laptop is configured at all. Nothing
+it answers is a secret — an issuer URL serves a public discovery document, and a
+device-flow client is public by definition because it runs on a laptop and can
+hold no secret. What authorises anything is the token the provider issues
+afterwards.
+
+With no provider configured there is nobody to sign in against, and the CLI says
+so in one line naming the variable rather than failing later in a browser. Local
+development uses `tools/local-db.mjs`, which seeds a project and prints a
+credential — the person who sees it there is the developer running the harness.
 
 ## Traps worth not rediscovering
 

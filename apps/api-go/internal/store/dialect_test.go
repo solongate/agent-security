@@ -37,9 +37,9 @@ func TestQIsANoOpOnSQLite(t *testing.T) {
 	}
 }
 
-// INTEGER is 32 bits in PostgreSQL. device_codes.expires_at holds milliseconds
-// since the epoch, which does not fit, so this is the check that keeps a
-// customer's database from rejecting inserts.
+// INTEGER is 32 bits in PostgreSQL, and SQLite's is 64 — so a column that fits
+// on one side silently does not on the other. This is the check that keeps a
+// customer's database from rejecting an insert years after the deploy.
 func TestDDLWidensIntegers(t *testing.T) {
 	p := &Store{dialect: Postgres}
 

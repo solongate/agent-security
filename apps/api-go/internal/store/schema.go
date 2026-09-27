@@ -24,16 +24,6 @@ import (
 
 // migrations are the statements that must succeed.
 var migrations = []string{
-	`CREATE TABLE IF NOT EXISTS device_codes (
-      device_code TEXT PRIMARY KEY,
-      user_code TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      api_key TEXT,
-      project_id TEXT,
-      project_name TEXT,
-      created_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL
-    )`,
 	`CREATE TABLE IF NOT EXISTS solon_usage (
       user_id TEXT PRIMARY KEY,
       chats_used INTEGER NOT NULL DEFAULT 0,
@@ -404,209 +394,38 @@ var migrations = []string{
 // database that has already been through this, which is every real database, so
 // the error is discarded by design.
 //
-// The order matters for one of them: `policy_versions.rego_source` and
-// `wasm_bundle` were added before `device_codes` existed, and
-// `device_codes.user_email`/`user_name` after — so the device_codes CREATE has
-// to run before those two ALTERs or they fail for the wrong reason and the
-// columns never appear. Hence the split into two phases rather than one list.
+// The split into two phases is about ORDER against the CREATEs between them:
+// `addColumnsBefore` runs first and targets tables the base schema already
+// created, `addColumnsAfter` runs last so it can also touch anything
+// `migrations` has just made. A single list would have to be correct for both
+// and would silently stop being so.
 var addColumnsBefore = []string{
 	`ALTER TABLE policy_versions ADD COLUMN rego_source TEXT`,
 	`ALTER TABLE policy_versions ADD COLUMN wasm_bundle TEXT`,
 }
 
 var addColumnsAfter = []string{
-	//
-	// It is a second closed vocabulary rather than more entries in `detectors`,
-	// because the two answer different questions and a column holding both is a
-	// column nobody can filter: `iban` is a finding, `ocr` is how we came to
-	// have it, and a row that lists them side by side reads as two findings.
-	//
-	// Defaulted to '[]' for the same reason `detectors` is: it is read through
-	// json_each, and one NULL there fails the whole query rather than that row.
-	// Rows written before this column existed get the default and mean "we did
-	// not record how", which is true of every one of them.
-	// The attachment names, masked on the machine before they were sent.
-	//
-	// A filename is content and this column is the one place that fact is easy
-	// to forget: it looks like metadata and reads like a label, and
-	// "Ahmet_Yilmaz_TCKN_12345678901.pdf" is a national id in a field nobody
-	// thought to protect. The masking happens in the agent, where the detectors
-	// and the text still are; what happens here is a bound.
-	// How much the findings on a row were worth, as the agent scored them.
-	// Zero on every row written before this column existed, which is also what
-	// a row with no findings scores — and the two are the same claim: this row
-	// is not making one.
-	// WHAT WAS ACTUALLY PASTED, AND THE THING TO UNDERSTAND BEFORE ADDING TO IT.
-	//
-	// This table used to hold the NAMES of what a scan found and never the
-	// content, and the whole half was built around that: the verdict engine is
-	// handed detector names rather than text, the events endpoint answers a
-	// client that sends `text` by naming the field in dropped_fields, and the
-	// card the browser draws says "nothing you typed left this machine". An
-	// operator reading a row could see that a national id went to ChatGPT and
-	// not which one.
-	//
-	// The product owner asked for the content, and the cost is exactly the one
-	// that design was avoiding: this column is a second copy of the values the
-	// the row it belongs to at ninety days, and the browser's card no longer
-	// makes the claim it would have made false.
-	//
-	// It is called `body` and not `text`: `text` is a type name in every one of
-	// these statements and a column of that name is a query nobody can read.
-	// The answer an operator picked, beside the outcome it produced. Nullable
-	// and with no default, because empty is a real value here: a row no rule
-	// covered was decided by the document's catch-all, and a default would put
-	// a setting nobody chose on every row written before this column existed.
-	// THE MILLISECOND, BECAUSE A SECOND CANNOT ORDER A CONVERSATION.
-	//
-	// created_at is seconds, which every table in this product agrees on and
-	// which nothing here is going to change - the dashboard renders it as
-	// seconds and a column quietly holding milliseconds would date every row to
-	// 1970. But a question and the answer to it are routinely inside one second,
-	// and with nothing to break that tie the audit put them in whatever order
-	// the rows came back in: the answer above the question that produced it.
-	//
-	// So the millisecond is kept beside the second rather than instead of it,
-	// and the list orders by created_at first - which is the indexed column -
-	// and by this only within a second. Rows written before this column existed
-	// hold 0 and keep the order they had.
-	// WHICH BROWSER AND WHICH MACHINE, beside what happened in them.
-	//
-	// side by side files both under one device row, and "which browser was
-	// that" was a question the audit could not answer. Names only — the agent
-	// sends "chrome" and "mac", never a user-agent string, which is version
-	// numbers nobody filters by in a field nobody bounded. '' on every row
-	// written before these columns existed, which is the honest answer:
-	// nobody recorded it.
-	`ALTER TABLE device_codes ADD COLUMN user_email TEXT`,
-	`ALTER TABLE device_codes ADD COLUMN user_name TEXT`,
+	// Which agent session a call belonged to. NULL on every row written before
+	// the column existed, which is the honest answer: nobody recorded it.
 	`ALTER TABLE audit_logs ADD COLUMN session_id TEXT`,
 
-	// whoever. It is theirs to choose, so there is no enum and no list to keep
-	// runs it thinks about it, not the way this schema guessed they would.
-	//
-	// NULL is ungrouped, which is what every grant written before this means
-	// and what a new invitation is until somebody says otherwise.
-	// What the browser extension is doing on each of a device's browsers -
-	// enabled, disabled or removed - as a small JSON array. It is how a device
-	// that stopped being watched shows up as one instead of merely going quiet:
-	// an employee who disabled the extension, or a force-install policy someone
-	// undid, is otherwise invisible.
-	// update_to is the version an operator has asked this machine to install,
-	// machine arriving on that version or newer, so a device that updates by
-	// itself in the meantime is not told to do it again.
-	// update_note is why the last install this machine was asked for did not
-	// happen. Only ever set when it went wrong: an install that works answers
-	// with the version on the roster changing.
-	// scan_to is the assistant hosts an operator has asked this machine to read
-	// the history of, comma separated, or empty.
-	//
-	// IT IS TAKEN WHEN IT IS READ, which is the one way it differs from
-	// update_to beside it. An install request is cleared by the machine
-	// arriving on that version - there is a fact to compare against. A scan has
-	// none: the API cannot tell a machine that scanned from one that never
-	// picked the request up, and a request that stood until it could would open
-	// a panel on somebody's screen every five seconds forever.
-	// scan_state is what a footprint scan on this machine is doing RIGHT NOW, as
-	// the small JSON document the agent posts while one runs.
-	//
-	// IT IS A LIVE VALUE AND NOT A RECORD. The audit is the record, and it keeps
-	// only the conversations that had something in them - which is correct, and
-	// which is exactly why it cannot answer "is this scan moving": a history is
-	// mostly ordinary afternoons, so most of a running scan is conversations that
-	// file nothing. This column is overwritten on every post, holds no content,
-	// and is meaningless once the run it describes has ended.
-	// restart_at is a request an operator made from the Devices page for this
-	// machine's agent to restart itself, or empty. It is a token (the moment it
-	// was asked), TAKEN when it is read for the same reason scan_to is: there is
-	// nothing on the machine's side to compare against, and a request that stood
-	// forever would restart the agent on every poll. The agent, seeing it, exits
-	// cleanly - and the OS service registration brings it straight back up. See
-	// connect_to is a browser name an operator asked this machine's agent to
-	// connect from the Devices page, or empty. It is a request the same shape as
-	// restart_at - a value TAKEN when it is read, for the same reason: there is
-	// nothing on the machine's side to compare against, and a request that stood
-	// forever would re-launch the browser on every poll. The agent, seeing a
-	// browser name, launches and attaches that browser. Unlike restart_at, the
-	// content matters: it names WHICH browser to connect, so the roster's Connect
-	// button beside a chip sends the chip's own browser. See
-	// installing / installing_at are the DISPLAY half of the extension-install
-	// request whose directive half is connect_to above. The directive is taken
-	// when it is read - it must be, or the agent re-runs the ceremony on every
-	// poll - and that left the roster with nothing to show: the "Installing…"
-	// mark lived exactly one roster tick, then the Install button was back
-	// while the agent was still mid-ceremony, and people pressed it again.
-	// This half is written at the press and never taken: the roster shows it
-	// while it is FRESH (its own clock, see the reader) and the browser is not
-	// yet watching, and simply stops when either changes.
-	// Which HALF of the product a person is managed in: 'agent' for the guard on
-	//
-	// It is on the grant rather than on the account because the two halves are
-	// bought and run separately: a company that has SolonGate for its developers'
-	// agents and not for its browsers has to be able to add a contractor to one
-	// without that meaning the other.
-	//
-	// NULL is what every grant written before this column means, and it reads as
-	// 'agent' — see GrantScopeOf, which is the only place that decision is made.
-	// Reading a blank as 'both' would put a browser page in front of every
-	// guard on their tool calls and to nothing else.
-	// Which policy a GROUP runs.
-	//
-	// The project already holds several policies and the guard's poll already
-	// picks one per machine — by agent id, then by wildcard. This is the tier
-	// above those: a host says "the contractors run this one" once, and
-	// everybody in that group inherits it on their next poll rather than being
-	// moved one selection at a time, forever.
-	//
-	// A column rather than a table because a group runs one policy. NULL means
-	// the group states nothing and its members fall through to whatever the
-	// project-wide selection gives them.
-	// WHICH HALF A GROUP BELONGS TO, and the two membership columns that go
-	// with it.
-	//
-	// The two halves of this product manage different people for different
-	// reasons: Agent Security groups developers by what their agents may do,
-	// Sharing one set meant a group made for one half appeared in the other,
-	// which is a screen offering somebody a control over a set they did not
-	// because there was nothing better to say.
-	//
-	// 'agent' IS THE DEFAULT AND THAT IS THE MIGRATION. Every group that
-	// the only page that could make one. Defaulting the column is the whole of
-	// moving them.
-	// The old index made a name unique across the project, which would now stop
-	// the two halves each having a group called Finance. Dropped and replaced
-	// rather than added beside: leaving it would enforce the rule this change
-	// exists to lift, and its name is not reused so a half-applied migration
-	// cannot end up with both.
-	// A person can be in a group on each side, so the membership needs a column
-	// existing membership in the half that created it.
 	// Who a key belongs to, as opposed to which project it opens.
 	//
-	// PROJECT OWNER for every key, so a developer working under somebody else's
-	// policy is byte-for-byte the person who wrote it, at every route. NULL is
-	// what every key issued before this column means, and it reads as "acts as
-	// the owner" so nothing already paired changes behaviour.
+	// NULL is what every key issued before this column means, and it reads as
+	// "acts as the owner" so nothing already paired changes behaviour.
 	//
 	// No foreign key: SQLite cannot add one through ALTER TABLE. It is declared
-	// in baseschema.sql, which is what a database created from scratch
-	// gets.
+	// in baseschema.sql, which is what a database created from scratch gets.
 	`ALTER TABLE api_keys ADD COLUMN user_id TEXT`,
 
-	// The revoke that runs before every dashboard sign-in.
+	// The revoke that runs before every sign-in.
 	//
-	// authSession revokes the previous "Dashboard Session" key and mints a new
-	// one, filtering on (project_id, name). The only index this table had was
+	// authSession revokes the previous "Sign-in" key and mints a new one,
+	// filtering on (project_id, name). The only index this table had was
 	// project_id alone, so that statement narrows to a project and then walks
 	// every key it has ever held — and the table only grows, because a revoked
 	// key is stamped rather than deleted. On a project signed into for months,
 	// that walk IS the sign-in.
-	//
-	// It is here rather than in the migrations above for the same reason the
-	// ALTER is: api_keys is declared in baseschema.sql and is not created
-	// by this binary, so a statement naming it must not be able to abort the
-	// list. In the must-succeed list it took down every migration after it on a
-	// database that had not been created yet — which is how a fresh test
-	// database found this within a minute of it being written.
 	`CREATE INDEX IF NOT EXISTS api_keys_project_name_idx ON api_keys (project_id, name)`,
 
 	// The compiled Rego and wasm for every variant OTHER than the default one,

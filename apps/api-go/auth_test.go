@@ -40,10 +40,6 @@ var authSlicePatterns = []string{
 	"GET /api/v1/auth/profile",
 	"PUT /api/v1/auth/profile",
 	"POST /api/v1/auth/session",
-	"POST /api/v1/auth/device/start",
-	"POST /api/v1/auth/device/poll",
-	"GET /api/v1/auth/device/check",
-	"POST /api/v1/auth/device/approve",
 	"GET /api/v1/keys",
 	"POST /api/v1/keys",
 	"PATCH /api/v1/keys/{id}",
@@ -308,77 +304,6 @@ func TestNullableRendersAnAbsentNameAsJSONNull(t *testing.T) {
 	}
 }
 
-// ── the device flow ─────────────────────────────────────────────────────────
-
-func TestDeviceUserCodeShape(t *testing.T) {
-	// The dashboard upper-cases what it is handed and looks it up verbatim, and
-	// the person types it off a screen. The format, the length and the alphabet
-	// are all part of that.
-	for i := 0; i < 200; i++ {
-		code, err := deviceUserCode()
-		if err != nil {
-			t.Fatalf("minting a code: %v", err)
-		}
-		if len(code) != 9 || code[4] != '-' {
-			t.Fatalf("code %q is not XXXX-XXXX", code)
-		}
-		for j, c := range code {
-			if j == 4 {
-				continue
-			}
-			if !strings.ContainsRune(deviceUserCodeAlphabet, c) {
-				t.Fatalf("code %q contains %q, which is not in the alphabet", code, c)
-			}
-		}
-		if strings.ToUpper(code) != code {
-			t.Fatalf("code %q is not upper case; the dashboard upper-cases before looking up", code)
-		}
-	}
-}
-
-func TestDeviceUserCodeAlphabetExcludesLookalikes(t *testing.T) {
-	// I, L, O, 0 and 1 are what a person misreads off a screen, and reading the
-	// code out is the entire user interface of this flow.
-	for _, c := range "ILO01" {
-		if strings.ContainsRune(deviceUserCodeAlphabet, c) {
-			t.Errorf("%q is in the user-code alphabet", c)
-		}
-	}
-	if len(deviceUserCodeAlphabet) != 31 {
-		t.Errorf("the alphabet has %d characters, want the original's 31", len(deviceUserCodeAlphabet))
-	}
-}
-
-func TestDeviceCodeSecretIsSixtyFourHexCharacters(t *testing.T) {
-	// It is the only thing standing between an approved pairing and anyone else
-	// polling for it, so its length is not cosmetic.
-	code, err := deviceCodeSecret()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(code) != 64 {
-		t.Fatalf("device code is %d characters, want 64", len(code))
-	}
-	if _, err := hex.DecodeString(code); err != nil {
-		t.Fatalf("device code %q is not hex", code)
-	}
-	other, _ := deviceCodeSecret()
-	if code == other {
-		t.Fatal("two device codes are identical")
-	}
-}
-
-func TestDeviceTimingsMatchTheCLIsExpectations(t *testing.T) {
-	// packages/proxy computes its own deadline from expires_in and sleeps for
-	// interval. Both numbers are the contract, not a default.
-	if deviceCodeTTLMS/1000 != 600 {
-		t.Errorf("expires_in = %d, want 600", deviceCodeTTLMS/1000)
-	}
-	if devicePollIntervalS != 3 {
-		t.Errorf("interval = %d, want 3", devicePollIntervalS)
-	}
-}
-
 // ── the session route ───────────────────────────────────────────────────────
 
 // This is the one part of the slice that does touch a database, and it is worth
@@ -545,7 +470,7 @@ func TestAuthSessionCreatesAProjectWhenTheFieldIsAbsent(t *testing.T) {
 		t.Errorf("%d policies were seeded, want 1", n)
 	}
 	if n := authSessionCount(t, s,
-		`SELECT count(*) FROM api_keys WHERE name = ? AND revoked_at IS NULL`, authDashboardKeyName); n != 1 {
+		`SELECT count(*) FROM api_keys WHERE name = ? AND revoked_at IS NULL`, authSessionKeyName); n != 1 {
 		t.Errorf("%d live session keys, want 1", n)
 	}
 }
@@ -699,7 +624,7 @@ func TestAuthSessionOptOutStillReturnsAProjectThatExists(t *testing.T) {
 	// The previous session key is retired by the second sign-in, which is what
 	// keeps a revoked browser tab from going on working.
 	if n := authSessionCount(t, s,
-		`SELECT count(*) FROM api_keys WHERE name = ? AND revoked_at IS NULL`, authDashboardKeyName); n != 1 {
+		`SELECT count(*) FROM api_keys WHERE name = ? AND revoked_at IS NULL`, authSessionKeyName); n != 1 {
 		t.Errorf("%d live session keys after two sign-ins, want 1", n)
 	}
 }

@@ -900,12 +900,12 @@ func (s *server) authSession(w http.ResponseWriter, r *http.Request) {
 		// One statement rather than select-then-update-each: the window in which
 		// two "Dashboard Session" keys are both live is the window in which a
 		// revoked browser tab still works.
-		if err := s.store.RevokeAPIKeysNamed(ctx, project.ID, authDashboardKeyName, store.Now()); err != nil {
+		if err := s.store.RevokeAPIKeysNamed(ctx, project.ID, authSessionKeyName, store.Now()); err != nil {
 			authInternalCtx(w, r, "auth/session:revoke", err)
 			return
 		}
 
-		liveKey, _, err = s.authMintKey(ctx, project.ID, userID, authDashboardKeyName)
+		liveKey, _, err = s.authMintKey(ctx, project.ID, userID, authSessionKeyName)
 		if err != nil {
 			authInternalCtx(w, r, "auth/session:mint", err)
 			return
@@ -988,9 +988,15 @@ func authVerifiedRemember(token, email string) {
 	authVerified.at[token] = authVerifiedEntry{email: email, until: time.Now().Add(authVerifyTTL)}
 }
 
-// authDashboardKeyName and authCLIKeyName are the fixed names the two pairing
-// flows mint under. They are the WHERE clause of the revoke that precedes each
-// mint, so a typo in either would leave the old key live.
+// The fixed names the two mints use. They are the WHERE clause of the revoke
+// that precedes each mint, so a typo in either would leave the old key live.
+//
+// SIGN-IN and PAIRING are separate names because they are separate acts on
+// separate schedules: /auth/session issues one when somebody signs in through
+// their identity provider, and switching workspace re-issues the other. A single
+// name would make each of them revoke the other's key, and the symptom is a
+// machine that silently stops being able to call the API after somebody signs in
+// on it again.
 // authSessionSlow is when a sign-in is worth a log line. Two seconds is well
 // past anything this route does when the database is healthy — four indexed
 // statements — and well under the dashboard's own fifteen-second patience, so a
@@ -998,7 +1004,7 @@ func authVerifiedRemember(token, email string) {
 const authSessionSlow = 2 * time.Second
 
 const (
-	authDashboardKeyName = "Dashboard Session"
+	authSessionKeyName = "Sign-in"
 	// The name a paired machine's credential carries in the account's list.
 	authCLIKeyName = "CLI (device pairing)"
 )

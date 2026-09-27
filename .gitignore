@@ -158,3 +158,8 @@ apps/*/.dev-server.exe
 # Local database built by tools/local-db.mjs (schema is generated, never edited)
 .local-db/
 
+
+# Stray screenshots. One reached a commit through `git add -A`; this is so the
+# next one cannot.
+image.png
+**/image.png

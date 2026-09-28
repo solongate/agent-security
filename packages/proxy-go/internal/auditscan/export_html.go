@@ -14,9 +14,8 @@ const htmlTemplate = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/png" href="https://cdn.solongate.com/icon-32x32.png" sizes="32x32">
-<link rel="icon" type="image/png" href="https://cdn.solongate.com/icon-16x16.png" sizes="16x16">
-<link rel="apple-touch-icon" href="https://cdn.solongate.com/icon-192x192.png">
+<!-- No remote assets. This report is an audit of somebody's machine, and three
+     icons from a CDN told that CDN who opened it and when. -->
 <title>SolonGate Audit Report</title>
 <style>
   :root { --bg: #0c0c0e; --surface: #161618; --surface2: #1e1e21; --border: #2a2a2e; --text: #e8e8ec; --text2: #8b8b96; --accent: #7c8aff; }
@@ -214,8 +213,7 @@ const htmlTemplate = `<!DOCTYPE html>
 </div>
 
 <div class="ftr">
-  <a href="https://solongate.com">solongate.com</a>
-  <p>AI Agent Security</p>
+  <p>SolonGate &middot; generated on this machine</p>
 </div>
 
 </div>

@@ -279,20 +279,25 @@ func (p *Proxy) validateLicenseAndLoadPolicy(ctx context.Context) error {
 		return p.gate.LoadPolicy(p.currentPolicy().Set)
 	}
 
-	p.log("Validating license with " + apiURL + "...")
+	p.log("Checking the API key with " + apiURL + "...")
 	result, err := checkLicense(ctx, p.cloud)
 	switch result {
 	case licenseInvalid:
 		p.log("ERROR: Invalid or expired API key.")
 		return errReported
 	case licenseInactive:
-		p.log("ERROR: Your subscription is inactive. Renew at https://solongate.com")
+		// 403 is the service refusing this key for its own reasons. Passed on
+		// rather than interpreted: whoever runs it knows why.
+		p.log("ERROR: The service refused this API key (403). Check it with whoever runs it.")
 		return errReported
 	case licenseUnreachable:
 		// FAIL CLOSED. The proxy has forwarded nothing yet, so refusing to
 		// start leaves the agent with no MCP server rather than with an
 		// unguarded one.
-		p.log("ERROR: Unable to reach SolonGate license server. Check your internet connection.")
+		// The service is the one the operator runs, so this is not an internet
+		// problem to report as one — it is usually the wrong address or a
+		// service that is down.
+		p.log("ERROR: cannot reach " + apiURL + ". Check SOLONGATE_API_URL, or that the service is running.")
 		if err != nil {
 			p.log("Details: " + err.Error())
 		}

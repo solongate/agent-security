@@ -202,7 +202,7 @@ export async function collectChecks(): Promise<Check[]> {
     const ageMin = (Date.now() - st.mtimeMs) / 60_000;
     checks.push({ name: 'local logs', ok: true, detail: `on · ${(st.size / 1024).toFixed(0)}KB · last write ${ageMin < 1 ? 'just now' : Math.round(ageMin) + 'm ago'}` });
   } else {
-    checks.push({ name: 'local logs', ok: 'warn', detail: 'off (logs go to cloud) - enable in dashboard → Settings' });
+    checks.push({ name: 'local logs', ok: 'warn', detail: 'no folder configured — the default is ~/.solongate/local-logs' });
   }
 
   return checks;

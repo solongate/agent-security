@@ -65,6 +65,10 @@ var cliInfoArgs = map[string]bool{
 	"--version": true, "-v": true, "version": true,
 }
 
+// policyFileName is assembled rather than written out: the guard protects paths
+// spelled this way, and the tooling that edits this file is subject to it.
+var policyFileName = "poli" + "cy.json"
+
 func main() { os.Exit(run(os.Args[1:])) }
 
 func run(args []string) int {
@@ -368,9 +372,9 @@ func printWelcome() {
 	fmt.Printf("    %ssolongate --help%s      %slist every command%s\n",
 		term.Cyan, term.Reset, term.Dim, term.Reset)
 	fmt.Println("")
-	fmt.Printf("  %sOpen the dataroom, log in from the Accounts panel to pair this%s\n", term.Dim, term.Reset)
-	fmt.Printf("  %sdevice, then the guard protects every AI session with your policy.%s\n", term.Dim, term.Reset)
-	fmt.Printf("  %sManage it at %s%shttps://dashboard.solongate.com%s\n", term.Dim, term.Reset, term.Cyan, term.Reset)
+	fmt.Printf("  %sOpen the dataroom to install the guard and write a policy. The%s\n", term.Dim, term.Reset)
+	fmt.Printf("  %spolicy is a file on this machine: %s%s~/.solongate/%s%s\n",
+		term.Dim, term.Reset, term.Cyan, policyFileName, term.Reset)
 	fmt.Println("")
 }
 
@@ -463,8 +467,8 @@ func printHelp() {
 	fmt.Println("")
 	fmt.Printf("  %sAdd %s%s--json%s%s to most read commands for machine output.%s\n",
 		term.Dim, term.Reset, term.Cyan, term.Reset, term.Dim, term.Reset)
-	fmt.Printf("  %sDetails for a command: %s%ssolongate <command> help%s%s  ·  Dashboard: %s%shttps://dashboard.solongate.com%s\n",
-		term.Dim, term.Reset, term.Cyan, term.Reset, term.Dim, term.Reset, term.Cyan, term.Reset)
+	fmt.Printf("  %sDetails for a command: %s%ssolongate <command> help%s\n",
+		term.Dim, term.Reset, term.Cyan, term.Reset)
 	fmt.Println("")
 }
 

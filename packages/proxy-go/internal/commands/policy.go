@@ -80,7 +80,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 			return 0, nil
 		}
 		if len(policies) == 0 {
-			errln(dim("  No policies. Create one at https://dashboard.solongate.com"))
+			errln(dim("  No policies. `solongate policy create <name>` makes one."))
 			return 0, nil
 		}
 		rows := make([][]string, 0, len(policies))

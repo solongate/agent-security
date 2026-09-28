@@ -25,7 +25,7 @@ export class LicenseError extends Error {
 /**
  * SolonGate - Security Gateway for MCP Tool Servers.
  *
- * Requires a valid API key. Get one at https://solongate.com
+ * Requires an API key for the service this is pointed at (SOLONGATE_API_URL).
  *
  * Usage:
  * ```typescript
@@ -157,7 +157,10 @@ export class SolonGate {
         throw new LicenseError('Invalid or expired API key.');
       }
       if (res.status === 403) {
-        throw new LicenseError('Your subscription is inactive. Renew at https://solongate.com');
+        // 403 is the service refusing this key for its own reasons — a
+        // revoked key, a project that is gone. It is the operator's answer
+        // to give, so it is passed on rather than interpreted.
+        throw new LicenseError('The service refused this API key (403). Check it with whoever runs it.');
       }
 
       this.licenseValidated = true;

@@ -173,8 +173,10 @@ func PrintScore(results []CheckResult) {
 
 	switch {
 	case fixCount > 0:
-		fmt.Printf("  Fix %d critical %s → %s\n", fixCount, plural(fixCount, "issue", "issues"),
-			paint("solongate.com", ansiCyan, ansiUnderline))
+		// The findings are in this report. Pointing at a website for the fix was
+		// pointing at a hosted product; the report is the product here.
+		fmt.Printf("  %d critical %s to fix — see the findings below.\n",
+			fixCount, plural(fixCount, "issue", "issues"))
 	case intScore < 10:
 		fmt.Println(paint("  No critical gaps, but improvements possible.", ansiYellow, term.Dim))
 	default:
@@ -225,8 +227,7 @@ func PrintFooter(results []CheckResult) {
 	}
 	fmt.Println(line)
 	if fixCount > 0 {
-		fmt.Printf("  Run %s to fix → %s\n", paint("npx solongate", ansiCyan),
-			paint("solongate.com", ansiCyan, ansiUnderline))
+		fmt.Printf("  Run %s to write a policy for these.\n", paint("solongate", ansiCyan))
 	}
 	fmt.Println("")
 }

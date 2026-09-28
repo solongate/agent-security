@@ -348,7 +348,7 @@ export function exportHTML({ data, results }: ExportPayload): string {
   <div class="score-txt">
     <h3>${intScore}/10</h3>
     <p>${intScore >= 7 ? 'Good protection.' : intScore >= 4 ? 'Several categories need attention.' : 'Critical gaps across multiple categories.'}</p>
-    ${fixCount > 0 ? `<p style="margin-top:6px"><a href="https://solongate.com">Fix ${fixCount} issue${fixCount > 1 ? 's' : ''} &rarr;</a></p>` : ''}
+    ${fixCount > 0 ? `<p style="margin-top:6px">${fixCount} issue${fixCount > 1 ? 's' : ''} to fix &mdash; see the findings below.</p>` : ''}
   </div>
 </div>
 
@@ -379,8 +379,7 @@ export function exportHTML({ data, results }: ExportPayload): string {
 </div>
 
 <div class="ftr">
-  <a href="https://solongate.com">solongate.com</a>
-  <p>AI Agent Security</p>
+  <p>SolonGate &middot; generated on this machine</p>
 </div>
 
 </div>

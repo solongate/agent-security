@@ -73,32 +73,6 @@ func (s *Store) LatestPolicyVersion(ctx context.Context, projectID string) (Poli
 		ORDER BY version DESC LIMIT 1`, projectID)
 }
 
-// LatestVersionNumber is the counter the next insert increments. It returns 0
-// for a project with no policies, so the first version is 1.
-func (s *Store) LatestVersionNumber(ctx context.Context, projectID string) (int64, error) {
-	var v sql.NullInt64
-	err := s.queryRow(ctx,
-		`SELECT MAX(version) FROM policy_versions WHERE project_id = ?`, projectID).Scan(&v)
-	if err != nil {
-		return 0, err
-	}
-	return intVal(v), nil
-}
-
-// PolicyVersionByID fetches one revision, project-scoped.
-//
-// The project clause is not redundant with the primary key. A version id is a
-// UUID that appears in dashboard URLs and in the version list; without the
-// clause, holding any valid API key plus one id read out of a screenshot would
-// return another tenant's policy — which is a document naming their paths,
-// their commands and their internal URLs.
-func (s *Store) PolicyVersionByID(ctx context.Context, projectID, id string) (PolicyVersion, error) {
-	return s.policyOne(ctx, `
-		SELECT id, project_id, version, policy_data, hash, reason, created_by,
-		       rego_source, wasm_bundle, created_at
-		FROM policy_versions WHERE project_id = ? AND id = ? LIMIT 1`, projectID, id)
-}
-
 // ── selection by LOGICAL policy id ──────────────────────────────────────────
 //
 // A policy's logical id lives inside policy_data, not in a column, so filtering
@@ -153,19 +127,6 @@ func (s *Store) PolicyVersionAt(ctx context.Context, projectID, policyID string,
 	args = append(args, version)
 	return s.policyOne(ctx, `SELECT `+policyColumns+` FROM policy_versions WHERE `+where+
 		` AND version = ? LIMIT 1`, args...)
-}
-
-// MaxVersionForPolicy is the counter the next write increments, within a scope.
-// Zero for a policy that does not exist yet, so its first version is 1.
-func (s *Store) MaxVersionForPolicy(ctx context.Context, projectID, policyID string) (int64, error) {
-	where, args := s.policyScope(projectID, policyID)
-	var v sql.NullInt64
-	err := s.queryRow(ctx,
-		`SELECT MAX(version) FROM policy_versions WHERE `+where, args...).Scan(&v)
-	if err != nil {
-		return 0, err
-	}
-	return intVal(v), nil
 }
 
 // MaxVersionByID is MaxVersionForPolicy without the `default` special case,
@@ -323,30 +284,6 @@ func (s *Store) SetCompiledForms(ctx context.Context, projectID, id, rego, wasm 
 		WHERE id = ? AND project_id = ?`,
 		NullText(rego), NullText(wasm), id, projectID)
 	return err
-}
-
-// DeletePolicyVersions removes every revision of one logical policy id.
-//
-// The policy id is inside policy_data, so the caller resolves it to row ids
-// first and passes them here; there is no json_extract in this package. Row ids
-// are bound as placeholders — see TouchKeysUsed for why the list is never
-// joined into the string.
-func (s *Store) DeletePolicyVersions(ctx context.Context, projectID string, rowIDs []string) (int64, error) {
-	if len(rowIDs) == 0 {
-		return 0, nil
-	}
-	args := make([]any, 0, len(rowIDs)+1)
-	args = append(args, projectID)
-	for _, id := range rowIDs {
-		args = append(args, id)
-	}
-	q := `DELETE FROM policy_versions WHERE project_id = ? AND id IN (` +
-		placeholders(len(rowIDs)) + `)`
-	res, err := s.exec(ctx, q, args...)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
 }
 
 func (s *Store) policyOne(ctx context.Context, query string, args ...any) (PolicyVersion, error) {

@@ -281,30 +281,6 @@ func (s *Store) AuditBurstCounts(ctx context.Context, projectID string, fromSec,
 	return out, rows.Err()
 }
 
-func (s *Store) AuditBurstWindow(ctx context.Context, projectID string, fromSec, toSec int64, limit int) ([]BurstRow, error) {
-	rows, err := s.query(ctx, `
-		SELECT agent_name, created_at FROM audit_logs
-		WHERE project_id = ? AND created_at >= ? AND created_at <= ?
-		ORDER BY created_at DESC LIMIT ?`,
-		projectID, fromSec, toSec, ClampLimit(limit, 20000, 50000))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := []BurstRow{}
-	for rows.Next() {
-		var r BurstRow
-		var name sql.NullString
-		if err := rows.Scan(&name, &r.CreatedAt); err != nil {
-			return nil, err
-		}
-		r.AgentName = text(name)
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
 // InsertAuditLog is the write the audit hook drives, one row per reported call.
 func (s *Store) InsertAuditLog(ctx context.Context, a AuditLog) error {
 	_, err := s.exec(ctx, `
@@ -385,39 +361,6 @@ func (s *Store) AuditKeyNames(ctx context.Context, projectID string) (map[string
 			return nil, err
 		}
 		out[id] = text(name)
-	}
-	return out, rows.Err()
-}
-
-// AuditKeyUsers maps a project's api key ids to the ACCOUNT each belongs to.
-//
-// audit_logs records which key reported a call and the key knows whose it is,
-// so this is how a row is attributed to a person. One statement for the whole
-// page rather than a lookup per row: a fleet console redraws its stream every
-// two seconds and a join per line is a query per line.
-//
-// A key with no user is left out rather than mapped to the empty string. That
-// is the host's own oldest keys — they predate the column — and a caller that
-// finds nothing here should say so in its own words rather than be handed a
-// blank that reads like a real account.
-func (s *Store) AuditKeyUsers(ctx context.Context, projectID string) (map[string]string, error) {
-	rows, err := s.query(ctx,
-		`SELECT id, user_id FROM api_keys WHERE project_id = ?`, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := map[string]string{}
-	for rows.Next() {
-		var id string
-		var user sql.NullString
-		if err := rows.Scan(&id, &user); err != nil {
-			return nil, err
-		}
-		if v := text(user); v != "" {
-			out[id] = v
-		}
 	}
 	return out, rows.Err()
 }

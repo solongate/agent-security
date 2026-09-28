@@ -22,7 +22,6 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -166,18 +165,6 @@ func Open(rawURL string) (*Store, error) {
 func (s *Store) DB() *sql.DB { return s.db }
 
 func (s *Store) Close() error { return s.db.Close() }
-
-// Ping runs a real query rather than db.PingContext, so a readiness probe
-// answers about the database rather than about the pool object.
-//
-// The deadline is its own because a readiness probe that blocks is worse than
-// one that answers "no".
-func (s *Store) Ping(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	var one int
-	return s.queryRow(ctx, `SELECT 1`).Scan(&one)
-}
 
 // ── scan helpers ────────────────────────────────────────────────────────────
 //

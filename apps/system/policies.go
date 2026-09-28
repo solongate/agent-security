@@ -898,16 +898,6 @@ func policyProjectOwner(ctx context.Context, s *server, projectID string) string
 	return owner
 }
 
-// policyNullableString keeps a NULL column NULL on the wire. `reason` and
-// `created_by` are both nullable in policy_versions and the CLI types them as
-// optional, so an empty string would be a value where there was none.
-func policyNullableString(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 // policyParseInt is JavaScript's parseInt(x, 10): leading whitespace and sign,
 // then digits, then stop. "12abc" is 12 and "abc" is NaN — which reaches SQL as
 // a value no version equals, so the route 404s rather than matching something.
@@ -917,14 +907,6 @@ func policyParseInt(s string) any {
 		// NaN. Bound as a string that cannot equal any integer version, so the
 		// comparison fails in the database rather than being skipped here.
 		return "NaN"
-	}
-	return n
-}
-
-func policyParseIntDefault(s string, def int64) int64 {
-	n, ok := policyParseIntOK(s)
-	if !ok {
-		return def
 	}
 	return n
 }

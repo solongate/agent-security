@@ -62,15 +62,6 @@ export interface PolicyDetail extends PolicySet {
   _created_at: string;
 }
 
-export interface PolicyVersion {
-  version: number;
-  hash: string;
-  reason: string;
-  created_by: string | null;
-  created_at: string;
-  rules_count: number;
-}
-
 export interface ActivePolicy {
   policy: PolicySet | null;
   version?: number;

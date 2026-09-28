@@ -214,15 +214,6 @@ type PolicyDetail struct {
 	CreatedAtV  string `json:"_created_at"`
 }
 
-type PolicyVersion struct {
-	Version    int     `json:"version"`
-	Hash       string  `json:"hash"`
-	Reason     string  `json:"reason"`
-	CreatedBy  *string `json:"created_by"`
-	CreatedAt  string  `json:"created_at"`
-	RulesCount int     `json:"rules_count"`
-}
-
 type RateLimitSettings struct {
 	PerMinute int `json:"perMinute"`
 	PerHour   int `json:"perHour"`
@@ -380,39 +371,4 @@ type AuditList struct {
 	Limit              int          `json:"limit"`
 	Offset             int          `json:"offset"`
 	RateLimitPerMinute int          `json:"rate_limit_per_minute"`
-}
-
-// ── Agents ─────────────────────────────────────────────────────────────────
-
-type LiveAgent struct {
-	SessionID     string  `json:"session_id"`
-	AgentID       *string `json:"agent_id"`
-	AgentName     *string `json:"agent_name"`
-	Status        string  `json:"status"`
-	StartedAt     string  `json:"started_at"`
-	LastSeenAt    string  `json:"last_seen_at"`
-	TotalCalls    int     `json:"total_calls"`
-	AllowedCalls  int     `json:"allowed_calls"`
-	DeniedCalls   int     `json:"denied_calls"`
-	DLPEvents     int     `json:"dlp_events"`
-	RateLimitEvts int     `json:"rate_limit_events"`
-	PIDetections  int     `json:"pi_detections"`
-	ToolMix       struct {
-		Read    int `json:"read"`
-		Write   int `json:"write"`
-		Execute int `json:"execute"`
-		Network int `json:"network"`
-	} `json:"tool_mix"`
-	Character       string  `json:"character"`
-	TrustScore      float64 `json:"trust_score"`
-	RecentAnomalies int     `json:"recent_anomalies"`
-}
-
-type LiveAgents struct {
-	Agents []LiveAgent `json:"agents"`
-	Counts struct {
-		Active      int `json:"active"`
-		Idle        int `json:"idle"`
-		Deactivated int `json:"deactivated"`
-	} `json:"counts"`
 }

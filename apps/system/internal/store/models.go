@@ -189,18 +189,7 @@ type Tool struct {
 	UpdatedAt   int64
 }
 
-// ── 8. used_nonces ──────────────────────────────────────────────────────────
-
-// UsedNonce is `used_nonces`, the replay table for capability tokens. A row
-// here means that token has been spent; the primary key is what makes the
-// second presentation fail rather than a lookup-then-insert race.
-type UsedNonce struct {
-	Nonce     string
-	ProjectID string
-	UsedAt    int64
-}
-
-// ── 9. audit_logs ───────────────────────────────────────────────────────────
+// ── 8. audit_logs ───────────────────────────────────────────────────────────
 
 // AuditLog is `audit_logs`: one row per tool call the guard or the audit hook
 // reported. It is the largest table in the database and every query against it
@@ -240,103 +229,7 @@ type AuditLog struct {
 	CreatedAt        int64
 }
 
-// ── 10-13. the blog tables ──────────────────────────────────────────────────
-//
-// blog_posts, blog_categories, blog_tags and blog_post_tags are in this
-// database and no route under src/app/api reads them — apps/manage owns the
-// blog. They are modelled because they are part of the schema and because a
-// shared database means this binary must not be surprised by them; see blog.go,
-// which has the reads and nothing else.
-
-// BlogPost is `blog_posts`.
-type BlogPost struct {
-	ID             string
-	Title          string
-	Slug           string
-	Content        string
-	Excerpt        string
-	FeaturedImage  string
-	Status         string
-	AuthorID       string
-	CategoryID     string
-	SEOTitle       string
-	SEODescription string
-	PublishedAt    *int64
-	CreatedAt      int64
-	UpdatedAt      int64
-}
-
-// BlogCategory is `blog_categories`.
-type BlogCategory struct {
-	ID          string
-	Name        string
-	Slug        string
-	Description string
-	CreatedAt   int64
-}
-
-// BlogTag is `blog_tags`.
-type BlogTag struct {
-	ID        string
-	Name      string
-	Slug      string
-	CreatedAt int64
-}
-
-// BlogPostTag is `blog_post_tags`, the join table. Its primary key is the pair,
-// so a post cannot carry the same tag twice.
-type BlogPostTag struct {
-	PostID string
-	TagID  string
-}
-
-// ── 14. admin_roles ─────────────────────────────────────────────────────────
-
-// AdminRole is `admin_roles`. Role is super_admin, admin, editor or viewer.
-type AdminRole struct {
-	ID        string
-	UserID    string
-	Role      string
-	GrantedBy string
-	CreatedAt int64
-	UpdatedAt int64
-}
-
-// ── 15. user_invitations ────────────────────────────────────────────────────
-
-// UserInvitation is `user_invitations`. Token is a bearer credential: whoever
-// holds it can accept the invitation, so it is looked up and never listed.
-type UserInvitation struct {
-	ID         string
-	Email      string
-	Role       string
-	InvitedBy  string
-	Token      string
-	ExpiresAt  int64
-	AcceptedAt *int64
-	CreatedAt  int64
-}
-
-// ── 16. system_settings ─────────────────────────────────────────────────────
-
-// SystemSetting is `system_settings`, a key/value table keyed by a string.
-//
-// It carries far more than its name suggests: self-protection, the security
-// layers, local logs, the active-policy override, the rate-limit history and
-// the per-device guard versions are all rows here, namespaced by a
-// `<name>:<projectId>` key. That namespacing is the ONLY thing scoping them to
-// a tenant — there is no project_id column — so a caller-supplied key must
-// never reach this table. See settings.go, where every key is built from a
-// constant plus a project id the API key resolved to.
-type SystemSetting struct {
-	Key         string
-	Value       string
-	Description string
-	UpdatedBy   string
-	UpdatedAt   int64
-}
-
-// ── 17. mcp_servers ─────────────────────────────────────────────────────────
+// ── 9. mcp_servers ─────────────────────────────────────────────────────────
 
 // McpServer is `mcp_servers`. URL is an HTTP URL or `stdio://<command>`;
 // Status is active, inactive or error.
@@ -352,7 +245,7 @@ type McpServer struct {
 	UpdatedAt int64
 }
 
-// ── 18. solon_usage ─────────────────────────────────────────────────────────
+// ── 10. solon_usage ─────────────────────────────────────────────────────────
 
 // The value sets the write paths check against. They are the enums from
 // schema.ts, which SQLite does not enforce: the columns are plain TEXT, so a

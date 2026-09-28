@@ -6,7 +6,6 @@ import type {
   PolicyListEntry,
   PolicyRule,
   PolicySet,
-  PolicyVersion,
 } from './types.js';
 
 export function list(): Promise<{ policies: PolicyListEntry[] }> {
@@ -52,20 +51,6 @@ export function revokeRule(
   ruleId: string,
 ): Promise<{ ok: true; revoked: string; policy_id: string; policy_version: number }> {
   return request('DELETE', `/policies/${encodeURIComponent(id)}/rules/${encodeURIComponent(ruleId)}`);
-}
-
-export function versions(
-  id: string,
-  opts: { limit?: number; offset?: number } = {},
-): Promise<{ versions: PolicyVersion[]; pagination: { total: number; limit: number; offset: number } }> {
-  return request('GET', `/policies/${encodeURIComponent(id)}/versions`, { query: opts });
-}
-
-export function rollback(
-  id: string,
-  version: number,
-): Promise<{ version: number; rolled_back_from: number; policy_id: string; hash: string }> {
-  return request('POST', `/policies/${encodeURIComponent(id)}/rollback`, { body: { version } });
 }
 
 export function active(agentId?: string): Promise<ActivePolicy> {

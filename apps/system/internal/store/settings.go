@@ -33,6 +33,10 @@ const (
 
 // scopedKey is the one place a settings key is assembled.
 //
+// THE KEY IS THE ONLY TENANCY. system_settings has no project_id column: what
+// scopes a row to one tenant is the `<name>:<projectId>` key and nothing else.
+// So a caller-supplied key must never reach this table.
+//
 // projectID is not sanitised and does not need to be: it came out of the
 // api_keys ⋈ projects join, so it is a stored UUID rather than caller input.
 // What matters is that the NAME half is a constant from the list above.

@@ -185,36 +185,6 @@ func (s *Store) CreateProject(ctx context.Context, p Project) error {
 	return err
 }
 
-// UpdateProjectMeta is the name/description half of PUT /v1/projects/{id}.
-//
-// The id is matched together with the owner, not on its own. A project id is a
-// UUID a caller can hold from any context; the owner clause is what makes this
-// a scoped write rather than a global one.
-func (s *Store) UpdateProjectMeta(ctx context.Context, projectID, ownerID, name, description string, at int64) (bool, error) {
-	res, err := s.exec(ctx, `
-		UPDATE projects SET name = ?, description = ?, updated_at = ?
-		WHERE id = ? AND owner_id = ?`, name, description, at, projectID, ownerID)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
-}
-
-// DeleteProject removes a project owned by this user. Every scoped table
-// declares ON DELETE CASCADE against projects.id, so the rows go with it — but
-// only if the database has foreign keys enabled, which SQLite does not by
-// default. Callers that must guarantee the cascade should delete explicitly.
-func (s *Store) DeleteProject(ctx context.Context, projectID, ownerID string) (bool, error) {
-	res, err := s.exec(ctx,
-		`DELETE FROM projects WHERE id = ? AND owner_id = ?`, projectID, ownerID)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
-}
-
 // ── the /v1/projects endpoints' own view ────────────────────────────────────
 
 // ProjectRow is one project as GET /v1/projects, GET /v1/projects/{id} and PUT
@@ -495,25 +465,4 @@ func (s *Store) ProjectConfigByID(ctx context.Context, projectID string) (Projec
 		AIJudgeEndpoint:  p.AIJudgeEndpoint,
 		AIJudgeTimeoutMs: p.AIJudgeTimeoutMs,
 	}, nil
-}
-
-// UpdateProjectPi writes the injection-detection settings. Every column is
-// bound; the caller has already clamped the threshold and the mode.
-func (s *Store) UpdateProjectPi(ctx context.Context, projectID, ownerID string, c ProjectConfig, at int64) (bool, error) {
-	res, err := s.exec(ctx, `
-		UPDATE projects
-		SET pi_enabled = ?, pi_threshold = ?, pi_mode = ?, pi_whitelist = ?,
-		    pi_tool_config = ?, pi_custom_patterns = ?, pi_webhook_url = ?,
-		    ai_judge_enabled = ?, ai_judge_model = ?, ai_judge_endpoint = ?, ai_judge_timeout_ms = ?,
-		    updated_at = ?
-		WHERE id = ? AND owner_id = ?`,
-		Bit(c.PiEnabled), c.PiThreshold, c.PiMode, NullText(c.PiWhitelist),
-		NullText(c.PiToolConfig), NullText(c.PiCustomPatterns), NullText(c.PiWebhookURL),
-		Bit(c.AIJudgeEnabled), c.AIJudgeModel, c.AIJudgeEndpoint, c.AIJudgeTimeoutMs,
-		at, projectID, ownerID)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
 }

@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/url"
 )
 
@@ -99,33 +98,6 @@ func (p PoliciesAPI) AddRule(ctx context.Context, id string, spec RuleSpec) (Rul
 func (p PoliciesAPI) RevokeRule(ctx context.Context, id, ruleID string) (RuleMutation, error) {
 	var out RuleMutation
 	return out, p.c.del(ctx, "/policies/"+esc(id)+"/rules/"+esc(ruleID), nil, nil, &out)
-}
-
-type VersionList struct {
-	Versions   []PolicyVersion `json:"versions"`
-	Pagination struct {
-		Total  int `json:"total"`
-		Limit  int `json:"limit"`
-		Offset int `json:"offset"`
-	} `json:"pagination"`
-}
-
-func (p PoliciesAPI) Versions(ctx context.Context, id string, limit, offset int) (VersionList, error) {
-	var out VersionList
-	q := Query(map[string]any{"limit": limit, "offset": offset})
-	return out, p.c.get(ctx, "/policies/"+esc(id)+"/versions", q, &out)
-}
-
-type Rollback struct {
-	Version        int    `json:"version"`
-	RolledBackFrom int    `json:"rolled_back_from"`
-	PolicyID       string `json:"policy_id"`
-	Hash           string `json:"hash"`
-}
-
-func (p PoliciesAPI) Rollback(ctx context.Context, id string, version int) (Rollback, error) {
-	var out Rollback
-	return out, p.c.post(ctx, "/policies/"+esc(id)+"/rollback", map[string]any{"version": version}, &out)
 }
 
 // Active resolves which policy governs a given agent right now, including the
@@ -331,37 +303,6 @@ func (a AuditAPI) Block(ctx context.Context, id, scope string) (RuleMutation, er
 	return out, a.c.post(ctx, "/audit-logs/"+esc(id)+"/block", map[string]any{"scope": scope}, &out)
 }
 
-// ── /agents ────────────────────────────────────────────────────────────────
-
-type AgentsAPI struct{ c *Client }
-
-func (a AgentsAPI) Live(ctx context.Context, limit int, includeDeactivated bool) (LiveAgents, error) {
-	var out LiveAgents
-	q := Query(map[string]any{"limit": limit})
-	if includeDeactivated {
-		q.Set("include_deactivated", "1")
-	}
-	return out, a.c.get(ctx, "/agents/live", q, &out)
-}
-
-// Get is deep detail for one agent. The payload is rich and still changing, so
-// it stays raw rather than being narrowed by this version's idea of it.
-func (a AgentsAPI) Get(ctx context.Context, id string, scan bool) (json.RawMessage, error) {
-	var q url.Values
-	if scan {
-		q = Query(map[string]any{"scan": 1})
-	}
-	var out json.RawMessage
-	return out, a.c.get(ctx, "/agents/"+esc(id), q, &out)
-}
-
-func (a AgentsAPI) Anomalies(ctx context.Context, id string, limit int) ([]json.RawMessage, error) {
-	var out struct {
-		Anomalies []json.RawMessage `json:"anomalies"`
-	}
-	return out.Anomalies, a.c.get(ctx, "/agents/"+esc(id)+"/anomalies", Query(map[string]any{"limit": limit}), &out)
-}
-
 // ── /keys ──────────────────────────────────────────────────────────────────
 
 type KeysAPI struct{ c *Client }
@@ -418,105 +359,4 @@ func (m McpAPI) List(ctx context.Context) ([]McpServer, error) {
 		Servers []McpServer `json:"servers"`
 	}
 	return out.Servers, m.c.get(ctx, "/mcp-servers", nil, &out)
-}
-
-// ── /fleet ─────────────────────────────────────────────────────────────────
-
-// The host/guest arrangement, as the CLI sees it.
-//
-// A host configures a policy once and hands it to the developers on their team;
-// nothing about a developer's machine changes until they ACCEPT. After that
-// they cannot leave and cannot change what they were given, which the server
-// enforces rather than this package. This API is the two halves of that: what a
-// host has sent, and what has been sent to you.
-type FleetAPI struct{ c *Client }
-
-type FleetGrant struct {
-	ID        string `json:"id"`
-	ProjectID string `json:"project_id"`
-	// GuestUserID is who accepted, and is absent until somebody has. It is the
-	// key everything about a person is asked by — their activity, their
-	// numbers — and a row on the roster is the only place it is known.
-	GuestUserID string `json:"guest_user_id"`
-	Email       string `json:"email"`
-	Status      string `json:"status"`
-	VariantID   string `json:"variant_id"`
-	// Group is the host's own label for this person. Empty is ungrouped, which
-	// is what an invitation is until somebody says otherwise.
-	Group string `json:"group"`
-	// PolicyID is the policy pinned to this ONE person, empty when they follow
-	// their group's. An exception, not a default.
-	PolicyID string `json:"policy_id"`
-	// TopAgent is the client they reach for most.
-	TopAgent string `json:"top_agent"`
-	// IsHost is whether this person runs a fleet of their OWN, which is a
-	// different question from whether they are a guest on this one.
-	IsHost     bool   `json:"is_host"`
-	CreatedAt  string `json:"created_at"`
-	AcceptedAt string `json:"accepted_at"`
-}
-
-// FleetState is the host's own view: whether this account may hand policies
-// out, how many seats it has, and who is holding one.
-//
-// Host is false rather than an error for an account with no entitlement: the
-// endpoint is asked before the panel decides what to draw, and "you are not a
-// host" is an answer to that question.
-type FleetState struct {
-	Host  bool `json:"host"`
-	Seats int  `json:"seats"`
-	Used  int  `json:"used"`
-	// HostGroup is the reader's OWN label, and HostTopAgent their own most-used
-	// client. Neither is on a row above: the host holds no grant, so there is
-	// nothing in that list to carry them.
-	HostGroup    string       `json:"host_group"`
-	HostTopAgent string       `json:"host_top_agent"`
-	Invitations  []FleetGrant `json:"invitations"`
-}
-
-func (f FleetAPI) State(ctx context.Context) (FleetState, error) {
-	var out FleetState
-	return out, f.c.get(ctx, "/fleet", nil, &out)
-}
-
-// Inbox is the other half: every request addressed to this account, across
-// every host.
-func (f FleetAPI) Inbox(ctx context.Context) ([]FleetGrant, error) {
-	var out struct {
-		Invitations []FleetGrant `json:"invitations"`
-	}
-	if err := f.c.get(ctx, "/fleet/inbox", nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Invitations, nil
-}
-
-func (f FleetAPI) Invite(ctx context.Context, email, policyID, variantID string) error {
-	return f.c.post(ctx, "/fleet/invitations", map[string]string{
-		"email": email, "policy_id": policyID, "variant_id": variantID,
-	}, nil)
-}
-
-// SetVariant moves a developer onto another setting of the same policy. It is
-// a PUT rather than a second invitation: the arrangement is the same one, and
-// re-inviting would ask them to accept something they already accepted.
-func (f FleetAPI) SetVariant(ctx context.Context, id, variantID string) error {
-	return f.c.put(ctx, "/fleet/invitations/"+url.PathEscape(id),
-		map[string]string{"variant_id": variantID}, nil)
-}
-
-func (f FleetAPI) Revoke(ctx context.Context, id string) error {
-	return f.c.Do(ctx, http.MethodDelete, "/fleet/invitations/"+url.PathEscape(id),
-		RequestOptions{}, nil)
-}
-
-// Accept is the one transition a guest makes, and the only one. There is no
-// call that moves a grant back out of accepted: that absence is what "cannot
-// leave the host" means, and it is not a flag anybody could clear from here.
-func (f FleetAPI) Accept(ctx context.Context, id string) error {
-	return f.c.post(ctx, "/fleet/inbox/"+url.PathEscape(id)+"/accept", nil, nil)
-}
-
-func (f FleetAPI) Decline(ctx context.Context, id string) error {
-	return f.c.post(ctx, "/fleet/inbox/"+url.PathEscape(id)+"/decline", nil, nil)
 }

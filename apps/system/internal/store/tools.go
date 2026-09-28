@@ -60,22 +60,6 @@ func (s *Store) CreateTool(ctx context.Context, t Tool) error {
 	return err
 }
 
-// UpdateTool is PUT /v1/tools/{name}. The name is the key, so it is in the
-// WHERE and not in the SET — renaming through this endpoint would silently
-// create a second tool rather than rename one.
-func (s *Store) UpdateTool(ctx context.Context, projectID, name string, t Tool) (bool, error) {
-	res, err := s.exec(ctx, `
-		UPDATE tools SET description = ?, input_schema = ?, permissions = ?, enabled = ?, updated_at = ?
-		WHERE project_id = ? AND name = ?`,
-		textArg(t.Description), jsonOrNull(t.InputSchema), jsonOrNull(t.Permissions),
-		Bit(t.Enabled), t.UpdatedAt, projectID, name)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
-}
-
 // ToolPatch is the SET clause of PUT /v1/tools/{name}, built one column at a
 // time — the same construction as ProjectPatch and for the same reason.
 //

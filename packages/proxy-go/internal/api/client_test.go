@@ -50,6 +50,19 @@ func writeCredential(t *testing.T, key, url string) {
 	}
 }
 
+// writePolicyFile puts a policy document on the machine the test is pretending
+// to be. The CLI and the guard both read this file, so a test that seeds it is
+// testing the real path rather than a shape invented for the test.
+func writePolicyFile(t *testing.T, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(PolicyPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(PolicyPath(), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func chdirTemp(t *testing.T) {
 	t.Helper()
 	prev, err := os.Getwd()
@@ -72,7 +85,10 @@ func TestRequestSendsCredentialAndPath(t *testing.T) {
 		_, _ = w.Write([]byte(`{"policies":[]}`))
 	}))
 
-	if _, err := c.Policies.List(context.Background()); err != nil {
+	// Do rather than a namespace: the namespaces read this machine now, and what
+	// is under test here is the transport the MCP proxy still uses.
+	var out struct{}
+	if err := c.Do(context.Background(), http.MethodGet, "/policies", RequestOptions{}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if want := "Bearer " + testKey; gotAuth != want {
@@ -98,7 +114,12 @@ func TestQuerySkipsEmptyValues(t *testing.T) {
 		got = r.URL.RawQuery
 		_, _ = w.Write([]byte(`{"entries":[]}`))
 	}))
-	if _, err := c.Audit.List(context.Background(), AuditQuery{Filter: "DENY", Limit: 20}); err != nil {
+	var out struct{}
+	q := Query(map[string]any{
+		"filter": "DENY", "limit": 20,
+		"tool": "", "search": "", "signal": "", "offset": 0, "from": int64(0), "to": int64(0),
+	})
+	if err := c.Do(context.Background(), http.MethodGet, "/audit-logs", RequestOptions{Query: q}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(got, "filter=DENY") || !strings.Contains(got, "limit=20") {
@@ -139,14 +160,16 @@ func TestGetRetriesAndMutationDoesNot(t *testing.T) {
 		drop(w)
 	}))
 
-	if _, err := c.Policies.List(context.Background()); err != nil {
+	var out struct{}
+	if err := c.Do(context.Background(), http.MethodGet, "/policies", RequestOptions{}, &out); err != nil {
 		t.Fatalf("a GET should have survived two dropped connections: %v", err)
 	}
 	if gets != 3 {
 		t.Errorf("GET attempts = %d, want 3", gets)
 	}
 
-	err := c.Policies.SetActive(context.Background(), "p1")
+	err := c.Do(context.Background(), http.MethodPost, "/policies/active",
+		RequestOptions{Body: map[string]any{"policyId": "p1"}}, nil)
 	if err == nil {
 		t.Fatal("expected the mutation to fail rather than retry")
 	}
@@ -184,7 +207,8 @@ func TestErrorEnvelopes(t *testing.T) {
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.body))
 			}))
-			_, err := c.Policies.List(context.Background())
+			var out struct{}
+			err := c.Do(context.Background(), http.MethodGet, "/policies", RequestOptions{}, &out)
 			var apiErr *Error
 			if !errors.As(err, &apiErr) {
 				t.Fatalf("error = %#v, want *api.Error", err)
@@ -216,7 +240,8 @@ func TestErrorsNeverCarryTheKey(t *testing.T) {
 	writeCredential(t, testKey, "http://127.0.0.1:1")
 	chdirTemp(t)
 
-	_, err := New().Policies.List(context.Background())
+	var out struct{}
+	err := New().Do(context.Background(), http.MethodGet, "/policies", RequestOptions{}, &out)
 	if err == nil {
 		t.Fatal("expected a connection failure")
 	}
@@ -237,24 +262,23 @@ func TestNoCredentialIsNotAuthenticated(t *testing.T) {
 	if c.Authenticated() {
 		t.Error("Authenticated() reported true with no key anywhere")
 	}
-	if _, err := c.Policies.List(context.Background()); !errors.Is(err, ErrNotAuthenticated) {
+	var out struct{}
+	if err := c.Do(context.Background(), http.MethodGet, "/policies", RequestOptions{}, &out); !errors.Is(err, ErrNotAuthenticated) {
 		t.Errorf("error = %#v, want ErrNotAuthenticated", err)
 	}
 }
 
-// One malformed rule must not blank the whole policy. The dashboard would still
-// show the rules as active while the CLI showed none, and a read-modify-write
-// would then save that emptiness.
+// One malformed rule must not blank the whole policy. Reading none while the file
+// holds three would make a read-modify-write SAVE that emptiness — and the guard,
+// reading the same file, is still enforcing the rules the CLI just lost.
 func TestOneBadRuleDoesNotBlankThePolicy(t *testing.T) {
-	body := `{"policies":[{"id":"p1","name":"P","mode":"denylist","version":3,
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	writePolicyFile(t, `{"id":"p1","name":"P","mode":"denylist",
 	  "rules":[
 	    {"id":"r1","effect":"DENY","toolPattern":"Bash","priority":10,"enabled":true},
 	    {"id":"r2","effect":"DENY","toolPattern":"Read","priority":"not-a-number"},
 	    {"id":"r3","effect":"ALLOW","toolPattern":"*","priority":9999,"enabled":true}
-	  ]}]}`
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(body))
-	}))
+	  ]}`)
 	list, err := c.Policies.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -315,18 +339,22 @@ func TestPermissionReadsBothShapes(t *testing.T) {
 
 // `security: null` in the active-policy response is an answer, and has to stay
 // distinguishable from a field the API did not send.
+// `"security": null` in the file is an ANSWER — this machine configures no layers
+// — and every layer has to read as off rather than as some default.
 func TestActivePolicyNullSecurity(t *testing.T) {
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"policy":null,"security":null,"self_protection_enabled":true}`))
-	}))
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	writePolicyFile(t, `{"policy":{"id":"p1","name":"P","mode":"denylist","rules":[]},"security":null}`)
 	ap, err := c.Policies.Active(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ap.Security != nil {
-		t.Error("null security should decode to nil")
+	if ap.Security.RateLimit != nil || ap.Security.DLPBlock != nil || ap.Security.DLPRedact != nil {
+		t.Errorf("a null security block enabled a layer: %+v", ap.Security)
 	}
+	// Self-protection defaults ON: a file that says nothing leaves it on, because
+	// the failure mode of guessing wrong the other way is a guard that can be
+	// edited out of the way.
 	if !ap.SelfProtectionEnabled {
-		t.Error("self_protection_enabled was dropped")
+		t.Error("self-protection defaulted off for a file that said nothing")
 	}
 }

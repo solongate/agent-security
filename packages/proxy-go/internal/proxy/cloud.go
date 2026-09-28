@@ -100,14 +100,22 @@ func checkLicense(ctx context.Context, c *api.Client) (licenseResult, error) {
 func fetchCloudPolicy(ctx context.Context, c *api.Client, policyID string) (PolicyDoc, error) {
 	resolvedID := policyID
 	if resolvedID == "" {
-		entries, err := c.Policies.List(ctx)
-		if err != nil {
+		// Asked over the wire rather than through c.Policies.List, which reads
+		// THIS MACHINE now. Mixing the two would have the proxy resolve an id from
+		// the local file and then fetch that id from a service — a policy from one
+		// place carrying a name from another.
+		var listed struct {
+			Policies []struct {
+				ID string `json:"id"`
+			} `json:"policies"`
+		}
+		if err := c.Do(ctx, http.MethodGet, "/policies", api.RequestOptions{Timeout: 10 * time.Second}, &listed); err != nil {
 			return PolicyDoc{}, err
 		}
-		if len(entries) == 0 {
-			return PolicyDoc{}, errors.New("No policies found in cloud. Create one in the dashboard first.")
+		if len(listed.Policies) == 0 {
+			return PolicyDoc{}, errors.New("the service has no policies. Write one there, or drop the key and this machine enforces its own file.")
 		}
-		resolvedID = entries[0].ID
+		resolvedID = listed.Policies[0].ID
 	}
 
 	var fields map[string]json.RawMessage

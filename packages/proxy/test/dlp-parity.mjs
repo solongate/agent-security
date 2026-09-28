@@ -161,4 +161,15 @@ for (const [label, file] of HOOKS) {
   check('the CLI menu is in the same order', names.join('|'), go.map(([n]) => n).join('|'));
 }
 
+// And the SIXTH: the Go CLI's copy of the same menu. Two CLIs offer these, and a
+// name one offers and the other does not is a policy that means different things
+// depending on which binary somebody happened to run.
+{
+  const src = readFileSync(fileURLToPath(new URL('../../proxy-go/internal/api/dlppatterns.go', import.meta.url)), 'utf-8');
+  const from = src.indexOf('var dlpPatternNames');
+  const names = [...src.slice(from).matchAll(/^\t"((?:[^"\\]|\\.)*)",$/gm)].map((m) => m[1]);
+  check('the Go menu carries every pattern', names.length, go.length);
+  check('the Go menu is in the same order', names.join('|'), go.map(([n]) => n).join('|'));
+}
+
 process.exit(done());

@@ -276,7 +276,8 @@ func TestGuardHookRowPrefersTheVersionOnDisk(t *testing.T) {
 	if got.OK != StateOK {
 		t.Fatalf("a newer local guard is not out of date: %+v", got)
 	}
-	if got.Detail != "v31 (latest) · 2 device(s)" {
+	// One machine. The count used to come from a service that knew about others.
+	if got.Detail != "v31 (latest) · 1 device(s)" {
 		t.Fatalf("wording changed: %q", got.Detail)
 	}
 }

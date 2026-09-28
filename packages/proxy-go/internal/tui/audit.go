@@ -724,40 +724,31 @@ func (p *Audit) editField(k tea.KeyMsg) tea.Cmd {
 // doDelete removes the selected entry, or every entry of the current source.
 func (p *Audit) doDelete(kind string, cur logRow) tea.Cmd {
 	p.note = &auditNote{text: "deleting…", level: "ok"}
-	gen, client, source := p.gen, p.deps.API, p.source
+	gen := p.gen
 	return func() tea.Msg {
 		fail := func(err error) tea.Msg {
 			return auditNoteResult{gen: gen, note: auditNote{text: "✗ " + err.Error(), level: "bad"}}
 		}
-		if source == "cloud" {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			var err error
-			if kind == "one" {
-				_, err = client.Audit.Remove(ctx, []string{cur.id})
-			} else {
-				_, err = client.Audit.RemoveAll(ctx)
-			}
-			if err != nil {
-				return fail(err)
-			}
+		// The FILE is the record, and whoever owns the machine owns the file. There
+		// is no second copy to delete from: the two DELETE /audit-logs calls that
+		// used to be here are gone with the service, and an audit log a remote
+		// party could clear on the audited party's behalf was never a record of
+		// anything anyway.
+		n := 0
+		if kind == "one" {
+			n = deleteLocalEntry(cur.at, cur.tool, cur.session)
 		} else {
-			n := 0
-			if kind == "one" {
-				n = deleteLocalEntry(cur.at, cur.tool, cur.session)
-			} else {
-				n = clearLocalLog()
-			}
-			if n == 0 {
-				return fail(errors.New("entry not found in the local file"))
-			}
+			n = clearLocalLog()
+		}
+		if n == 0 {
+			return fail(errors.New("entry not found in the local file"))
 		}
 		text := "✓ entry deleted"
 		if kind != "one" {
-			text = "✓ ALL " + source + " logs deleted"
+			text = "✓ the whole log on this machine was deleted"
 		}
 		return auditNoteResult{gen: gen, note: auditNote{text: text, level: "ok"},
-			reload: true, toTop: true, refresh: source == "cloud"}
+			reload: true, toTop: true}
 	}
 }
 

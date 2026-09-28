@@ -64,8 +64,6 @@ type Client struct {
 	Settings SettingsAPI
 	Stats    StatsAPI
 	Audit    AuditAPI
-	Keys     KeysAPI
-	MCP      McpAPI
 	Device   DeviceAPI
 	Projects ProjectsAPI
 }
@@ -86,8 +84,6 @@ func New() *Client {
 	c.Settings = SettingsAPI{c}
 	c.Stats = StatsAPI{c}
 	c.Audit = AuditAPI{c}
-	c.Keys = KeysAPI{c}
-	c.MCP = McpAPI{c}
 	c.Device = DeviceAPI{c}
 	c.Projects = ProjectsAPI{c}
 	return c

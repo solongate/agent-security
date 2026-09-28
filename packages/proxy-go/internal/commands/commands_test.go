@@ -59,6 +59,33 @@ func stubClient(t *testing.T, h http.Handler) *api.Client {
 	return api.New()
 }
 
+// seedPolicy writes the policy document on the machine the test is pretending to
+// be. This is the file the CLI reads AND the file the guard reads, so a test that
+// seeds it exercises the path that actually runs.
+func seedPolicy(t *testing.T, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(api.PolicyPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(api.PolicyPath(), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// seedAuditLog writes lines in the shape the hooks append, newest LAST, so the
+// ids a test refers to are the line numbers the CLI will report.
+func seedAuditLog(t *testing.T, lines ...string) {
+	t.Helper()
+	dir := config.LocalLogsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "solongate-audit.jsonl"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func jsonHandler(t *testing.T, routes map[string]any) http.Handler {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -76,11 +103,8 @@ func jsonHandler(t *testing.T, routes map[string]any) http.Handler {
 }
 
 func TestPolicyListJSONPutsNothingButJSONOnStdout(t *testing.T) {
-	c := stubClient(t, jsonHandler(t, map[string]any{
-		"/api/v1/policies": map[string]any{"policies": []map[string]any{
-			{"id": "pol-1", "name": "Default", "mode": "denylist", "rules": []any{}, "created_by": "someone"},
-		}},
-	}))
+	c := stubClient(t, jsonHandler(t, nil))
+	seedPolicy(t, `{"id":"pol-1","name":"Default","mode":"denylist","rules":[]}`)
 
 	o, e := capture(t, func() {
 		code, err := runPolicy(context.Background(), c, parse([]string{"list", "--json"}))
@@ -101,11 +125,12 @@ func TestPolicyListJSONPutsNothingButJSONOnStdout(t *testing.T) {
 }
 
 func TestPolicyListHumanOutputStaysOffStdout(t *testing.T) {
-	c := stubClient(t, jsonHandler(t, map[string]any{
-		"/api/v1/policies": map[string]any{"policies": []map[string]any{
-			{"id": "pol-1", "name": "Default", "mode": "whitelist", "rules": []any{1, 2, 3}},
-		}},
-	}))
+	c := stubClient(t, jsonHandler(t, nil))
+	seedPolicy(t, `{"id":"pol-1","name":"Default","mode":"whitelist","rules":[
+	  {"id":"r1","effect":"DENY","toolPattern":"Bash","priority":10,"enabled":true},
+	  {"id":"r2","effect":"DENY","toolPattern":"Read","priority":11,"enabled":true},
+	  {"id":"r3","effect":"DENY","toolPattern":"Write","priority":12,"enabled":true}
+	]}`)
 	o, e := capture(t, func() {
 		if code, err := runPolicy(context.Background(), c, parse([]string{"list"})); err != nil || code != 0 {
 			t.Fatalf("policy list: code=%d err=%v", code, err)
@@ -118,7 +143,7 @@ func TestPolicyListHumanOutputStaysOffStdout(t *testing.T) {
 	if !strings.Contains(plain, "pol-1") || !strings.Contains(plain, "whitelist") {
 		t.Fatalf("table is missing content: %q", plain)
 	}
-	// The rule count comes from the array the API sent, not from the rules this
+	// The rule count comes from the array in the FILE, not from the rules this
 	// version managed to decode.
 	if !strings.Contains(plain, " 3 ") {
 		t.Fatalf("rule count not rendered: %q", plain)
@@ -126,22 +151,14 @@ func TestPolicyListHumanOutputStaysOffStdout(t *testing.T) {
 }
 
 func TestRateLimitSetKeepsTheWindowsItWasNotGiven(t *testing.T) {
-	var sent api.SecurityLayers
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/settings/security-layers", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPut {
-			var body struct {
-				Layers api.SecurityLayers `json:"layers"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			sent = body.Layers
-			_ = json.NewEncoder(w).Encode(map[string]any{"layers": body.Layers})
-			return
-		}
-		_, _ = w.Write([]byte(`{"layers":{"rateLimit":{"mode":"block","perMinute":10,"perHour":100,"perDay":1000},
-		  "dlp":{"mode":"detect","patterns":["AWS access key"],"custom":[]}},"availablePatterns":["AWS access key"]}`))
-	})
-	c := stubClient(t, mux)
+	c := stubClient(t, jsonHandler(t, nil))
+	// The layers as the GUARD reads them: a detect-mode DLP config is `dlpRedact`
+	// with no `dlpBlock`, and a block-mode rate limit is `rateLimit`.
+	seedPolicy(t, `{"policy":{"id":"p1","name":"P","mode":"denylist","rules":[]},
+	  "security":{
+	    "rateLimit":{"perMinute":10,"perHour":100,"perDay":1000},
+	    "dlpRedact":{"patterns":["AWS access key"],"custom":[]}
+	  }}`)
 
 	if _, e := capture(t, func() {
 		if code, err := runRateLimit(context.Background(), c, parse([]string{"set", "--minute", "25"})); err != nil || code != 0 {
@@ -151,16 +168,20 @@ func TestRateLimitSetKeepsTheWindowsItWasNotGiven(t *testing.T) {
 		t.Fatal("the confirmation line is missing")
 	}
 
-	if sent.RateLimit.PerMinute != 25 {
-		t.Fatalf("perMinute not applied: %d", sent.RateLimit.PerMinute)
+	got, err := c.Settings.GetSecurityLayers(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
-	// The endpoint REPLACES the layers document. Sending only the rate limit
-	// would switch DLP off on the way past.
-	if sent.RateLimit.PerHour != 100 || sent.RateLimit.PerDay != 1000 {
-		t.Fatalf("untouched windows were reset: %+v", sent.RateLimit)
+	if got.Layers.RateLimit.PerMinute != 25 {
+		t.Fatalf("perMinute not applied: %d", got.Layers.RateLimit.PerMinute)
 	}
-	if sent.DLP.Mode != api.LayerDetect || len(sent.DLP.Patterns) != 1 {
-		t.Fatalf("editing the rate limit disarmed DLP: %+v", sent.DLP)
+	// The write REPLACES the layers document. Sending only the rate limit would
+	// switch DLP off on the way past, and the guard reads the same file.
+	if got.Layers.RateLimit.PerHour != 100 || got.Layers.RateLimit.PerDay != 1000 {
+		t.Fatalf("untouched windows were reset: %+v", got.Layers.RateLimit)
+	}
+	if got.Layers.DLP.Mode != api.LayerDetect || len(got.Layers.DLP.Patterns) != 1 {
+		t.Fatalf("editing the rate limit disarmed DLP: %+v", got.Layers.DLP)
 	}
 }
 
@@ -221,30 +242,39 @@ func TestDLPRefusesAPatternTheCloudDoesNotOffer(t *testing.T) {
 }
 
 func TestAuditWhitelistDefaultsToTheNarrowScope(t *testing.T) {
-	var gotScope string
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/audit-logs/log-1/whitelist", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Scope string `json:"scope"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		gotScope = body.Scope
-		_, _ = w.Write([]byte(`{"ok":true,"policy_id":"pol-1","policy_version":4}`))
-	})
-	c := stubClient(t, mux)
+	c := stubClient(t, jsonHandler(t, nil))
+	seedPolicy(t, `{"id":"pol-1","name":"P","mode":"denylist","rules":[]}`)
+	// An entry's id is its LINE NUMBER, which is what makes this work against a
+	// file: the log is append-only, so line 1 stays line 1.
+	seedAuditLog(t,
+		`{"ts":"2026-01-01T00:00:00.000Z","tool":"Bash","decision":"DENY","reason":"Blocked by policy","arguments":{"command":"rm -rf /tmp/x"}}`)
 
 	_, e := capture(t, func() {
-		if code, err := runAudit(context.Background(), c, parse([]string{"whitelist", "log-1"})); err != nil || code != 0 {
+		if code, err := runAudit(context.Background(), c, parse([]string{"whitelist", "1"})); err != nil || code != 0 {
 			t.Fatalf("audit whitelist: code=%d err=%v", code, err)
 		}
 	})
+
 	// A whitelist that widened to the whole tool by default would be a very
-	// quiet way to disarm a policy.
-	if gotScope != "exact" {
-		t.Fatalf("default scope = %q, want exact", gotScope)
+	// quiet way to disarm a policy. So the rule it wrote has to name the COMMAND
+	// that entry carried, not just its tool.
+	got, err := c.Policies.Get(context.Background(), "local", 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(ansi.ReplaceAllString(e, ""), "pol-1 v4") {
-		t.Fatalf("the resulting policy version is part of the confirmation: %q", e)
+	if len(got.Rules.Items) != 1 {
+		t.Fatalf("rules written = %d, want 1", len(got.Rules.Items))
+	}
+	rule := got.Rules.Items[0]
+	if rule.Effect != "ALLOW" || rule.ToolPattern != "Bash" {
+		t.Fatalf("rule is not an ALLOW on that tool: %+v", rule)
+	}
+	if rule.CommandConstraints == nil || len(rule.CommandConstraints.Allowed) != 1 ||
+		rule.CommandConstraints.Allowed[0] != "rm -rf /tmp/x" {
+		t.Fatalf("the default scope widened past that call: %+v", rule.CommandConstraints)
+	}
+	if !strings.Contains(ansi.ReplaceAllString(e, ""), "pol-1") {
+		t.Fatalf("the resulting policy is part of the confirmation: %q", e)
 	}
 }
 

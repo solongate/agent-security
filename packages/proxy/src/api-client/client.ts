@@ -15,7 +15,7 @@ import { homedir } from 'node:os';
 // Credential file writes must survive the OS lock self-protection puts on the
 // active-key file — see writeProtectedFile. (global-install imports only node
 // builtins, so this cannot cycle back into the client.)
-import { writeProtectedFile } from '../global-install.js';
+import { OWNER_ONLY, OWNER_ONLY_DIR, narrowToOwner, writeProtectedFile } from '../global-install.js';
 
 export const DEFAULT_API_URL = 'http://127.0.0.1:3002';
 
@@ -72,8 +72,11 @@ export function saveAccount(acc: SavedAccount): void {
     })();
     const next = list.filter((a) => a.apiKey !== acc.apiKey);
     next.unshift({ ...acc, addedAt: acc.addedAt ?? Date.now() });
-    mkdirSync(join(homedir(), '.solongate'), { recursive: true });
-    writeFileSync(accountsFile(), JSON.stringify(next, null, 2));
+    mkdirSync(join(homedir(), '.solongate'), { recursive: true, mode: OWNER_ONLY_DIR });
+    narrowToOwner(join(homedir(), '.solongate'));
+    // 0600: this file holds live API keys in cleartext. See OWNER_ONLY.
+    writeFileSync(accountsFile(), JSON.stringify(next, null, 2), { mode: OWNER_ONLY });
+    narrowToOwner(accountsFile());
   } catch {
     /* best-effort */
   }
@@ -90,7 +93,8 @@ export function removeAccount(apiKey: string): void {
         return [] as SavedAccount[];
       }
     })();
-    writeFileSync(accountsFile(), JSON.stringify(list.filter((a) => a.apiKey !== apiKey), null, 2));
+    writeFileSync(accountsFile(), JSON.stringify(list.filter((a) => a.apiKey !== apiKey), null, 2), { mode: OWNER_ONLY });
+    narrowToOwner(accountsFile());
   } catch {
     /* best-effort */
   }
@@ -123,7 +127,8 @@ export function isActiveAccount(apiKey: string): boolean {
 export function setActiveAccount(creds: Credentials): boolean {
   try {
     const dir = join(homedir(), '.solongate');
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true, mode: OWNER_ONLY_DIR });
+    narrowToOwner(dir);
     const p = join(dir, ['cloud', 'guard.json'].join('-'));
     let existing: Record<string, unknown> = {};
     try {

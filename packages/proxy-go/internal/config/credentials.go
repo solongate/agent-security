@@ -280,7 +280,17 @@ func writeAccounts(list []SavedAccount) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(AccountsPath(), b, 0o644)
+	// 0600, not 0644. This file holds live API keys in cleartext — the whole
+	// point of it is that a CLI run can find one without asking — so a
+	// world-readable mode hands every other account on the machine a working
+	// credential for this project. That matters on exactly the machines this
+	// tool is used on: shared build boxes, CI runners, containers with more than
+	// one user in them.
+	//
+	// WriteFile only applies the mode when it CREATES the file, so an existing
+	// file keeps whatever it has; ensureOwnerOnly fixes one already on disk.
+	_ = os.WriteFile(AccountsPath(), b, 0o600)
+	ensureOwnerOnly(AccountsPath())
 }
 
 // SetActiveAccount makes an account the one the guard hooks read.

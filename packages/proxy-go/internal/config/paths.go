@@ -130,4 +130,38 @@ func ProjectFlagDir() string {
 // EnsureDir creates ~/.solongate. Every writer here calls it rather than
 // assuming the directory exists: on a machine that has only ever run the CLI
 // and never a guarded tool call, nothing has created it yet.
-func EnsureDir() error { return os.MkdirAll(Dir(), 0o755) }
+// EnsureDir creates ~/.solongate, owner-only.
+//
+// 0700 because the credential files inside it are 0600 and a world-readable
+// directory still lets another account on the machine ENUMERATE them — which
+// names the projects, the accounts and every agent that has run here. As with
+// the files, MkdirAll only applies the mode on creation, so a directory that
+// already exists is corrected rather than assumed.
+func EnsureDir() error {
+	if err := os.MkdirAll(Dir(), 0o700); err != nil {
+		return err
+	}
+	ensureOwnerOnly(Dir())
+	return nil
+}
+
+// ensureOwnerOnly narrows an existing path's mode to owner-only, keeping its
+// file/directory bits.
+//
+// Needed because Go's create-with-mode does nothing to a path that is already
+// there, and these files predate the mode being right. Best effort: a chmod that
+// fails (a read-only mount, a Windows filesystem with no POSIX bits) must not
+// stop the CLI from working — it is a hardening step, not a precondition.
+func ensureOwnerOnly(path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	want := os.FileMode(0o600)
+	if info.IsDir() {
+		want = 0o700
+	}
+	if info.Mode().Perm() != want {
+		_ = os.Chmod(path, want)
+	}
+}

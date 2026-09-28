@@ -138,14 +138,47 @@ export function unlockProtected(): void { for (const f of protectedTargets()) un
  * CLI is human-only, and the lock exists to stop PROGRAMS (agents, editors,
  * stray scripts) from disarming the guard, not the person at the terminal.
  */
+/**
+ * OWNER_ONLY is the mode for anything holding a credential.
+ *
+ * These files hold live API keys in cleartext — the point of them is that a CLI
+ * run can find one without asking — so the default 0644 hands every other account
+ * on the machine a working credential for the project. That matters on exactly the
+ * machines this tool runs on: shared build boxes, CI runners, containers with more
+ * than one user in them.
+ *
+ * Node's writeFileSync only applies a mode when it CREATES the file, so a file
+ * already on disk keeps whatever it has. narrowToOwner fixes those.
+ */
+export const OWNER_ONLY = 0o600;
+export const OWNER_ONLY_DIR = 0o700;
+
+/**
+ * Narrow an existing path to owner-only, keeping its file/directory bits.
+ *
+ * Best effort: a chmod that fails (a read-only mount, a filesystem with no POSIX
+ * bits — Windows) must not stop the CLI from working. This is a hardening step,
+ * not a precondition.
+ */
+export function narrowToOwner(path: string): void {
+  try {
+    const want = statSync(path).isDirectory() ? OWNER_ONLY_DIR : OWNER_ONLY;
+    if ((statSync(path).mode & 0o777) !== want) chmodSync(path, want);
+  } catch {
+    /* hardening only */
+  }
+}
+
 export function writeProtectedFile(file: string, contents: string): boolean {
   try {
-    writeFileSync(file, contents);
+    writeFileSync(file, contents, { mode: OWNER_ONLY });
+    narrowToOwner(file);
     return true;
   } catch {
     unlockFile(file);
     try {
-      writeFileSync(file, contents);
+      writeFileSync(file, contents, { mode: OWNER_ONLY });
+      narrowToOwner(file);
       return true;
     } catch {
       return false;
@@ -855,7 +888,8 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     writeFileSync(join(p.hooksDir, 'tokens.mjs'), readHook('tokens.mjs'));
   writeLauncher(p.hooksDir);
     writeLauncher(p.hooksDir);
-    writeFileSync(p.configPath, JSON.stringify({ apiKey, apiUrl }, null, 2) + '\n');
+    writeFileSync(p.configPath, JSON.stringify({ apiKey, apiUrl }, null, 2) + '\n', { mode: OWNER_ONLY });
+    narrowToOwner(p.configPath);
 
     let existing: Record<string, unknown> = {};
     if (existsSync(p.settingsPath)) {
@@ -1152,7 +1186,8 @@ export async function runGlobalInstall(opts: { apiKey?: string; apiUrl?: string 
   // the shim adds the prompt/request surface on top.
   installClaudeShim(join(p.hooksDir, 'shield.mjs'));
 
-  writeFileSync(p.configPath, JSON.stringify({ apiKey, apiUrl }, null, 2) + '\n');
+  writeFileSync(p.configPath, JSON.stringify({ apiKey, apiUrl }, null, 2) + '\n', { mode: OWNER_ONLY });
+    narrowToOwner(p.configPath);
   console.log(`  Wrote ${p.configPath}`);
 
   let existing: Record<string, unknown> = {};

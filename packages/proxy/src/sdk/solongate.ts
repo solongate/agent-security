@@ -143,7 +143,7 @@ export class SolonGate {
       return;
     }
 
-    const apiUrl = this.config.apiUrl ?? 'https://api.solongate.com';
+    const apiUrl = this.config.apiUrl ?? 'http://127.0.0.1:3002';
     try {
       const res = await fetch(`${apiUrl}/api/v1/auth/me`, {
         headers: {
@@ -174,7 +174,7 @@ export class SolonGate {
    * TODO: extract cloud policy parsing to shared module with packages/proxy/src/config.ts
    */
   private fetchCloudPolicyOnce(): void {
-    const apiUrl = this.config.apiUrl ?? 'https://api.solongate.com';
+    const apiUrl = this.config.apiUrl ?? 'http://127.0.0.1:3002';
     fetch(`${apiUrl}/api/v1/policies/default`, {
       headers: { 'Authorization': `Bearer ${this.apiKey}` },
       signal: AbortSignal.timeout(10_000),
@@ -232,7 +232,7 @@ export class SolonGate {
    * Poll for policy updates from dashboard every 60 seconds.
    */
   private startPolicyPolling(): void {
-    const apiUrl = this.config.apiUrl ?? 'https://api.solongate.com';
+    const apiUrl = this.config.apiUrl ?? 'http://127.0.0.1:3002';
     let currentVersion = 0;
 
     const timer = setInterval(async () => {
@@ -280,7 +280,7 @@ export class SolonGate {
     evaluationTimeMs: number;
   }): void {
     if (!this.apiKey.startsWith('sg_live_')) return;
-    const apiUrl = this.config.apiUrl ?? 'https://api.solongate.com';
+    const apiUrl = this.config.apiUrl ?? 'http://127.0.0.1:3002';
     fetch(`${apiUrl}/api/v1/audit-logs`, {
       method: 'POST',
       headers: {

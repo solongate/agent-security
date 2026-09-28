@@ -38,8 +38,15 @@ func loadCredential(managed bool) sgshared.Credential {
 	if !sgshared.IsRealKey(c.APIKey) {
 		c.APIKey = ""
 	}
+	// The default is THIS MACHINE, and that is not a preference.
+	//
+	// It was a hosted service, which is the wrong fallback for a program whose
+	// ordinary deployment is local: a stray credential in a .env would have sent an
+	// audit record to a host the person running this does not operate. README has
+	// documented 127.0.0.1:3002 as the default all along — the port apps/system
+	// listens on — so the code was the half that disagreed.
 	if c.APIURL == "" {
-		c.APIURL = "https://api.solongate.com"
+		c.APIURL = "http://127.0.0.1:3002"
 	}
 	return c
 }

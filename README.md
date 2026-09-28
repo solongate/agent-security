@@ -19,14 +19,68 @@ Supported agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
 | `packages/proxy` | The CLI and TUI (npm package `@solongate/proxy`, command `solongate`). |
 | `packages/proxy-go` | The same CLI in Go, which is what ships as the binary. |
 | `packages/sgpolicy` | The policy engine: JSON rules → Rego. |
-| `apps/system` | The server side: policies, the audit log, sign-in, alerts and webhooks. |
+| `apps/system` | The optional server side: policies and the audit log for many machines, and sign-in. |
 | `packages/sgshared` | Shapes more than one program has to agree about. |
 | `packages/aicatalog` | The model catalogue. |
 
 Everything runs on infrastructure you operate. There is no hosted service, and no
 default in this repository points at one.
 
-## Running it
+## Running it on one machine
+
+Nothing else is needed for this: no database, no server, no account, no sign-in.
+Install the guard, write a file, and the next tool call is decided against it.
+
+```bash
+npm i -g @solongate/proxy
+solongate                    # the dataroom; install the guard from Settings
+```
+
+Then `~/.solongate/policy.json`:
+
+```json
+{
+  "mode": "denylist",
+  "rules": [
+    {
+      "id": "no-force-push",
+      "description": "Rewriting shared history is not an agent's decision",
+      "effect": "DENY",
+      "priority": 10,
+      "enabled": true,
+      "toolPattern": "*",
+      "minimumTrustLevel": "UNTRUSTED",
+      "commandConstraints": { "denied": ["*push --force*", "*push -f*"] }
+    }
+  ]
+}
+```
+
+`git push --force` and `git push -f` are refused from that point; `git push` is
+not. Denials are appended to
+`~/.solongate/local-logs/solongate-audit.jsonl`, owner-only, and nothing leaves
+the machine — with no credential there is nothing to send anywhere and no attempt
+is made.
+
+The same file can also carry the rate limit, the egress rules and the DLP
+scanner. Wrap the policy and add `security`, which is the shape a service sends:
+
+```json
+{
+  "policy": { "mode": "denylist", "rules": [] },
+  "security": { "rateLimit": { "mode": "enforce", "perMinute": 60 } }
+}
+```
+
+A `policy.json` beside your working directory is read when the machine has no file of
+its own. It may add **rules and nothing else**: it lives in a repository the agent
+can write to, so `selfProtect` and `security` are ignored there.
+
+## Running the service
+
+Optional, and what it adds is one place to keep the policy and the audit log for
+many machines, plus sign-in so it knows who is asking. The decision still happens
+on each machine, against a policy cached there.
 
 ### 1. The database
 
@@ -115,17 +169,11 @@ docker build -f Dockerfile.system -t solongate-system .
 docker run -p 3002:8080 -e DATABASE_URL=… solongate-system
 ```
 
-### 3. The guard, on each developer's machine
+### 3. Each developer's machine joins it
 
-```bash
-npm i -g @solongate/proxy
-solongate
-```
-
-That opens the dataroom — the terminal UI where you add an account, write
-policies, and read the audit log.
-
-Adding an account signs in **against your identity provider**, not against us.
+The guard is already installed from the section above; what is left is pointing it
+at the service. That is an account, added from the same Settings panel, and it
+signs in **against your identity provider**, not against us.
 The CLI shows a code, the person enters it at the provider — on the laptop, or on
 a phone if the laptop is headless — and the provider issues a token the service
 verifies against the provider's own keys. That is the OAuth device grant

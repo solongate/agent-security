@@ -90,7 +90,6 @@ type Project struct {
 	PiWhitelist      string
 	PiToolConfig     string
 	PiCustomPatterns string
-	PiWebhookURL     string
 
 	AIJudgeEnabled   bool
 	AIJudgeModel     string

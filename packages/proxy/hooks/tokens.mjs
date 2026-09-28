@@ -390,7 +390,7 @@ async function reportTokens(data, source, sessionId, agentName) {
     if (!turns.length) return;
     const cfg = loadGlobalCloudConfig();
     await sendTokens({
-      apiUrl: cfg.apiUrl || 'https://api.solongate.com',
+      apiUrl: cfg.apiUrl || 'http://127.0.0.1:3002',
       apiKey: cfg.apiKey || '',
       sessionId,
       agentId: AGENT_ID,
@@ -428,7 +428,7 @@ function tokenSourceOf(data) {
     if (data.tokens !== true) return;
     const cfg = loadGlobalCloudConfig();
     await sendTokens({
-      apiUrl: cfg.apiUrl || 'https://api.solongate.com',
+      apiUrl: cfg.apiUrl || 'http://127.0.0.1:3002',
       apiKey: cfg.apiKey || '',
       sessionId: data.session_id || '',
       agentId: AGENT_ID,

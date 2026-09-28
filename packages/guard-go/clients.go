@@ -6,15 +6,12 @@ package main
 // one client:
 //
 //	CALL     { client, tool, args, command, cwd, sessionId, response, raw }
-//	DECISION { type: deny | allow | rewrite, reason, patch, stealth }
+//	DECISION { type: deny | allow | rewrite, reason, patch }
 //
 // Each adapter translates one client BOTH ways: Parse maps that client's raw
 // payload onto CALL, Emit maps DECISION onto that client's wire format and
 // returns the process exit code. No layer outside this block may branch on the
 // client. Adding a client = adding one entry here.
-//
-// `stealth` on a deny means: emit the reason verbatim, with no SolonGate
-// branding, so a hidden path looks like it simply does not exist.
 //
 // Emit RETURNS the exit code rather than calling os.Exit, so main() keeps
 // control of process teardown (the Node original had to set process.exitCode

@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"regexp"
-	"strings"
 
 	"github.com/codeyevsky/solongate/system/internal/apiauth"
 	"github.com/codeyevsky/solongate/system/internal/policyjson"
@@ -120,7 +118,6 @@ type projectView struct {
 	PiWhitelist      *string  `json:"piWhitelist"`
 	PiToolConfig     *string  `json:"piToolConfig"`
 	PiCustomPatterns *string  `json:"piCustomPatterns"`
-	PiWebhookURL     *string  `json:"piWebhookUrl"`
 	CreatedAt        string   `json:"createdAt"`
 	UpdatedAt        string   `json:"updatedAt"`
 }
@@ -142,7 +139,6 @@ type projectListView struct {
 	PiWhitelist      *string  `json:"piWhitelist"`
 	PiToolConfig     *string  `json:"piToolConfig"`
 	PiCustomPatterns *string  `json:"piCustomPatterns"`
-	PiWebhookURL     *string  `json:"piWebhookUrl"`
 	CreatedAt        string   `json:"createdAt"`
 	UpdatedAt        string   `json:"updatedAt"`
 	OwnerLabel       string   `json:"owner_name"`
@@ -172,7 +168,6 @@ func projectToView(p store.ProjectRow) projectView {
 		PiWhitelist:      p.PiWhitelist,
 		PiToolConfig:     p.PiToolConfig,
 		PiCustomPatterns: p.PiCustomPatterns,
-		PiWebhookURL:     p.PiWebhookURL,
 		CreatedAt:        store.ISO(p.CreatedAt),
 		UpdatedAt:        store.ISO(p.UpdatedAt),
 	}
@@ -201,7 +196,6 @@ func projectToListView(p store.ProjectListRow) projectListView {
 		PiWhitelist:      p.PiWhitelist,
 		PiToolConfig:     p.PiToolConfig,
 		PiCustomPatterns: p.PiCustomPatterns,
-		PiWebhookURL:     p.PiWebhookURL,
 		CreatedAt:        store.ISO(p.CreatedAt),
 		UpdatedAt:        store.ISO(p.UpdatedAt),
 	}
@@ -332,14 +326,6 @@ func (s *server) putProject(w http.ResponseWriter, r *http.Request, key apiauth.
 		}
 		patch.SetPiCustomPatterns(patterns)
 	}
-	if raw, present := body["piWebhookUrl"]; present {
-		webhook, ok := piWebhookURL(w, raw)
-		if !ok {
-			return
-		}
-		patch.SetPiWebhookURL(webhook)
-	}
-
 	if err := s.store.UpdateProjectPatch(r.Context(), id, owner, patch, store.Now()); err != nil {
 		apiauth.Internal(w, "api", err)
 		return
@@ -397,7 +383,6 @@ type projectConfigView struct {
 	PiWhitelist      json.RawMessage `json:"piWhitelist"`
 	PiToolConfig     json.RawMessage `json:"piToolConfig"`
 	PiCustomPatterns json.RawMessage `json:"piCustomPatterns"`
-	PiWebhookURL     *string         `json:"piWebhookUrl"`
 }
 
 func (s *server) getProjectConfig(w http.ResponseWriter, r *http.Request, key apiauth.KeyInfo) {
@@ -426,7 +411,6 @@ func (s *server) getProjectConfig(w http.ResponseWriter, r *http.Request, key ap
 		PiWhitelist:      storedJSON(cfg.PiWhitelist, "[]"),
 		PiToolConfig:     storedJSON(cfg.PiToolConfig, "{}"),
 		PiCustomPatterns: storedJSON(cfg.PiCustomPatterns, "[]"),
-		PiWebhookURL:     nullable(cfg.PiWebhookURL),
 	})
 }
 
@@ -611,71 +595,4 @@ func piCustomPatterns(w http.ResponseWriter, raw json.RawMessage) (string, bool)
 		items = items[:piMaxPatterns]
 	}
 	return policyjson.Stringify(items, nil), true
-}
-
-// piWebhookURL validates the injection webhook, or writes the 400 and returns
-// false. A nil result with ok is `updates.piWebhookUrl = null` — the column is
-// cleared.
-//
-// The host list is the live route's, and it is the only thing standing between
-// this feature and a server-side request forgery: the sender runs inside this
-// service's network, so a webhook pointed at 169.254.169.254 would fetch cloud
-// credentials on a caller's behalf. It is a blocklist and blocklists leak — a
-// DNS name that resolves to a private address passes it — but it is the deployed
-// behaviour and widening it is a decision to make with whoever owns the feature,
-// not a change to slip into a port.
-func piWebhookURL(w http.ResponseWriter, raw json.RawMessage) (*string, bool) {
-	// `const wh = body.piWebhookUrl || null` — falsy clears the column.
-	target, truthy := jsTruthyString(raw)
-	if !truthy {
-		return nil, true
-	}
-
-	u, err := url.Parse(target)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		// `new URL(x)` throws for anything that is not absolute; Go's parser is
-		// happy with a relative reference, so the scheme and host are checked
-		// here instead.
-		apiauth.BadRequest(w, "Invalid webhook URL")
-		return nil, false
-	}
-	if !strings.EqualFold(u.Scheme, "https") {
-		apiauth.BadRequest(w, "Webhook URL must use HTTPS")
-		return nil, false
-	}
-	if privateWebhookHost(u) {
-		apiauth.BadRequest(w, "Webhook URL must not point to private/internal networks")
-		return nil, false
-	}
-
-	// `whUrl.toString()` — WHATWG lowercases the host and normalises an empty
-	// path to "/". Go's URL does neither, and the stored string is what a later
-	// request is actually sent to, so the normalisation happens here.
-	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
-	if u.Path == "" {
-		u.Path = "/"
-	}
-	normalised := u.String()
-	return &normalised, true
-}
-
-func privateWebhookHost(u *url.URL) bool {
-	h := strings.ToLower(u.Hostname())
-	switch h {
-	case "169.254.169.254", "metadata.google.internal", "localhost",
-		"127.0.0.1", "0.0.0.0", "::1":
-		return true
-	}
-	if strings.HasPrefix(h, "10.") || strings.HasPrefix(h, "192.168.") || strings.HasPrefix(h, "172.") {
-		return true
-	}
-	if strings.HasSuffix(h, ".internal") || strings.HasSuffix(h, ".local") {
-		return true
-	}
-	// The live test is `hostname.startsWith('[')`, because WHATWG keeps the
-	// brackets on an IPv6 literal. Go's Hostname() strips them, so the raw host
-	// is what carries the same signal — and the intent is to refuse every IPv6
-	// literal, not only ::1.
-	return strings.Contains(u.Host, "[")
 }

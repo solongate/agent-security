@@ -19,7 +19,7 @@ import (
 // token routes and nothing else.
 func (s *Store) ProjectByID(ctx context.Context, id string) (Project, error) {
 	var p Project
-	var orgID, desc, piMode, piWhitelist, piToolCfg, piPatterns, piWebhook sql.NullString
+	var orgID, desc, piMode, piWhitelist, piToolCfg, piPatterns sql.NullString
 	var judgeModel, judgeEndpoint sql.NullString
 	var piEnabled, judgeEnabled, judgeTimeout sql.NullInt64
 	var piThreshold sql.NullFloat64
@@ -27,13 +27,13 @@ func (s *Store) ProjectByID(ctx context.Context, id string) (Project, error) {
 	err := s.queryRow(ctx, `
 		SELECT id, owner_id, org_id, name, slug, description, token_secret,
 		       pi_enabled, pi_threshold, pi_mode, pi_whitelist, pi_tool_config,
-		       pi_custom_patterns, pi_webhook_url,
+		       pi_custom_patterns,
 		       ai_judge_enabled, ai_judge_model, ai_judge_endpoint, ai_judge_timeout_ms,
 		       created_at, updated_at
 		FROM projects WHERE id = ? LIMIT 1`, id).
 		Scan(&p.ID, &p.OwnerID, &orgID, &p.Name, &p.Slug, &desc, &p.TokenSecret,
 			&piEnabled, &piThreshold, &piMode, &piWhitelist, &piToolCfg,
-			&piPatterns, &piWebhook,
+			&piPatterns,
 			&judgeEnabled, &judgeModel, &judgeEndpoint, &judgeTimeout,
 			&p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -61,7 +61,6 @@ func (s *Store) ProjectByID(ctx context.Context, id string) (Project, error) {
 	p.PiWhitelist = text(piWhitelist)
 	p.PiToolConfig = text(piToolCfg)
 	p.PiCustomPatterns = text(piPatterns)
-	p.PiWebhookURL = text(piWebhook)
 
 	p.AIJudgeEnabled = boolVal(judgeEnabled)
 	p.AIJudgeModel = text(judgeModel)
@@ -211,7 +210,6 @@ type ProjectRow struct {
 	PiWhitelist      *string
 	PiToolConfig     *string
 	PiCustomPatterns *string
-	PiWebhookURL     *string
 	CreatedAt        int64
 	UpdatedAt        int64
 }
@@ -228,7 +226,7 @@ type ProjectListRow struct {
 
 const projectRowColumns = `p.id, p.name, p.slug, p.description, p.org_id,
 	p.pi_enabled, p.pi_threshold, p.pi_mode, p.pi_whitelist, p.pi_tool_config,
-	p.pi_custom_patterns, p.pi_webhook_url, p.created_at, p.updated_at`
+	p.pi_custom_patterns, p.created_at, p.updated_at`
 
 // ProjectsForOwner is GET /v1/projects.
 //
@@ -252,18 +250,18 @@ func (s *Store) ProjectsForOwner(ctx context.Context, ownerID string) ([]Project
 	out := []ProjectListRow{}
 	for rows.Next() {
 		var r ProjectListRow
-		var desc, orgID, piMode, piWhitelist, piToolCfg, piPatterns, piWebhook sql.NullString
+		var desc, orgID, piMode, piWhitelist, piToolCfg, piPatterns sql.NullString
 		var ownerName, ownerEmail sql.NullString
 		var piEnabled sql.NullInt64
 		var piThreshold sql.NullFloat64
 		if err := rows.Scan(&r.ID, &r.Name, &r.Slug, &desc, &orgID,
 			&piEnabled, &piThreshold, &piMode, &piWhitelist, &piToolCfg,
-			&piPatterns, &piWebhook, &r.CreatedAt, &r.UpdatedAt,
+			&piPatterns, &r.CreatedAt, &r.UpdatedAt,
 			&ownerName, &ownerEmail); err != nil {
 			return nil, err
 		}
 		r.ProjectRow = fillProjectRow(r.ProjectRow, desc, orgID, piEnabled, piThreshold,
-			piMode, piWhitelist, piToolCfg, piPatterns, piWebhook)
+			piMode, piWhitelist, piToolCfg, piPatterns)
 		r.OwnerName = textPtr(ownerName)
 		r.OwnerEmail = textPtr(ownerEmail)
 		out = append(out, r)
@@ -279,7 +277,7 @@ func (s *Store) ProjectsForOwner(ctx context.Context, ownerID string) ([]Project
 // matching on it alone would hand any valid key another tenant's settings.
 func (s *Store) ProjectRowForOwner(ctx context.Context, projectID, ownerID string) (ProjectRow, error) {
 	var r ProjectRow
-	var desc, orgID, piMode, piWhitelist, piToolCfg, piPatterns, piWebhook sql.NullString
+	var desc, orgID, piMode, piWhitelist, piToolCfg, piPatterns sql.NullString
 	var piEnabled sql.NullInt64
 	var piThreshold sql.NullFloat64
 
@@ -288,7 +286,7 @@ func (s *Store) ProjectRowForOwner(ctx context.Context, projectID, ownerID strin
 		FROM projects p WHERE p.id = ? AND p.owner_id = ? LIMIT 1`, projectID, ownerID).
 		Scan(&r.ID, &r.Name, &r.Slug, &desc, &orgID,
 			&piEnabled, &piThreshold, &piMode, &piWhitelist, &piToolCfg,
-			&piPatterns, &piWebhook, &r.CreatedAt, &r.UpdatedAt)
+			&piPatterns, &r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ProjectRow{}, ErrNotFound
 	}
@@ -296,14 +294,14 @@ func (s *Store) ProjectRowForOwner(ctx context.Context, projectID, ownerID strin
 		return ProjectRow{}, err
 	}
 	return fillProjectRow(r, desc, orgID, piEnabled, piThreshold,
-		piMode, piWhitelist, piToolCfg, piPatterns, piWebhook), nil
+		piMode, piWhitelist, piToolCfg, piPatterns), nil
 }
 
 // fillProjectRow moves the nullable columns onto the row. It is one function
 // rather than two copies so the list and the detail endpoint cannot disagree
 // about which column is which.
 func fillProjectRow(r ProjectRow, desc, orgID sql.NullString, piEnabled sql.NullInt64,
-	piThreshold sql.NullFloat64, piMode, piWhitelist, piToolCfg, piPatterns, piWebhook sql.NullString) ProjectRow {
+	piThreshold sql.NullFloat64, piMode, piWhitelist, piToolCfg, piPatterns sql.NullString) ProjectRow {
 	r.Description = textPtr(desc)
 	r.OrgID = textPtr(orgID)
 	r.PiEnabled = boolPtr(piEnabled)
@@ -312,7 +310,6 @@ func fillProjectRow(r ProjectRow, desc, orgID sql.NullString, piEnabled sql.Null
 	r.PiWhitelist = textPtr(piWhitelist)
 	r.PiToolConfig = textPtr(piToolCfg)
 	r.PiCustomPatterns = textPtr(piPatterns)
-	r.PiWebhookURL = textPtr(piWebhook)
 	return r
 }
 
@@ -363,17 +360,6 @@ func (p *ProjectPatch) SetPiCustomPatterns(v string) {
 // route clamps `Number(body.piThreshold)`, and a non-numeric body gives NaN,
 // which SQLite stores as NULL. See the call site.
 func (p *ProjectPatch) SetPiThreshold(v *float64) { p.set("pi_threshold", nullFloat(v)) }
-
-// SetPiWebhookURL takes a pointer because clearing the webhook is what a falsy
-// value means, and an empty string in that column would be a URL the sender
-// would try to POST to.
-func (p *ProjectPatch) SetPiWebhookURL(v *string) {
-	if v == nil {
-		p.set("pi_webhook_url", nil)
-		return
-	}
-	p.set("pi_webhook_url", *v)
-}
 
 // UpdateProjectPatch applies the patch, scoped to (id, owner).
 //
@@ -439,7 +425,6 @@ type ProjectConfig struct {
 	PiWhitelist      string
 	PiToolConfig     string
 	PiCustomPatterns string
-	PiWebhookURL     string
 	AIJudgeEnabled   bool
 	AIJudgeModel     string
 	AIJudgeEndpoint  string
@@ -459,7 +444,6 @@ func (s *Store) ProjectConfigByID(ctx context.Context, projectID string) (Projec
 		PiWhitelist:      p.PiWhitelist,
 		PiToolConfig:     p.PiToolConfig,
 		PiCustomPatterns: p.PiCustomPatterns,
-		PiWebhookURL:     p.PiWebhookURL,
 		AIJudgeEnabled:   p.AIJudgeEnabled,
 		AIJudgeModel:     p.AIJudgeModel,
 		AIJudgeEndpoint:  p.AIJudgeEndpoint,

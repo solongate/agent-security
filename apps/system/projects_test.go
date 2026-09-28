@@ -64,7 +64,7 @@ func TestProjectViewKeepsNullsNull(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	for _, field := range []string{"description", "orgId", "piEnabled", "piThreshold",
-		"piMode", "piWhitelist", "piToolConfig", "piCustomPatterns", "piWebhookUrl"} {
+		"piMode", "piWhitelist", "piToolConfig", "piCustomPatterns"} {
 		v, present := got[field]
 		if !present {
 			t.Errorf("%s is missing from the response", field)
@@ -213,52 +213,5 @@ func TestPiCustomPatternsRefusals(t *testing.T) {
 		if body.Error.Code != "ERROR" {
 			t.Errorf("%s: code = %q, want ERROR (errorResponse's default)", c.name, body.Error.Code)
 		}
-	}
-}
-
-// The webhook is fetched by this service, from inside its own network. The host
-// list is the only thing between that and a caller reading the cloud metadata
-// endpoint through it.
-func TestPiWebhookURLRefusesPrivateTargets(t *testing.T) {
-	refused := []string{
-		"http://example.com/hook",
-		"https://169.254.169.254/latest/meta-data",
-		"https://metadata.google.internal/x",
-		"https://10.1.2.3/hook",
-		"https://192.168.0.1/hook",
-		"https://172.16.0.1/hook",
-		"https://localhost/hook",
-		"https://127.0.0.1/hook",
-		"https://[fd00::1]/hook",
-		"https://svc.internal/hook",
-		"https://printer.local/hook",
-		"not a url",
-	}
-	for _, target := range refused {
-		rec := httptest.NewRecorder()
-		body, _ := json.Marshal(target)
-		if _, ok := piWebhookURL(rec, body); ok {
-			t.Errorf("%s was accepted", target)
-		}
-		if rec.Code != 400 {
-			t.Errorf("%s: status = %d, want 400", target, rec.Code)
-		}
-	}
-
-	// A falsy value clears the column rather than failing.
-	rec := httptest.NewRecorder()
-	got, ok := piWebhookURL(rec, json.RawMessage(`null`))
-	if !ok || got != nil {
-		t.Errorf("null = (%v, %v), want (nil, true) — the column is cleared", got, ok)
-	}
-
-	// `new URL(x).toString()` lowercases the host and gives an empty path a "/".
-	rec = httptest.NewRecorder()
-	got, ok = piWebhookURL(rec, json.RawMessage(`"HTTPS://Hooks.Example.COM"`))
-	if !ok {
-		t.Fatalf("rejected a public https URL: %s", rec.Body.String())
-	}
-	if *got != "https://hooks.example.com/" {
-		t.Errorf("stored = %q, want the WHATWG normalisation", *got)
 	}
 }

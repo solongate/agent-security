@@ -6579,7 +6579,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 93;
+var HOOK_VERSION = 94;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_REFRESH_ARG = process.argv.includes("--sg-refresh-policy");
@@ -6837,7 +6837,7 @@ function guessPermission(toolName) {
 var hookCwdEarly = process.cwd();
 var dotenv = loadEnvKey(hookCwdEarly);
 var globalCfg = loadGlobalCloudConfig();
-var API_URL = process.env.SOLONGATE_API_URL || globalCfg.apiUrl || dotenv.SOLONGATE_API_URL || "https://api.solongate.com";
+var API_URL = process.env.SOLONGATE_API_URL || globalCfg.apiUrl || dotenv.SOLONGATE_API_URL || "http://127.0.0.1:3002";
 var API_KEY = [process.env.SOLONGATE_API_KEY, globalCfg.apiKey, dotenv.SOLONGATE_API_KEY].find(isRealKey) || "";
 var API_KEY_SOURCE = process.env.SOLONGATE_API_KEY && isRealKey(process.env.SOLONGATE_API_KEY) ? "environment variable SOLONGATE_API_KEY" : isRealKey(globalCfg.apiKey) ? "login (~/.solongate)" : join(hookCwdEarly, ".env");
 var API_URL_SOURCE = process.env.SOLONGATE_API_URL ? "environment variable SOLONGATE_API_URL" : globalCfg.apiUrl ? "login (~/.solongate)" : join(hookCwdEarly, ".env");

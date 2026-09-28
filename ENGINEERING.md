@@ -54,8 +54,9 @@ which.
 
 ## Where the guard stands
 
-The whole suite passes, against the Go binary and against the Node hook,
-independently:
+The whole suite passes against the Go binary and against the Node hook, and CI
+runs it twice for that reason — which of the two decides a call depends only on
+whether a machine has the binary, so certifying one certifies half the machines:
 
 - rate limit, including the ceiling under 30 parallel calls
 - local/cloud routing: exclusive, driven by the setting, `security: null` read
@@ -74,11 +75,27 @@ produces byte-identical Rego for every policy the system compiles, plus valid Re
 for one case where the original did not (a policy whose first rule is disabled
 emits a chain opening with `} else :=`).
 
-The policy is read from the cloud cache, and a cache MISS falls through to
-`~/.solongate/policy.json` and then `./policy.json` rather than to "nothing to
-enforce". A miss is not only an absent file: a cache that parses and carries a
-null policy is the same thing, and it is the state every machine is in on its
-first tool call after install.
+A configured service is asked first, and its answer outranks the file — on a
+machine under somebody's policy the file is how you would work around it. Beyond
+that the file is a SOURCE rather than a fallback:
+
+- `~/.solongate/policy.json` is read when no service answered, INCLUDING when there
+  is no service and no credential at all. That case used to be decided by
+  `if (!API_KEY) allow()` before anything else ran, which made the guard a no-op
+  on the ordinary deployment of this program while its policy sat on disk unread.
+- `./policy.json` beside the working directory is read when the machine has no file
+  of its own, and may carry RULES ONLY. It is a file inside a repository the
+  agent can write to, so `selfProtect` and `security` are stripped from it:
+  either would be a way for the agent to switch a protection off from inside the
+  checkout.
+- A cache MISS is not only an absent file. A cache that parses and carries a null
+  policy is the same thing, and it is the state every machine is in on its first
+  tool call after install.
+
+The file may be written as the bare policy or as the envelope the service answers
+with (`{policy, security, selfProtect}`). The envelope is what makes the rate
+limit, the egress rules and the DLP scanner settable at all on a machine with no
+service — they arrive in `security`, and nothing else could supply it.
 
 The extractors are in `extract.go` and are where the care went: glob dodges
 (`cut staging.e*` resolving to the real file), inlining referenced file contents
@@ -87,20 +104,6 @@ document that mentions a secret is not treated as reading one.
 
 Not ported:
 
-- **Antigravity payload adapter.** Its payload nests under `toolCall` and its
-  decision dialect is its own (`{decision, reason}` on stdout, exit 0). Claude
-  Code, Codex and OpenCode all share the flat shape already implemented.
-- **Prompt injection scoring and the DLP read-redaction plan.** Both are
-  PORTED — `injection.go` and `dlpredact.go` carry the Node hook's patterns and
-  arithmetic — and neither is wired into `main.go`, so they are dead code until
-  they are. That is why the Go binary is not the installed guard: it is faster
-  than the Node hook and agrees with it on everything the suite covers, and it
-  does not yet enforce everything the Node hook enforces. Shipping it as the
-  live guard before it does would be exactly the "fast but unguarded" trade the
-  rule above forbids.
-
-  Tamper protection IS wired and enforced — `tamperCheck` runs before policy in
-  main.go — which an earlier version of this list said otherwise about.
 - **The deny flag** (`.last-deny`), which tells the audit hook not to log a
   second, ALLOW-looking entry for a call the guard already blocked. Left out
   deliberately rather than guessed: it carries a fingerprint of the raw
@@ -108,6 +111,17 @@ Not ported:
   `JSON.stringify` preserves insertion order, so a re-serialised fingerprint
   would silently never match the one `audit.mjs` computes. It needs the raw
   bytes and a test pinning both sides.
+
+That list was longer and two of its entries were wrong, which is worth recording
+because both read as caution and were staleness. The Antigravity adapter IS
+ported (`clients.go`), and so is the DLP read-redaction plan, which `main.go`
+calls for any client that cannot redact a tool's output itself. Prompt injection
+scoring was the third: it was never wired into either implementation after the PI
+layer was removed, so `injection.go` and the hook's `detectPromptInjection` were
+both dead code, and they are gone rather than described.
+
+Tamper protection IS wired and enforced — `tamperCheck` runs before policy in
+main.go — which an even earlier version of this list said otherwise about.
 
 ## The schema
 
@@ -226,9 +240,11 @@ ever moved back.
 
 ## Traps worth not rediscovering
 
-- **A fake API key has to look real.** The guard treats an unusable key as "no
-  project selected", which means allow. The first green test run measured
-  nothing at all because the key was rejected.
+- **A fake API key has to look real.** A key the guard rejects is a machine with
+  no service, and a machine with no service decides from its local file — so a
+  test that meant to exercise the cached policy silently exercises something
+  else. The first green run measured nothing at all this way, back when an
+  unusable key meant "allow everything" instead.
 - **`spawnSync` blocks the process it is called from.** If a stub server lives
   in that process it can never answer, the guard's fetch hangs, and what gets
   measured is the guard's own 8-second backstop. Two separate benchmarks were

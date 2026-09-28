@@ -49,7 +49,6 @@ CREATE TABLE projects (
 	pi_whitelist text,
 	pi_tool_config text,
 	pi_custom_patterns text,
-	pi_webhook_url text,
 	ai_judge_enabled BIGINT DEFAULT 0,
 	ai_judge_model text DEFAULT 'llama-3.1-8b-instant',
 	ai_judge_endpoint text DEFAULT 'https://api.groq.com/openai',

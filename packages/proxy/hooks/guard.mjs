@@ -1,24 +1,36 @@
 #!/usr/bin/env node
 /**
- * SolonGate Cloud Policy Guard Hook (PreToolUse) — GLOBAL system-wide enforcement.
+ * The policy guard (PreToolUse) — the decision every tool call passes through.
  *
- * This is the cloud twin of the air-gapped guard hook. Identical decision engine
- * (OPA WASM, NIST SP 800-207 PDP, fail-closed), but the policy + compiled WASM
- * are fetched from SolonGate Cloud and authenticated with the project API key.
- * Installed globally (~/.claude/settings.json) it intercepts EVERY tool call from
- * EVERY Claude Code session on the machine — exactly like the air-gapped product,
- * just sourced from the cloud instead of a local docker API.
+ * Installed globally (~/.claude/settings.json) it sees EVERY tool call from EVERY
+ * session on the machine. Exit code 2 = BLOCK, exit code 0 = ALLOW.
  *
- * Cloud differences vs. air-gap guard.mjs:
- *   - API_KEY (sg_live_…/sg_test_…) from env/.env, attached to every API call.
- *   - API_URL defaults to https://api.solongate.com.
- *   - Enforcement is gated on the API key (the key identifies the project +
- *     its active policy), NOT on SOLONGATE_AGENT_ID.
- *   - No AI Judge and NO gray route: cloud routing is binary, WHITE (allow) /
- *     BLACK (block). The OPA policy alone decides; nothing is escalated.
+ * WHERE THE POLICY COMES FROM, in order:
  *
- * Exit code 2 = BLOCK, exit code 0 = ALLOW.
- * Logs DENY decisions to SolonGate Cloud. ALLOWs are logged by audit.mjs.
+ *   1. a service, when one is configured — a credential in ~/.solongate, or
+ *      SOLONGATE_API_URL, or a .env. Cached ~10s and refreshed off the hot path,
+ *      so a tool call never waits on the network to be decided.
+ *   2. ~/.solongate/policy.json — this machine's own file.
+ *   3. policy.json beside the working directory, which may add RULES and nothing
+ *      else: it lives in a repository the agent can write to.
+ *
+ * NONE OF THEM IS REQUIRED, and no credential is needed for the first to be
+ * absent. A machine that has only the file is the ordinary deployment, not a
+ * broken one, and everything it writes stays on it. With no policy at all there
+ * is nothing to enforce and the call is allowed.
+ *
+ * The engine is the same whichever answered: OPA WASM, NIST SP 800-207 PDP,
+ * fail-closed. Routing is binary — WHITE (allow) / BLACK (block). Nothing is
+ * escalated to a model and there is no judge.
+ *
+ * Denials are recorded. To disk when there is no service to send them to, which
+ * is also the only place they can go then; to the service otherwise. ALLOWs are
+ * recorded by audit.mjs.
+ *
+ * There is a Go twin of all of this in packages/guard-go, deliberately identical,
+ * because which of the two decides a call depends only on whether a machine has
+ * the binary. The conformance suite in packages/proxy/test runs against both.
+ *
  * Auto-installed by: npx @solongate/proxy init --global
  */
 import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, mkdirSync, chmodSync, renameSync, appendFileSync, rmSync, rmdirSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs';
@@ -92,7 +104,7 @@ import { createHash } from 'node:crypto';
 //
 // An installed hook self-updates on this number, and a disarm nobody picks up is
 // not fixed.
-const HOOK_VERSION = 93;
+const HOOK_VERSION = 94;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -504,7 +516,7 @@ function loadEnvKey(dir) {
 // A GLOBAL hook runs from an arbitrary cwd every session, so a project-local
 // .env can't be relied on to carry the API key. The global installer writes the
 // key + URL here once; this absolute path is read regardless of cwd. Shape:
-//   { "apiKey": "sg_live_…", "apiUrl": "https://api.solongate.com" }
+//   { "apiKey": "sg_live_…", "apiUrl": "http://127.0.0.1:3002" }
 function loadGlobalCloudConfig() {
   try {
     const p = resolve(homedir(), '.solongate', 'cloud-guard.json');
@@ -565,7 +577,14 @@ const globalCfg = loadGlobalCloudConfig();
 // network. A .env is not a file the user is meant to maintain, and logging in
 // must be enough to make logging work everywhere. .env still wins when there is
 // no login at all, which is the case it exists for (air-gapped / CI checkouts).
-const API_URL = process.env.SOLONGATE_API_URL || globalCfg.apiUrl || dotenv.SOLONGATE_API_URL || 'https://api.solongate.com';
+// The default is THIS MACHINE, and that is not a preference.
+//
+// It was a hosted service, which is the wrong fallback for a program whose
+// ordinary deployment is local: a stray credential in a .env would have sent an
+// audit record to a host the person running this does not operate. README has
+// documented 127.0.0.1:3002 as the default all along — the port apps/system
+// listens on — so the code was the half that disagreed.
+const API_URL = process.env.SOLONGATE_API_URL || globalCfg.apiUrl || dotenv.SOLONGATE_API_URL || 'http://127.0.0.1:3002';
 // Cloud API key (sg_live_… / sg_test_…). The key identifies the project AND
 // authenticates every API call (active policy, compiled WASM, audit logs). When
 // absent, this hook does nothing — a machine with no key is intentionally
@@ -1158,100 +1177,6 @@ function writeDenyFlag(toolName) {
   } catch {}
 }
 
-// ── Prompt Injection Detection (Stage 1: Rule-Based) ──
-const PI_CATEGORIES = [
-  {
-    name: 'delimiter_injection', weight: 0.95,
-    patterns: [
-      /<\/system>/i, /<\|im_end\|>/i, /<\|im_start\|>/i, /<\|endoftext\|>/i,
-      /\[INST\]/i, /\[\/INST\]/i, /<<SYS>>/i, /<<\/SYS>>/i,
-      /###\s*(Human|Assistant|System)\s*:/i, /<\|user\|>/i, /<\|assistant\|>/i,
-      /---\s*END\s*SYSTEM\s*PROMPT\s*---/i,
-    ],
-  },
-  {
-    name: 'instruction_override', weight: 0.9,
-    patterns: [
-      /\bignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|directives?)\b/i,
-      /\bdisregard\s+(all\s+)?(previous|prior|above|earlier|your)\s+(instructions?|prompts?|rules?|guidelines?)\b/i,
-      /\bforget\s+(all\s+|everything\s+)?(your|the|previous|prior|above|earlier)\b/i,
-      /\boverride\s+(the\s+)?(system|previous|current)\s+(prompt|instructions?|rules?|settings?)\b/i,
-      /\bdo\s+not\s+follow\s+(your|the|any)\s+(instructions?|rules?|guidelines?)\b/i,
-      /\bcancel\s+(all\s+)?(prior|previous)\s+(directives?|instructions?)\b/i,
-      /\bnew\s+instructions?\s+supersede\b/i,
-      /\byour\s+(previous\s+)?instructions?\s+are\s+(now\s+)?void\b/i,
-    ],
-  },
-  {
-    name: 'role_hijacking', weight: 0.85,
-    patterns: [
-      /\b(pretend|act|behave)\s+(you\s+are|as\s+if\s+you|like\s+you|to\s+be)\b/i,
-      /\byou\s+are\s+now\s+(a|an|the|my|DAN)\b/i,
-      /\bsimulate\s+being\b/i, /\bassume\s+the\s+role\s+of\b/i,
-      /\benter\s+(developer|admin|debug|god|sudo|unrestricted)\s+mode\b/i,
-      /\bswitch\s+to\s+(unrestricted|unfiltered)\s+mode\b/i,
-      /\byou\s+are\s+no\s+longer\s+bound\b/i,
-      /\bno\s+(safety\s+)?restrictions?\s+(apply|anymore|now)\b/i,
-    ],
-  },
-  {
-    name: 'jailbreak_keywords', weight: 0.8,
-    patterns: [
-      /\bjailbreak\b/i, /\bDAN\s+mode\b/i,
-      /\b(system\s+override|admin\s+mode|debug\s+mode|developer\s+mode|maintenance\s+mode)\b/i,
-      /\bmaster\s+key\b/i, /\bbackdoor\s+access\b/i,
-      /\bsudo\s+mode\b/i, /\bgod\s+mode\b/i,
-      /\bsafety\s+filters?\s+(off|disabled?|removed?)\b/i,
-    ],
-  },
-  {
-    name: 'encoding_evasion', weight: 0.75,
-    patterns: [
-      /\b(decode|translate)\s+(this|the\s+following)\s+(base64|rot13|hex)\b/i,
-      /\b(base64|rot13)\s*:\s*[A-Za-z0-9+/=]{10,}/i,
-      /\bexecute\s+the\s+(reverse|decoded)\b/i,
-      /\breverse\s+of\s*:\s*\w{10,}/i,
-    ],
-  },
-  {
-    name: 'separator_injection', weight: 0.7,
-    patterns: [
-      /[-=]{3,}\s*\n\s*(new\s+instructions?|system|instructions?)\s*:/i,
-      /```\s*\n\s*<\/?system>/i,
-      /\bEND\s+(SYSTEM\s+)?(PROMPT|INSTRUCTIONS?)\b.*\bNEW\s+(SYSTEM\s+)?(PROMPT|INSTRUCTIONS?)\b/is,
-    ],
-  },
-  {
-    name: 'multi_language', weight: 0.7,
-    patterns: [
-      /ignor(iere|a|e[zs]?)\s+(alle|todas?|toutes?|tüm|все)/iu,
-      /игнорируйте/iu, /yoksay/iu,
-      /vorherigen?\s+Anweisungen/iu, /instrucciones\s+anteriores/iu,
-      /instructions?\s+pr[eé]c[eé]dentes?/iu, /önceki\s+talimatlar/iu,
-    ],
-  },
-];
-
-function detectPromptInjection(text, customCategories = [], threshold = 0.5) {
-  const matched = [];
-  let maxWeight = 0;
-  const allCategories = [...PI_CATEGORIES, ...customCategories];
-  for (const cat of allCategories) {
-    for (const pat of cat.patterns) {
-      if (pat.test(text)) {
-        matched.push(cat.name);
-        if (cat.weight > maxWeight) maxWeight = cat.weight;
-        break;
-      }
-    }
-  }
-  if (matched.length === 0) return null;
-  const score = Math.min(1.0, maxWeight + 0.05 * (matched.length - 1));
-  const trustScore = 1.0 - score;
-  const blocked = Math.round(trustScore * 1000) < Math.round(threshold * 1000);
-  return { score, trustScore, categories: matched, blocked };
-}
-
 // ── Glob Matching ──
 function matchGlob(str, pattern) {
   if (pattern === '*') return true;
@@ -1283,21 +1208,6 @@ function matchPathGlob(path, pattern) {
     return parts.every(segment => p.includes(segment));
   }
   return matchGlob(p, g);
-}
-
-// ── Safe Webhook URL Validation (prevent SSRF) ──
-function isSafeWebhookUrl(urlStr) {
-  try {
-    const u = new URL(urlStr);
-    if (u.protocol !== 'https:') return false;
-    const host = u.hostname.toLowerCase();
-    // Block private/reserved IPs and metadata endpoints
-    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1') return false;
-    if (host.startsWith('10.') || host.startsWith('192.168.') || host.startsWith('172.')) return false;
-    if (host === '169.254.169.254' || host === 'metadata.google.internal') return false;
-    if (host.endsWith('.internal') || host.endsWith('.local')) return false;
-    return true;
-  } catch { return false; }
 }
 
 // ── Safe Regex Validation (prevent ReDoS from cloud-supplied patterns) ──
@@ -2812,11 +2722,15 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
 
     // (self-protection + PI hook layers removed per project decision)
 
-    // Load policy. Priority:
-    //   1. Dashboard-managed policy (GET /api/v1/policies/active, cached 10s)
-    //   2. Local policy.json next to cwd
-    // The dashboard is the source of truth — local policy.json is only a
-    // fallback for when the API is unreachable.
+    // Load policy. In order:
+    //   1. a service, when one is configured (GET /api/v1/policies/active, ~10s)
+    //   2. ~/.solongate/policy.json, this machine's own file
+    //   3. policy.json beside cwd, rules only
+    //
+    // A configured service outranks the file, because on a machine that has one
+    // the file is how somebody would work around it. The file is NOT a fallback
+    // for a failed fetch, though — it used to be reachable only that way, which
+    // made a machine with no service enforce nothing at all.
     const hookCwd = call.cwd || process.cwd();
     let policy;
     // Self-protection (tamper guard) defaults ON. The cloud per-project setting

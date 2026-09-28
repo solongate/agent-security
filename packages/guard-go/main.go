@@ -140,13 +140,10 @@ func emit(d decision) { os.Exit(activeClient.Emit(d)) }
 
 func deny(reason string) { emit(decision{Type: "deny", Reason: reason}) }
 
-// A stealth deny is emitted verbatim, with no SolonGate branding, so a hidden
-// path looks like it simply does not exist rather than like something being
-// kept from the agent.
-
-// Allow the call but REPLACE its input, so hidden entries are filtered out of a
-// listing, or a read is pointed at a redacted copy, before the tool runs. The
-// rewritten call is what executes, so no block is needed.
+// Allow the call but REPLACE its input, so a read is pointed at a redacted copy
+// before the tool runs. The rewritten call is what executes, so no block is
+// needed — which is the whole point for DLP: the agent gets an answer, without
+// the secret in it.
 func rewriteCall(patch map[string]interface{}) {
 	emit(decision{Type: "rewrite", Patch: clientArgNames(patch)})
 }
@@ -199,7 +196,7 @@ func allow() { emit(decision{Type: "allow"}) }
 //
 // TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
 // cannot drift without the build saying so.
-const hookVersion = 93
+const hookVersion = 94
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.

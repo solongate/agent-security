@@ -501,8 +501,11 @@ func dlpRedactCopy(abs string, dlp *sgshared.DLPConfig) string {
 	if dlpScanViews(string(content), dlp) == "" {
 		return redactClean
 	}
+	// 0700, matching the 0600 on the copy itself and the mode of the parent. A
+	// listable directory of redacted copies names, by filename, every file that
+	// was found to hold a secret.
 	dir := filepath.Join(sgshared.SGDir(), ".redacted")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, sgshared.DirMode); err != nil {
 		return redactFailed
 	}
 	sum := sha256.Sum256([]byte(abs))

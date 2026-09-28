@@ -271,7 +271,11 @@ function resolveLocalLogDir(rawPath) {
   if (isAbsolute(dir)) return dir;
   const fallback = resolve(homedir(), '.solongate', 'local-logs');
   try {
-    mkdirSync(resolve(homedir(), '.solongate'), { recursive: true });
+    // Owner-only: this directory holds the credential and the policy cache, and
+    // every program that creates it has to agree on the mode — mkdirSync applies
+    // one only when it CREATES, so the first one to run decides for all of them.
+    // Same number as SG_DIR_MODE in the guard and sgshared.DirMode in Go.
+    mkdirSync(resolve(homedir(), '.solongate'), { recursive: true, mode: 0o700 });
     writeFileSync(resolve(homedir(), '.solongate', '.local-logs-invalid-path'),
       JSON.stringify({ configured: dir, fallback, ts: Date.now() }));
   } catch { /* ignore */ }

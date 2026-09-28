@@ -114,7 +114,7 @@ func Install() Result {
 		// requirement — which is deliberate: an install that could not chmod
 		// still produces a launcher that runs.
 		_ = os.Chmod(filepath.Join(p.HooksDir, LauncherName), 0o755)
-		_ = os.MkdirAll(filepath.Join(p.SGDir, BeatDirName), 0o755)
+		_ = os.MkdirAll(filepath.Join(p.SGDir, BeatDirName), config.DirMode)
 	}
 
 	// The Go binaries, beside the hook that looks for them. Best effort: see

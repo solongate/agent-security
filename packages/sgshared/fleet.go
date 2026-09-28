@@ -81,7 +81,7 @@ func SaveFleet(f FleetState) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(SGDir(), 0o755); err != nil {
+	if err := EnsureSGDir(); err != nil {
 		return err
 	}
 	return os.WriteFile(FleetStatePath(), b, 0o644)

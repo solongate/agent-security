@@ -6580,6 +6580,7 @@ function sweepLegacyFlagDir() {
   }
 }
 var HOOK_VERSION = 91;
+var SG_DIR_MODE = 448;
 var SG_REFRESH_ARG = process.argv.includes("--sg-refresh-policy");
 var SG_STDIN = SG_REFRESH_ARG ? "" : (() => {
   try {
@@ -8168,7 +8169,7 @@ async function getOpaWasmBytes(policy) {
     const bundle = Buffer.from(await res.arrayBuffer());
     const wasm = extractWasmFromBundle(bundle);
     try {
-      mkdirSync(resolve(homedir(), ".solongate"), { recursive: true });
+      mkdirSync(resolve(homedir(), ".solongate"), { recursive: true, mode: SG_DIR_MODE });
       writeFileSync(cacheFile, JSON.stringify({ _ts: Date.now(), fp, wasm: Buffer.from(wasm).toString("base64") }));
     } catch {
     }

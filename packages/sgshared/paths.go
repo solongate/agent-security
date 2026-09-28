@@ -9,6 +9,38 @@ import (
 )
 
 // SGDir is ~/.solongate, where everything below it lives.
+// DirMode is the mode for ~/.solongate, and FileMode for what goes in it.
+//
+// Owner-only, because this directory holds credentials and the policy cache. It
+// is declared HERE rather than at each call site because several programs create
+// the same directory — the guard through this package, the CLI through
+// internal/config, the hooks in JavaScript — and the first one to run decides the
+// mode. They disagreed: one used 0700 and another 0755, so which mode the
+// directory ended up with depended on which program a machine happened to run
+// first.
+const (
+	DirMode  = 0o700
+	FileMode = 0o600
+)
+
+// EnsureSGDir creates ~/.solongate owner-only, correcting a directory that is
+// already there.
+//
+// MkdirAll applies a mode only when it CREATES, so a directory made by an older
+// version — or by another one of these programs — keeps whatever it had. Chmod is
+// best effort: it must not stop the guard from working on a filesystem with no
+// POSIX bits.
+func EnsureSGDir() error {
+	dir := SGDir()
+	if err := os.MkdirAll(dir, DirMode); err != nil {
+		return err
+	}
+	if info, err := os.Stat(dir); err == nil && info.Mode().Perm() != DirMode {
+		_ = os.Chmod(dir, DirMode)
+	}
+	return nil
+}
+
 func SGDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {

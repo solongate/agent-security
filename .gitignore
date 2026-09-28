@@ -48,11 +48,21 @@ coverage/
 !tools/schema/*.sql
 
 # Test files
-**/__tests__/
-**/*.test.ts
-**/*.test.tsx
-**/*.spec.ts
-**/*.spec.tsx
+# NO TEST EXCLUSIONS. These patterns used to live here and were a trap: a
+# contributor adding foo.test.ts would find `git add -A` silently skipping it,
+# with nothing saying why. Keeping tests out of the PUBLISHED package is a
+# different job and package.json's `files` allowlist already does it.
+
+# Private keys and certificates. gitleaks runs over the full history in CI and is
+# the real gate; this is so a mistake is caught before it becomes a commit at all.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_ed25519
+*.crx
 **/test/
 **/tests/
 # ...except the guard's conformance suite. It is not a dev scratch dir: it is the

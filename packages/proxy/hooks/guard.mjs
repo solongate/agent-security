@@ -88,6 +88,21 @@ import { createHash } from 'node:crypto';
 // DLP_MAX_FILE_BYTES.
 const HOOK_VERSION = 91;
 
+// SG_DIR_MODE is the mode for ~/.solongate.
+//
+// Owner-only, because the directory holds the credential and the policy cache.
+// sgshared declares the same number on the Go side, and it has to be the same
+// number: several programs create this ONE directory — this hook, the audit hook,
+// the CLI, the guard binary — and mkdirSync and MkdirAll both apply a mode only
+// when they CREATE, so the first one to run on a machine decides it for all of
+// them. They disagreed, and this hook runs on every tool call, which made it the
+// one most likely to get there first.
+//
+// Declared up here, above every use, because some of the code below runs during
+// module initialisation — a `const` further down would be in its temporal dead
+// zone for those paths.
+const SG_DIR_MODE = 0o700;
+
 // ── The Go guard, when there is one and it is the right one ──────────────────
 //
 // Everything below this block is the Node decision engine. It stays, it stays
@@ -303,7 +318,7 @@ function resolveLocalLogDir(rawPath) {
   if (!_invalidPathNoted) {
     _invalidPathNoted = true;
     try {
-      mkdirSync(resolve(homedir(), '.solongate'), { recursive: true });
+      mkdirSync(resolve(homedir(), '.solongate'), { recursive: true, mode: SG_DIR_MODE });
       writeFileSync(resolve(homedir(), '.solongate', '.local-logs-invalid-path'),
         JSON.stringify({ configured: dir, fallback, ts: Date.now() }));
     } catch { /* ignore */ }
@@ -2248,7 +2263,7 @@ async function getOpaWasmBytes(policy) {
     const bundle = Buffer.from(await res.arrayBuffer());
     const wasm = extractWasmFromBundle(bundle);
     try {
-      mkdirSync(resolve(homedir(), '.solongate'), { recursive: true });
+      mkdirSync(resolve(homedir(), '.solongate'), { recursive: true, mode: SG_DIR_MODE });
       writeFileSync(cacheFile, JSON.stringify({ _ts: Date.now(), fp, wasm: Buffer.from(wasm).toString('base64') }));
     } catch {}
     return new Uint8Array(wasm);

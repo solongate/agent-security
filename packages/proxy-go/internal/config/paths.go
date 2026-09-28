@@ -20,6 +20,14 @@ import (
 // Dir is ~/.solongate. Resolved the same way the guard resolves it, including
 // the HOME fallback: on a machine where the user database is unreadable
 // os.UserHomeDir fails and the guard still has to find its own files.
+// DirMode and FileMode are sgshared's, re-exported so a caller in this tree names
+// one constant rather than reaching past config for it. One definition: several
+// programs create ~/.solongate and the mode has to be the same in all of them.
+const (
+	DirMode  = sgshared.DirMode
+	FileMode = sgshared.FileMode
+)
+
 func Dir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -132,18 +140,15 @@ func ProjectFlagDir() string {
 // and never a guarded tool call, nothing has created it yet.
 // EnsureDir creates ~/.solongate, owner-only.
 //
-// 0700 because the credential files inside it are 0600 and a world-readable
-// directory still lets another account on the machine ENUMERATE them — which
-// names the projects, the accounts and every agent that has run here. As with
-// the files, MkdirAll only applies the mode on creation, so a directory that
-// already exists is corrected rather than assumed.
-func EnsureDir() error {
-	if err := os.MkdirAll(Dir(), 0o700); err != nil {
-		return err
-	}
-	ensureOwnerOnly(Dir())
-	return nil
-}
+// Owner-only because the credential files inside it are 0600 and a world-readable
+// directory still lets another account on the machine ENUMERATE them — which names
+// the projects, the accounts and every agent that has run here.
+//
+// It delegates to sgshared, which is where the mode lives, because the GUARD
+// creates this same directory through that package and the two used to disagree:
+// 0700 here and 0755 there, so the mode a machine ended up with depended on which
+// program ran first — and the guard runs constantly.
+func EnsureDir() error { return sgshared.EnsureSGDir() }
 
 // ensureOwnerOnly narrows an existing path's mode to owner-only, keeping its
 // file/directory bits.

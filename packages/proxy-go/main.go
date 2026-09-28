@@ -25,7 +25,6 @@ import (
 
 	"github.com/codeyevsky/solongate/proxy/internal/commands"
 	"github.com/codeyevsky/solongate/proxy/internal/install"
-	"github.com/codeyevsky/solongate/proxy/internal/logsserver"
 	"github.com/codeyevsky/solongate/proxy/internal/proxy"
 	"github.com/codeyevsky/solongate/proxy/internal/term"
 	"github.com/codeyevsky/solongate/proxy/internal/tui"
@@ -53,7 +52,7 @@ const exitNotPorted = 69
 // decides two things: whether output is a banner or MCP protocol traffic, and
 // whether the human-only gate applies.
 var cliSubcommands = map[string]bool{
-	"repair": true, "logs-server": true, "local-logs": true,
+	"repair": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
 	"doctor": true, "trace": true, "watch": true,
 	"dataroom": true,
@@ -126,11 +125,7 @@ func run(args []string) int {
 	// The local audit-log service is a SERVICE: once enabled it has to survive
 	// Ctrl+C, a closed terminal and a reboot. Nothing else brings it back, so
 	// every human CLI run resurrects it unless the user explicitly disabled it
-	// — without this a machine that rebooted quietly stops recording and
-	// nothing says why. Skipped for the command that manages it,
-	// which would otherwise start a server on its way to stopping one.
-	if isHumanCLI && sub != "logs-server" && sub != "local-logs" {
-		logsserver.Ensure()
+	if isHumanCLI {
 		// The binaries beside the hook, brought level with THIS run - so an
 		// update whose npm half landed but whose binary copy did not is
 		// finished here. A no-op when they already match (a size-and-mtime
@@ -187,8 +182,10 @@ func run(args []string) int {
 //     there is no TTY on both ends. A person at a terminal always has one.
 //  2. A known agent marker in the environment, even if a TTY somehow exists.
 //
-// The one exemption is our own detached logs-server daemon, which sets
-// SOLONGATE_INTERNAL=1 and is spawned by this CLI rather than by an agent.
+// THERE IS NO EXEMPTION. SOLONGATE_INTERNAL=1 used to be one, for the detached
+// logs-server daemon that spawned itself — and that daemon is gone, so the
+// variable had no legitimate setter left and was only a way past this gate. An
+// agent that exported it would have been let straight through to edit policy.
 //
 // A consequence worth stating: whoever is porting this cannot run these
 // commands end to end from an agent session. That is the feature working.
@@ -235,9 +232,6 @@ func isInteractive() bool {
 // caller could forget to check. A gate that fails open when someone adds a new
 // call site is not a gate.
 func assertHumanTerminal() {
-	if os.Getenv("SOLONGATE_INTERNAL") == "1" {
-		return
-	}
 	marker := agentMarker()
 	if isInteractive() && marker == "" {
 		return
@@ -281,11 +275,6 @@ func table() []command {
 		{"watch", "live-tail tool calls", commands.Runner("watch")},
 
 		{"repair", "restore the guard, hooks and settings files", commands.RunRepair},
-		// Two names for one service, as the npm package has them. `local-logs`
-		// is the older spelling and is kept because instructions carrying it are
-		// still in circulation.
-		{"logs-server", "the local audit-log service", logsserver.Run},
-		{"local-logs", "the local audit-log service", logsserver.Run},
 	}
 }
 
@@ -421,9 +410,6 @@ func printHelp() {
 	cmd("browser status", "the Shadow AI agent, and which browsers ask it")
 	cmd("browser start|stop", "run or stop the agent that answers a browser")
 	cmd("browser enable firefox|edge|chrome", "point a browser at the agent")
-	cmd("logs-server start", "start the local audit-log service for the dashboard (background)")
-	cmd("logs-server stop", "stop AND disable it (only this makes it stay down)")
-	cmd("logs-server status", "show the local audit-log service status")
 
 	head("Policies")
 	cmd("policy list", "list all policies")

@@ -213,7 +213,6 @@ solongate trace              what the guard saw in this directory
 solongate stats              traffic and security statistics
 solongate doctor             health check: policy, guard, local logs
 solongate repair             restore the guard, hooks and settings files
-solongate logs-server        the local audit-log service
 ```
 
 Every one of these reads or changes a security posture, so they refuse to run

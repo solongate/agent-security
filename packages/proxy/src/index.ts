@@ -41,7 +41,7 @@
 // to the proxy runtime; the human-facing CLI subcommands (login/etc.) and
 // the bare-run welcome screen keep normal console output so their banners aren't
 // mangled with a [SolonGate] prefix.
-const CLI_SUBCOMMANDS = new Set(['repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch', 'dataroom']);
+const CLI_SUBCOMMANDS = new Set(['repair', 'policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch', 'dataroom']);
 // Human-facing flags/aliases that print a banner and must keep normal console
 // output (no [SolonGate] prefix): help, version, and the removed `login` alias.
 const CLI_INFO_ARGS = new Set(['login', 'help', '--help', '-h', '--version', '-v', 'version']);
@@ -126,9 +126,6 @@ function printHelp() {
   cmd('doctor', 'health check: login, policy, guard, local logs');
   cmd('trace [--limit N]', 'what the guard saw in this directory, allows included');
   cmd('doctor --json', 'the same health check as machine-readable JSON');
-  cmd('logs-server start', 'start the local audit-log service for the dashboard (background)');
-  cmd('logs-server stop', 'stop AND disable it (only this makes it stay down)');
-  cmd('logs-server status', 'show the local audit-log service status');
 
   head('Policies');
   cmd('policy list', 'list all policies');
@@ -184,8 +181,10 @@ function printHelp() {
  *      is no TTY on both ends. A person at a terminal always has one.
  *   2. A known agent marker in the environment, even if a TTY somehow exists.
  *
- * Our own detached logs-server daemon sets SOLONGATE_INTERNAL=1 (it is spawned
- * by this CLI, not by an agent) and is the only exemption.
+ * THERE IS NO EXEMPTION. SOLONGATE_INTERNAL=1 used to be one, for the detached
+ * logs-server daemon that spawned itself — and that daemon is gone, so the
+ * variable had no legitimate setter left and was only a way past this gate. An
+ * agent that exported it would have been let straight through to edit policy.
  */
 // Env-name PREFIXES that only ever exist inside an AI agent's process tree, not
 // a plain human shell. Prefix-matched (not exact) so we catch whichever specific
@@ -206,7 +205,6 @@ function agentMarker(): string | null {
   return null;
 }
 function assertHumanTerminal(): void {
-  if (process.env['SOLONGATE_INTERNAL'] === '1') return;
   const marker = agentMarker();
   const isTty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (isTty && !marker) return;
@@ -236,16 +234,6 @@ async function main() {
   if (subcommand === '--version' || subcommand === '-v' || subcommand === 'version') {
     console.log(PKG_VERSION);
     return;
-  }
-
-  if (IS_HUMAN_CLI) {
-    // The logs-server is a SERVICE: once enabled it must survive Ctrl+C,
-    // closed terminals and reboots — resurrect it here unless the user
-    // explicitly disabled it (dataroom Settings → dashboard link row).
-    if (subcommand !== 'logs-server' && subcommand !== 'local-logs') {
-      const { ensureLogsServerDaemon } = await import('./logs-server-daemon.js');
-      ensureLogsServerDaemon();
-    }
   }
 
   // Bare invocation (no subcommand, no upstream). When the device is paired and
@@ -284,13 +272,6 @@ async function main() {
   if (subcommand === 'repair') {
     const { runRepair } = await import('./global-install.js');
     process.exit(await runRepair());
-  }
-
-  if (subcommand === 'logs-server' || subcommand === 'local-logs') {
-    // Serve local audit logs to the dashboard over 127.0.0.1 (no file picker).
-    const { runLogsServer } = await import('./logs-server.js');
-    await runLogsServer();
-    return;
   }
 
   // Everything below is the MCP PROXY runtime. It is entered ONLY for a genuine

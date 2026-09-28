@@ -1,11 +1,8 @@
 package panels
 
 import (
-	"os"
 	"regexp"
-	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -16,7 +13,6 @@ import (
 	"github.com/codeyevsky/solongate/proxy/internal/commands"
 	"github.com/codeyevsky/solongate/proxy/internal/config"
 	"github.com/codeyevsky/solongate/proxy/internal/install"
-	"github.com/codeyevsky/solongate/proxy/internal/logsserver"
 	"github.com/codeyevsky/solongate/proxy/internal/tui"
 )
 
@@ -31,7 +27,7 @@ func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { ret
 //	PROTECTION the guard hook, self-protection, doctor and repair
 //	           turned on: `npm i -g` needs sudo on most macOS setups, so it must
 //	           not run unasked)
-//	LOCAL LOGS mirror path and enable, plus the dashboard link
+//	LOCAL LOGS where the hooks write this machine's audit trail
 //
 // Installing, updating and removing the guard, doctor, repair and the CLI
 // self-update all run for real now, through internal/install, internal/commands
@@ -214,8 +210,6 @@ type Settings struct {
 	hidden map[string]bool
 
 	llSetting config.LocalLogSetting
-	srvState  config.LogsServerState
-	srvUp     bool
 
 	sel        int
 	editing    string // "" · path · wh-url · alert-target
@@ -292,8 +286,6 @@ func (p *Settings) Init(ctx tui.PanelContext) tea.Cmd {
 // up, and whether the background updater is on.
 func (p *Settings) readDisk() {
 	p.llSetting = config.LocalLogsSetting()
-	p.srvState = config.LoadLogsServerState()
-	p.srvUp = pidAlive(p.srvState.Pid)
 }
 
 func (p *Settings) reloadAll() tea.Cmd {
@@ -677,7 +669,7 @@ func (p *Settings) allRows() []setRow {
 			rows = append(rows, setRow{kind: "ws", ws: ws})
 		}
 	}
-	for _, k := range []string{"guard", "self", "doctor", "repair", "ll-enabled", "ll-path", "ll-server"} {
+	for _, k := range []string{"guard", "self", "doctor", "repair", "ll-enabled", "ll-path"} {
 		rows = append(rows, setRow{kind: k})
 	}
 	return rows
@@ -876,27 +868,6 @@ func (p *Settings) activate(r setRow) tea.Cmd {
 		p.editing = "path"
 		p.beginInput(p.local.Path)
 
-	case "ll-server":
-		// This row is the ONLY place a user can turn the service off for good.
-		// Everything else about it is designed to bring it back: closing the
-		// dataroom, closing the terminal and rebooting only kill the process,
-		// and the next CLI run restarts it. So stopping here disables as well.
-		if p.srvUp {
-			logsserver.Stop()
-			p.srvState, p.srvUp = config.LoadLogsServerState(), false
-			p.msg = &setMessage{text: "✓ dashboard link stopped and disabled"}
-		} else {
-			st := logsserver.Start()
-			p.srvState, p.srvUp = config.LoadLogsServerState(), st.Running
-			if st.Running {
-				p.msg = &setMessage{text: "✓ dashboard link on 127.0.0.1:" + itoa(st.Port)}
-			} else {
-				// The daemon writes its own reason to a log rather than to
-				// this frame, which Bubble Tea owns.
-				p.msg = &setMessage{text: "✗ could not start it — see " + config.LogsServerLogPath(), bad: true}
-			}
-		}
-
 	}
 	return nil
 }
@@ -921,7 +892,7 @@ func (p *Settings) makeActive(r setRow) tea.Cmd {
 		p.accounts = config.ListAccounts()
 		return nil
 
-	case "self", "ll-enabled", "ll-server":
+	case "self", "ll-enabled":
 		return p.activate(r)
 	}
 	return nil
@@ -1036,24 +1007,6 @@ func acctLabel(a config.SavedAccount) string {
 		tail = tail[len(tail)-4:]
 	}
 	return "account …" + tail
-}
-
-// pidAlive probes a recorded pid without touching it.
-func pidAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	// On Windows FindProcess opens a handle and fails when the process is gone,
-	// which is the whole answer; everywhere else it always succeeds and signal 0
-	// is what actually tests for existence.
-	if runtime.GOOS == "windows" {
-		return true
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 func onOff(on bool) (string, lipgloss.Style) {
@@ -1331,7 +1284,7 @@ func (p *Settings) sectionDesc(sec string) string {
 	case "PROTECTION":
 		return "guard hook, self-protection, doctor and repair"
 	}
-	return "mirror every decision to a file + dashboard link"
+	return "where the hooks write this machine's audit trail"
 }
 
 func (p *Settings) rowLine(r setRow, isCur bool) string {
@@ -1450,28 +1403,6 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 			l.put("  not valid here → "+truncate(p.llSetting.File, half), stDim)
 		default:
 			l.put(truncate(p.local.Path, max(8, p.cols-14)), stAccent)
-		}
-
-	case "ll-server":
-		l.put(pad("dashboard", 11), stDim)
-		if p.srvUp {
-			port := p.srvState.Port
-			if port == 0 {
-				port = config.LogsServerPort
-			}
-			l.put("running 127.0.0.1:"+itoa(port), stOK)
-		} else if p.srvState.Desired == "on" {
-			l.put("enabled, not running", stWarn)
-		} else {
-			l.put("stopped", stDim)
-		}
-		if p.srvUp {
-			// Worth saying on the row: people close the dataroom expecting the
-			// link to close with it, and then stop it a second time somewhere
-			// else because they assume the first attempt failed.
-			l.put("   survives closing the dataroom · enter stops and disables", stDim)
-		} else {
-			l.put("   enter starts the dashboard local-logs link", stDim)
 		}
 
 	}

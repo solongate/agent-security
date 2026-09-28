@@ -79,12 +79,6 @@ func TestStubsDoNotReportSuccess(t *testing.T) {
 		// One-line pointer at the dataroom rather than a stub.
 		// Owned by the TUI slice; running it would start a Bubble Tea program.
 		"dataroom": true,
-		// A bare `logs-server` SERVES, in the foreground, until it is
-		// interrupted. Calling it from here binds port 8788 on the machine
-		// running the tests, rewrites that machine's ~/.solongate service
-		// state, and then hangs until the test timeout.
-		"logs-server": true,
-		"local-logs":  true,
 		// `update` reaches the npm registry and can run `npm install -g`, and
 		// `repair` rewrites this machine's guard hooks and client settings.
 		// Both were called by this test for one run after they were ported, and

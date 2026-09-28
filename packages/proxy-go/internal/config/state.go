@@ -130,34 +130,6 @@ func LoadTUIConfig() TUIConfig {
 	return cfg
 }
 
-// LogsServerState is ~/.solongate/.logs-server.json.
-//
-// Desired is the source of truth and is deliberately separate from Pid: the
-// local audit-log service is a SERVICE. Ctrl+C, a closed terminal or a reboot
-// takes the process down without taking the service down, and the next human
-// CLI run brings it back. Only an explicit stop writes desired "off".
-type LogsServerState struct {
-	Desired   string `json:"desired,omitempty"`
-	Pid       int    `json:"pid,omitempty"`
-	Port      int    `json:"port,omitempty"`
-	StartedAt int64  `json:"startedAt,omitempty"`
-}
-
-// LogsServerPort is the fixed port the dashboard looks for.
-const LogsServerPort = 8788
-
-func LoadLogsServerState() LogsServerState {
-	var s LogsServerState
-	if b, err := os.ReadFile(LogsServerStatePath()); err == nil {
-		_ = json.Unmarshal(b, &s)
-	}
-	return s
-}
-
-func SaveLogsServerState(s LogsServerState) error {
-	return writeJSONCompact(LogsServerStatePath(), s)
-}
-
 // BrowserAgentState is ~/.solongate/.browser-agent.json.
 //
 // The same shape and the same rule as the audit service above: Desired is what

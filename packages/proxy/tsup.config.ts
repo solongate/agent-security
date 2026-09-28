@@ -16,7 +16,6 @@ export default defineConfig({
     'src/shield.ts',
     'src/global-install.ts',
     'src/audit/index.ts',
-    'src/logs-server.ts',
     // Management CLI: scriptable commands + interactive Ink TUI. Both are only
     // reached via dynamic import() from src/index.ts, so the proxy runtime never
     // pulls in the API-client / React / Ink code.

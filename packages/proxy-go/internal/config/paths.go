@@ -49,9 +49,6 @@ func TUIConfigPath() string { return filepath.Join(Dir(), "tui-config.json") }
 
 // Desired state of the local audit-log service. `desired` in here outlives the
 // process: closing the terminal kills the server, it does not disable it.
-func LogsServerStatePath() string { return filepath.Join(Dir(), ".logs-server.json") }
-
-func LogsServerLogPath() string { return filepath.Join(Dir(), "logs-server.log") }
 
 // The Shadow AI browser agent: the process a browser asks before it lets
 // somebody paste. Its own state file and its own log, beside the audit

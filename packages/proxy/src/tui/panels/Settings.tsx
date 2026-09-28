@@ -6,7 +6,7 @@
  *                     add (device login) / remove
  *   GUARD           : installed vs latest hook version + device count (read-only)
  *   SELF-PROTECTION : block agents from touching SolonGate's own files (toggle)
- *   LOCAL LOGS      : mirror path + enable, plus the background dashboard link
+ *   LOCAL LOGS      : where the hooks write this machine's audit trail
  *
  * Keys: ↑↓ move · enter act/edit · m make-active/toggle · e edit ·
  *   x remove account · n add account · r refresh
@@ -29,8 +29,6 @@ import {
 import { openBrowser, pollDeviceLogin, startDeviceLogin } from '../../api-client/device-login.js';
 import { codexDetected, codexHooksStatus, guardHookOutdated, installedGuardVersion, installGlobalQuiet, isGuardInstalled, repairQuiet, uninstallGlobalQuiet } from '../../global-install.js';
 import { collectChecks } from '../../commands/doctor.js';
-import { logsServerStatus, startLogsServerDaemon, stopLogsServerDaemon } from '../../logs-server-daemon.js';
-import type { LogsServerStatus } from '../../logs-server-daemon.js';
 import { DataView } from '../components.js';
 import { useLoader, usePanelSize } from '../hooks.js';
 import { theme, truncate } from '../theme.js';
@@ -47,7 +45,7 @@ type Row =
   | { kind: 'repair' }
   | { kind: 'll-enabled' }
   | { kind: 'll-path' }
-  | { kind: 'll-server' };
+
 
 interface LoginState {
   phase: 'starting' | 'waiting' | 'done' | 'error';
@@ -156,13 +154,6 @@ export function SettingsPanel({
   };
   const locked = accounts.length === 0; // unpaired device — cloud sections are inert
 
-  // logs-server daemon status — a filesystem/pid check, polled while visible.
-  const [srv, setSrv] = useState<LogsServerStatus>(() => logsServerStatus());
-  useEffect(() => {
-    const t = setInterval(() => setSrv(logsServerStatus()), 3000);
-    return () => clearInterval(t);
-  }, []);
-
   useEffect(() => {
     const loggingIn = login && login.phase !== 'done' && login.phase !== 'error';
     // Same frame clock drives the login overlay, the doctor/repair progress and
@@ -209,7 +200,6 @@ export function SettingsPanel({
           { kind: 'repair' as const },
           { kind: 'll-enabled' as const },
           { kind: 'll-path' as const },
-          { kind: 'll-server' as const },
         ]),
   ];
   const selClamped = Math.min(sel, rowsAll.length - 1);
@@ -373,14 +363,6 @@ export function SettingsPanel({
     } else if (r.kind === 'll-path') {
       setInput(local?.path ?? '');
       setEditing('path');
-    } else if (r.kind === 'll-server') {
-      const next = srv.running ? stopLogsServerDaemon() : startLogsServerDaemon();
-      setSrv(next);
-      setMsg(
-        next.running
-          ? { text: `✓ dashboard link running on 127.0.0.1:${next.port} — keeps running after you close the dataroom`, level: 'ok' }
-          : { text: '✓ dashboard link stopped (disabled until you start it again)', level: 'ok' },
-      );
     }
   };
 
@@ -422,7 +404,7 @@ export function SettingsPanel({
           if (ok) clearLocalLog();
           setMsg(ok ? { text: `✓ ${acctLabel(cur.acc)} is now the ACTIVE key (guard + logging)`, level: 'ok' } : { text: '✗ could not set active', level: 'bad' });
           refreshAccounts();
-        } else if (cur.kind === 'self' || cur.kind === 'll-enabled' || cur.kind === 'll-server') {
+        } else if (cur.kind === 'self' || cur.kind === 'll-enabled') {
           activate(cur);
         }
       } else if (inp === 'x' && cur.kind === 'acct') {
@@ -667,15 +649,6 @@ export function SettingsPanel({
             )}
           </Text>
         );
-      case 'll-server':
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            <Text color={theme.dim}>{'dashboard'.padEnd(11)}</Text>
-            {srv.running ? <Text color={theme.ok}>{`running 127.0.0.1:${srv.port}`}</Text> : <Text color={theme.dim}>stopped</Text>}
-            <Text color={theme.dim}>{srv.running ? '   survives closing the dataroom · enter stops' : '   enter starts the dashboard local-logs link'}</Text>
-          </Text>
-        );
     }
   };
 
@@ -688,7 +661,7 @@ export function SettingsPanel({
   const SECTION_DESC: Record<string, string> = {
     ACCOUNTS: `on this device (${accounts.length}) · ● viewing · ACTIVE = guard key · x removes`,
     PROTECTION: 'guard hook: enter install/update · d remove · self-protection · doctor + repair',
-    'LOCAL LOGS': 'mirror every decision to a file + dashboard link',
+    'LOCAL LOGS': 'where the hooks write this machine\'s audit trail',
   };
 
   // Flatten rows + section headers into ONE line list, then window it around the

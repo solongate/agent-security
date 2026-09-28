@@ -82,11 +82,17 @@ import { createHash } from 'node:crypto';
 // the installed hook self-updates when the cloud version is higher (see
 // maybeSelfUpdate). This is what makes guard fixes propagate without a manual
 // reinstall — the same trust model as the OPA WASM this hook already runs.
-// 91 collapses a run of `*` in a glob before compiling it, and stats a file
-// before the egress scan reads it. Both are resource fixes on agent-supplied
-// input, so an installed hook must pick them up: see dlpGlobToRe and
-// DLP_MAX_FILE_BYTES.
-const HOOK_VERSION = 91;
+// 92 closes a disarm: this hook's own per-agent state — the policy cache above
+// all — was writable through a path-taking tool, because matchPathGlob does not
+// treat `*` as a wildcard after a `**`. See isProtectedPath.
+//
+// 91 collapsed a run of `*` in a glob before compiling it, and stat'd a file
+// before the egress scan read it. Both are resource fixes on agent-supplied
+// input: see dlpGlobToRe and DLP_MAX_FILE_BYTES.
+//
+// An installed hook self-updates on this number, and a disarm nobody picks up is
+// not fixed.
+const HOOK_VERSION = 92;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -1555,6 +1561,38 @@ function isProtectedPath(p) {
   if (/\/\.solongate\/hooks(\/|$)/.test(np)) return 'solongate-hooks';
   if (/\/\.codex\/(hooks\.json|config\.toml)$/.test(np)) return 'codex-hooks';
   if (/\/\.gemini\/config\/hooks\.json$/.test(np)) return 'antigravity-hooks';
+  // Anything in ~/.solongate whose name the command side already protects.
+  //
+  // THE GLOBS ABOVE DID NOT COVER THE PER-AGENT FILES HERE, and the reason is a
+  // difference between this matchPathGlob and the Go one it is supposed to match:
+  //
+  //   here  a pattern containing `**` is split on it, and each remaining piece is
+  //         substring-tested against the path — so the `*` in the per-agent entry
+  //         stays a literal asterisk, and no real filename contains one.
+  //   Go    MatchPathGlob compiles the pattern to a regex, where that `*` is a
+  //         real wildcard and the file matches.
+  //
+  // So this hook was reachable by PATH where the binary was not, and a machine
+  // gets whichever one it has. Deleting the policy cache with a shell command was
+  // refused on both; a Write tool aimed at the same path went through here, and
+  // every coding agent has one. Overwriting that file with `{}` leaves the guard
+  // with no policy to apply, so the next call is allowed — and the refresh that
+  // would repair it is debounced for three seconds, so it repeats. Measured:
+  // Write, Edit and Read all allowed before this, all refused after.
+  //
+  // Fixed by basename rather than by touching matchPathGlob, which the policy
+  // layer also uses: changing how a `*` behaves there would change what customer
+  // rules match, which is not a thing to do from a tamper fix.
+  //
+  // Scoped to the directory on purpose. The names below are matched as PREFIXES,
+  // and `policy.json` is a name somebody's own project may well use — protecting
+  // it everywhere would block a file that has nothing to do with this product.
+  if (/(^|\/)\.solongate\//.test(np)) {
+    const base = np.slice(np.lastIndexOf('/') + 1);
+    for (const b of TAMPER_BASENAMES) {
+      if (base.startsWith(b.toLowerCase())) return b;
+    }
+  }
   return false;
 }
 

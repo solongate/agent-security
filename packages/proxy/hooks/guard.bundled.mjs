@@ -6579,7 +6579,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 91;
+var HOOK_VERSION = 92;
 var SG_DIR_MODE = 448;
 var SG_REFRESH_ARG = process.argv.includes("--sg-refresh-policy");
 var SG_STDIN = SG_REFRESH_ARG ? "" : (() => {
@@ -7624,6 +7624,13 @@ function isProtectedPath(p) {
     return "codex-hooks";
   if (/\/\.gemini\/config\/hooks\.json$/.test(np))
     return "antigravity-hooks";
+  if (/(^|\/)\.solongate\//.test(np)) {
+    const base = np.slice(np.lastIndexOf("/") + 1);
+    for (const b of TAMPER_BASENAMES) {
+      if (base.startsWith(b.toLowerCase()))
+        return b;
+    }
+  }
   return false;
 }
 function commandTargetsProtected(cmd) {

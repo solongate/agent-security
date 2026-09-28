@@ -81,15 +81,15 @@ var tamperProtectedAbs = []string{
 	tamperHome + tamperSG + "/cloud-guard.json",
 }
 
-// Matched with matchPathGlob, shared with the policy layer. Note what that
-// means for the `*` entries below: once a pattern contains `**`, matchPathGlob
-// splits on `**` and asks whether the path CONTAINS each remaining segment, so
-// the `*` in `.policy-cache-*.json` is a literal asterisk there, not a wildcard.
-// `~/.solongate/.policy-cache-claude-code.json` therefore does not match as a
-// PATH — it is caught by tamperBasenames on the command side only. That is the
-// Node hook's behaviour exactly, gap included; reproduced rather than fixed so
-// the two implementations cannot disagree. Widening it is a change to make in
-// both at once.
+// Matched with MatchPathGlob, shared with the policy layer, which compiles the
+// pattern to a regex — so the `*` in the per-agent entries below is a real
+// wildcard here and those files match by path.
+//
+// THE JAVASCRIPT TWIN'S matchPathGlob DOES NOT DO THAT. It splits on `**` and
+// substring-tests each remaining piece, which leaves that `*` literal, so the
+// per-agent files did not match by path there at all. isProtectedPath now covers
+// them by basename in both, which is what closed it — see the block at the end
+// of that function.
 var tamperProtectedGlobs = []string{
 	"**" + tamperCC + "/settings.json",
 	"**" + tamperCC + "/settings.local.json",
@@ -225,6 +225,41 @@ func isProtectedPath(p string) string {
 	}
 	if reTamperAGYHooks.MatchString(np) {
 		return "antigravity-hooks"
+	}
+	// Anything in ~/.solongate whose name the command side already protects.
+	//
+	// BELT AND BRACES HERE, AND THE ACTUAL FIX IN THE JAVASCRIPT TWIN. The two
+	// path-glob implementations do not agree, which is the thing worth knowing:
+	//
+	//   Go   MatchPathGlob compiles the pattern to a regex, so the `*` in the
+	//        per-agent entry above is a real wildcard and the file matches.
+	//   JS   matchPathGlob splits the pattern on `**` and then asks whether the
+	//        path CONTAINS each remaining piece, so that `*` stays a literal
+	//        asterisk — and no real filename contains one.
+	//
+	// So the hook was reachable by PATH where this binary was not. Deleting the
+	// policy cache through a shell command was refused on both sides; a Write tool
+	// aimed at the same path went through on the hook, and every coding agent has
+	// one. Overwriting it with `{}` leaves the guard with no policy to apply, so
+	// the next call is allowed, and the refresh that would repair it is debounced
+	// for three seconds. Measured on the hook: Write, Edit and Read all allowed
+	// before this, all refused after.
+	//
+	// This block is here anyway, for two reasons. The pair is meant to decide
+	// alike and a machine gets whichever one it has. And resting a protection on
+	// a subtlety of a glob engine that the policy layer also uses — and may
+	// legitimately change — is not where it should rest.
+	//
+	// Scoped to the directory on purpose. The names are matched as PREFIXES, and
+	// `policy.json` is one somebody's own project may well use; protecting it
+	// everywhere would block a file that has nothing to do with this product.
+	if strings.Contains(np, "/.solongate/") || strings.HasPrefix(np, ".solongate/") {
+		base := np[strings.LastIndex(np, "/")+1:]
+		for _, b := range tamperBasenames {
+			if strings.HasPrefix(base, strings.ToLower(b)) {
+				return b
+			}
+		}
 	}
 	return ""
 }

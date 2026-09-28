@@ -128,6 +128,19 @@ func approveWithKeycloak(t *testing.T, browser *http.Client, verifyURL, userCode
 	for step := 1; step <= 6; step++ {
 		m := reForm.FindStringSubmatch(page)
 		if m == nil {
+			// No form on the FIRST page is not the end of the flow, it is the
+			// flow never starting — and quietly returning turned that into a
+			// "the poll is pending" two steps later, which points at the polling
+			// code rather than at the provider. It is fatal here, and it carries
+			// what the page actually said: the title alone is the realm's, the
+			// same on the login screen and on "page expired".
+			if step == 1 {
+				t.Fatalf("the provider showed no form to fill in, so nothing was ever approved.\n"+
+					"  at   : %s\n  title: %s\n  page : %s",
+					base, firstTitle(page), visibleText(page, 400))
+			}
+			// After at least one form has been posted, no form left IS the end:
+			// Keycloak lands on /device/status once the grant is approved.
 			t.Logf("step %d: no form left, at %s (%s)", step, base, firstTitle(page))
 			return
 		}
@@ -187,6 +200,28 @@ func firstTitle(p string) string {
 	}
 	return "no title"
 }
+
+// visibleText is the page with its markup taken out, for a failure message.
+//
+// The title is not enough to tell one Keycloak screen from another: the login
+// form, the consent screen and "page expired" all carry the realm's display name.
+// What separates them is the body text, and a test that cannot say which screen
+// it was looking at cannot be debugged from a CI log.
+func visibleText(page string, max int) string {
+	t := reScriptStyle.ReplaceAllString(page, " ")
+	t = reTag.ReplaceAllString(t, " ")
+	t = html.UnescapeString(t)
+	t = strings.Join(strings.Fields(t), " ")
+	if len(t) > max {
+		t = t[:max] + "…"
+	}
+	return t
+}
+
+var (
+	reScriptStyle = regexp.MustCompile(`(?is)<(script|style)[^>]*>.*?</(script|style)>`)
+	reTag         = regexp.MustCompile(`(?s)<[^>]*>`)
+)
 
 func absolute(t *testing.T, base *url.URL, ref string) string {
 	t.Helper()

@@ -3,6 +3,7 @@ package store_test
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -47,7 +48,11 @@ func TestCheckedInSchemaFilesMatchTheGenerator(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BaseDDL(%s): %v", tc.name, err)
 		}
-		stmts := append(base, store.RuntimeDDL(tc.dialect)...)
+		runtime, err := store.RuntimeDDLFor(tc.dialect, base)
+		if err != nil {
+			t.Fatalf("RuntimeDDLFor(%s): %v", tc.name, err)
+		}
+		stmts := append(base, runtime...)
 
 		var b strings.Builder
 		b.WriteString("-- SolonGate schema for " + tc.name + ": ")
@@ -79,4 +84,68 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(digits)
+}
+
+// A from-scratch dump must not carry an ALTER for a column the base schema
+// already has.
+//
+// SQLite cannot say ADD COLUMN IF NOT EXISTS, so each of those was an error
+// against a database built from this same file — four of them. That is worse than
+// noise in a file whose entire purpose is to be applied by a DBA: run through
+// anything that stops on error (psql -v ON_ERROR_STOP=1, sqlite3 -bail, most
+// migration tools) the file aborted at the FIRST one and left the database missing
+// a table and six indexes, reporting a duplicate-column error that pointed nowhere
+// near it.
+//
+// Checked by PARSING the dump rather than by applying it, so the guarantee holds
+// on a machine with no database of either kind — the drift test above is already
+// the thing that keeps the checked-in files honest.
+func TestAFromScratchDumpAddsNoColumnTheBaseAlreadyHas(t *testing.T) {
+	for _, tc := range []struct {
+		dialect store.Dialect
+		name    string
+	}{
+		{store.SQLite, "sqlite"},
+		{store.Postgres, "postgres"},
+	} {
+		base, err := store.BaseDDL(tc.dialect)
+		if err != nil {
+			t.Fatalf("BaseDDL(%s): %v", tc.name, err)
+		}
+		runtime, err := store.RuntimeDDLFor(tc.dialect, base)
+		if err != nil {
+			t.Fatalf("RuntimeDDLFor(%s): %v", tc.name, err)
+		}
+
+		// What the base schema declares, read back out of the rendered text so
+		// this test does not trust the same list the code under test used.
+		declared := map[string]bool{}
+		for _, stmt := range base {
+			m := regexp.MustCompile(`(?is)^\s*CREATE TABLE\s+(?:IF NOT EXISTS\s+)?[\x60"]?(\w+)`).FindStringSubmatch(stmt)
+			if m == nil {
+				continue
+			}
+			table := strings.ToLower(m[1])
+			for _, col := range regexp.MustCompile("(?m)^\\s*[\x60\"]?(\\w+)[\x60\"]?\\s+(?i:text|integer|bigint|real|double|boolean|timestamp)").FindAllStringSubmatch(stmt, -1) {
+				declared[table+"."+strings.ToLower(col[1])] = true
+			}
+		}
+		if len(declared) == 0 {
+			t.Fatalf("%s: parsed no columns out of the base schema, so this test proves nothing", tc.name)
+		}
+
+		addCol := regexp.MustCompile(`(?i)^ALTER TABLE\s+(?:IF EXISTS\s+)?[\x60"]?(\w+)[\x60"]?\s+ADD COLUMN\s+(?:IF NOT EXISTS\s+)?[\x60"]?(\w+)`)
+		for _, stmt := range runtime {
+			m := addCol.FindStringSubmatch(strings.TrimSpace(stmt))
+			if m == nil {
+				continue
+			}
+			key := strings.ToLower(m[1]) + "." + strings.ToLower(m[2])
+			if declared[key] {
+				t.Errorf("%s: dump adds %s, which the base schema already declares —\n"+
+					"  on sqlite that is a duplicate-column error, and a tool that stops on error\n"+
+					"  abandons the rest of the file", tc.name, key)
+			}
+		}
+	}
 }

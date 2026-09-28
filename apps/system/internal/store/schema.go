@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"sync"
 )
 
@@ -402,6 +405,18 @@ type schemaGuard struct {
 // ALTERs that have already been applied on any database older than the column;
 // rendered for PostgreSQL they carry IF NOT EXISTS and so are safe to apply
 // directly.
+//
+// SQLITE IS DIFFERENT AND THAT USED TO BREAK THE FILE. SQLite has no
+// ADD COLUMN IF NOT EXISTS, so each of those ALTERs errored with "duplicate
+// column name" against a database created from baseschema.sql — which declares
+// all four. Four errors in a file whose whole purpose is to be applied by a DBA,
+// and worse than noise: applied by anything that stops on error, the file aborted
+// at the FIRST one and left a database missing a table and six indexes, reporting
+// a duplicate-column error that pointed nowhere near the real problem.
+//
+// So RuntimeDDLFor takes the base schema into account. This function keeps the
+// unfiltered list, because that is what EnsureRuntimeTables needs: on an OLD
+// database the column really is absent and the ALTER really has to run.
 func RuntimeDDL(d Dialect) []string {
 	out := make([]string, 0, len(addColumnsBefore)+len(migrations)+len(addColumnsAfter))
 	for _, group := range [][]string{addColumnsBefore, migrations, addColumnsAfter} {
@@ -411,3 +426,93 @@ func RuntimeDDL(d Dialect) []string {
 	}
 	return out
 }
+
+// addColumnRe matches the ALTERs, capturing the table and the column.
+var addColumnRe = regexp.MustCompile(`(?i)^ALTER TABLE\s+(\w+)\s+ADD COLUMN\s+(\w+)\b`)
+
+// RuntimeDDLFor is RuntimeDDL with the ALTERs that a FROM-SCRATCH database does
+// not need left out.
+//
+// It is what the schema dump uses when it also emits the base tables. An
+// ALTER TABLE ... ADD COLUMN whose column the base schema already declares is not
+// merely redundant there: on SQLite, which cannot say IF NOT EXISTS, it is an
+// error — and a file that errors is a file a DBA cannot tell has applied.
+//
+// Only that exact case is dropped. An ALTER naming a column the base schema does
+// NOT have still has work to do and is emitted, because the from-scratch database
+// needs it too.
+func RuntimeDDLFor(d Dialect, base []string) ([]string, error) {
+	declared, err := baseColumns(base)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(addColumnsBefore)+len(migrations)+len(addColumnsAfter))
+	for _, group := range [][]string{addColumnsBefore, migrations, addColumnsAfter} {
+		for _, stmt := range group {
+			if m := addColumnRe.FindStringSubmatch(strings.TrimSpace(stmt)); m != nil {
+				if declared[strings.ToLower(m[1])+"."+strings.ToLower(m[2])] {
+					continue
+				}
+			}
+			out = append(out, ddlFor(d, stmt))
+		}
+	}
+	return out, nil
+}
+
+// baseColumns is the set of `table.column` the rendered base schema declares.
+//
+// Parsed from the rendered CREATE TABLE text rather than from a list kept by
+// hand: a hand-kept list is a second place to update and the first one anybody
+// forgets, and getting it wrong here silently drops an ALTER a database needs.
+func baseColumns(base []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, stmt := range base {
+		m := createTableBodyRe.FindStringSubmatch(stmt)
+		if m == nil {
+			continue
+		}
+		table := strings.ToLower(m[1])
+		body := m[2]
+		depth := 0
+		field := strings.Builder{}
+		flush := func() {
+			line := strings.TrimSpace(field.String())
+			field.Reset()
+			if line == "" {
+				return
+			}
+			// A constraint clause is not a column.
+			switch strings.ToUpper(strings.Fields(line)[0]) {
+			case "PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT":
+				return
+			}
+			name := strings.Trim(strings.Fields(line)[0], "`\"[]")
+			out[table+"."+strings.ToLower(name)] = true
+		}
+		for _, r := range body {
+			switch {
+			case r == '(':
+				depth++
+				field.WriteRune(r)
+			case r == ')':
+				depth--
+				field.WriteRune(r)
+			case r == ',' && depth == 0:
+				flush()
+			default:
+				field.WriteRune(r)
+			}
+		}
+		flush()
+	}
+	if len(out) == 0 {
+		return nil, errors.New("store: parsed no columns out of the base schema")
+	}
+	return out, nil
+}
+
+// createTableBodyRe captures a rendered CREATE TABLE's name and its body. Both
+// dialects are rendered from the same source, so one expression covers them —
+// the quoting differs and the shape does not.
+var createTableBodyRe = regexp.MustCompile(`(?is)^\s*CREATE TABLE\s+(?:IF NOT EXISTS\s+)?[\x60"]?(\w+)[\x60"]?\s*\((.*)\)\s*$`)

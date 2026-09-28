@@ -78,10 +78,9 @@ func auditWhere(projectID string, f AuditFilter) ([]string, []any) {
 	if f.UserID != "" {
 		add("api_key_id IN (SELECT id FROM api_keys WHERE user_id = ?)", f.UserID)
 	}
-	// The host's own rows, by elimination. Their keys predate the user_id
-	// column and many carry NULL, so naming the host by account finds nothing
-	// for exactly the accounts that have been here longest — see
-	// FleetScopeHost, which is the same rule for the aggregates.
+	// Their keys predate the user_id column and many carry NULL, so naming an
+	// account finds nothing for exactly the accounts that have been here
+	// longest.
 	if f.AgentID != "" {
 		add("agent_id = ?", f.AgentID)
 	}

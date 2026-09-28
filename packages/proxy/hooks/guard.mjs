@@ -82,8 +82,10 @@ import { createHash } from 'node:crypto';
 // the installed hook self-updates when the cloud version is higher (see
 // maybeSelfUpdate). This is what makes guard fixes propagate without a manual
 // reinstall — the same trust model as the OPA WASM this hook already runs.
-// 91 collapses a run of `*` in a glob before compiling it. That is a HANG fix,
-// so an installed hook must pick it up: see dlpGlobToRe.
+// 91 collapses a run of `*` in a glob before compiling it, and stats a file
+// before the egress scan reads it. Both are resource fixes on agent-supplied
+// input, so an installed hook must pick them up: see dlpGlobToRe and
+// DLP_MAX_FILE_BYTES.
 const HOOK_VERSION = 91;
 
 // ── The Go guard, when there is one and it is the right one ──────────────────
@@ -1648,6 +1650,19 @@ const DLP_PATTERNS = [
 // identical to read.
 const dlpGlobCollapse = /\*{2,}/g;
 
+// DLP_MAX_FILE_BYTES is the ceiling on any file this hook opens to scan.
+//
+// Every one of those paths comes from the AGENT — a file it asked to read, or one
+// it named in a transfer command — so the size is the agent's choice and the
+// ceiling is what keeps it from being this process's memory footprint. Scanning
+// also builds de-obfuscated VIEWS of the text, so the peak is a multiple of the
+// file.
+//
+// The number was already written three times as a literal and missing from a
+// fourth place that needed it; it lives here now so the four cannot drift.
+// Mirrors dlpMaxFileBytes in the Go guard.
+const DLP_MAX_FILE_BYTES = 1048576;
+
 // Custom patterns are GLOBs: `*` = any run of non-whitespace, same wildcard
 // mechanic as the policy layer.
 function dlpGlobToRe(glob) {
@@ -1748,6 +1763,25 @@ function egressSecretCheck(args, sec, cwd) {
         if (f.startsWith('~')) f = homedir() + f.slice(1);
         let abs; try { abs = isAbsolute(f) ? f : resolve(base, f); } catch { continue; }
         let content = null;
+        // STAT BEFORE READ, and skip anything over the scan ceiling.
+        //
+        // The path is one the AGENT put in a transfer command, so its size is the
+        // agent's choice. Reading it whole meant `curl -T big.bin` made this hook
+        // allocate the whole file — and then dlpScan builds de-obfuscated VIEWS of
+        // it, so the peak is a multiple of that. The guard runs before every tool
+        // call and is fail-closed, so an out-of-memory kill here is a stalled
+        // agent rather than a missed scan.
+        //
+        // One megabyte is not a new rule: it is DLP_MAX_FILE_BYTES, already the
+        // ceiling on the read-redaction path and on dlpReadCheck. Only this one
+        // spot was missing it. The trade is explicit — a secret in a file over the
+        // ceiling is not caught HERE — and it is the trade the other two paths
+        // already made, which is the reason to make it the same rather than
+        // inventing a second answer.
+        try {
+          const st = statSync(abs);
+          if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES) continue;
+        } catch { continue; }
         try { content = readFileSync(abs, 'utf-8'); } catch { continue; }
         if (!content) continue;
         const hit = dlpScan(content, dlp);
@@ -1792,7 +1826,7 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
     // the copy couldn't be written → caller must BLOCK, never leak).
     const redactCopy = (abs) => {
       let content;
-      try { const st = statSync(abs); if (!st.isFile() || st.size > 1048576) return 'SKIP'; content = readFileSync(abs, 'utf-8'); } catch { return 'SKIP'; }
+      try { const st = statSync(abs); if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES) return 'SKIP'; content = readFileSync(abs, 'utf-8'); } catch { return 'SKIP'; }
       if (dlpScan(content, dlp) == null) return 'CLEAN';
       try {
         const dir = join(resolve(homedir(), '.solongate'), '.redacted');
@@ -1885,7 +1919,7 @@ function dlpReadCheck(args, dlp, cwd) {
       if (f.startsWith('~')) f = homedir() + f.slice(1);
       let abs; try { abs = isAbsolute(f) ? f : resolve(base, f); } catch { continue; }
       let content;
-      try { const st = statSync(abs); if (!st.isFile() || st.size > 1048576) continue; content = readFileSync(abs, 'utf-8'); } catch { continue; }
+      try { const st = statSync(abs); if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES) continue; content = readFileSync(abs, 'utf-8'); } catch { continue; }
       const hit = dlpScan(content, dlp);
       if (hit) return 'Security layer (DLP): reading "' + f + '" is blocked — it contains a ' + hit + '. Blocked by SolonGate.';
     }

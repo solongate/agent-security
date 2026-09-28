@@ -296,6 +296,22 @@ func egressSecretCheck(args map[string]interface{}, sec *sgshared.Security, cwd 
 			if !filepath.IsAbs(abs) {
 				abs = filepath.Join(base, f)
 			}
+			// STAT BEFORE READ, and skip anything over the scan ceiling.
+			//
+			// The path is one the AGENT put in a transfer command, so its size is
+			// the agent's choice. Reading it whole meant `curl -T big.bin` made
+			// this process allocate the whole file — and dlpScanViews then builds
+			// de-obfuscated views of it, so the peak is a multiple of that. The
+			// guard runs before every tool call and is fail-closed, so an
+			// out-of-memory kill here is a stalled agent rather than a missed scan.
+			//
+			// dlpMaxFileBytes is not a new rule: it is already the ceiling on
+			// dlpRedactCopy in this same file. Only this spot was missing it. The
+			// trade is explicit — a secret in a file over the ceiling is not caught
+			// HERE — and it is the trade the other path already made.
+			if st, err := os.Stat(abs); err != nil || !st.Mode().IsRegular() || st.Size() > dlpMaxFileBytes {
+				continue
+			}
 			content, err := os.ReadFile(abs)
 			if err != nil || len(content) == 0 {
 				continue

@@ -7703,6 +7703,7 @@ var DLP_PATTERNS = [
   { name: "Bearer token", re: /bearer\s+[A-Za-z0-9._-]{20,}/i }
 ];
 var dlpGlobCollapse = /\*{2,}/g;
+var DLP_MAX_FILE_BYTES = 1048576;
 function dlpGlobToRe(glob) {
   let re = "";
   for (const ch of String(glob || "").replace(dlpGlobCollapse, "*")) {
@@ -7802,6 +7803,13 @@ function egressSecretCheck(args, sec, cwd) {
         }
         let content = null;
         try {
+          const st = statSync(abs);
+          if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES)
+            continue;
+        } catch {
+          continue;
+        }
+        try {
           content = readFileSync(abs, "utf-8");
         } catch {
           continue;
@@ -7855,7 +7863,7 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
       let content;
       try {
         const st = statSync(abs);
-        if (!st.isFile() || st.size > 1048576)
+        if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES)
           return "SKIP";
         content = readFileSync(abs, "utf-8");
       } catch {

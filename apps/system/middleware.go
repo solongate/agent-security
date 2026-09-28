@@ -84,11 +84,21 @@ func (s *server) cors(next http.Handler) http.Handler {
 // maxBodyBytes bounds every request body.
 //
 // It has no counterpart in the live app, where the platform imposes its own
-// ceiling, and it is here because this process reads bodies into memory. The
-// number is set by /v1/upload, which accepts images up to 5 MB and wraps them
-// in a multipart envelope; everything else on this service is JSON measured in
-// kilobytes.
-const maxBodyBytes = 16 << 20
+// ceiling, and it is here because this process reads bodies into memory.
+//
+// It was 16 MB, set by an upload route that accepted images. That route is gone,
+// and every endpoint left takes JSON: the largest legitimate body is a policy
+// document, and the biggest field anywhere else is an audit entry's arguments
+// summary, which the write caps at sixteen kilobytes regardless. A ceiling three
+// orders of magnitude above anything that can arrive is not a bound, it is an
+// invitation to allocate — any valid key could ask this process for 16 MB per
+// request, on every route.
+//
+// Two megabytes because a policy document is the thing being sized for and
+// nothing caps its RULE COUNT: this is that write's effective bound, so it has to
+// leave room for a policy somebody would actually write. Two megabytes of JSON
+// rules is thousands of them.
+const maxBodyBytes = 2 << 20
 
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

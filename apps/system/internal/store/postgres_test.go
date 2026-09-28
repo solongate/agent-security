@@ -222,21 +222,19 @@ func TestControlPlanePaths(t *testing.T) {
 }
 
 // The per-person page, at the shape fifteen thousand people produce.
+// The audit list, at the shape a large installation produces.
 //
-// Every per-person screen filters by user_id inside a project and a window.
-// Without shadow_events_project_user_idx that walks the project's whole window:
-// ninety days at four hundred thousand events a day is forty million rows to
-// find one person's page. This asserts the plan, not the timing — a timing test
-// on a laptop proves nothing about a customer's disk.
-
-// The per-person read, at the shape a large installation produces.
+// Every screen in this product reads audit_logs the same way: one project,
+// newest first, a page at a time. Without audit_logs_project_id_created_at_idx
+// that walks the project's whole history — and this is the table that grows
+// forever, so on a busy installation it is the difference between a page and a
+// full scan. This asserts the PLAN, not the timing: a timing test on a laptop
+// proves nothing about a customer's disk.
 //
-// Every per-person screen filters by user_id inside a project and a window.
-// Without conversation_turns_project_user_created_idx that walks the project's
-// whole window, which on a busy installation is the difference between a page
-// and a table scan. This asserts the PLAN, not the timing — a timing test on a
-// laptop proves nothing about a customer's disk.
-func TestPerPersonQueryUsesAnIndex(t *testing.T) {
+// It used to make this assertion about conversation_turns. That table went with
+// the transcript feature; the claim is worth keeping and audit_logs is where it
+// now matters.
+func TestTheAuditListUsesItsIndex(t *testing.T) {
 	s := open(t)
 	ctx := context.Background()
 	if err := s.EnsureRuntimeTables(ctx); err != nil {
@@ -246,35 +244,62 @@ func TestPerPersonQueryUsesAnIndex(t *testing.T) {
 	const project = "prj-plan"
 	now := time.Now().Unix()
 
-	// Enough rows that the planner has something to choose between; a table of
-	// three rows is a sequential scan whatever the indexes say.
-	for i := 0; i < 400; i++ {
-		if err := s.InsertTurn(ctx, store.ConversationTurn{
-			ID:        fmt.Sprintf("plan-%d", i),
-			ProjectID: project,
-			UserID:    fmt.Sprintf("user-%d", i%50),
-			SessionID: fmt.Sprintf("sess-%d", i%10),
-			Role:      store.TurnPrompt,
-			Body:      "a turn",
-			CreatedAt: now - int64(i*60),
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	db, err := sql.Open("pgx", dsn())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.ExecContext(ctx, "ANALYZE conversation_turns"); err != nil {
+
+	// audit_logs.project_id carries a foreign key, so the projects have to exist
+	// before the rows do — which real PostgreSQL enforces and SQLite, in this
+	// schema, does not. Written directly for the reason TestControlPlanePaths
+	// gives: the store has no constructor for a user or a project.
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO users (id, email, name, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
+		"usr-plan", "plan@kurum.example", "Plan", now, now); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	for _, p := range []string{project, "prj-other"} {
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO projects (id, owner_id, name, slug, token_secret, created_at, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING`,
+			p, "usr-plan", p, p, "secret", now, now); err != nil {
+			t.Fatalf("seed project %s: %v", p, err)
+		}
+	}
+
+	// Enough rows that the planner has something to choose between; a table of
+	// three rows is a sequential scan whatever the indexes say. Two projects, so
+	// the project predicate is doing work rather than matching everything.
+	for i := 0; i < 400; i++ {
+		proj := project
+		if i%4 == 0 {
+			proj = "prj-other"
+		}
+		if err := s.InsertAuditLog(ctx, store.AuditLog{
+			ID:            fmt.Sprintf("plan-%d", i),
+			ProjectID:     proj,
+			RequestID:     fmt.Sprintf("req-%d", i),
+			ToolName:      "Bash",
+			Permission:    "EXECUTE",
+			TrustLevel:    "TRUSTED",
+			Decision:      "ALLOW",
+			ArgumentsHash: "h",
+			CreatedAt:     now - int64(i*60),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, "ANALYZE audit_logs"); err != nil {
 		t.Fatal(err)
 	}
 
 	rows, err := db.QueryContext(ctx, `EXPLAIN
-		SELECT id FROM conversation_turns
-		WHERE project_id = $1 AND user_id = $2
-		ORDER BY created_at DESC LIMIT 50`, project, "user-7")
+		SELECT id FROM audit_logs
+		WHERE project_id = $1
+		ORDER BY created_at DESC LIMIT 50`, project)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +315,16 @@ func TestPerPersonQueryUsesAnIndex(t *testing.T) {
 		plan.WriteString("\n")
 	}
 
-	if !strings.Contains(plan.String(), "conversation_turns_project_user_created_idx") {
-		t.Errorf("the per-person query does not use its index:\n%s", plan.String())
+	// The guarantee is that this read does not SCAN the table. It is asserted that
+	// way rather than by naming one index, because more than one index can serve
+	// this query — with audit_logs_project_id_created_at_idx dropped, PostgreSQL
+	// picks the wider (project_id, created_at, agent_name) one and the read is
+	// still a page rather than a scan. Naming an index would make this fail on a
+	// legitimate index change while proving nothing extra about the thing that
+	// matters.
+	if strings.Contains(plan.String(), "Seq Scan on audit_logs") {
+		t.Errorf("the audit list scans the table instead of using an index —\n"+
+			"  expected audit_logs_project_id_created_at_idx or another index on (project_id, created_at):\n%s",
+			plan.String())
 	}
 }

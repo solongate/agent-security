@@ -153,10 +153,6 @@ insert('policy_versions', {
   policy_data: JSON.stringify({ id: 'pv1', name: 'Local policy', mode: 'denylist', rules }),
   created_at: now,
 });
-insert('agents', {
-  id: 'a1', project_id: 'p1', agent_id: 'claude-code', agent_name: 'claude-code',
-  first_seen_at: now, last_seen_at: now, total_calls: 3, allowed_calls: 1, denied_calls: 2,
-});
 for (let i = 0; i < 3; i++) {
   insert('audit_logs', {
     id: `al${i}`, project_id: 'p1', request_id: `req${i}`, session_id: 's1',
@@ -167,7 +163,7 @@ for (let i = 0; i < 3; i++) {
   });
 }
 
-const counted = ['users', 'organizations', 'projects', 'api_keys', 'policy_versions', 'agents', 'audit_logs']
+const counted = ['users', 'organizations', 'projects', 'api_keys', 'policy_versions', 'audit_logs']
   .map((t) => `${t}=${db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n}`);
 console.log('seeded:', counted.join(' '));
 db.close();

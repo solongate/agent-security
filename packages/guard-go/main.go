@@ -199,7 +199,7 @@ func allow() { emit(decision{Type: "allow"}) }
 //
 // TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
 // cannot drift without the build saying so.
-const hookVersion = 90
+const hookVersion = 91
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.

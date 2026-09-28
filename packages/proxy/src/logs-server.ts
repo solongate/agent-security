@@ -8,13 +8,46 @@
 // updates. It binds to loopback only, serves ONLY solongate-audit.jsonl, and
 // never lists or exposes anything else on disk.
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import { resolve, join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { readdirSync } from 'node:fs';
 
 const LOG_FILENAME = 'solongate-audit.jsonl';
 const DEFAULT_PORT = 8788;
+
+// MAX_SERVED_BYTES bounds one response, and with it the memory this service can be
+// made to allocate.
+//
+// The log is append-only with no rotation anywhere: it grows for as long as the
+// machine works. Reading the whole file per request was fine on the first day and
+// is not on the hundredth — and this endpoint is POLLED every few seconds, so the
+// allocation is not once but continuous. Sixteen megabytes is the same bound the
+// dataroom's own reader uses for the same file, and the Go twin uses here.
+const MAX_SERVED_BYTES = 16 * 1024 * 1024;
+
+/**
+ * At most `max` bytes from the END of a file, starting at a line boundary.
+ *
+ * The END, because this is a log and the recent entries are the ones a reader
+ * wants. The first line of a bounded read is dropped: it is almost certainly a
+ * fragment, and a fragment that happens to parse as JSON is worse than one that
+ * does not — it would show up as a call that never occurred.
+ */
+function tailText(file: string, max: number): string {
+  const size = statSync(file).size;
+  if (size <= max) return readFileSync(file, 'utf-8');
+  const fd = openSync(file, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(max);
+    const n = readSync(fd, buf, 0, max, size - max);
+    const text = buf.subarray(0, n).toString('utf-8');
+    const nl = text.indexOf('\n');
+    return nl >= 0 ? text.slice(nl + 1) : text;
+  } finally {
+    closeSync(fd);
+  }
+}
 
 // Origins allowed to read from the agent: loopback only, because that is the
 // whole audience — this server listens on the loopback interface and serves this
@@ -174,7 +207,7 @@ export async function runLogsServer(): Promise<void> {
         return;
       }
       try {
-        const text = readFileSync(info.file as string, 'utf-8');
+        const text = tailText(info.file as string, MAX_SERVED_BYTES);
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Last-Modified': lastMod, 'X-Solongate-Exists': '1' });
         res.end(text);
       } catch {

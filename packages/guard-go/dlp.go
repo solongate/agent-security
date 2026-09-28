@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/codeyevsky/solongate/sgpolicy"
 	"github.com/codeyevsky/solongate/sgshared"
 )
 
@@ -132,10 +133,17 @@ func dlpScan(text string, cfg *sgshared.DLPConfig) string {
 // Custom DLP patterns are GLOBs, not regexes: `*` means any run of
 // non-whitespace. Same mechanic the policy layer uses, so a user who
 // learns one has learned all three.
+//
+// A RUN of `*` collapses to one. It changes no answer — `\S*\S*` matches exactly
+// what `\S*` matches — and this engine is RE2, which has no backtracking and so
+// was never at risk from the repetition. It is here because the JavaScript twin
+// MUST do it: there `**` compiles to two adjacent unbounded quantifiers and the
+// backtracking is catastrophic, and a converter that normalises on one side and
+// not the other is a pair that can disagree. See dlpGlobToRe in the hooks.
 func globToRegexp(glob string) (*regexp.Regexp, error) {
 	var b strings.Builder
 	b.WriteString("(?i)")
-	for _, r := range glob {
+	for _, r := range sgpolicy.GlobStarRun.ReplaceAllString(glob, "*") {
 		if r == '*' {
 			b.WriteString(`\S*`)
 			continue

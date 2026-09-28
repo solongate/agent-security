@@ -1,11 +1,14 @@
 package logsserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,15 +69,17 @@ func TestOriginAllowListIsExact(t *testing.T) {
 		origin string
 		want   bool
 	}{
-		{"https://dashboard.solongate.com", true},
 		{"http://localhost:3000", true},
 		{"http://127.0.0.1:3005", true},
 		{"https://evil.example.com", false},
 		// A prefix and a suffix of a listed origin, which a substring or a
 		// wildcard check would admit.
-		{"https://dashboard.solongate.com.evil.example", false},
-		{"https://evil.example/https://dashboard.solongate.com", false},
+		{"http://localhost:3000.evil.example", false},
+		{"https://evil.example/http://localhost:3000", false},
 		{"http://localhost:3001", false},
+		// The hosted dashboard this service used to trust. Nobody running this
+		// build controls that domain, and it was handed the whole audit trail.
+		{"https://dashboard.solongate.com", false},
 	}
 	for _, c := range cases {
 		rec := get(t, "/health", map[string]string{"Origin": c.origin})
@@ -104,7 +109,7 @@ func TestExtraOriginFromEnv(t *testing.T) {
 // attached. Nothing here is behind a credential and nothing should ask for one.
 func TestNeverAllowsCredentials(t *testing.T) {
 	sandbox(t)
-	rec := get(t, "/health", map[string]string{"Origin": "https://dashboard.solongate.com"})
+	rec := get(t, "/health", map[string]string{"Origin": "http://localhost:3005"})
 	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "" {
 		t.Fatalf("allow-credentials = %q, want it absent", got)
 	}
@@ -114,7 +119,7 @@ func TestPreflightAndMethods(t *testing.T) {
 	sandbox(t)
 
 	req := httptest.NewRequest(http.MethodOptions, "/local-logs", nil)
-	req.Header.Set("Origin", "https://dashboard.solongate.com")
+	req.Header.Set("Origin", "http://localhost:3005")
 	req.Header.Set("Access-Control-Request-Private-Network", "true")
 	rec := httptest.NewRecorder()
 	handler().ServeHTTP(rec, req)
@@ -143,6 +148,59 @@ func TestPreflightAndMethods(t *testing.T) {
 
 	if rec := get(t, "/anything-else", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown route = %d, want 404", rec.Code)
+	}
+}
+
+// The log grows for as long as the machine works — it is appended to and never
+// rotated — and this endpoint is POLLED. Reading the whole file per request meant
+// the memory a poll allocates was a function of how long the developer had been
+// working, with no ceiling.
+//
+// So a response is bounded, and bounded at the END: a log reader wants the recent
+// entries. The first line of a bounded read is dropped because it is a fragment,
+// and a fragment that happens to parse as JSON would enter the stream as a call
+// that never occurred.
+func TestAnOversizedLogIsServedBoundedAndFromTheEnd(t *testing.T) {
+	home := sandbox(t)
+	dir := t.TempDir()
+	writePolicyCache(t, home, dir)
+
+	// One line per entry, comfortably past the bound, each carrying its ordinal
+	// so the tail can be identified.
+	var b []byte
+	for i := 0; len(b) < maxServedBytes+(1<<20); i++ {
+		b = append(b, []byte(`{"n":`+strconv.Itoa(i)+`,"pad":"`+strings.Repeat("x", 512)+`"}`+"\n")...)
+	}
+	file := filepath.Join(dir, "solongate-audit.jsonl")
+	if err := os.WriteFile(file, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := get(t, "/local-logs", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	got := rec.Body.Bytes()
+	if len(got) > maxServedBytes {
+		t.Errorf("served %d bytes, over the %d bound", len(got), maxServedBytes)
+	}
+	if len(got) == len(b) {
+		t.Error("served the whole file, so nothing is bounding the response")
+	}
+	// The END of the file: the last line written has to be present.
+	if !bytes.Contains(got, []byte(`"n":`+strconv.Itoa(bytes.Count(b, []byte("\n"))-1)+",")) {
+		t.Error("the newest entry is missing, so the bound took the wrong end")
+	}
+	// And every line served has to be whole, or a reader parses a fragment as a
+	// call that never happened.
+	for _, line := range bytes.Split(bytes.TrimRight(got, "\n"), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var probe map[string]any
+		if err := json.Unmarshal(line, &probe); err != nil {
+			t.Fatalf("served a fragment rather than whole lines: %q", line)
+		}
 	}
 }
 

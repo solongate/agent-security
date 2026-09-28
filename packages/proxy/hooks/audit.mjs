@@ -40,7 +40,9 @@ function projectFlagDir() {
 // Bump on every audit hook change. The cloud serves the newest version; the guard
 // hook installs it on its next run (no re-login needed). See guard.mjs
 // fetchAndInstallHook / maybeSelfUpdate.
-const HOOK_VERSION = 28;
+// 29 collapses a run of `*` in a custom DLP glob before compiling it. That is a
+// HANG fix, so an installed hook must pick it up: see dlpGlobToRe.
+const HOOK_VERSION = 29;
 
 function loadEnvKey(dir) {
   try {
@@ -307,9 +309,19 @@ function appendLocalLog(cfg, entry) {
 // string[] (enabled built-in names), custom: {name,re}[] }.
 // Custom patterns are GLOBs: `*` = any run of non-whitespace (so a fragment
 // matches a whole token), same wildcard mechanic as the policy layer.
+//
+// A RUN of `*` collapses to one, and that is a fix rather than a tidy-up. `*`
+// becomes `[^\s]*`, so `**` became two unbounded quantifiers over the same
+// character class back to back — the textbook catastrophic-backtracking shape.
+// Measured on this converter against sixty characters of tool output: six stars
+// 0.9s, eight 28s, ten four minutes, twenty-four never finished. The pattern is
+// one somebody types, and this scan runs over every tool result. Collapsing
+// changes nothing about what a glob accepts, because `[^\s]*[^\s]*` matches
+// exactly the strings `[^\s]*` matches. Kept identical in the guard and the
+// shield, which carry the same converter.
 function dlpGlobToRe(glob, flags) {
   let re = '';
-  for (const ch of String(glob || '')) {
+  for (const ch of String(glob || '').replace(/\*{2,}/g, '*')) {
     if (ch === '*') re += '[^\\s]*';
     else if ('.+?^${}()|[]\\'.indexOf(ch) !== -1) re += '\\' + ch;
     else re += ch;

@@ -82,7 +82,9 @@ import { createHash } from 'node:crypto';
 // the installed hook self-updates when the cloud version is higher (see
 // maybeSelfUpdate). This is what makes guard fixes propagate without a manual
 // reinstall — the same trust model as the OPA WASM this hook already runs.
-const HOOK_VERSION = 90;
+// 91 collapses a run of `*` in a glob before compiling it. That is a HANG fix,
+// so an installed hook must pick it up: see dlpGlobToRe.
+const HOOK_VERSION = 91;
 
 // ── The Go guard, when there is one and it is the right one ──────────────────
 //
@@ -1423,7 +1425,14 @@ function expandCommandGlobs(args, cwd) {
         let abs; try { abs = isAbsolute(g) ? g : resolve(base, g); } catch { continue; }
         const dir = dirname(abs), b = abs.slice(dir.length + 1);
         if (!/[*?\[]/.test(b)) continue;
-        let re; try { re = new RegExp('^' + b.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$'); } catch { continue; }
+        // The run of `*` is collapsed FIRST, and here that is the load-bearing
+        // step: this glob came out of the AGENT's own command line, so the
+        // pattern is attacker-supplied. `[^/]*[^/]*…` backtracks catastrophically
+        // and is then tested once per directory entry, so `ls ***********x` in a
+        // directory with one longish name hangs this hook — which, being
+        // fail-closed, hangs the tool call. `[^/]*[^/]*` accepts exactly what
+        // `[^/]*` accepts, so collapsing costs nothing. See dlpGlobToRe.
+        let re; try { re = new RegExp('^' + b.replace(/\*{2,}/g, '*').replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$'); } catch { continue; }
         let files; try { files = readdirSync(dir); } catch { continue; }
         for (const f of files) if (re.test(f)) out.push(join(dir, f).replace(/\\/g, '/'));
       }
@@ -1619,11 +1628,31 @@ const DLP_PATTERNS = [
   { name: 'Bearer token', re: /bearer\s+[A-Za-z0-9._-]{20,}/i },
 ];
 
+// A RUN of `*` collapses to one, and that is a fix rather than a tidy-up.
+//
+// `*` becomes `[^\s]*`, so `**` became `[^\s]*[^\s]*` — two unbounded
+// quantifiers over the SAME character class, back to back. JavaScript's regex
+// engine backtracks, and that shape is the textbook catastrophic case: on a
+// subject that nearly matches, the cost doubles per extra star. Measured on this
+// converter, against sixty characters of ordinary text: six stars took 0.9s,
+// eight took 28s, ten took four minutes, and twenty-four did not finish.
+//
+// It is reachable from a pattern somebody types (`dlp add-custom --re '****x'`)
+// and the scan runs over every tool result, so a handful of stars is a hung
+// agent rather than a slow one — this hook is fail-closed, so a scan that never
+// returns is a tool call that never returns.
+//
+// Collapsing changes NOTHING about what a glob accepts: `[^\s]*[^\s]*` matches
+// exactly the strings `[^\s]*` matches. Go's twin is RE2, which has no
+// backtracking and was never affected; it collapses too so the pair stays
+// identical to read.
+const dlpGlobCollapse = /\*{2,}/g;
+
 // Custom patterns are GLOBs: `*` = any run of non-whitespace, same wildcard
 // mechanic as the policy layer.
 function dlpGlobToRe(glob) {
   let re = '';
-  for (const ch of String(glob || '')) {
+  for (const ch of String(glob || '').replace(dlpGlobCollapse, '*')) {
     if (ch === '*') re += '[^\\s]*';
     else if ('.+?^${}()|[]\\'.indexOf(ch) !== -1) re += '\\' + ch;
     else re += ch;
@@ -1794,7 +1823,10 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
         const dir = dirname(absGlob);
         const base = absGlob.slice(dir.length + 1);
         if (!GLOB_META.test(base)) return [absGlob];
-        const re = new RegExp('^' + base.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$');
+        // Runs of `*` collapsed first: the token is the agent's, and adjacent
+        // `[^/]*` groups backtrack catastrophically. Same reasoning as
+        // expandCommandGlobs, which this mirrors.
+        const re = new RegExp('^' + base.replace(/\*{2,}/g, '*').replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$');
         return readdirSync(dir).filter((f) => re.test(f)).map((f) => join(dir, f));
       } catch { return []; }
     };

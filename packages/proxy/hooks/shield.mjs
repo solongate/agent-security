@@ -23,7 +23,10 @@ import { homedir } from 'node:os';
 
 // Bump on every shield.mjs change. The cloud serves the newest version; the
 // guard hook installs it on its next run (no re-login needed).
-const HOOK_VERSION = 7;
+// 8 collapses a run of `*` in a custom DLP glob before compiling it. That is a
+// HANG fix on the path every prompt travels, so an installed shield must pick it
+// up: see dlpGlobToRe.
+const HOOK_VERSION = 8;
 
 const log = (...a) => process.stderr.write(`[SolonGate shield] ${a.map(String).join(' ')}\n`);
 
@@ -83,9 +86,19 @@ function loadCfg() {
 }
 
 // Custom patterns are GLOBs: `*` = any run of non-whitespace, same as the policy layer.
+//
+// A RUN of `*` collapses to one, and that is a fix rather than a tidy-up. `*`
+// becomes `[^\s]*`, so `**` became two unbounded quantifiers over the same
+// character class back to back, which backtracks catastrophically: measured on
+// this converter, six stars cost 0.9s and ten cost four minutes. The shield is
+// the worst place for it — this runs over the whole REQUEST BODY on its way to
+// the model, prompt included — and the pattern is one somebody types.
+// Collapsing changes nothing about what a glob accepts, because `[^\s]*[^\s]*`
+// matches exactly the strings `[^\s]*` matches. Kept identical in the guard and
+// the audit hook, which carry the same converter.
 function dlpGlobToRe(glob, flags) {
   let re = '';
-  for (const ch of String(glob || '')) {
+  for (const ch of String(glob || '').replace(/\*{2,}/g, '*')) {
     if (ch === '*') re += '[^\\s]*';
     else if ('.+?^${}()|[]\\'.indexOf(ch) !== -1) re += '\\' + ch;
     else re += ch;

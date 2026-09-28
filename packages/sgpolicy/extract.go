@@ -48,8 +48,11 @@ var (
 	GlobTokenSplit = regexp.MustCompile("[\\s'\"|<>;&()]+")
 	reRefTokSplit  = regexp.MustCompile(`[\s'"();|&<>]+`)
 
-	GlobChars  = regexp.MustCompile(`[*?\[]`)
-	GlobEscape = regexp.MustCompile(`[.+^${}()|\\]`)
+	GlobChars = regexp.MustCompile(`[*?\[]`)
+	// GlobStarRun collapses `**` and longer to a single star. Exported because
+	// both glob expanders normalise with it before building a pattern.
+	GlobStarRun = regexp.MustCompile(`\*{2,}`)
+	GlobEscape  = regexp.MustCompile(`[.+^${}()|\\]`)
 
 	// A tool whose call EXECUTES what it is given, rather than reading or
 	// writing it. The distinction decides whether a file's contents are inlined
@@ -383,7 +386,13 @@ func ExpandCommandGlobs(args map[string]interface{}, cwd string) []string {
 			if !GlobChars.MatchString(b) {
 				continue
 			}
-			pattern := GlobEscape.ReplaceAllString(b, `\${0}`)
+			// The run of `*` collapses first, matching the JavaScript twin, where
+			// it is load-bearing: this token came off the AGENT's command line,
+			// and `[^/]*[^/]*…` backtracks catastrophically there — then gets
+			// tested once per directory entry. RE2 does not backtrack, so here it
+			// only keeps the two identical.
+			pattern := GlobStarRun.ReplaceAllString(b, "*")
+			pattern = GlobEscape.ReplaceAllString(pattern, `\${0}`)
 			pattern = strings.ReplaceAll(pattern, "*", "[^/]*")
 			pattern = strings.ReplaceAll(pattern, "?", "[^/]")
 			re, err := regexp.Compile("^" + pattern + "$")

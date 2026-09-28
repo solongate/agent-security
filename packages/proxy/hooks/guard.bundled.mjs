@@ -6579,7 +6579,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 90;
+var HOOK_VERSION = 91;
 var SG_REFRESH_ARG = process.argv.includes("--sg-refresh-policy");
 var SG_STDIN = SG_REFRESH_ARG ? "" : (() => {
   try {
@@ -7490,7 +7490,7 @@ function expandCommandGlobs(args, cwd) {
           continue;
         let re;
         try {
-          re = new RegExp("^" + b.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]") + "$");
+          re = new RegExp("^" + b.replace(/\*{2,}/g, "*").replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]") + "$");
         } catch {
           continue;
         }
@@ -7702,9 +7702,10 @@ var DLP_PATTERNS = [
   { name: "JWT", re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/ },
   { name: "Bearer token", re: /bearer\s+[A-Za-z0-9._-]{20,}/i }
 ];
+var dlpGlobCollapse = /\*{2,}/g;
 function dlpGlobToRe(glob) {
   let re = "";
-  for (const ch of String(glob || "")) {
+  for (const ch of String(glob || "").replace(dlpGlobCollapse, "*")) {
     if (ch === "*")
       re += "[^\\s]*";
     else if (".+?^${}()|[]\\".indexOf(ch) !== -1)
@@ -7889,7 +7890,7 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
         const base2 = absGlob.slice(dir.length + 1);
         if (!GLOB_META.test(base2))
           return [absGlob];
-        const re = new RegExp("^" + base2.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]") + "$");
+        const re = new RegExp("^" + base2.replace(/\*{2,}/g, "*").replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]") + "$");
         return readdirSync(dir).filter((f) => re.test(f)).map((f) => join(dir, f));
       } catch {
         return [];

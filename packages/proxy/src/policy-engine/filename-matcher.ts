@@ -245,7 +245,12 @@ function expandSensitiveGlob(pattern: string): string[] {
       const suffix = p.slice(1);
       if (f.endsWith(suffix)) matches.push(filename);
     } else if (p.includes('?')) {
-      const regex = new RegExp('^' + p.replace(/\?/g, '.').replace(/\*/g, '.*') + '$', 'i');
+      // Runs of `*` collapse to one before the conversion. `*` becomes `.*`, so
+      // `**` became two unbounded quantifiers back to back, which JavaScript's
+      // engine backtracks over catastrophically — a pattern with a handful of
+      // stars and one `?` costs seconds per filename. `.*.*` matches exactly
+      // what `.*` matches, so collapsing changes no answer.
+      const regex = new RegExp('^' + p.replace(/\*{2,}/g, '*').replace(/\?/g, '.').replace(/\*/g, '.*') + '$', 'i');
       if (regex.test(f)) matches.push(filename);
     }
   }

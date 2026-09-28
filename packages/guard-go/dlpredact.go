@@ -529,7 +529,12 @@ func dlpExpandGlob(absGlob string) []string {
 	if !sgpolicy.GlobChars.MatchString(b) {
 		return []string{absGlob}
 	}
-	pattern := sgpolicy.GlobEscape.ReplaceAllString(b, `\${0}`)
+	// The run of `*` collapses first, matching the JavaScript twin, where it is
+	// load-bearing: this token is the AGENT's, and `[^/]*[^/]*…` backtracks
+	// catastrophically there. RE2 does not, so here it only keeps the two
+	// identical. See dlpGlobToRe in the hooks.
+	pattern := sgpolicy.GlobStarRun.ReplaceAllString(b, "*")
+	pattern = sgpolicy.GlobEscape.ReplaceAllString(pattern, `\${0}`)
 	pattern = strings.ReplaceAll(pattern, "*", "[^/]*")
 	pattern = strings.ReplaceAll(pattern, "?", "[^/]")
 	re, err := regexp.Compile("^" + pattern + "$")

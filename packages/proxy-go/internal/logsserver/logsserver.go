@@ -21,6 +21,7 @@
 package logsserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,21 +43,27 @@ import (
 // dataroom's Settings panel reports it too.
 const DefaultPort = config.LogsServerPort
 
-// The origins allowed to read from this service: the production dashboard and
-// the local ports it runs on in development, plus anything
+// The origins allowed to read from this service: LOOPBACK ONLY, plus anything
 // SOLONGATE_DASHBOARD_ORIGIN names.
 //
 // Exact match, no pattern, no wildcard, and no Access-Control-Allow-Credentials
 // anywhere in this file. Any page in any browser on this machine can reach
 // 127.0.0.1, so the origin check is the ONLY thing standing between a random
 // site the developer has open and this machine's audit trail.
+//
+// A HOSTED DOMAIN USED TO BE ON THIS LIST and should not have been. This service
+// reads the complete local audit trail off disk and hands it to any origin named
+// here; trusting a hostname nobody running this build controls means the trail is
+// readable by whoever holds that domain, on every machine that starts the
+// service. Loopback is the whole audience — an installation that reads it from
+// somewhere else names that origin itself. The TypeScript twin already said so
+// in the same words; this is the Go side catching up.
 func allowedOrigins() map[string]bool {
 	out := map[string]bool{
-		"https://dashboard.solongate.com": true,
-		"http://localhost:3000":           true,
-		"http://localhost:3005":           true,
-		"http://127.0.0.1:3000":           true,
-		"http://127.0.0.1:3005":           true,
+		"http://localhost:3000": true,
+		"http://localhost:3005": true,
+		"http://127.0.0.1:3000": true,
+		"http://127.0.0.1:3005": true,
 	}
 	for _, extra := range strings.Split(os.Getenv("SOLONGATE_DASHBOARD_ORIGIN"), ",") {
 		if e := strings.TrimSpace(extra); e != "" {
@@ -247,7 +254,7 @@ func serveLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	b, err := os.ReadFile(t.file)
+	b, err := tailBytes(t.file, maxServedBytes)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = io.WriteString(w, "read error")
@@ -258,6 +265,52 @@ func serveLog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Solongate-Exists", "1")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(b)
+}
+
+// maxServedBytes bounds one response, and with it the memory this service can be
+// made to allocate.
+//
+// The log is append-only with no rotation anywhere: it grows for as long as the
+// machine works. Reading the whole file per request was fine on the first day and
+// is not on the hundredth — and this endpoint is POLLED every few seconds, so the
+// allocation is not once but continuous. Sixteen megabytes is the same bound the
+// dataroom's own reader uses for the same file, so the two agree about how much
+// history is on offer.
+const maxServedBytes = 16 * 1024 * 1024
+
+// tailBytes returns at most max bytes from the END of a file, starting at a line
+// boundary.
+//
+// The END rather than the start, because this is a log and the recent entries are
+// the ones a reader wants. The first line of a mid-file read is dropped: it is
+// almost certainly a fragment, and a fragment that happens to parse as JSON is
+// worse than one that does not — it would show up as a call that never occurred.
+// Same rule, for the same reason, as the dataroom's tailLines.
+func tailBytes(file string, max int64) ([]byte, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	start := info.Size() - max
+	if start <= 0 {
+		return io.ReadAll(f)
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return nil, err
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+	if i := bytes.IndexByte(b, '\n'); i >= 0 {
+		b = b[i+1:]
+	}
+	return b, nil
 }
 
 // serve runs the service in the foreground. This is what the detached daemon

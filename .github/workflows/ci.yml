@@ -119,7 +119,7 @@ jobs:
         run: node packages/proxy/test/run-all.mjs
 
   schema:
-    name: schema applies to postgres
+    name: schema applies to postgres and sqlite
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -144,6 +144,30 @@ jobs:
       - name: the checked-in schema matches the generator
         working-directory: apps/system
         run: go test ./internal/store/ -run TestCheckedInSchema
+
+      # THE SQLITE FILE IS APPLIED TOO, and this step is here because its absence
+      # let a real break ship. The runtime DDL carries four ADD COLUMN statements
+      # for columns baseschema.sql already declares; postgres renders them with
+      # IF NOT EXISTS and shrugs, sqlite has no such form and errored on all four.
+      # Under -bail the file then abandoned the rest of itself and produced a
+      # database missing a table and six indexes — while printing a
+      # duplicate-column error that pointed nowhere near it.
+      #
+      # -bail, for the same reason postgres gets ON_ERROR_STOP: a schema that
+      # half-applies is the worst of the three outcomes, and the point of this job
+      # is to fail on it rather than to discover it on somebody's server.
+      - name: apply tools/schema/sqlite.sql
+        run: |
+          rm -f /tmp/schema-check.sqlite
+          sqlite3 -bail /tmp/schema-check.sqlite < tools/schema/sqlite.sql
+          # Count what landed. A file that applies cleanly and creates nothing
+          # would pass the command above, so the shape is asserted as well.
+          tables=$(sqlite3 /tmp/schema-check.sqlite \
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+          test "$tables" -ge 13 || {
+            echo "::error::sqlite schema has $tables tables, expected at least 13"
+            exit 1
+          }
 
       # And the file actually applies. ON_ERROR_STOP with a single transaction,
       # because a schema that half-applies is the worst outcome of the three.

@@ -117,17 +117,6 @@ func buildAuditLogPost(s *server) http.Handler {
 			return
 		}
 
-		// The webhook and the alert evaluation are fire-and-forget in the live
-		// route — `void (async () => …)()` — and have to stay that way. This is
-		// the endpoint a detached child calls on every denial; making it wait on
-		// somebody's Slack endpoint would put a stranger's outage on the path of
-		// every audit write.
-		//
-		// The context is detached from the request's, because the request's is
-		// cancelled the moment this handler returns and that is before either of
-		// these has sent anything.
-		s.notifyAudit(context.WithoutCancel(ctx), key.ProjectID, entry)
-
 		apiauth.JSON(w, http.StatusCreated, map[string]string{
 			"id":     entry.ID,
 			"status": "recorded",

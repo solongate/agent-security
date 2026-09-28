@@ -32,8 +32,6 @@ func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { ret
 //	           turned on: `npm i -g` needs sudo on most macOS setups, so it must
 //	           not run unasked)
 //	LOCAL LOGS mirror path and enable, plus the dashboard link
-//	WEBHOOKS   POST every matching event to a URL
-//	ALERTS     spike alerts to ONE email and ONE telegram
 //
 // Installing, updating and removing the guard, doctor, repair and the CLI
 // self-update all run for real now, through internal/install, internal/commands
@@ -47,65 +45,17 @@ func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { ret
 // rather than offering a button that quietly did nothing — the subject of every
 // one of these rows is whether this machine is protected.
 
-var setEvents = []string{"denials", "allowed", "all"}
-
-type alertSignal = string
-
-var (
-	setSignals     = []alertSignal{"any", "deny", "dlp", "ratelimit"}
-	setSignalLabel = map[alertSignal]string{
-		"any": "any signal", "deny": "denials", "dlp": "dlp secrets", "ratelimit": "rate-limit",
-	}
-	setWindows = []int{30, 60, 300, 3600, 86400}
-)
-
-const (
-	threshMin = 5
-	threshMax = 100
-)
-
 // doctorSteps is what the health check looks at, in the order CollectChecks
 // looks at it. The labels are honest about the passes; only the pacing is
 // cosmetic, and it exists because a check that answers in 8ms would otherwise
 // flash past unread and look like nothing ran.
 var doctorSteps = []string{"login", "active policy", "guard hook", "agent hooks", "local logs"}
 
-func winLabel(s int) string {
-	switch {
-	case s < 60:
-		return itoa(s) + "s"
-	case s < 3600:
-		return itoa(s/60) + "m"
-	case s < 86400:
-		return itoa(s/3600) + "h"
-	}
-	return itoa(s/86400) + "d"
-}
-
-func nearestWindowIdx(s int) int {
-	best := 0
-	for i := 1; i < len(setWindows); i++ {
-		if abs(setWindows[i]-s) < abs(setWindows[best]-s) {
-			best = i
-		}
-	}
-	return best
-}
-
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
-}
-
 // ── rows ───────────────────────────────────────────────────────────────────
 
 type setRow struct {
 	kind string
 	acc  config.SavedAccount
-	wh   api.DenialWebhook
-	rule api.AlertRule
 	ws   api.Workspace
 }
 
@@ -113,35 +63,10 @@ func (r setRow) key() string {
 	switch r.kind {
 	case "acct":
 		return "acct:" + r.acc.APIKey
-	case "wh":
-		return "wh:" + r.wh.ID
-	case "alert":
-		return "alert:" + r.rule.ID
 	case "ws":
 		return "ws:" + r.ws.ID
 	}
 	return r.kind
-}
-
-// alertEditor is the small focused form for one alert rule, new or existing.
-type alertEditor struct {
-	id      string // set = editing an existing rule
-	channel string // email · telegram
-	target  string
-	signal  alertSignal
-	thresh  int
-	window  int
-	enabled bool
-	field   int // 0 target · 1 signal · 2 threshold · 3 window · 4 status
-}
-
-// A new rule has four fields; an existing one gets a fifth so it can be turned
-// off from the same place it is edited.
-func (e alertEditor) fieldCount() int {
-	if e.id != "" {
-		return 5
-	}
-	return 4
 }
 
 type loginPhase string
@@ -175,16 +100,6 @@ type (
 		key string
 		ws  api.Workspace
 		err error
-	}
-	setWhMsg struct {
-		genTag
-		data []api.DenialWebhook
-		err  error
-	}
-	setAlertsMsg struct {
-		genTag
-		data []api.AlertRule
-		err  error
 	}
 	setGuardMsg struct {
 		genTag
@@ -286,12 +201,6 @@ type Settings struct {
 	local     api.LocalLogsConfig
 	haveLocal bool
 	localErr  error
-	whs       []api.DenialWebhook
-	haveWh    bool
-	whErr     error
-	alerts    []api.AlertRule
-	haveAlert bool
-	alertErr  error
 	guard     api.GuardStatus
 	haveGuard bool
 	guardErr  error
@@ -317,7 +226,6 @@ type Settings struct {
 	// installBusy is separate from busy: an install writes files and may spawn a
 	// process, so it must not be cancelled by an unrelated row finishing.
 	installBusy bool
-	editor      *alertEditor
 
 	// repairReport is the last repair, rendered as read-only lines under the
 	// repair row — the same two lists `solongate repair` prints. Cleared when a
@@ -395,7 +303,7 @@ func (p *Settings) reloadAll() tea.Cmd {
 		// unpaired and the panel still renders, because logging in happens here.
 		return nil
 	}
-	return tea.Batch(p.loadLocal(), p.loadWebhooks(), p.loadAlerts(), p.loadGuard(), p.loadSelf(), p.loadSpaces())
+	return tea.Batch(p.loadLocal(), p.loadGuard(), p.loadSelf(), p.loadSpaces())
 }
 
 // viewingAccount is the account this panel's cloud rows belong to: the one the
@@ -449,22 +357,6 @@ func (p *Settings) loadLocal() tea.Cmd {
 	}
 }
 
-func (p *Settings) loadWebhooks() tea.Cmd {
-	t := p.tag()
-	return func() tea.Msg {
-		w, err := p.deps.API.Settings.GetWebhooks(bg())
-		return setWhMsg{genTag: t, data: w, err: err}
-	}
-}
-
-func (p *Settings) loadAlerts() tea.Cmd {
-	t := p.tag()
-	return func() tea.Msg {
-		a, err := p.deps.API.Settings.GetAlerts(bg())
-		return setAlertsMsg{genTag: t, data: a, err: err}
-	}
-}
-
 func (p *Settings) loadGuard() tea.Cmd {
 	t := p.tag()
 	return func() tea.Msg {
@@ -485,10 +377,6 @@ func (p *Settings) reloadNamed(which string) tea.Cmd {
 	switch which {
 	case "local":
 		return p.loadLocal()
-	case "wh":
-		return p.loadWebhooks()
-	case "alert":
-		return p.loadAlerts()
 	case "guard":
 		return p.loadGuard()
 	case "self":
@@ -574,16 +462,6 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 			p.reloadAll(),
 			func() tea.Msg { return tui.ViewAccountMsg{APIKey: next.APIKey, APIURL: next.APIURL} },
 		)
-	case setWhMsg:
-		p.whErr = m.err
-		if m.err == nil {
-			p.whs, p.haveWh = m.data, true
-		}
-	case setAlertsMsg:
-		p.alertErr = m.err
-		if m.err == nil {
-			p.alerts, p.haveAlert = m.data, true
-		}
 	case setGuardMsg:
 		p.guardErr = m.err
 		if m.err == nil {
@@ -782,36 +660,6 @@ func (p *Settings) onLoginPoll(m setLoginPollMsg) tea.Cmd {
 
 // ── rows ───────────────────────────────────────────────────────────────────
 
-func alertChannel(r api.AlertRule) string {
-	if len(r.Emails) > 0 {
-		return "email"
-	}
-	if len(r.Telegram) > 0 {
-		return "telegram"
-	}
-	return ""
-}
-
-func (p *Settings) visibleWebhooks() []api.DenialWebhook {
-	out := make([]api.DenialWebhook, 0, len(p.whs))
-	for _, w := range p.whs {
-		if !p.hidden["wh:"+w.ID] {
-			out = append(out, w)
-		}
-	}
-	return out
-}
-
-func (p *Settings) visibleAlerts() []api.AlertRule {
-	out := make([]api.AlertRule, 0, len(p.alerts))
-	for _, r := range p.alerts {
-		if !p.hidden["alert:"+r.ID] {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 func (p *Settings) allRows() []setRow {
 	var rows []setRow
 	for _, a := range p.accounts {
@@ -831,29 +679,6 @@ func (p *Settings) allRows() []setRow {
 	}
 	for _, k := range []string{"guard", "self", "doctor", "repair", "ll-enabled", "ll-path", "ll-server"} {
 		rows = append(rows, setRow{kind: k})
-	}
-	for _, w := range p.visibleWebhooks() {
-		rows = append(rows, setRow{kind: "wh", wh: w})
-	}
-	rows = append(rows, setRow{kind: "wh-add"})
-	alerts := p.visibleAlerts()
-	hasEmail, hasTG := false, false
-	for _, r := range alerts {
-		rows = append(rows, setRow{kind: "alert", rule: r})
-		switch alertChannel(r) {
-		case "email":
-			hasEmail = true
-		case "telegram":
-			hasTG = true
-		}
-	}
-	// One channel each: the add row disappears once that channel is in use, so
-	// the panel cannot grow a second email alert nobody asked for.
-	if !hasEmail {
-		rows = append(rows, setRow{kind: "alert-add-email"})
-	}
-	if !hasTG {
-		rows = append(rows, setRow{kind: "alert-add-tg"})
 	}
 	return rows
 }
@@ -899,10 +724,6 @@ func (p *Settings) key(k tea.KeyMsg) tea.Cmd {
 		return p.submitInput()
 	}
 
-	if p.editor != nil {
-		return p.editorKey(s)
-	}
-
 	rows := p.allRows()
 	cur := p.current()
 	p.msg = nil
@@ -920,48 +741,10 @@ func (p *Settings) key(k tea.KeyMsg) tea.Cmd {
 		return p.makeActive(cur)
 	case s == "x" && cur.kind == "acct":
 		return p.removeAccount(cur.acc)
-	case s == "t" && cur.kind == "wh":
-		id := cur.wh.ID
-		return p.run("webhook test sent — check your endpoint", func() error {
-			delivered, err := p.deps.API.Settings.SendTestWebhook(bg(), id)
-			if err != nil {
-				return err
-			}
-			if !delivered {
-				return errString("endpoint rejected the test (non-2xx)")
-			}
-			return nil
-		}, "wh")
 	case s == "e" && cur.kind == "ll-path":
 		return p.activate(cur)
-	case s == "e" && cur.kind == "wh":
-		idx := 0
-		for i, ev := range setEvents {
-			if ev == cur.wh.Events {
-				idx = i
-			}
-		}
-		next := setEvents[(idx+1)%len(setEvents)]
-		id := cur.wh.ID
-		return p.run("webhook events → "+next, func() error {
-			return p.deps.API.Settings.UpdateWebhook(bg(), id, map[string]any{"events": next})
-		}, "wh")
-	case s == "e" && cur.kind == "alert":
-		if ch := alertChannel(cur.rule); ch != "" {
-			p.openAlertEditor(ch, &cur.rule)
-		}
 	case s == "n":
 		return p.beginLogin()
-	case s == "a":
-		switch cur.kind {
-		case "wh", "wh-add":
-			p.editing = "wh-url"
-			p.beginInput("")
-		case "alert-add-email":
-			p.openAlertEditor("email", nil)
-		case "alert-add-tg":
-			p.openAlertEditor("telegram", nil)
-		}
 	case s == "d" && cur.kind == "guard":
 		if p.installBusy {
 			return nil
@@ -976,24 +759,6 @@ func (p *Settings) key(k tea.KeyMsg) tea.Cmd {
 				return setInstallMsg{genTag: t, verb: "remove", ok: r.OK, message: r.Message, notes: r.Notes}
 			},
 		)
-	case s == "d" && (cur.kind == "wh" || cur.kind == "alert"):
-		key := cur.key()
-		if p.confirmDel != key {
-			p.confirmDel = key
-			p.msg = &setMessage{text: "press d again to delete", bad: true}
-			return nil
-		}
-		p.confirmDel = ""
-		if cur.kind == "wh" {
-			id := cur.wh.ID
-			return p.runHiding("webhook deleted", func() error {
-				return p.deps.API.Settings.DeleteWebhook(bg(), id)
-			}, "wh", "wh:"+id)
-		}
-		id := cur.rule.ID
-		return p.runHiding("alert deleted", func() error {
-			return p.deps.API.Settings.DeleteAlert(bg(), id)
-		}, "alert", "alert:"+id)
 	case s == "r":
 		p.readDisk()
 		return p.reloadAll()
@@ -1132,31 +897,6 @@ func (p *Settings) activate(r setRow) tea.Cmd {
 			}
 		}
 
-	case "wh":
-		want := !r.wh.Enabled
-		label := "webhook enabled"
-		if !want {
-			label = "webhook disabled"
-		}
-		id := r.wh.ID
-		return p.run(label, func() error {
-			return p.deps.API.Settings.UpdateWebhook(bg(), id, map[string]any{"enabled": want})
-		}, "wh")
-
-	case "wh-add":
-		p.editing = "wh-url"
-		p.beginInput("")
-
-	case "alert":
-		if ch := alertChannel(r.rule); ch != "" {
-			p.openAlertEditor(ch, &r.rule)
-		}
-
-	case "alert-add-email":
-		p.openAlertEditor("email", nil)
-
-	case "alert-add-tg":
-		p.openAlertEditor("telegram", nil)
 	}
 	return nil
 }
@@ -1181,18 +921,7 @@ func (p *Settings) makeActive(r setRow) tea.Cmd {
 		p.accounts = config.ListAccounts()
 		return nil
 
-	case "alert":
-		want := !r.rule.Enabled
-		label := "alert enabled"
-		if !want {
-			label = "alert disabled"
-		}
-		id := r.rule.ID
-		return p.run(label, func() error {
-			return p.deps.API.Settings.SetAlertEnabled(bg(), id, want)
-		}, "alert")
-
-	case "wh", "self", "ll-enabled", "ll-server":
+	case "self", "ll-enabled", "ll-server":
 		return p.activate(r)
 	}
 	return nil
@@ -1289,192 +1018,8 @@ func (p *Settings) submitInput() tea.Cmd {
 			return err
 		}, "local")
 
-	case "wh-url":
-		url := strings.TrimSpace(trimWrappers(v))
-		if url == "" {
-			return nil
-		}
-		if !httpURL.MatchString(url) {
-			p.msg = &setMessage{text: "✗ webhook url must start with http:// or https://", bad: true}
-			return nil
-		}
-		return p.run("webhook added", func() error {
-			_, err := p.deps.API.Settings.CreateWebhook(bg(), map[string]any{"url": url, "events": "denials"})
-			return err
-		}, "wh")
-
-	case "alert-target":
-		if p.editor != nil {
-			p.editor.target = v
-			p.editor.field = 1 // move on to the signal once a target is entered
-		}
 	}
 	return nil
-}
-
-// ── the alert editor ───────────────────────────────────────────────────────
-
-func (p *Settings) openAlertEditor(channel string, rule *api.AlertRule) {
-	e := &alertEditor{channel: channel, signal: "any", thresh: threshMin, window: 300, enabled: true}
-	if rule != nil {
-		e.id = rule.ID
-		if channel == "email" && len(rule.Emails) > 0 {
-			e.target = rule.Emails[0]
-		}
-		if channel == "telegram" && len(rule.Telegram) > 0 {
-			e.target = rule.Telegram[0]
-		}
-		if rule.Signal != "" {
-			e.signal = rule.Signal
-		}
-		if rule.Threshold != 0 {
-			e.thresh = rule.Threshold
-		}
-		if rule.WindowSeconds != 0 {
-			e.window = rule.WindowSeconds
-		}
-		e.enabled = rule.Enabled
-		e.field = 1 // an existing rule starts on the signal
-	}
-	p.editor = e
-	if rule == nil {
-		p.editing = "alert-target"
-		p.beginInput("")
-	}
-}
-
-func (p *Settings) editorKey(s string) tea.Cmd {
-	e := p.editor
-	switch s {
-	case "esc":
-		p.editor = nil
-		return nil
-	case "e":
-		p.editing = "alert-target"
-		p.beginInput(e.target)
-		return nil
-	case "enter":
-		if e.field == 0 {
-			p.editing = "alert-target"
-			p.beginInput(e.target)
-			return nil
-		}
-		return p.saveEditor()
-	case "up":
-		n := e.fieldCount()
-		e.field = (e.field + n - 1) % n
-	case "down":
-		n := e.fieldCount()
-		e.field = (e.field + 1) % n
-	case "left", "right":
-		d := 1
-		if s == "left" {
-			d = -1
-		}
-		switch e.field {
-		case 1:
-			idx := 0
-			for i, sig := range setSignals {
-				if sig == e.signal {
-					idx = i
-				}
-			}
-			e.signal = setSignals[(idx+d+len(setSignals))%len(setSignals)]
-		case 2:
-			e.thresh = max(threshMin, min(threshMax, e.thresh+d*5))
-		case 3:
-			e.window = setWindows[max(0, min(len(setWindows)-1, nearestWindowIdx(e.window)+d))]
-		case 4:
-			e.enabled = !e.enabled
-		}
-	}
-	return nil
-}
-
-func (p *Settings) saveEditor() tea.Cmd {
-	e := p.editor
-	if e == nil {
-		return nil
-	}
-	value, err := normTarget(e.channel, e.target)
-	if err != nil {
-		p.msg = &setMessage{text: "✗ " + err.Error(), bad: true}
-		return nil
-	}
-	body := map[string]any{
-		"signal":        e.signal,
-		"threshold":     e.thresh,
-		"windowSeconds": e.window,
-		"enabled":       e.enabled,
-	}
-	if e.channel == "email" {
-		body["emails"] = []string{value}
-		body["telegram"] = []string{}
-	} else {
-		body["telegram"] = []string{value}
-		body["emails"] = []string{}
-	}
-	id, channel := e.id, e.channel
-	p.editor = nil
-	if id != "" {
-		return p.run("alert updated", func() error {
-			_, err := p.deps.API.Settings.UpdateAlert(bg(), id, body)
-			return err
-		}, "alert")
-	}
-	create := map[string]any{"name": "SolonGate alert"}
-	for k, v := range body {
-		create[k] = v
-	}
-	return p.run(channel+" alert added", func() error {
-		_, err := p.deps.API.Settings.CreateAlert(bg(), create)
-		return err
-	}, "alert")
-}
-
-// There is deliberately no send-test for alerts. Delivering a real message to an
-// arbitrary address or chat id on demand is a spam and rate-limit vector; only
-// webhooks, which POST to the user's own URL, are testable.
-
-var (
-	mailtoPrefix  = regexp.MustCompile(`(?i)^mailto:`)
-	leadWrappers  = regexp.MustCompile(`^["'<]+`)
-	trailWrappers = regexp.MustCompile(`["'>]+$`)
-	trailPunct    = regexp.MustCompile(`[.,;:]+$`)
-	anySpace      = regexp.MustCompile(`\s+`)
-	emailShape    = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
-	tgLead        = regexp.MustCompile(`(?i)^(chat[\s_-]*)?id[:=\s]*`)
-	tgShape       = regexp.MustCompile(`^-?\d{5,}$`)
-	httpURL       = regexp.MustCompile(`(?i)^https?://\S+$`)
-)
-
-func trimWrappers(s string) string {
-	return trailWrappers.ReplaceAllString(leadWrappers.ReplaceAllString(s, ""), "")
-}
-
-// normTarget cleans up what people actually paste — a mailto:, a quoted
-// address, a trailing full stop, an @handle, "chat id: 12345" — and refuses
-// anything that still does not look like the thing it claims to be. An alert
-// pointed at a malformed address fails silently, at the moment it matters.
-func normTarget(channel, raw string) (string, error) {
-	v := strings.TrimSpace(raw)
-	if channel == "email" {
-		e := mailtoPrefix.ReplaceAllString(v, "")
-		e = trimWrappers(e)
-		e = trailPunct.ReplaceAllString(e, "")
-		e = anySpace.ReplaceAllString(e, "")
-		if !emailShape.MatchString(e) {
-			return e, errString("that does not look like an e-mail address")
-		}
-		return e, nil
-	}
-	t := strings.TrimPrefix(v, "@")
-	t = tgLead.ReplaceAllString(t, "")
-	t = anySpace.ReplaceAllString(t, "")
-	if !tgShape.MatchString(t) {
-		return t, errString("a telegram chat id is a number — get yours from @userinfobot")
-	}
-	return t, nil
 }
 
 // ── render ─────────────────────────────────────────────────────────────────
@@ -1523,9 +1068,6 @@ func (p *Settings) View(ctx tui.PanelContext) string {
 	if p.loginActive() {
 		return clip(p.viewLogin(), p.cols, p.rows)
 	}
-	if p.editor != nil {
-		return clip(p.viewEditor(), p.cols, p.rows)
-	}
 	return clip(p.viewList(), p.cols, p.rows)
 }
 
@@ -1566,88 +1108,11 @@ func (p *Settings) viewLogin() string {
 	return joinLines(out)
 }
 
-func (p *Settings) viewEditor() string {
-	e := p.editor
-	var out []string
-	title := "New"
-	if e.id != "" {
-		title = "Edit"
-	}
-	out = append(out, stAccentB.Render(title+" "+e.channel+" alert"))
-	out = append(out, stDim.Render("↑↓ field · ←→ change · e edit target · enter save · esc cancel"))
-
-	switch {
-	case p.editing == "alert-target":
-		prompt := "telegram chat id (from @userinfobot): "
-		if e.channel == "email" {
-			prompt = "e-mail address: "
-		}
-		out = append(out, "")
-		out = append(out, stWarn.Render(prompt)+p.input.View())
-	case p.msg != nil:
-		st := stOK
-		if p.msg.bad {
-			st = stBad
-		}
-		out = append(out, st.Render(truncate(p.msg.text, p.cols)))
-	default:
-		out = append(out, " ")
-	}
-	out = append(out, "")
-
-	field := func(idx int, label, value, hint string, valueStyle lipgloss.Style) string {
-		l := newLine(false)
-		if e.field == idx {
-			l.put("▸ ", stAccent)
-		} else {
-			l.put("  ", stDim)
-		}
-		l.put(pad(label, 11), stDim)
-		l.put(value, valueStyle)
-		if e.field == idx && hint != "" {
-			l.put("   "+hint, stDim)
-		}
-		return l.String()
-	}
-
-	target, targetStyle := e.target, stAccent
-	if target == "" {
-		target, targetStyle = "empty — press e", stDim
-	} else {
-		target = truncate(target, max(8, p.cols-16))
-	}
-	out = append(out, field(0, "target", target, "press e to edit", targetStyle))
-	out = append(out, field(1, "signal", setSignalLabel[e.signal], "←→ change", stAccent))
-	out = append(out, field(2, "threshold", "≥ "+itoa(e.thresh), "←→ ±5", stAccent))
-	out = append(out, field(3, "window", winLabel(e.window), "←→ change", stAccent))
-	if e.id != "" {
-		v, st := "off", stDim
-		if e.enabled {
-			v, st = "on", stOK
-		}
-		out = append(out, field(4, "status", v, "←→ turn on/off", st))
-	}
-	out = append(out, "")
-	if e.id != "" && !e.enabled {
-		out = append(out, stWarn.Render("disabled — this alert will NOT fire until you set status back to on"))
-	} else {
-		l := newLine(false)
-		l.put("fires when ", stDim)
-		l.put(setSignalLabel[e.signal], stAccent)
-		l.put(" reach ", stDim)
-		l.put(itoa(e.thresh), stAccent)
-		l.put(" within ", stDim)
-		l.put(winLabel(e.window), stAccent)
-		out = append(out, l.String())
-	}
-	return joinLines(out)
-}
-
 func (p *Settings) firstError() error {
 	if p.locked() {
 		return nil
 	}
-	for _, e := range []error{p.localErr, p.whErr, p.alertErr, p.guardErr, p.selfErr} {
+	for _, e := range []error{p.localErr, p.guardErr, p.selfErr} {
 		if e != nil {
 			return e
 		}
@@ -1658,7 +1123,7 @@ func (p *Settings) firstError() error {
 var authErrorShape = regexp.MustCompile(`(?i)invalid api key|authentication|401|unauthor|not logged in`)
 
 func (p *Settings) viewList() string {
-	loading := !p.locked() && !p.haveLocal && !p.haveWh && !p.haveAlert && !p.haveGuard && !p.haveSelf && p.firstError() == nil
+	loading := !p.locked() && !p.haveLocal && !p.haveGuard && !p.haveSelf && p.firstError() == nil
 	raw := p.firstError()
 
 	// An AUTH failure must never take the panel over. Every cloud loader here
@@ -1777,19 +1242,6 @@ func (p *Settings) viewList() string {
 		}
 	}
 
-	hasEmail, hasTG := false, false
-	for _, r := range p.visibleAlerts() {
-		switch alertChannel(r) {
-		case "email":
-			hasEmail = true
-		case "telegram":
-			hasTG = true
-		}
-	}
-	if hasEmail && hasTG {
-		push(stDim.Render("  both channels in use — remove one (d) to change it"), "")
-	}
-
 	// The version sits at the very bottom of the scrollable list.
 	push(" ", "")
 	push(stDim.Render("solongate v"+Version), "")
@@ -1866,12 +1318,8 @@ func sectionOf(r setRow) string {
 		return "WORKSPACES"
 	case "guard", "self", "doctor", "repair":
 		return "PROTECTION"
-	case "ll-enabled", "ll-path", "ll-server":
-		return "LOCAL LOGS"
-	case "wh", "wh-add":
-		return "WEBHOOKS"
 	}
-	return "ALERTS"
+	return "LOCAL LOGS"
 }
 
 func (p *Settings) sectionDesc(sec string) string {
@@ -1882,12 +1330,8 @@ func (p *Settings) sectionDesc(sec string) string {
 		return "this account's projects (" + itoa(len(p.spaces)) + ") · enter moves this machine · the guard follows"
 	case "PROTECTION":
 		return "guard hook, self-protection, doctor and repair"
-	case "LOCAL LOGS":
-		return "mirror every decision to a file + dashboard link"
-	case "WEBHOOKS":
-		return "POST events to a URL (" + itoa(len(p.visibleWebhooks())) + ") · t tests"
 	}
-	return "one email + one telegram (" + itoa(len(p.visibleAlerts())) + ") · enter edits · m on/off"
+	return "mirror every decision to a file + dashboard link"
 }
 
 func (p *Settings) rowLine(r setRow, isCur bool) string {
@@ -2030,41 +1474,8 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 			l.put("   enter starts the dashboard local-logs link", stDim)
 		}
 
-	case "wh":
-		txt, st := onOff(r.wh.Enabled)
-		l.put(txt, st)
-		l.put(pad(" "+r.wh.Events, 9), stWarn)
-		l.put(truncate(r.wh.URL, max(8, p.cols-16)), stAccent)
-
-	case "wh-add":
-		l.put("+ add webhook (enter)", stDim)
-
-	case "alert":
-		txt, st := onOff(r.rule.Enabled)
-		l.put(txt, st)
-		l.put(pad(" "+setSignalLabel[r.rule.Signal], 13), stWarn)
-		l.put(pad("≥"+itoa(r.rule.Threshold)+"/"+winLabel(r.rule.WindowSeconds)+" ", 11), stPlain)
-		l.put(truncate(chanOf(r.rule), max(8, p.cols-34)), stAccent)
-
-	case "alert-add-email":
-		l.put("+ add email alert (enter)", stDim)
-
-	case "alert-add-tg":
-		l.put("+ add telegram alert (enter — numeric chat id from @userinfobot)", stDim)
 	}
 	return l.String()
-}
-
-func chanOf(r api.AlertRule) string {
-	var parts []string
-	parts = append(parts, r.Emails...)
-	for _, t := range r.Telegram {
-		parts = append(parts, "tg "+t)
-	}
-	if len(parts) == 0 {
-		return "—"
-	}
-	return strings.Join(parts, ", ")
 }
 
 // errString is a message that is already the whole error. errors.New would do,

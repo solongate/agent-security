@@ -56,7 +56,7 @@ var cliSubcommands = map[string]bool{
 	"repair": true, "logs-server": true, "local-logs": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
 	"doctor": true, "trace": true, "watch": true,
-	"alerts": true, "webhooks": true, "dataroom": true,
+	"dataroom": true,
 }
 
 // Flags and aliases that print a banner and exit.
@@ -275,8 +275,6 @@ func table() []command {
 		{"doctor", "health check: login, policy, guard, local logs", commands.Runner("doctor")},
 		{"trace", "what the guard saw in this directory", commands.Runner("trace")},
 		{"watch", "live-tail tool calls", commands.Runner("watch")},
-		{"alerts", "spike alerts on denials, DLP and rate limits", commands.Runner("alerts")},
-		{"webhooks", "stream events to a URL", commands.Runner("webhooks")},
 
 		{"repair", "restore the guard, hooks and settings files", commands.RunRepair},
 		// Two names for one service, as the npm package has them. `local-logs`
@@ -459,14 +457,6 @@ func printHelp() {
 	cmd("watch [--filter DENY] [--tool <s>]", "live-tail tool calls (Ctrl+C to stop)")
 	cmd("sessions [--all]", "live agent-session feed (calls, denies, trust)")
 	cmd("session <id>", "one session's detail")
-
-	head("Alerts & webhooks")
-	cmd("alerts list")
-	cmd("alerts add --signal deny|dlp|ratelimit|any --threshold N --window S (--email <a> | --telegram <id> | --slack <url>)", "spike alert")
-	cmd("alerts remove <id>")
-	cmd("webhooks list")
-	cmd("webhooks add --url <https://…> [--events denials|allowed|all]", "event webhook")
-	cmd("webhooks remove <id>")
 
 	printPortStatus()
 

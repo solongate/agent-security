@@ -278,7 +278,7 @@ func TestSettingCacheServesAndExpires(t *testing.T) {
 
 	// A miss is cached as a miss, and must come back as one rather than as an
 	// empty hit: the callers distinguish "no row" from "empty value".
-	absent := scopedKey(settingDenialWebhook, "proj-1")
+	absent := scopedKey(settingLocalLogs, "proj-1")
 	s.settingRemember(absent, "", false)
 	if v, found, fresh := s.settingCached(absent); !fresh || found || v != "" {
 		t.Errorf("cached miss = (%q, %v, %v), want a fresh not-found", v, found, fresh)

@@ -3,41 +3,32 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/codeyevsky/solongate/system/internal/apiauth"
 )
 
-// The three routes under src/app/api that belong to no group: /v1/github/token,
-// /v1/telegram/webhook and /v1/upload.
+// The routes under src/app/api that belong to no group. One is left:
+// /v1/github/token.
 //
-// What they have in common is the only reason they share a file: each one makes
-// this service call somebody else's API with a credential of ours, and the
-// credential is the thing to be careful with. A GitHub client secret, a Telegram
-// bot token and a Cloudflare R2 token pass through here and none of them may
-// ever reach a log line, an error body or a response — which is a real risk in
-// Go specifically, because a failed request wraps the URL in the error, and two
-// of these put the credential in the URL.
+// The care this file exists for is the credential: this route makes the service
+// call somebody else's API with a secret of ours, and that secret may never
+// reach a log line, an error body or a response — which is a real risk in Go
+// specifically, because a failed request wraps the URL in the error.
 
 func init() {
 	Register("POST /api/v1/github/token", func(s *server) http.Handler {
 		return s.auth.WithAuth(s.githubToken)
 	})
-	Register("POST /api/v1/telegram/webhook", func(s *server) http.Handler {
-		return http.HandlerFunc(s.telegramWebhook)
-	})
 }
 
-// outboundClient is the shared client for the three third-party calls. Each
+// outboundClient is the shared client for the third-party calls. Each
 // caller sets its own deadline through the request context; the transport
 // limits here are what stop a hung TLS handshake from occupying a handler for
 // the whole of the server's write budget.
@@ -166,159 +157,4 @@ func (s *server) githubToken(w http.ResponseWriter, r *http.Request, _ apiauth.K
 		"access_token": data.AccessToken,
 		"scope":        data.Scope,
 	})
-}
-
-// ── POST /api/v1/telegram/webhook ───────────────────────────────────────────
-
-// Telegram's own message texts, verbatim. They are shown to a person setting up
-// alerts and the chat id is what they are here to copy.
-var telegramWelcome = strings.Join([]string{
-	"*Welcome to SolonGate Alerts* 👋",
-	"",
-	"This bot pings you here when a security signal bursts past a threshold you set (denials, DLP secrets or rate-limit).",
-	"",
-	"Your chat ID is:\n`%d`",
-	"",
-	"*Set it up (1 minute):*",
-	"1. Copy the chat ID above.",
-	"2. Open SolonGate and go to *Alerts*.",
-	"3. Add a rule, pick the *Telegram* channel, paste this chat ID, set a threshold and window, then Save.",
-	"",
-	"That's it. You'll get an alert here whenever your signal bursts.",
-}, "\n")
-
-var telegramCommandRe = regexp.MustCompile(`^/(start|help)\b`)
-
-// telegramWebhook is where Telegram delivers messages sent to the bot.
-//
-// It answers a bare 200 `ok` to EVERYTHING — no token, a wrong secret, a body
-// that is not JSON, a message it does not understand. That is deliberate on
-// both ends: Telegram retries a webhook that does not return 2xx, so an error
-// status turns one bad update into a retry loop; and a prober learns nothing
-// about whether a bot is configured here or whether their secret was close.
-//
-// It is the only route in this service with no API key. The gate is
-// TELEGRAM_WEBHOOK_SECRET in a header Telegram sets, compared in constant time.
-// If that variable is unset the gate is OPEN — the live route skips the check
-// too — and anyone who can guess a chat id can make this service send a message
-// to it. Setting the secret is what closes that, and it is worth checking that
-// it is set on the deployment rather than assuming.
-func (s *server) telegramWebhook(w http.ResponseWriter, r *http.Request) {
-	ok := func() {
-		// `new Response('ok')` — the Fetch constructor stamps this content type
-		// on a string body, and Telegram ignores the body entirely.
-		w.Header().Set("Content-Type", "text/plain;charset=UTF-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}
-
-	token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
-	if token == "" {
-		ok()
-		return
-	}
-
-	if secret := os.Getenv("TELEGRAM_WEBHOOK_SECRET"); secret != "" {
-		presented := r.Header.Get("x-telegram-bot-api-secret-token")
-		// Constant time. The comparison is against a shared secret, and a
-		// byte-by-byte compare on a value an attacker can send repeatedly is an
-		// oracle for guessing it one character at a time.
-		if subtle.ConstantTimeCompare([]byte(secret), []byte(presented)) != 1 {
-			ok()
-			return
-		}
-	}
-
-	var update struct {
-		Message *struct {
-			Chat *struct {
-				ID *int64 `json:"id"`
-			} `json:"chat"`
-			Text string `json:"text"`
-		} `json:"message"`
-		EditedMessage *struct {
-			Chat *struct {
-				ID *int64 `json:"id"`
-			} `json:"chat"`
-			Text string `json:"text"`
-		} `json:"edited_message"`
-	}
-	// A body that does not parse leaves `update` zeroed and nothing is sent, as
-	// the original's `catch { }` does.
-	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&update)
-
-	msg := update.Message
-	if msg == nil {
-		msg = update.EditedMessage
-	}
-	if msg == nil || msg.Chat == nil || msg.Chat.ID == nil {
-		ok()
-		return
-	}
-	chatID := *msg.Chat.ID
-
-	text := telegramWelcome
-	if !telegramCommandRe.MatchString(msg.Text) {
-		text = "Your chat ID is:\n`%d`\n\nPaste it into SolonGate *Alerts*, *Telegram* channel. Send /start for the full guide."
-	}
-
-	// The reply is sent before answering, as the original awaits it. A four
-	// second budget, and a failure is swallowed: Telegram would retry the whole
-	// update otherwise and the user would get the message twice.
-	s.telegramSend(r.Context(), token, chatID, fmt.Sprintf(text, chatID))
-	ok()
-}
-
-// telegramSend posts one message. Best effort, and silent about why it failed.
-//
-// The bot token is a path segment of the URL, so the error from a failed
-// request contains it. That is why nothing here logs `err` — only that a send
-// did not happen. A token in a log file is a bot anybody who reads the log can
-// impersonate.
-func (s *server) telegramSend(ctx context.Context, token string, chatID int64, text string) {
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	defer cancel()
-
-	payload, err := json.Marshal(map[string]any{
-		"chat_id":                  chatID,
-		"text":                     text,
-		"parse_mode":               "Markdown",
-		"disable_web_page_preview": true,
-	})
-	if err != nil {
-		return
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://api.telegram.org/bot"+token+"/sendMessage", bytes.NewReader(payload))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := outboundClient.Do(req)
-	if err != nil {
-		log.Printf("[API:telegram] could not deliver a reply to chat %d", chatID)
-		return
-	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
-	_ = resp.Body.Close()
-}
-
-// isHeaderSafe rejects a value that cannot go in an HTTP header.
-//
-// Printable ASCII only: a control character — a carriage return above all — in a
-// value copied into an outbound request is request splitting. Go's transport
-// would refuse it too, but refusing it here means the caller gets the 400 that
-// describes their file rather than a 500 that describes ours.
-func isHeaderSafe(v string) bool {
-	if v == "" || len(v) > 255 {
-		return false
-	}
-	for i := 0; i < len(v); i++ {
-		if v[i] < 0x20 || v[i] > 0x7e {
-			return false
-		}
-	}
-	return true
 }

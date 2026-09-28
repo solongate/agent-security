@@ -703,61 +703,7 @@ func (s *server) validateCall(w http.ResponseWriter, r *http.Request, key apiaut
 		log.Printf("[API:validate] failed to log audit: %v", err)
 	}
 
-	if decision.effect == "DENY" {
-		// The shared denialEvent carries an `agent` member the live /validate
-		// payload does not, because this route knows no agent. It is two nulls
-		// next to fields a consumer routes on, and one event shape for the whole
-		// service is worth more than dropping them.
-		event := denialEvent{
-			Event:            "denial",
-			Timestamp:        store.ISOms(time.Now().UnixMilli()),
-			RequestID:        requestID,
-			ProjectID:        key.ProjectID,
-			Decision:         jsString(decision.effect),
-			DenyLayer:        classifyDenyLayer(decision.reason),
-			Tool:             tool,
-			Permission:       jsString(permission),
-			MatchedRuleID:    nullable(decision.matchedRuleID),
-			Reason:           nullable(decision.reason),
-			EvaluationTimeMs: &evaluationMs,
-		}
-		s.notifyDenial(context.WithoutCancel(ctx), key.ProjectID, event)
-	}
-
 	apiauth.JSON(w, http.StatusOK, response)
-}
-
-// notifyDenial delivers the denial webhook off the request path.
-//
-// The live route fires `emitWebhookEvent(...)` without awaiting it, and this
-// keeps that promise while adding the ceiling audit_notify.go's comment
-// explains: a goroutine per call, on the endpoint a proxy hits before EVERY
-// tool call, is how one customer's black-holed webhook becomes everyone's
-// outage. The same semaphore and the same budget are used, so /validate and the
-// audit route share one ceiling rather than each having their own.
-//
-// It is deliberately NOT notifyAudit: that also evaluates denial alerts, and
-// the live /validate does not. Firing alerts from here would double-count every
-// denial that the audit hook also reports.
-//
-// ctx must already be detached from the request's — the request's is cancelled
-// the moment the handler returns, which is before any delivery has sent
-// anything.
-func (s *server) notifyDenial(ctx context.Context, projectID string, ev denialEvent) {
-	select {
-	case notifySlots <- struct{}{}:
-	default:
-		// Dropped rather than queued, as notifyAudit drops: the next denial
-		// fires the webhook, and a queue here would only hide the pile-up.
-		log.Print("[API:validate] denial webhook skipped: too many in flight")
-		return
-	}
-	go func() {
-		defer func() { <-notifySlots }()
-		ctx, cancel := context.WithTimeout(ctx, notifyBudget)
-		defer cancel()
-		s.emitWebhookEvent(ctx, projectID, ev)
-	}()
 }
 
 // validatePolicyRules is src/lib/security.ts's getProjectPolicy: the newest

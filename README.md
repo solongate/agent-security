@@ -163,8 +163,6 @@ solongate audit              browse the audit log
 solongate watch              live-tail tool calls
 solongate trace              what the guard saw in this directory
 solongate stats              traffic and security statistics
-solongate alerts             spike alerts on denials, DLP and rate limits
-solongate webhooks           stream events to a URL
 solongate doctor             health check: policy, guard, local logs
 solongate repair             restore the guard, hooks and settings files
 solongate logs-server        the local audit-log service

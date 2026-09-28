@@ -537,17 +537,6 @@ func TestDenialForRateLimitIsABurstOnItsOwn(t *testing.T) {
 	}
 }
 
-func TestSelfProtectionDenialIsClassifiedApart(t *testing.T) {
-	// A policy deny is somebody's rules working; a self-protection deny is an
-	// agent trying to disable the guard.
-	if got := classifyDenyLayer("SolonGate: tamper protection blocked this"); got != "SELF_PROTECTION" {
-		t.Errorf("layer = %q, want SELF_PROTECTION", got)
-	}
-	if got := classifyDenyLayer("Denied by rule bash-guard"); got != "POLICY" {
-		t.Errorf("layer = %q, want POLICY", got)
-	}
-}
-
 func TestMatchedRuleIDPrefersTheColumn(t *testing.T) {
 	if got := matchedRuleID("rule-7", "denied by rule other-1"); got != "rule-7" {
 		t.Errorf("got %q, want the stored column", got)

@@ -46,9 +46,9 @@ func TestRateLimitFitsWithData(t *testing.T) {
 	}
 }
 
-// Settings is the panel that grows: every account, webhook and alert is a row,
-// and the doctor result adds unselectable lines under one of them. It still has
-// to fit, and the selected row still has to be inside the window.
+// Settings is the panel that grows: every account and workspace is a row, and
+// the doctor result adds unselectable lines under one of them. It still has to
+// fit, and the selected row still has to be inside the window.
 func TestSettingsFitsWithData(t *testing.T) {
 	p := NewSettings(testDeps())
 	p.accounts = []config.SavedAccount{
@@ -63,12 +63,6 @@ func TestSettingsFitsWithData(t *testing.T) {
 	p.spaceNow = "p1"
 	p.haveLocal, p.local = true, api.LocalLogsConfig{Enabled: true, Path: "/var/log/solongate"}
 	p.haveGuard, p.haveSelf = true, true
-	for i := 0; i < 4; i++ {
-		p.whs = append(p.whs, api.DenialWebhook{ID: itoa(i), URL: "https://hooks.example.com/" + itoa(i), Events: "denials", Enabled: true})
-	}
-	p.haveWh = true
-	p.alerts = []api.AlertRule{{ID: "a1", Signal: "deny", Threshold: 10, WindowSeconds: 300, Emails: []string{"ops@example.com"}, Enabled: true}}
-	p.haveAlert = true
 	p.diag = []commands.Check{{Name: "login", OK: commands.StateOK, Detail: "paired"}}
 	// The repair result too: it adds a dozen rows under one row, and a frame
 	// that outgrows its budget makes this TUI repaint the whole terminal on
@@ -481,49 +475,6 @@ func TestToggleStringKeepsOrder(t *testing.T) {
 	got = toggleString(got, "github")
 	if strings.Join(got, ",") != "aws,slack,github" {
 		t.Fatalf("add: %v", got)
-	}
-}
-
-// ── Settings ───────────────────────────────────────────────────────────────
-
-// What people paste is not what the API accepts. An alert pointed at a
-// malformed address fails silently, at the moment it matters most.
-func TestNormTarget(t *testing.T) {
-	ok := []struct{ channel, in, want string }{
-		{"email", "  mailto:Ops@Example.com  ", "Ops@Example.com"},
-		{"email", "<ops@example.com>", "ops@example.com"},
-		{"email", "ops@example.com.", "ops@example.com"},
-		{"telegram", "@123456789", "123456789"},
-		{"telegram", "chat id: -1001234567", "-1001234567"},
-	}
-	for _, c := range ok {
-		got, err := normTarget(c.channel, c.in)
-		if err != nil {
-			t.Errorf("normTarget(%q, %q) errored: %v", c.channel, c.in, err)
-			continue
-		}
-		if got != c.want {
-			t.Errorf("normTarget(%q, %q) = %q, want %q", c.channel, c.in, got, c.want)
-		}
-	}
-	bad := [][2]string{
-		{"email", "ops-at-example"},
-		{"email", ""},
-		{"telegram", "myhandle"},
-		{"telegram", "123"},
-	}
-	for _, c := range bad {
-		if _, err := normTarget(c[0], c[1]); err == nil {
-			t.Errorf("normTarget(%q, %q) should have been refused", c[0], c[1])
-		}
-	}
-}
-
-func TestWindowLabel(t *testing.T) {
-	for in, want := range map[int]string{30: "30s", 60: "1m", 300: "5m", 3600: "1h", 86400: "1d"} {
-		if got := winLabel(in); got != want {
-			t.Errorf("winLabel(%d) = %q, want %q", in, got, want)
-		}
 	}
 }
 

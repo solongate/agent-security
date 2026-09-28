@@ -39,8 +39,7 @@ import { dirname, join, resolve } from 'node:path';
 // that either never reaches Go or reaches it and is not understood.
 const GO_SUBCOMMANDS = new Set([
   'repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp',
-  'stats', 'audit', 'doctor', 'watch', 'alerts',
-  'webhooks', 'dataroom',
+  'stats', 'audit', 'doctor', 'watch', 'dataroom',
   // The `browser` command is gone on purpose: the agent installs, arranges and
   // restarts itself, and everything a person manages is on the dashboard. There
   // is no subcommand to delegate, and the proxy-go test that reads this list

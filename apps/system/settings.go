@@ -21,7 +21,6 @@ package main
 import (
 	"net/http"
 	"strings"
-	"sync"
 	"unicode"
 
 	"github.com/codeyevsky/solongate/system/internal/apiauth"
@@ -59,42 +58,6 @@ func init() {
 	Register("DELETE /api/v1/settings/rate-limit-history", func(s *server) http.Handler {
 		return s.auth.WithAuth(s.settingsRateLimitHistoryDelete)
 	})
-}
-
-// ── the list settings' lock ─────────────────────────────────────────────────
-
-// settingsListLocks serialises the read-modify-write behind the two settings
-// that hold a LIST: the denial webhooks and the alert rules.
-//
-// Both are stored as one JSON array in one row, so "add a webhook" is read the
-// array, append, write the array back. Two saves landing together without this
-// lose one of them silently — and for the alert rules the live app has the same
-// read-modify-write behind a per-project promise chain, which is what this is.
-// The webhook list has no such chain there; it has the same race, so it takes
-// this lock too rather than being ported bug for bug.
-//
-// The lock is per PROCESS, like the original's. Two replicas can still
-// interleave; closing that would mean a transaction on the settings table, and
-// these are settings-page writes rather than a hot path — the honest state is
-// that a second replica narrows nothing here and neither app pretends
-// otherwise.
-//
-// Nothing holds it across an outbound HTTP call. Sending a webhook while
-// holding a project's lock would let a stranger's endpoint decide how long the
-// settings page is unavailable.
-var settingsListLocks sync.Map // "<setting>:<projectId>" -> *sync.Mutex
-
-// settingsListLock takes the lock and returns it held, so a handler can write
-//
-//	defer settingsListLock(name, projectID).Unlock()
-//
-// and have the whole of its read-modify-write covered — the argument to defer
-// is evaluated where it is written, and only the Unlock is deferred.
-func settingsListLock(name, projectID string) *sync.Mutex {
-	v, _ := settingsListLocks.LoadOrStore(name+":"+projectID, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	mu.Lock()
-	return mu
 }
 
 // settingsBody reads a request body the way every route in this tree does:

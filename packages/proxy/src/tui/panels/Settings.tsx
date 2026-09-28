@@ -7,19 +7,14 @@
  *   GUARD           : installed vs latest hook version + device count (read-only)
  *   SELF-PROTECTION : block agents from touching SolonGate's own files (toggle)
  *   LOCAL LOGS      : mirror path + enable, plus the background dashboard link
- *   WEBHOOKS        : POST every matching event to a URL (add/toggle/events/test/delete)
- *   ALERTS          : spike alerts to ONE email + ONE telegram — signal,
- *                     threshold, window and on/off status are editable in a
- *                     small editor (or m to toggle from the row)
  *
- * Keys: ↑↓ move · enter act/edit · m make-active/toggle · t test · e edit ·
- *   a add · x remove account · d delete (twice) · n add account · r refresh
+ * Keys: ↑↓ move · enter act/edit · m make-active/toggle · e edit ·
+ *   x remove account · n add account · r refresh
  */
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api-client/index.js';
-import type { AlertRule, DenialWebhook } from '../../api-client/settings.js';
 import {
   DEFAULT_API_URL,
   clearActiveCredential,
@@ -41,21 +36,7 @@ import { useLoader, usePanelSize } from '../hooks.js';
 import { theme, truncate } from '../theme.js';
 import { clearLocalLog, localLogsSetting, type LocalLogSetting } from '../local-log.js';
 
-const EVENTS: Array<DenialWebhook['events']> = ['denials', 'allowed', 'all'];
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-type Signal = AlertRule['signal'];
-const SIGNALS: Signal[] = ['any', 'deny', 'dlp', 'ratelimit'];
-const SIGNAL_LABEL: Record<Signal, string> = { any: 'any signal', deny: 'denials', dlp: 'dlp secrets', ratelimit: 'rate-limit' };
-const WINDOWS = [30, 60, 300, 3600, 86400];
-const winLabel = (s: number): string => (s < 60 ? `${s}s` : s < 3600 ? `${s / 60}m` : s < 86400 ? `${s / 3600}h` : `${s / 86400}d`);
-const THRESH_MIN = 5;
-const THRESH_MAX = 100;
-const nearestWindowIdx = (s: number): number => {
-  let best = 0;
-  for (let i = 1; i < WINDOWS.length; i++) if (Math.abs(WINDOWS[i]! - s) < Math.abs(WINDOWS[best]! - s)) best = i;
-  return best;
-};
 
 type Row =
   | { kind: 'acct'; acc: SavedAccount }
@@ -66,12 +47,7 @@ type Row =
   | { kind: 'repair' }
   | { kind: 'll-enabled' }
   | { kind: 'll-path' }
-  | { kind: 'll-server' }
-  | { kind: 'wh'; wh: DenialWebhook }
-  | { kind: 'wh-add' }
-  | { kind: 'alert'; rule: AlertRule }
-  | { kind: 'alert-add-email' }
-  | { kind: 'alert-add-tg' };
+  | { kind: 'll-server' };
 
 interface LoginState {
   phase: 'starting' | 'waiting' | 'done' | 'error';
@@ -81,24 +57,7 @@ interface LoginState {
   msg?: string;
 }
 
-// Alert editor — a small focused form for one rule (new or existing).
-interface AlertEditor {
-  id?: string; // set = editing an existing rule
-  channel: 'email' | 'telegram';
-  target: string;
-  signal: Signal;
-  threshold: number;
-  windowSeconds: number;
-  enabled: boolean;
-  field: number; // 0 target · 1 signal · 2 threshold · 3 window · 4 status (existing only)
-}
-// New rules have 4 fields; an existing rule adds a 5th "status" row so it can be
-// turned off right here (enter on an alert lands in this editor).
-const editorFieldCount = (e: AlertEditor): number => (e.id ? 5 : 4);
-
 const acctLabel = (a: SavedAccount): string => a.email || a.user || 'account …' + a.apiKey.slice(-4);
-const alertChannel = (r: AlertRule): 'email' | 'telegram' | null =>
-  r.emails && r.emails.length ? 'email' : r.telegram && r.telegram.length ? 'telegram' : null;
 
 export function SettingsPanel({
   active,
@@ -118,12 +77,11 @@ export function SettingsPanel({
   void active;
   const { cols, rows } = usePanelSize();
   const [sel, setSel] = useState(0);
-  const [editing, setEditing] = useState<null | 'path' | 'wh-url' | 'alert-target'>(null);
+  const [editing, setEditing] = useState<null | 'path'>(null);
   const [input, setInput] = useState('');
   const [confirmDel, setConfirmDel] = useState<string | null>(null); // row key awaiting 2nd d/x
   const [msg, setMsg] = useState<{ text: string; level: 'ok' | 'bad' } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [editor, setEditor] = useState<AlertEditor | null>(null);
   // Result of the last doctor / repair run, rendered as read-only lines under
   // the row that produced it. Kept here rather than printed, because Ink owns
   // the terminal — writing to the stream would tear the frame.
@@ -217,8 +175,6 @@ export function SettingsPanel({
 
   // Cloud config — skipped while unpaired (there is no key to call with).
   const localQ = useLoader(() => (listAccounts().length ? api.settings.getLocalLogs() : Promise.resolve(null)));
-  const whQ = useLoader(() => (listAccounts().length ? api.settings.getWebhooks() : Promise.resolve(null)));
-  const alertQ = useLoader(() => (listAccounts().length ? api.settings.getAlerts() : Promise.resolve(null)));
   const guardQ = useLoader(() => (listAccounts().length ? api.settings.getGuardStatus() : Promise.resolve(null)));
   const selfQ = useLoader(() => (listAccounts().length ? api.settings.getSelfProtection() : Promise.resolve(null)));
 
@@ -241,14 +197,6 @@ export function SettingsPanel({
       }
     }
   }, [guardHere, guardOld]);
-  // Deleted rows vanish the INSTANT the API confirms — the background reload
-  // (1-2s) only reconciles; without this the row lingered until it finished.
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const webhooks = (whQ.data?.webhooks ?? []).filter((w) => !hidden.has('wh:' + w.id));
-  const alerts = (alertQ.data?.rules ?? []).filter((r) => !hidden.has('alert:' + r.id));
-  const hasEmailAlert = alerts.some((r) => alertChannel(r) === 'email');
-  const hasTgAlert = alerts.some((r) => alertChannel(r) === 'telegram');
-
   const rowsAll: Row[] = [
     ...accounts.map((acc) => ({ kind: 'acct' as const, acc })),
     { kind: 'acct-add' },
@@ -262,23 +210,15 @@ export function SettingsPanel({
           { kind: 'll-enabled' as const },
           { kind: 'll-path' as const },
           { kind: 'll-server' as const },
-          ...webhooks.map((wh) => ({ kind: 'wh' as const, wh })),
-          { kind: 'wh-add' as const },
-          ...alerts.map((rule) => ({ kind: 'alert' as const, rule })),
-          ...(hasEmailAlert ? [] : [{ kind: 'alert-add-email' as const }]),
-          ...(hasTgAlert ? [] : [{ kind: 'alert-add-tg' as const }]),
         ]),
   ];
   const selClamped = Math.min(sel, rowsAll.length - 1);
   const cur = rowsAll[selClamped]!;
-  const keyOf = (r: Row): string =>
-    r.kind === 'acct' ? 'acct:' + r.acc.apiKey : r.kind === 'wh' ? 'wh:' + r.wh.id : r.kind === 'alert' ? 'alert:' + r.rule.id : r.kind;
+  const keyOf = (r: Row): string => (r.kind === 'acct' ? 'acct:' + r.acc.apiKey : r.kind);
 
   const reloadAll = () => {
     refreshAccounts();
     localQ.reload();
-    whQ.reload();
-    alertQ.reload();
     guardQ.reload();
     selfQ.reload();
   };
@@ -339,54 +279,6 @@ export function SettingsPanel({
     })();
   };
 
-  // ── alert editor ──────────────────────────────────────────────────────────
-  const openAlertEditor = (channel: 'email' | 'telegram', rule?: AlertRule) => {
-    setEditor({
-      id: rule?.id,
-      channel,
-      target: (channel === 'email' ? rule?.emails?.[0] : rule?.telegram?.[0]) ?? '',
-      signal: rule?.signal ?? 'any',
-      threshold: rule?.threshold ?? THRESH_MIN,
-      windowSeconds: rule?.windowSeconds ?? 300,
-      enabled: rule?.enabled ?? true,
-      field: rule ? 1 : 0, // new rule starts on the target; existing on signal
-    });
-    if (!rule) {
-      setInput('');
-      setEditing('alert-target');
-    }
-  };
-
-  const normTarget = (channel: 'email' | 'telegram', raw: string): { value: string; error?: string } => {
-    const v = raw.trim();
-    if (channel === 'email') {
-      const email = v.replace(/^mailto:/i, '').replace(/^["'<]+|["'>]+$/g, '').replace(/[.,;:]+$/, '').replace(/\s+/g, '');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { value: email, error: 'that does not look like an e-mail address' };
-      return { value: email };
-    }
-    const tg = v.replace(/^@/, '').replace(/^(chat[\s_-]*)?id[:=\s]*/i, '').replace(/\s+/g, '');
-    if (!/^-?\d{5,}$/.test(tg)) return { value: tg, error: 'a telegram chat id is a number — get yours from @userinfobot' };
-    return { value: tg };
-  };
-
-  const saveEditor = () => {
-    if (!editor) return;
-    const t = normTarget(editor.channel, editor.target);
-    if (t.error) {
-      setMsg({ text: '✗ ' + t.error, level: 'bad' });
-      return;
-    }
-    const channels = editor.channel === 'email' ? { emails: [t.value], telegram: [] } : { telegram: [t.value], emails: [] };
-    const body = { signal: editor.signal, threshold: editor.threshold, windowSeconds: editor.windowSeconds, enabled: editor.enabled, ...channels };
-    const id = editor.id;
-    setEditor(null);
-    if (id) run('alert updated', () => api.settings.updateAlert(id, body), alertQ.reload);
-    else run(`${editor.channel} alert added`, () => api.settings.createAlert({ name: 'SolonGate alert', ...body }), alertQ.reload);
-  };
-
-  // NOTE: alerts have NO send-test. A test that delivers a real message to any
-  // email/telegram is an abuse vector (spam an arbitrary target, burn provider
-  // rate limits). Only webhooks — which POST to the user's OWN url — are testable.
 
   // ── row activation (enter) ────────────────────────────────────────────────
   const activate = (r: Row) => {
@@ -489,18 +381,6 @@ export function SettingsPanel({
           ? { text: `✓ dashboard link running on 127.0.0.1:${next.port} — keeps running after you close the dataroom`, level: 'ok' }
           : { text: '✓ dashboard link stopped (disabled until you start it again)', level: 'ok' },
       );
-    } else if (r.kind === 'wh') {
-      run(r.wh.enabled ? 'webhook disabled' : 'webhook enabled', () => api.settings.updateWebhook(r.wh.id, { enabled: !r.wh.enabled }), whQ.reload);
-    } else if (r.kind === 'wh-add') {
-      setInput('');
-      setEditing('wh-url');
-    } else if (r.kind === 'alert') {
-      const ch = alertChannel(r.rule);
-      if (ch) openAlertEditor(ch, r.rule);
-    } else if (r.kind === 'alert-add-email') {
-      openAlertEditor('email');
-    } else if (r.kind === 'alert-add-tg') {
-      openAlertEditor('telegram');
     }
   };
 
@@ -511,16 +391,6 @@ export function SettingsPanel({
     if (which === 'path') {
       const enabled = (local?.enabled ?? false) && v.length > 0;
       run(v ? `path saved${enabled ? '' : ' (press enter on enabled to turn on)'}` : 'path cleared (local logs off)', () => api.settings.setLocalLogs({ enabled, path: v }), localQ.reload);
-    } else if (which === 'wh-url') {
-      const url = v.replace(/^["'<]+|["'>]+$/g, '').trim();
-      if (!url) return;
-      if (!/^https?:\/\/\S+$/i.test(url)) {
-        setMsg({ text: '✗ webhook url must start with http:// or https://', level: 'bad' });
-        return;
-      }
-      run('webhook added', () => api.settings.createWebhook({ url, events: 'denials' }), whQ.reload);
-    } else if (which === 'alert-target' && editor) {
-      setEditor({ ...editor, target: v, field: 1 }); // move focus to signal after entering target
     }
   };
 
@@ -532,33 +402,6 @@ export function SettingsPanel({
         if (key.escape) {
           abort.current = true;
           setLogin(null);
-        }
-        return;
-      }
-      // Alert editor navigation.
-      if (editor) {
-        if (key.escape) {
-          setEditor(null);
-          return;
-        }
-        if (inp === 'e' || (key.return && editor.field === 0)) {
-          setInput(editor.target);
-          setEditing('alert-target');
-          return;
-        }
-        if (key.return) {
-          saveEditor();
-          return;
-        }
-        const nFields = editorFieldCount(editor);
-        if (key.upArrow) setEditor({ ...editor, field: (editor.field + nFields - 1) % nFields });
-        else if (key.downArrow) setEditor({ ...editor, field: (editor.field + 1) % nFields });
-        else if (key.leftArrow || key.rightArrow) {
-          const d = key.rightArrow ? 1 : -1;
-          if (editor.field === 1) setEditor({ ...editor, signal: SIGNALS[(SIGNALS.indexOf(editor.signal) + d + SIGNALS.length) % SIGNALS.length]! });
-          else if (editor.field === 2) setEditor({ ...editor, threshold: Math.max(THRESH_MIN, Math.min(THRESH_MAX, editor.threshold + d * 5)) });
-          else if (editor.field === 3) setEditor({ ...editor, windowSeconds: WINDOWS[Math.max(0, Math.min(WINDOWS.length - 1, nearestWindowIdx(editor.windowSeconds) + d))]! });
-          else if (editor.field === 4) setEditor({ ...editor, enabled: !editor.enabled });
         }
         return;
       }
@@ -579,9 +422,8 @@ export function SettingsPanel({
           if (ok) clearLocalLog();
           setMsg(ok ? { text: `✓ ${acctLabel(cur.acc)} is now the ACTIVE key (guard + logging)`, level: 'ok' } : { text: '✗ could not set active', level: 'bad' });
           refreshAccounts();
-        } else if (cur.kind === 'wh' || cur.kind === 'alert' || cur.kind === 'self' || cur.kind === 'll-enabled' || cur.kind === 'll-server') {
-          if (cur.kind === 'alert') run(cur.rule.enabled ? 'alert disabled' : 'alert enabled', () => api.settings.setAlertEnabled(cur.rule.id, !cur.rule.enabled), alertQ.reload);
-          else activate(cur);
+        } else if (cur.kind === 'self' || cur.kind === 'll-enabled' || cur.kind === 'll-server') {
+          activate(cur);
         }
       } else if (inp === 'x' && cur.kind === 'acct') {
         const target = cur.acc;
@@ -620,23 +462,9 @@ export function SettingsPanel({
         setMsg({ text: `✓ removed ${acctLabel(target)}${extra}`, level: 'ok' });
         refreshAccounts();
         onAccountsChanged?.(); // let the App shell re-derive header / view / lock from disk
-      } else if (inp === 't' && cur.kind === 'wh') {
-        run('webhook test sent — check your endpoint', () => api.settings.sendTestWebhook(cur.wh.id).then((r) => { if (!r.delivered) throw new Error('endpoint rejected the test (non-2xx)'); }), whQ.reload);
       } else if (inp === 'e' && cur.kind === 'll-path') activate(cur);
-      else if (inp === 'e' && cur.kind === 'wh') {
-        const next = EVENTS[(EVENTS.indexOf(cur.wh.events) + 1) % EVENTS.length]!;
-        run(`webhook events → ${next}`, () => api.settings.updateWebhook(cur.wh.id, { events: next }), whQ.reload);
-      } else if (inp === 'e' && cur.kind === 'alert') {
-        const ch = alertChannel(cur.rule);
-        if (ch) openAlertEditor(ch, cur.rule);
-      } else if (inp === 'n') beginLogin();
-      else if (inp === 'a') {
-        if (cur.kind === 'wh' || cur.kind === 'wh-add') {
-          setInput('');
-          setEditing('wh-url');
-        } else if (cur.kind === 'alert-add-email') openAlertEditor('email');
-        else if (cur.kind === 'alert-add-tg') openAlertEditor('telegram');
-      } else if (inp === 'd' && cur.kind === 'guard') {
+      else if (inp === 'n') beginLogin();
+      else if (inp === 'd' && cur.kind === 'guard') {
         // Remove (uninstall) the guard hooks from this device — the dataroom twin
         // of `solongate` restore. Double-press to confirm; the TUI writes the
         // files directly (its own fs is not guard-intercepted).
@@ -655,21 +483,6 @@ export function SettingsPanel({
         setMsg({ text: (res.ok ? '✓ ' : '✗ ') + res.message, level: res.ok ? 'ok' : 'bad' });
         refreshGuard(); // reflect the removal in the row immediately
         guardQ.reload();
-      } else if (inp === 'd' && (cur.kind === 'wh' || cur.kind === 'alert')) {
-        const k = keyOf(cur);
-        if (confirmDel !== k) {
-          setConfirmDel(k);
-          setMsg({ text: 'press d again to delete', level: 'bad' });
-          return;
-        }
-        setConfirmDel(null);
-        if (cur.kind === 'wh') {
-          const id = cur.wh.id;
-          run('webhook deleted', () => api.settings.deleteWebhook(id).then(() => setHidden((h) => new Set(h).add('wh:' + id))), whQ.reload);
-        } else {
-          const id = cur.rule.id;
-          run('alert deleted', () => api.settings.deleteAlert(id).then(() => setHidden((h) => new Set(h).add('alert:' + id))), alertQ.reload);
-        }
       } else if (inp === 'r') reloadAll();
     },
     { isActive: focused && !editing },
@@ -720,59 +533,11 @@ export function SettingsPanel({
     );
   }
 
-  // ── alert editor overlay ──────────────────────────────────────────────────
-  if (editor) {
-    const fieldRow = (idx: number, label: string, value: JSX.Element, hint?: string) => (
-      <Text wrap="truncate">
-        <Text color={editor.field === idx ? theme.accentBright : theme.dim}>{editor.field === idx ? '▸ ' : '  '}</Text>
-        <Text color={theme.dim}>{label.padEnd(11)}</Text>
-        {value}
-        {editor.field === idx && hint ? <Text color={theme.dim}>{'   ' + hint}</Text> : null}
-      </Text>
-    );
-    return (
-      <Box flexDirection="column">
-        <Text bold color={theme.accentBright}>
-          {editor.id ? 'Edit' : 'New'} {editor.channel} alert
-        </Text>
-        <Text color={theme.dim}>↑↓ field · ←→ change · e edit target · enter save · esc cancel</Text>
-        {editing === 'alert-target' ? (
-          <Box marginTop={1}>
-            <Text color={theme.warn}>{editor.channel === 'email' ? 'e-mail address: ' : 'telegram chat id (from @userinfobot): '}</Text>
-            <TextInput value={input} onChange={setInput} onSubmit={submitInput} />
-          </Box>
-        ) : msg ? (
-          <Text color={msg.level === 'bad' ? theme.bad : theme.ok}>{truncate(msg.text, cols)}</Text>
-        ) : (
-          <Text> </Text>
-        )}
-        <Box marginTop={1} flexDirection="column">
-          {fieldRow(0, 'target', editor.target ? <Text color={theme.accent}>{truncate(editor.target, cols - 16)}</Text> : <Text color={theme.dim}>empty — press e</Text>, 'press e to edit')}
-          {fieldRow(1, 'signal', <Text color={theme.accent}>{SIGNAL_LABEL[editor.signal]}</Text>, '←→ change')}
-          {fieldRow(2, 'threshold', <Text color={theme.accent}>{`≥ ${editor.threshold}`}</Text>, '←→ ±5')}
-          {fieldRow(3, 'window', <Text color={theme.accent}>{winLabel(editor.windowSeconds)}</Text>, '←→ change')}
-          {editor.id
-            ? fieldRow(4, 'status', editor.enabled ? <Text color={theme.ok}>on</Text> : <Text color={theme.dim}>off</Text>, '←→ turn on/off')
-            : null}
-        </Box>
-        <Box marginTop={1}>
-          {editor.id && !editor.enabled ? (
-            <Text color={theme.warn}>disabled — this alert will NOT fire until you set status back to on</Text>
-          ) : (
-            <Text color={theme.dim}>
-              fires when <Text color={theme.accent}>{SIGNAL_LABEL[editor.signal]}</Text> reach <Text color={theme.accent}>{editor.threshold}</Text> within{' '}
-              <Text color={theme.accent}>{winLabel(editor.windowSeconds)}</Text>
-            </Text>
-          )}
-        </Box>
-      </Box>
-    );
-  }
 
   const loading =
     !locked &&
-    ((localQ.loading && !localQ.data) || (whQ.loading && !whQ.data) || (alertQ.loading && !alertQ.data) || (guardQ.loading && !guardQ.data) || (selfQ.loading && !selfQ.data));
-  const rawError = locked ? null : localQ.error ?? whQ.error ?? alertQ.error ?? guardQ.error ?? selfQ.error;
+    ((localQ.loading && !localQ.data) || (guardQ.loading && !guardQ.data) || (selfQ.loading && !selfQ.data));
+  const rawError = locked ? null : localQ.error ?? guardQ.error ?? selfQ.error;
   // An AUTH failure must never take the panel over. Every cloud loader here 401s
   // when the stored key is revoked or rotated, and DataView renders the error
   // INSTEAD of the rows — which hides the Accounts section, i.e. the only way to
@@ -789,8 +554,6 @@ export function SettingsPanel({
   const error = authError ? null : rawError;
 
   const onOff = (on: boolean) => (on ? <Text color={theme.ok}>on </Text> : <Text color={theme.dim}>off</Text>);
-  const chanOf = (rule: AlertRule): string =>
-    [...(rule.emails ?? []), ...(rule.telegram ?? []).map((t) => 'tg ' + t)].join(', ') || '—';
 
   // ── one line per row (the panel is a single scrollable list) ──────────────
   const isCur = (r: Row) => keyOf(r) === keyOf(cur) && focused;
@@ -913,46 +676,6 @@ export function SettingsPanel({
             <Text color={theme.dim}>{srv.running ? '   survives closing the dataroom · enter stops' : '   enter starts the dashboard local-logs link'}</Text>
           </Text>
         );
-      case 'wh':
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            {onOff(r.wh.enabled)}
-            <Text color={theme.warn}>{(' ' + r.wh.events).padEnd(9)}</Text>
-            <Text color={theme.accent}>{truncate(r.wh.url, cols - 16)}</Text>
-          </Text>
-        );
-      case 'wh-add':
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            <Text color={theme.dim}>+ add webhook (enter)</Text>
-          </Text>
-        );
-      case 'alert':
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            {onOff(r.rule.enabled)}
-            <Text color={theme.warn}>{(' ' + SIGNAL_LABEL[r.rule.signal]).padEnd(13)}</Text>
-            <Text>{`≥${r.rule.threshold}/${winLabel(r.rule.windowSeconds)} `.padEnd(11)}</Text>
-            <Text color={theme.accent}>{truncate(chanOf(r.rule), cols - 34)}</Text>
-          </Text>
-        );
-      case 'alert-add-email':
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            <Text color={theme.dim}>+ add email alert (enter)</Text>
-          </Text>
-        );
-      case 'alert-add-tg':
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            <Text color={theme.dim}>+ add telegram alert (enter — numeric chat id from @userinfobot)</Text>
-          </Text>
-        );
     }
   };
 
@@ -961,17 +684,11 @@ export function SettingsPanel({
       ? 'ACCOUNTS'
       : r.kind === 'guard' || r.kind === 'self' || r.kind === 'doctor' || r.kind === 'repair'
         ? 'PROTECTION'
-        : r.kind === 'll-enabled' || r.kind === 'll-path' || r.kind === 'll-server'
-            ? 'LOCAL LOGS'
-            : r.kind === 'wh' || r.kind === 'wh-add'
-              ? 'WEBHOOKS'
-              : 'ALERTS';
+        : 'LOCAL LOGS';
   const SECTION_DESC: Record<string, string> = {
     ACCOUNTS: `on this device (${accounts.length}) · ● viewing · ACTIVE = guard key · x removes`,
     PROTECTION: 'guard hook: enter install/update · d remove · self-protection · doctor + repair',
     'LOCAL LOGS': 'mirror every decision to a file + dashboard link',
-    WEBHOOKS: `POST events to a URL (${webhooks.length}) · t tests`,
-    ALERTS: `one email + one telegram (${alerts.length}) · enter edits · m on/off`,
   };
 
   // Flatten rows + section headers into ONE line list, then window it around the
@@ -999,17 +716,6 @@ export function SettingsPanel({
         </Text>,
       );
       lineKey.push('');
-      // Cloud notifications (webhooks + alerts) fire server-side off the cloud
-      // audit POST — which the guard SKIPS in local-log mode. Warn so it's not a
-      // silent no-op; the t test still delivers (it posts directly).
-      if ((sec === 'WEBHOOKS' || sec === 'ALERTS') && local?.enabled) {
-        lineEls.push(
-          <Text key={'warn:' + sec} wrap="truncate" color={theme.warn}>
-            {`  ⚠ local logs on — real denials stay on this machine, so ${sec.toLowerCase()} do NOT fire${sec === 'WEBHOOKS' ? ' (t test still works)' : ''}`}
-          </Text>,
-        );
-        lineKey.push('');
-      }
     }
     lineEls.push(<Box key={keyOf(r)}>{rowLine(r)}</Box>);
     lineKey.push(keyOf(r));
@@ -1043,14 +749,6 @@ export function SettingsPanel({
       });
     }
   });
-  if (hasEmailAlert && hasTgAlert) {
-    lineEls.push(
-      <Text key="both-note" color={theme.dim}>
-        {'  both channels in use — remove one (d) to change it'}
-      </Text>,
-    );
-    lineKey.push('');
-  }
 
   // Version, at the very bottom of the scrollable list (scroll down to see it).
   lineKey.push('');

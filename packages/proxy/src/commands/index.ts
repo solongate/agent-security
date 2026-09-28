@@ -21,8 +21,6 @@ import * as audit from './audit.js';
 import * as doctor from './doctor.js';
 import * as trace from './trace.js';
 import * as watch from './watch.js';
-import * as alerts from './alerts.js';
-import * as webhooks from './webhooks.js';
 
 async function dispatch(command: string, argv: string[]): Promise<number> {
   switch (command) {
@@ -42,10 +40,6 @@ async function dispatch(command: string, argv: string[]): Promise<number> {
       return trace.run(argv);
     case 'watch':
       return watch.run(argv);
-    case 'alerts':
-      return alerts.run(argv);
-    case 'webhooks':
-      return webhooks.run(argv);
     default:
       err(`  Unknown command: ${command}`);
       return 1;
@@ -75,4 +69,4 @@ export async function runCommand(command: string, argv: string[]): Promise<numbe
 }
 
 /** The subcommand names this router owns (used by src/index.ts to route). */
-export const COMMAND_NAMES = ['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'watch', 'alerts', 'webhooks'] as const;
+export const COMMAND_NAMES = ['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'watch'] as const;

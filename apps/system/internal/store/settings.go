@@ -29,8 +29,6 @@ const (
 	settingActivePolicy   = "active_policy"
 	settingGuardVersions  = "guard_versions"
 	settingRateLimitHist  = "ratelimit_history"
-	settingDenialAlerts   = "denial_alerts"
-	settingDenialWebhook  = "denial_webhook"
 )
 
 // scopedKey is the one place a settings key is assembled.
@@ -235,7 +233,6 @@ func (s *Store) SetSettingJSON(ctx context.Context, name, projectID, value, desc
 var SettingNames = []string{
 	settingSelfProtection, settingSecurityLayers, settingLocalLogs, settingLocalLogsView,
 	settingActivePolicy, settingGuardVersions, settingRateLimitHist,
-	settingDenialAlerts, settingDenialWebhook,
 }
 
 func knownSetting(name string) bool {
@@ -250,8 +247,4 @@ func knownSetting(name string) bool {
 
 // The setting names, exported so a route slice names one rather than spelling
 // the string. The value shapes belong to whichever slice owns the endpoint.
-const (
-	SettingDenialAlerts  = settingDenialAlerts
-	SettingDenialWebhook = settingDenialWebhook
-	SettingGuardVersions = settingGuardVersions
-)
+const SettingGuardVersions = settingGuardVersions

@@ -41,7 +41,7 @@
 // to the proxy runtime; the human-facing CLI subcommands (login/etc.) and
 // the bare-run welcome screen keep normal console output so their banners aren't
 // mangled with a [SolonGate] prefix.
-const CLI_SUBCOMMANDS = new Set(['repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch', 'alerts', 'webhooks', 'dataroom']);
+const CLI_SUBCOMMANDS = new Set(['repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch', 'dataroom']);
 // Human-facing flags/aliases that print a banner and must keep normal console
 // output (no [SolonGate] prefix): help, version, and the removed `login` alias.
 const CLI_INFO_ARGS = new Set(['login', 'help', '--help', '-h', '--version', '-v', 'version']);
@@ -165,14 +165,6 @@ function printHelp() {
   cmd('stats [timeseries|drift]', 'traffic & security statistics');
   cmd('watch [--filter DENY] [--tool <s>]', 'live-tail tool calls (Ctrl+C to stop)');
 
-  head('Alerts & webhooks');
-  cmd('alerts list');
-  cmd('alerts add --signal deny|dlp|ratelimit|any --threshold N --window S (--email <a> | --telegram <id> | --slack <url>)', 'spike alert');
-  cmd('alerts remove <id>');
-  cmd('webhooks list');
-  cmd('webhooks add --url <https://…> [--events denials|allowed|all]', 'event webhook');
-  cmd('webhooks remove <id>');
-
   console.log('');
   console.log(`  ${c.dim}Add ${c.reset}${c.cyan}--json${c.reset}${c.dim} to most read commands for machine output.${c.reset}`);
   console.log(`  ${c.dim}Details for a command: ${c.reset}${c.cyan}solongate <command> help${c.reset}`);
@@ -282,7 +274,7 @@ async function main() {
   // Scriptable management commands (policy / ratelimit / dlp / stats / audit /
   // agents). Kept behind a dynamic import so the proxy runtime never loads the
   // API-client / command layer.
-  const MGMT_COMMANDS = new Set(['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch', 'alerts', 'webhooks']);
+  const MGMT_COMMANDS = new Set(['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch']);
   if (MGMT_COMMANDS.has(subcommand ?? '')) {
     const { runCommand } = await import('./commands/index.js');
     const code = await runCommand(subcommand!, process.argv.slice(3));

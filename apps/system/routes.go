@@ -39,11 +39,6 @@ const (
 	// one of them is a provisioning or pairing endpoint, which is why they are
 	// worth naming rather than burying.
 	authIP authKind = "ip"
-
-	// authWebhookSecret is the Telegram webhook: a shared secret in
-	// x-telegram-bot-api-secret-token, and a bare 200 for everything else so a
-	// prober learns nothing.
-	authWebhookSecret authKind = "webhook-secret"
 )
 
 // limitName picks one of apiauth's named configs. Empty means the route does no
@@ -166,9 +161,6 @@ var routes = []route{
 	{path: "/api/v1/projects/{id}", methods: []string{"GET", "PUT", "DELETE"}, source: "src/app/api/v1/projects/[id]/route.ts", auth: authKey},
 	{path: "/api/v1/projects", methods: []string{"GET"}, source: "src/app/api/v1/projects/route.ts", auth: authKey},
 
-	{path: "/api/v1/settings/denial-alerts", methods: []string{"GET", "POST", "PATCH", "DELETE"}, source: "src/app/api/v1/settings/denial-alerts/route.ts", auth: authKey},
-	{path: "/api/v1/settings/denial-webhook/send-test", methods: []string{"POST"}, source: "src/app/api/v1/settings/denial-webhook/send-test/route.ts", auth: authKey},
-	{path: "/api/v1/settings/denial-webhook", methods: []string{"GET", "POST", "PATCH", "DELETE"}, source: "src/app/api/v1/settings/denial-webhook/route.ts", auth: authKey},
 	{path: "/api/v1/settings/guard-status", methods: []string{"GET"}, source: "src/app/api/v1/settings/guard-status/route.ts", auth: authKey},
 	{path: "/api/v1/settings/local-logs-view", methods: []string{"GET", "PUT"}, source: "src/app/api/v1/settings/local-logs-view/route.ts", auth: authKey},
 	{path: "/api/v1/settings/local-logs", methods: []string{"GET", "PUT"}, source: "src/app/api/v1/settings/local-logs/route.ts", auth: authKey},
@@ -182,8 +174,6 @@ var routes = []route{
 	{path: "/api/v1/stats/security-insights", methods: []string{"GET"}, source: "src/app/api/v1/stats/security-insights/route.ts", auth: authKey},
 	{path: "/api/v1/stats/timeseries", methods: []string{"GET"}, source: "src/app/api/v1/stats/timeseries/route.ts", auth: authKey},
 	{path: "/api/v1/stats", methods: []string{"GET"}, source: "src/app/api/v1/stats/route.ts", auth: authKey},
-
-	{path: "/api/v1/telegram/webhook", methods: []string{"POST"}, source: "src/app/api/v1/telegram/webhook/route.ts", auth: authWebhookSecret},
 
 	{path: "/api/v1/tokens/verify", methods: []string{"POST"}, source: "src/app/api/v1/tokens/verify/route.ts", auth: authKey},
 	{path: "/api/v1/tokens", methods: []string{"POST"}, source: "src/app/api/v1/tokens/route.ts", auth: authKey},
@@ -206,7 +196,7 @@ var routes = []route{
 // a row disappearing, and a row is a row whoever wrote it; splitting the count
 // into "ported" and "ours" would make the assertion weaker in exchange for a
 // distinction the source column already draws.
-const routeCount = 55
+const routeCount = 51
 
 // routeHandlers is how a finished route slice replaces a stub.
 //
@@ -330,7 +320,7 @@ func (s *server) notPorted(rt route, method string) http.Handler {
 		return s.auth.WithAuthLimit(rt.limit.config(), func(w http.ResponseWriter, r *http.Request, _ apiauth.KeyInfo) {
 			respond(w, r)
 		})
-	case authIP, authWebhookSecret:
+	case authIP:
 		// The webhook route authenticates on a shared secret this stub has no
 		// business checking, so it gets the public route's per-IP limit and
 		// nothing else. It answers 501 either way; the limit is what stops the

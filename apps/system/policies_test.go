@@ -301,18 +301,6 @@ func TestParseIntIsJavaScriptsParseInt(t *testing.T) {
 	}
 }
 
-func TestReplayWindowConvertsMillisecondsToTheColumnsSeconds(t *testing.T) {
-	// The wire carries Date.now(); the column stores Math.floor(ms/1000).
-	if got := policyMillisToSeconds(float64(1_700_000_001_999)); got != 1_700_000_001 {
-		t.Errorf("policyMillisToSeconds = %d, want the floored second", got)
-	}
-	// `if (body.from)` is a truthiness test, so an explicit zero is NO bound
-	// rather than the epoch.
-	if got := policyMillisToSeconds(float64(0)); got != 0 {
-		t.Errorf("policyMillisToSeconds(0) = %d, want no bound", got)
-	}
-}
-
 // ── the gate ────────────────────────────────────────────────────────────────
 
 // Every route in this group authenticates before it does any work. A policy is
@@ -336,8 +324,6 @@ func TestEveryPolicyRouteRefusesWithoutAKey(t *testing.T) {
 		{"POST", "/api/v1/policies/p1/rules"},
 		{"DELETE", "/api/v1/policies/p1/rules/r1"},
 		{"GET", "/api/v1/policies/p1/rego"},
-		{"POST", "/api/v1/policies/dry-run"},
-		{"POST", "/api/v1/policies/backtest"},
 	} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(probe.method, probe.path, strings.NewReader("{}")))

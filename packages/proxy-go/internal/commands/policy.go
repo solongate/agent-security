@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -28,7 +27,6 @@ func policyUsage() string {
 		row("policy rule <id> <ruleId> <enable|disable>", "turn one rule on or off without deleting it"),
 		row("", ""),
 		row("policy activate <id> | --off", "pin the active policy, or enforce nothing"),
-		row("policy dry-run <id|file.json> [--limit N] [--mode denylist|whitelist]", "replay recent traffic against rules"),
 	}, "Add --json to any read command for machine-readable output.")
 }
 
@@ -396,42 +394,6 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		okf("Pinned active policy → %s", active)
 		return 0, nil
 
-	case "dry-run":
-		target := p.positional(1)
-		if target == "" {
-			return usageErr("Usage: policy dry-run <id|file.json> [--limit N]")
-		}
-		rules, err := resolveRules(ctx, c, target)
-		if err != nil {
-			return 1, err
-		}
-		res, err := c.Policies.DryRun(ctx, api.DryRunBody{
-			Rules: rules,
-			Mode:  api.PolicyMode(p.flagStr("mode")),
-			Limit: p.flagNum("limit"),
-		})
-		if err != nil {
-			return 1, err
-		}
-		if jsonOut {
-			printJSON(res)
-			return 0, nil
-		}
-		errln("")
-		errln("  Replayed " + bold(strconv.Itoa(res.Evaluated)) + " recent calls against " +
-			strconv.Itoa(len(rules)) + " rule(s)")
-		errln("  would allow: " + green(strconv.Itoa(res.WouldAllow)) +
-			"   would deny: " + decisionColor("DENY") + " " + strconv.Itoa(res.WouldDeny))
-		errln("  " + green("newly allowed") + ": " + strconv.Itoa(res.NewlyAllowed) +
-			"   " + decisionColor("DENY") + dim(" newly blocked") + ": " + strconv.Itoa(res.NewlyBlocked) +
-			"   unchanged: " + strconv.Itoa(res.Unchanged))
-		if len(res.SampleNewlyBlocked) > 0 {
-			errln(dim("\n  Sample newly-blocked:"))
-			for _, s := range res.SampleNewlyBlocked[:min(8, len(res.SampleNewlyBlocked))] {
-				errln("    " + decisionColor("DENY") + " " + s.Tool + "  " + dim(truncate(s.Preview, 50)))
-			}
-		}
-		return 0, nil
 	}
 
 	return unknownSub("policy", sub, policyUsage())
@@ -477,41 +439,6 @@ func rulesCount(r api.Rules) int {
 	return len(r.Items)
 }
 
-// resolveRules reads a dry-run target: a local JSON file, or a policy id whose
-// rules are fetched.
-//
-// The rules are passed through as the raw bytes they arrived as. Decoding and
-// re-encoding them would drop any field this version does not model, and the
-// replay would then be run against a policy that is not the one on screen.
-func resolveRules(ctx context.Context, c *api.Client, target string) ([]json.RawMessage, error) {
-	if strings.HasSuffix(target, ".json") {
-		b, err := os.ReadFile(target)
-		if err != nil {
-			return nil, err
-		}
-		var parsed struct {
-			Rules []json.RawMessage `json:"rules"`
-		}
-		if err := json.Unmarshal(b, &parsed); err != nil {
-			return nil, err
-		}
-		return parsed.Rules, nil
-	}
-	pol, err := c.Policies.Get(ctx, target, 0)
-	if err != nil {
-		return nil, err
-	}
-	return pol.Rules.Raw, nil
-}
-
-// setRuleEnabled flips one rule's `enabled` flag, returning the policy to send
-// back and whether the rule was there at all.
-//
-// It edits the RAW rule bytes rather than re-encoding this version's struct.
-// Rules.MarshalJSON writes Raw back when it is held, so a policy carrying a
-// field this build does not know about survives the round trip -- and a rule
-// editor in a newer dashboard is exactly what puts one there. Rewriting the
-// whole array through PolicyRule would silently drop it.
 func setRuleEnabled(pol api.PolicySet, ruleID string, enabled bool) (api.PolicySet, bool) {
 	found := false
 	raw := make([]json.RawMessage, len(pol.Rules.Raw))

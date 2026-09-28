@@ -270,8 +270,8 @@ func Synthesize(inputs []Input, tightness string) Policy {
 
 	for _, in := range inputs {
 		// `String(i.decision).toUpperCase() === 'ALLOW'`, so a row written as
-		// "allow" by an older client counts as an allow here. The dry-run
-		// estimator compares the same column exactly; both behaviours are live.
+		// "allow" by an older client counts as an allow here. internal/policyeval
+		// compares the same column exactly; both behaviours are live.
 		if strings.ToUpper(in.Decision) != "ALLOW" {
 			denySampled++
 			continue

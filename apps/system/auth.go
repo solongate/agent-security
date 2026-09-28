@@ -35,6 +35,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -246,6 +247,39 @@ func authJSString(v any) string {
 	// so the difference shows only for a caller sending an object where a name
 	// was expected, and storing "[object Object]" as a key name helps nobody.
 	return ""
+}
+
+// policyJSNumber is JavaScript's Number() for the values a JSON body can carry.
+//
+// A numeric STRING converts, because a number input posts text and "1000" has to
+// mean a thousand here as it does there. The conversion is WHOLE-string:
+// Number("120abc") is NaN, and a parser that stopped at the first non-digit would
+// read a typo as a limit.
+//
+// It lived beside the replay routes until those were removed; it is here because
+// this is where the rest of the JavaScript coercions are.
+func policyJSNumber(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case bool:
+		if t {
+			return 1, true
+		}
+		return 0, true
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			// Number("") is 0, not NaN.
+			return 0, true
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return 0, false
+		}
+		return f, true
+	}
+	return 0, false
 }
 
 // authJSTruthy is `!!v` for JSON values, which is what `body.name || default`

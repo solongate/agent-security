@@ -1,20 +1,20 @@
-// Package policyeval is the port of src/lib/dry-run.ts and src/lib/backtest.ts:
-// the estimator behind POST /policies/dry-run and POST /policies/backtest.
+// Package policyeval replays a project's own audit history against a set of
+// candidate rules, to answer "what would this change break".
 //
-// It is NOT the policy engine. It is a deliberately cheaper approximation that
-// replays a project's own audit history against a set of candidate rules to
-// answer "what would this change break", and the backtest route says so on the
-// wire: `engine: "estimate"`. Where it and the real evaluator disagree — this
-// one reads a fixed list of argument keys, the guard runs four extractors over
-// the whole argument tree — the guard is right and this is a preview.
+// It is NOT the policy engine. It is a deliberately cheaper approximation.
+// Where it and the real evaluator disagree — this one reads a fixed list of
+// argument keys, the guard runs four extractors over the whole argument tree —
+// the guard is right and this is an estimate.
 //
-// Reproducing its quirks is still the job, because the dashboard's Policy Dry
-// Run page and the CLI's `solongate policy backtest` both render these numbers
-// and a change of one is a change in what somebody was told before they hit
-// save. The two that look like bugs and are not: an empty candidate list
-// satisfies every constraint (a call that touches no paths cannot violate a
-// path rule), and dry-run compares the recorded decision with `=== 'ALLOW'`
-// while backtest upper-cases it first.
+// It had two routes of its own, which have been removed. What reaches it now is
+// LEARN MODE: the pass that says what the rules it just proposed would have
+// refused, run against the same sample the rules were synthesised from. The
+// numbers it produces are shown to somebody before they save a policy, so a
+// change in one is a change in what they were told.
+//
+// One behaviour that looks like a bug and is not: an empty candidate list
+// satisfies every constraint, because a call that touches no paths cannot
+// violate a path rule.
 package policyeval
 
 import (

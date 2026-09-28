@@ -8,9 +8,8 @@ import (
 // The read behind POST /v1/policies/learn.
 //
 // It is a second, narrower query over audit_logs rather than a reuse of
-// ListAuditLogs for the reason PolicyReplaySample gives: Learn Mode samples up
-// to five thousand rows to derive rules from them, and the live route selects
-// seven columns out of twenty-five. Pulling the prompt-injection scores and the
+// ListAuditLogs: Learn Mode samples up to five thousand rows to derive rules
+// from them, and needs seven columns out of twenty-five. Pulling the prompt-injection scores and the
 // stage breakdown for every row would be five thousand columns of JSON nobody
 // reads, on the endpoint that already reads the most rows.
 

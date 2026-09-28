@@ -4,7 +4,6 @@ import type {
   ActivePolicy,
   PolicyDetail,
   PolicyListEntry,
-  PolicyMode,
   PolicyRule,
   PolicySet,
   PolicyVersion,
@@ -77,75 +76,3 @@ export function setActive(policyId: string | null): Promise<{ ok: true; active: 
   return request('POST', '/policies/active', { body: { policyId: policyId ?? '' } });
 }
 
-export interface DryRunResult {
-  evaluated: number;
-  would_allow: number;
-  would_deny: number;
-  newly_blocked: number;
-  newly_allowed: number;
-  unchanged: number;
-  sample_newly_blocked: Array<{ tool: string; preview: string; predicted: string; created_at: string }>;
-  sample_newly_allowed: Array<{ tool: string; preview: string; predicted: string; created_at: string }>;
-  mode: PolicyMode;
-  sampled: number;
-  limit: number;
-}
-
-export function dryRun(body: {
-  rules: PolicyRule[] | Partial<PolicyRule>[];
-  mode?: PolicyMode;
-  limit?: number;
-  from?: number;
-  to?: number;
-}): Promise<DryRunResult> {
-  return request('POST', '/policies/dry-run', { body });
-}
-
-// ── Backtest: the FULL dry-run the dashboard's "Policy Dry Run" page uses ────
-// Richer than /policies/dry-run: per-rule / per-tool / per-agent impact, a
-// timeseries and the individual changed calls, so the TUI can render the exact
-// same breakdown instead of a one-line summary.
-export interface BacktestSummary {
-  evaluated: number;
-  would_allow: number;
-  would_deny: number;
-  newly_blocked: number;
-  newly_allowed: number;
-  unchanged: number;
-}
-export interface BacktestPerRule { rule_id: string; matched: number; newly_blocked: number; newly_allowed: number }
-export interface BacktestPerTool { tool: string; evaluated: number; changed: number; newly_blocked: number; newly_allowed: number }
-export interface BacktestPerAgent { agent: string; evaluated: number; changed: number; newly_blocked: number; newly_allowed: number }
-export interface BacktestBucket { bucket: number; evaluated: number; newly_blocked: number; newly_allowed: number }
-export interface BacktestSample {
-  id: string;
-  tool: string;
-  agent: string;
-  preview: string;
-  original: string;
-  predicted: string;
-  matched_rule_id: string | null;
-  created_at: string | number;
-}
-export interface BacktestResult {
-  mode: 'bulk';
-  engine: string;
-  sampled?: number;
-  limit?: number;
-  summary: BacktestSummary;
-  per_rule: BacktestPerRule[];
-  per_tool: BacktestPerTool[];
-  per_agent: BacktestPerAgent[];
-  timeseries: BacktestBucket[];
-  samples: BacktestSample[];
-}
-
-export function backtest(body: {
-  rules: PolicyRule[] | Partial<PolicyRule>[];
-  mode?: PolicyMode;
-  limit?: number;
-  from?: number;
-  to?: number;
-}): Promise<BacktestResult> {
-  return request('POST', '/policies/backtest', { body });
-}

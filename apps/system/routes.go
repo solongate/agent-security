@@ -150,8 +150,6 @@ var routes = []route{
 	{path: "/api/v1/orgs", methods: []string{"GET", "POST"}, source: "src/app/api/v1/orgs/route.ts", auth: authKey},
 
 	{path: "/api/v1/policies/active", methods: []string{"GET", "POST"}, source: "src/app/api/v1/policies/active/route.ts", auth: authKey},
-	{path: "/api/v1/policies/backtest", methods: []string{"POST"}, source: "src/app/api/v1/policies/backtest/route.ts", auth: authKey, limit: limValidation},
-	{path: "/api/v1/policies/dry-run", methods: []string{"POST"}, source: "src/app/api/v1/policies/dry-run/route.ts", auth: authKey, limit: limValidation},
 	{path: "/api/v1/policies/{id}/rego", methods: []string{"GET"}, source: "src/app/api/v1/policies/[id]/rego/route.ts", auth: authKey},
 	{path: "/api/v1/policies/{id}/rules/{ruleId}", methods: []string{"DELETE"}, source: "src/app/api/v1/policies/[id]/rules/[ruleId]/route.ts", auth: authKey},
 	{path: "/api/v1/policies/{id}/rules", methods: []string{"POST"}, source: "src/app/api/v1/policies/[id]/rules/route.ts", auth: authKey},
@@ -208,7 +206,7 @@ var routes = []route{
 // a row disappearing, and a row is a row whoever wrote it; splitting the count
 // into "ported" and "ours" would make the assertion weaker in exchange for a
 // distinction the source column already draws.
-const routeCount = 57
+const routeCount = 55
 
 // routeHandlers is how a finished route slice replaces a stub.
 //

@@ -66,8 +66,6 @@ func init() {
 	// thousand audit rows — and they are also the ones the dashboard fires on
 	// every keystroke in the rule editor, so the higher ceiling is deliberate
 	// and not an oversight to tighten.
-	Register("POST /api/v1/policies/dry-run", buildPolicyLimited(apiauth.LimitValidation, (*server).policyDryRun))
-	Register("POST /api/v1/policies/backtest", buildPolicyLimited(apiauth.LimitValidation, (*server).policyBacktest))
 }
 
 // buildPolicyHandler wraps a method in withAuth at the standard limit. Every

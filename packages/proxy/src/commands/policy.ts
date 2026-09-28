@@ -1,8 +1,7 @@
-/** `solongate policy …` - manage policies, rules, active pin, dry-run. */
-import { readFileSync } from 'node:fs';
+/** `solongate policy …` - manage policies, rules and the active pin. */
 import { api } from '../api-client/index.js';
 import type { PolicySet } from '../api-client/index.js';
-import { flagBool, flagNum, flagStr, parse } from './args.js';
+import { flagBool, flagStr, parse } from './args.js';
 import { bold, cyan, decisionColor, dim, err, green, printJson, table, truncate, unknownSub, usage } from './format.js';
 
 const USAGE = usage('solongate policy', 'manage cloud policies', [
@@ -228,27 +227,6 @@ export async function run(argv: string[]): Promise<number> {
       return 0;
     }
 
-    case 'dry-run': {
-      const target = positionals[1];
-      if (!target) return err('  Usage: policy dry-run <id|file.json> [--limit N]'), 1;
-      const rules = await resolveRules(target);
-      const res = await api.policies.dryRun({
-        rules,
-        mode: (flagStr(flags, 'mode') as PolicySet['mode']) ?? undefined,
-        limit: flagNum(flags, 'limit'),
-      });
-      if (json) return printJson(res), 0;
-      err('');
-      err(`  Replayed ${bold(String(res.evaluated))} recent calls against ${rules.length} rule(s)`);
-      err(`  would allow: ${green(String(res.would_allow))}   would deny: ${decisionColor('DENY')} ${res.would_deny}`);
-      err(`  ${green('newly allowed')}: ${res.newly_allowed}   ${decisionColor('DENY')}${dim(' newly blocked')}: ${res.newly_blocked}   unchanged: ${res.unchanged}`);
-      if (res.sample_newly_blocked.length) {
-        err(dim('\n  Sample newly-blocked:'));
-        for (const s of res.sample_newly_blocked.slice(0, 8)) err(`    ${decisionColor('DENY')} ${s.tool}  ${dim(truncate(s.preview, 50))}`);
-      }
-      return 0;
-    }
-
     default:
       return unknownSub('policy', sub, USAGE);
   }
@@ -267,12 +245,3 @@ function printRules(rules: PolicySet['rules']): void {
   );
 }
 
-/** A dry-run target is either a policy id (fetch its rules) or a local JSON file. */
-async function resolveRules(target: string): Promise<PolicySet['rules']> {
-  if (target.endsWith('.json')) {
-    const parsed = JSON.parse(readFileSync(target, 'utf-8')) as PolicySet | { rules: PolicySet['rules'] };
-    return parsed.rules ?? [];
-  }
-  const p = await api.policies.get(target);
-  return p.rules;
-}

@@ -143,7 +143,6 @@ function printHelp() {
   cmd('policy revoke <id> <ruleId>', 'remove a rule');
   cmd('policy activate <id> | --off', 'pin the active policy, or enforce nothing');
   cmd('policy active', 'show the resolved active policy');
-  cmd('policy dry-run <id|file.json> [--mode denylist|whitelist]', 'replay recent traffic against rules');
 
   head('Rate limits');
   cmd('ratelimit show', 'current limits + change history');

@@ -15,8 +15,6 @@ import TextInput from 'ink-text-input';
 import { useEffect, useState } from 'react';
 import { api } from '../../api-client/index.js';
 import type { Constraint, Permission, PolicyEffect, PolicyMode, PolicyRule } from '../../api-client/index.js';
-import { requestDryRun } from './DryRun.js';
-import { requestSection } from '../nav.js';
 import { DataView, Table } from '../components.js';
 import { useLoader, usePanelSize, usePoll } from '../hooks.js';
 import { theme, truncate } from '../theme.js';
@@ -363,13 +361,6 @@ export function PoliciesPanel({ focused }: { active: boolean; focused: boolean }
           setRi(0);
           setFi(0);
           setView('rule');
-        } else if (input === 'D') {
-          // Dry-run IS the Dry Run panel: hand this policy over and jump straight
-          // into that section, which auto-runs the full backtest on it.
-          if (selected) {
-            requestDryRun(selected.id);
-            requestSection('Dry Run');
-          }
         } else if (input === 's') void save();
         else if (input === 'x') discard();
         return;
@@ -535,7 +526,7 @@ export function PoliciesPanel({ focused }: { active: boolean; focused: boolean }
             <Text color={theme.dim}>{`  ${rules.length} rules`}</Text>
             {dirtyTag}
           </Box>
-          <Text color={theme.dim} wrap="truncate">{`↑↓ · enter edit · space on/off · e effect · n new · d del · m mode · D dry-run · s save · ← back${rAbove ? ` · ▲${rAbove}` : ''}${rBelow ? ` · ▼${rBelow}` : ''}`}</Text>
+          <Text color={theme.dim} wrap="truncate">{`↑↓ · enter edit · space on/off · e effect · n new · d del · m mode · s save · ← back${rAbove ? ` · ▲${rAbove}` : ''}${rBelow ? ` · ▼${rBelow}` : ''}`}</Text>
           <Box marginTop={1}>
             <Table
               columns={[

@@ -18,8 +18,8 @@ import (
 //
 // Learn Mode: read what this project's agents have actually been doing and
 // propose a whitelist that would have allowed it. The generator is in
-// internal/policysynth and the "what would this break" pass is the same
-// estimator the dry-run route uses, run against the same sample the rules were
+// internal/policysynth and the "what would this break" pass is
+// internal/policyeval, run against the same sample the rules were
 // derived from — which is why the response calls it `self_consistent` rather
 // than "safe". A rule set that blocks nothing in its own training data is the
 // weakest possible statement about it, and the field says so by name.
@@ -79,10 +79,9 @@ type learnRuleMeta struct {
 	LowConfidence bool   `json:"lowConfidence"`
 }
 
-// learnValidation is FIVE of the estimator's fields, not all of them. The
-// original picks these by hand and the rest of the dry-run result is not in the
-// response; adding them here would be inventing numbers the page has never
-// shown.
+// learnValidation is FIVE of the estimator's fields, not all of them. The rest
+// of the estimate is not in the response; adding them here would be publishing
+// numbers nothing has ever shown.
 type learnValidation struct {
 	NewlyBlocked       int                 `json:"newly_blocked"`
 	NewlyAllowed       int                 `json:"newly_allowed"`
@@ -206,8 +205,8 @@ func (s *server) policiesLearn(w http.ResponseWriter, r *http.Request, key apiau
 // learnLimit is `Math.min(Math.max(Number(body.limit) || 1000, 1), 5000)`.
 //
 // The `|| 1000` swallows both NaN and zero, so `limit: 0` samples a thousand
-// rows rather than none — the same reading POST /policies/dry-run applies to the
-// same expression. The ceiling is what keeps this endpoint from being a way to
+// rows rather than none, which is what the expression it is a port of does.
+// The ceiling is what keeps this endpoint from being a way to
 // stream audit_logs with a valid key.
 func learnLimit(v any) int {
 	if n, ok := policyJSNumber(v); ok && n != 0 && !math.IsNaN(n) {

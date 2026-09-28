@@ -13,10 +13,8 @@ import { PoliciesPanel } from './panels/Policies.js';
 import { RateLimitPanel } from './panels/RateLimit.js';
 import { DlpPanel } from './panels/Dlp.js';
 import { AuditPanel } from './panels/Audit.js';
-import { DryRunPanel } from './panels/DryRun.js';
 import { SettingsPanel } from './panels/Settings.js';
 import { useTermSize } from './hooks.js';
-import { onSectionRequest, takePendingSection } from './nav.js';
 import { enforcingKey, listAccounts, saveAccount, setViewCredentials } from '../api-client/client.js';
 import type { SavedAccount } from '../api-client/client.js';
 import { api } from '../api-client/index.js';
@@ -48,7 +46,6 @@ const SECTIONS: Array<{ label: string; Panel: PanelComponent }> = [
   { label: 'Policies', Panel: PoliciesPanel },
   { label: 'Rate Limit', Panel: RateLimitPanel },
   { label: 'DLP', Panel: DlpPanel },
-  { label: 'Dry Run', Panel: DryRunPanel },
   { label: 'Audit', Panel: AuditPanel },
   { label: 'Settings', Panel: SettingsPanel },
 ];
@@ -96,20 +93,6 @@ export function App(): JSX.Element {
   const [section, setSection] = useState(accounts.length === 0 ? SETTINGS_SECTION : 0);
   const [focus, setFocus] = useState<'nav' | 'panel'>('nav');
 
-  // A panel asked the shell to open another section (Policies -> Dry Run on D).
-  useEffect(
-    () =>
-      onSectionRequest(() => {
-        const label = takePendingSection();
-        if (!label) return;
-        const idx = SECTIONS.findIndex((s) => s.label === label);
-        if (idx >= 0) {
-          setSection(idx);
-          setFocus('panel');
-        }
-      }),
-    [],
-  );
   const [help, setHelp] = useState(false);
 
   const acctIdx = Math.max(0, accounts.findIndex((a) => a.apiKey === viewKey));
@@ -306,7 +289,7 @@ export function App(): JSX.Element {
 const HELP: Array<[string, Array<[string, string]>]> = [
   ['Global', [['↑↓', 'move between sections'], ['→ / enter', 'open a section'], ['← / esc', 'back to the menu'], ['?', 'this help'], ['q', 'quit']]],
   ['Solo Live', [['↑↓', 'select a stream row'], ['enter', 'full entry content'], ['w', 'whitelist the selected DENY'], ['b', 'block the selected ALLOW'], ['d / x / r', 'filter denies / dlp / rate-limit'], ['f', 'local / cloud filter'], ['/', 'search'], ['space', 'copy mode (freeze)']]],
-  ['Policies', [['↑↓', 'browse / select'], ['a', 'activate (pin) selected policy'], ['x', 'deactivate — no active policy'], ['enter', 'open rules → open a rule'], ['space', 'toggle a rule on/off'], ['e', 'flip effect'], ['n', 'new rule'], ['d', 'delete rule'], ['m', 'flip mode'], ['D', 'dry-run the draft'], ['s', 'save'], ['x', 'discard']]],
+  ['Policies', [['↑↓', 'browse / select'], ['a', 'activate (pin) selected policy'], ['x', 'deactivate — no active policy'], ['enter', 'open rules → open a rule'], ['space', 'toggle a rule on/off'], ['e', 'flip effect'], ['n', 'new rule'], ['d', 'delete rule'], ['m', 'flip mode'], ['s', 'save'], ['x', 'discard']]],
   ['Rate limit', [['↑↓', 'field'], ['←→', 'adjust (shift = ±10)'], ['s', 'save']]],
   ['DLP', [['↑↓', 'move'], ['space', 'toggle a built-in pattern on/off'], ['m', 'cycle mode'], ['a', 'add custom pattern (name → glob, * = any chars)'], ['d', 'remove custom pattern'], ['s', 'save · x discard']]],
   ['Audit', [['s', 'source: cloud ↔ local'], ['← →', 'prev / next page (500 each)'], ['↑↓', 'select (list scrolls)'], ['enter', 'full entry'], ['f / g', 'decision / signal filter'], ['t / n / /', 'tool / agent / search'], ['x / X', 'delete entry / ALL (press twice)'], ['c', 'clear filters']]],

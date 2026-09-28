@@ -20,7 +20,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { localLogsSetting, tailLines, type LocalLogSetting } from '../local-log.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, api } from '../../api-client/index.js';
+import { api } from '../../api-client/index.js';
 import type { AuditEntry, Stats } from '../../api-client/index.js';
 import { loadConfig } from '../config.js';
 import { desktopNotify } from '../notify.js';
@@ -246,22 +246,14 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     setLog((prev) => [...prev.slice(-59), { ts: Date.now(), msg, level }]);
   }, []);
 
-  const netFails = useRef(0);
+  // Every read is a file read now. The backoff this used to carry — 429s and
+  // "network unreachable, retrying" — described a service that is not there, and
+  // a blip that self-heals on the next poll is not a thing a local file does. An
+  // error here is real: an unreadable policy file, a permission problem. Said
+  // once, plainly.
   const onApiError = useCallback(
     (e: unknown) => {
-      const is429 = e instanceof ApiError && e.status === 429;
-      const isNet = e instanceof ApiError && e.status === 0;
-      if (is429 && Date.now() >= pausedUntil.current) {
-        pausedUntil.current = Date.now() + 30_000;
-        pushLog('rate limited by api · backing off 30s', 'warn');
-      } else if (isNet) {
-        // Transient network blips (idle socket, resume) are common and self-heal
-        // on the next poll — stay quiet unless it persists (3 in a row).
-        netFails.current += 1;
-        if (netFails.current === 3) pushLog('network unreachable · retrying…', 'warn');
-      } else if (!is429) {
-        pushLog(`api error · ${truncate(e instanceof Error ? e.message : String(e), 40)}`, 'bad');
-      }
+      pushLog(truncate(e instanceof Error ? e.message : String(e), 60), 'bad');
     },
     [pushLog],
   );
@@ -355,15 +347,13 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     return () => clearInterval(t);
   }, [active, pollLocal]);
 
-  // ── CLOUD plane ───────────────────────────────────────────────────────────
+  // ── the recorded plane: what the hooks wrote ─────────────────────────────
   const pollFeed = useCallback(async () => {
     if (paused()) return;
     const t0 = Date.now();
     try {
       const fd = await api.audit.list({ limit: 50 });
       if (frozenRef.current) return; // dropped: response landed mid copy-mode
-      if (netFails.current >= 3) pushLog('network recovered', 'ok');
-      netFails.current = 0;
       const ms = Date.now() - t0;
       setLat((l) => [...l, ms].slice(-240));
       const fresh = fd.entries.filter((e) => !seenRef.current.has(e.id));

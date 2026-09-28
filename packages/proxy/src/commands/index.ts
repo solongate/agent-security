@@ -11,7 +11,6 @@
  * (ApiError / NotAuthenticatedError) are caught here and printed as one clean
  * line - no stack traces - so the CLI reads like a tool, not a crash.
  */
-import { ApiError, NotAuthenticatedError } from '../api-client/index.js';
 import { err, red } from './format.js';
 import * as policy from './policy.js';
 import * as ratelimit from './ratelimit.js';
@@ -54,14 +53,9 @@ export async function runCommand(command: string, argv: string[]): Promise<numbe
   try {
     return await dispatch(command, argv);
   } catch (e) {
-    if (e instanceof NotAuthenticatedError) {
-      err(red('  ✗ ') + e.message);
-      return 1;
-    }
-    if (e instanceof ApiError) {
-      err(red('  ✗ ') + `${e.message}` + (e.status ? ` (${e.status})` : ''));
-      return 1;
-    }
+    // One branch, because there is one kind of failure left. The two that were
+    // here — not authenticated, and an HTTP status — described a service, and a
+    // LocalStoreError already carries a sentence worth printing on its own.
     const msg = e instanceof Error ? e.message : String(e);
     err(red('  ✗ ') + msg);
     return 1;

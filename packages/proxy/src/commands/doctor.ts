@@ -2,7 +2,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { api, isAuthenticated, resolveCredentials } from '../api-client/index.js';
+import { api } from '../api-client/index.js';
+import { policyPath } from '../api-client/local-store.js';
 import { codexDetected, codexHooksStatus, globalPaths, installedGuardVersion, isGuardInstalled, isOpencodeGuardInstalled, opencodeDetected } from '../global-install.js';
 import { agoLabel, guardBeat, hookCanStart } from '../hook-health.js';
 import { localLogFile } from '../tui/local-log.js';
@@ -24,14 +25,11 @@ export interface Check {
 export async function collectChecks(): Promise<Check[]> {
   const checks: Check[] = [];
 
-  // 1. login / credentials
-  if (!isAuthenticated()) {
-    checks.push({ name: 'login', ok: false, detail: 'not logged in - run `solongate`, add your account in the Accounts panel' });
-  } else {
-    const { apiUrl } = resolveCredentials();
-    checks.push({ name: 'login', ok: true, detail: `paired · ${apiUrl}` });
+  // 1. the policy file, which is where everything below comes from
+  {
+    checks.push({ name: 'policy file', ok: true, detail: policyPath() });
 
-    // 2. reachability + active policy
+    // 2. what the guard would enforce, read from that same file
     try {
       const active = await api.policies.active();
       if (active.policy) {
@@ -68,7 +66,9 @@ export async function collectChecks(): Promise<Check[]> {
       );
       checks.push({ name: 'self-protection', ok: active.self_protection_enabled ? true : 'warn', detail: active.self_protection_enabled ? 'on' : 'off' });
     } catch (e) {
-      checks.push({ name: 'api', ok: false, detail: 'unreachable: ' + (e instanceof Error ? e.message : String(e)) });
+      // The guard reads this file too, and answers the same way: an unparseable
+      // policy is no policy, so nothing is enforced. Worth a failed check.
+      checks.push({ name: 'policy', ok: false, detail: e instanceof Error ? e.message : String(e) });
     }
 
     // 3. guard hook version

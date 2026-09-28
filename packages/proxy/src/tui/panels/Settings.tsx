@@ -1,44 +1,27 @@
 /**
  * Settings panel — the dashboard Settings page, dataroom edition. Everything an
  * operator configures, in one single-cursor list (↑↓ move, enter/m act):
- *   ACCOUNTS        : accounts logged in on this device (dataroom twin of the
- *                     dashboard's Connected devices) — view / make active /
- *                     add (device login) / remove
- *   GUARD           : installed vs latest hook version + device count (read-only)
+ *   GUARD           : the hook installed here, against the one this CLI ships
  *   SELF-PROTECTION : block agents from touching SolonGate's own files (toggle)
  *   LOCAL LOGS      : where the hooks write this machine's audit trail
  *
- * Keys: ↑↓ move · enter act/edit · m make-active/toggle · e edit ·
- *   x remove account · n add account · r refresh
+ * Keys: ↑↓ move · enter act/edit · m toggle · e edit · d remove the guard ·
+ *   r refresh
  */
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api-client/index.js';
-import {
-  DEFAULT_API_URL,
-  clearActiveCredential,
-  isActiveAccount,
-  listAccounts,
-  removeAccount,
-  saveAccount,
-  setActiveAccount,
-  setViewCredentials,
-  type SavedAccount,
-} from '../../api-client/client.js';
-import { openBrowser, pollDeviceLogin, startDeviceLogin } from '../../api-client/device-login.js';
 import { codexDetected, codexHooksStatus, guardHookOutdated, installedGuardVersion, installGlobalQuiet, isGuardInstalled, repairQuiet, uninstallGlobalQuiet } from '../../global-install.js';
 import { collectChecks } from '../../commands/doctor.js';
 import { DataView } from '../components.js';
 import { useLoader, usePanelSize } from '../hooks.js';
 import { theme, truncate } from '../theme.js';
-import { clearLocalLog, localLogsSetting, type LocalLogSetting } from '../local-log.js';
+import { localLogsSetting, type LocalLogSetting } from '../local-log.js';
 
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 type Row =
-  | { kind: 'acct'; acc: SavedAccount }
-  | { kind: 'acct-add' }
   | { kind: 'guard' }
   | { kind: 'self' }
   | { kind: 'doctor' }
@@ -47,30 +30,16 @@ type Row =
   | { kind: 'll-path' }
 
 
-interface LoginState {
-  phase: 'starting' | 'waiting' | 'done' | 'error';
-  url?: string;
-  /** The code the person types at the identity provider. */
-  code?: string;
-  msg?: string;
-}
-
-const acctLabel = (a: SavedAccount): string => a.email || a.user || 'account …' + a.apiKey.slice(-4);
-
 export function SettingsPanel({
   active,
   focused,
-  viewApiKey,
-  onView,
-  onAccountsChanged,
+  onChanged,
 }: {
   active: boolean;
   focused: boolean;
-  viewApiKey?: string;
-  onView?: (acc: SavedAccount) => void;
-  /** Fired after this panel mutates the on-disk account set so the App shell can
-   *  re-derive its header / view / locked state from disk. */
-  onAccountsChanged?: () => void;
+  /** Fired after this panel changes something the other panels read, so the App
+   *  shell can remount them. Deleting the policy from here is the case. */
+  onChanged?: () => void;
 }): JSX.Element {
   void active;
   const { cols, rows } = usePanelSize();
@@ -125,15 +94,9 @@ export function SettingsPanel({
     return () => clearInterval(step);
   }, [diagBusy]);
 
-  // ── accounts on this device ───────────────────────────────────────────────
-  const [accounts, setAccounts] = useState<SavedAccount[]>(() => listAccounts());
-  const [login, setLogin] = useState<LoginState | null>(null);
   const [tick, setTick] = useState(0);
-  const abort = useRef(false);
-  const refreshAccounts = () => setAccounts(listAccounts());
-  // LOCAL guard state (read from THIS device's files) — the truth, independent of
-  // the cloud guard-status which lingers ~14 days and needs the API deployed.
-  // Reflects install/remove instantly.
+  // The guard as it is ON THIS MACHINE, read from its files. Reflects an install
+  // or a removal instantly, and needs nothing but the disk.
   const [guardHere, setGuardHere] = useState(() => isGuardInstalled());
   const [guardVer, setGuardVer] = useState<number | null>(() => installedGuardVersion());
   const [guardOld, setGuardOld] = useState(() => guardHookOutdated());
@@ -152,22 +115,19 @@ export function SettingsPanel({
     setGuardOld(guardHookOutdated());
     setCodexTrust(codexNeedsTrust());
   };
-  const locked = accounts.length === 0; // unpaired device — cloud sections are inert
-
   useEffect(() => {
-    const loggingIn = login && login.phase !== 'done' && login.phase !== 'error';
-    // Same frame clock drives the login overlay, the doctor/repair progress and
-    // the update spinner — an npm install is slow enough that a frozen glyph
-    // would read as a hang.
-    if (!loggingIn && !diagBusy) return;
+    // The frame clock for the doctor/repair progress screen. An install is slow
+    // enough that a frozen glyph would read as a hang.
+    if (!diagBusy) return;
     const t = setInterval(() => setTick((n) => n + 1), 120);
     return () => clearInterval(t);
-  }, [login, diagBusy]);
+  }, [diagBusy]);
 
-  // Cloud config — skipped while unpaired (there is no key to call with).
-  const localQ = useLoader(() => (listAccounts().length ? api.settings.getLocalLogs() : Promise.resolve(null)));
-  const guardQ = useLoader(() => (listAccounts().length ? api.settings.getGuardStatus() : Promise.resolve(null)));
-  const selfQ = useLoader(() => (listAccounts().length ? api.settings.getSelfProtection() : Promise.resolve(null)));
+  // All three read this machine's own files. They were skipped while unpaired,
+  // because each was an HTTP call that needed a key; there is nothing to skip.
+  const localQ = useLoader(() => api.settings.getLocalLogs());
+  const guardQ = useLoader(() => api.settings.getGuardStatus());
+  const selfQ = useLoader(() => api.settings.getSelfProtection());
 
   const local = localQ.data;
   const selfProt = selfQ.data;
@@ -189,25 +149,18 @@ export function SettingsPanel({
     }
   }, [guardHere, guardOld]);
   const rowsAll: Row[] = [
-    ...accounts.map((acc) => ({ kind: 'acct' as const, acc })),
-    { kind: 'acct-add' },
-    ...(locked
-      ? []
-      : [
-          { kind: 'guard' as const },
-          { kind: 'self' as const },
-          { kind: 'doctor' as const },
-          { kind: 'repair' as const },
-          { kind: 'll-enabled' as const },
-          { kind: 'll-path' as const },
-        ]),
+    { kind: 'guard' },
+    { kind: 'self' },
+    { kind: 'doctor' },
+    { kind: 'repair' },
+    { kind: 'll-enabled' },
+    { kind: 'll-path' },
   ];
   const selClamped = Math.min(sel, rowsAll.length - 1);
   const cur = rowsAll[selClamped]!;
-  const keyOf = (r: Row): string => (r.kind === 'acct' ? 'acct:' + r.acc.apiKey : r.kind);
+  const keyOf = (r: Row): string => r.kind;
 
   const reloadAll = () => {
-    refreshAccounts();
     localQ.reload();
     guardQ.reload();
     selfQ.reload();
@@ -221,64 +174,18 @@ export function SettingsPanel({
       .then(() => {
         setMsg({ text: '✓ ' + label, level: 'ok' });
         reload();
+        // Every change here lands in the file the other panels read — the layers
+        // and the tamper flag live beside the policy — so they are remounted
+        // rather than left showing what was true before.
+        onChanged?.();
       })
       .catch((e: unknown) => setMsg({ text: '✗ ' + (e instanceof Error ? e.message : String(e)), level: 'bad' }))
       .finally(() => setBusy(false));
   };
 
-  // ── device login, driven entirely in-panel ────────────────────────────────
-  const beginLogin = () => {
-    if (login && (login.phase === 'starting' || login.phase === 'waiting')) return;
-    abort.current = false;
-    setLogin({ phase: 'starting' });
-    void (async () => {
-      let start;
-      try {
-        start = await startDeviceLogin(DEFAULT_API_URL);
-      } catch (e) {
-        setLogin({ phase: 'error', msg: 'could not reach SolonGate: ' + (e instanceof Error ? e.message : String(e)) });
-        return;
-      }
-      setLogin({ phase: 'waiting', url: start.verifyUrlPlain || start.verifyUrl, code: start.userCode });
-      openBrowser(start.verifyUrl);
-      while (Date.now() < start.expiresAt && !abort.current) {
-        await new Promise((r) => setTimeout(r, start.intervalMs));
-        if (abort.current) return;
-        const res = await pollDeviceLogin(DEFAULT_API_URL, start);
-        if (res.status === 'approved' && res.apiKey) {
-          saveAccount({ apiKey: res.apiKey, apiUrl: DEFAULT_API_URL, project: res.project, user: res.user, email: res.email });
-          setLogin({ phase: 'done', msg: `✓ added ${res.email || res.user || res.project || 'account'}` });
-          setViewCredentials({ apiKey: res.apiKey, apiUrl: DEFAULT_API_URL });
-          onView?.({ apiKey: res.apiKey, apiUrl: DEFAULT_API_URL, project: res.project, user: res.user, email: res.email });
-          reloadAll();
-          return;
-        }
-        if (res.status === 'expired') {
-          setLogin({ phase: 'error', msg: 'the code expired — press n to retry' });
-          return;
-        }
-        // The provider, or this service, said no. The reason is the useful
-        // half: "refused at the identity provider" and "minted for a different
-        // audience" are the same screen otherwise.
-        if (res.status === 'denied') {
-          setLogin({ phase: 'error', msg: res.message || 'the sign-in was refused — press n to retry' });
-          return;
-        }
-      }
-      if (!abort.current) setLogin({ phase: 'error', msg: 'timed out — press n to retry' });
-    })();
-  };
-
-
   // ── row activation (enter) ────────────────────────────────────────────────
   const activate = (r: Row) => {
-    if (r.kind === 'acct') {
-      setViewCredentials({ apiKey: r.acc.apiKey, apiUrl: r.acc.apiUrl });
-      onView?.(r.acc);
-      setMsg({ text: `viewing ${acctLabel(r.acc)}`, level: 'ok' });
-    } else if (r.kind === 'acct-add') {
-      beginLogin();
-    } else if (r.kind === 'guard') {
+    if (r.kind === 'guard') {
       // enter = install / reinstall the guard DIRECTLY — write the hook files this
       // CLI ships and register them, right now. Works whether the guard is removed,
       // outdated, or already current (a plain re-write). To pull a NEWER release,
@@ -379,14 +286,6 @@ export function SettingsPanel({
   // ── keys ──────────────────────────────────────────────────────────────────
   useInput(
     (inp, key) => {
-      // While pairing, only esc (cancel) is live.
-      if (login && (login.phase === 'starting' || login.phase === 'waiting')) {
-        if (key.escape) {
-          abort.current = true;
-          setLogin(null);
-        }
-        return;
-      }
       setMsg(null);
       if (key.upArrow) {
         setSel((n) => Math.max(0, n - 1));
@@ -396,56 +295,8 @@ export function SettingsPanel({
         setConfirmDel(null);
       } else if (key.return || inp === ' ') activate(cur);
       else if (inp === 'm') {
-        if (cur.kind === 'acct') {
-          // The machine-local log is not per account, so the calls already in
-          // it belong to whoever was active before. Start it over rather than
-          // showing another account's history in Live.
-          const ok = setActiveAccount({ apiKey: cur.acc.apiKey, apiUrl: cur.acc.apiUrl });
-          if (ok) clearLocalLog();
-          setMsg(ok ? { text: `✓ ${acctLabel(cur.acc)} is now the ACTIVE key (guard + logging)`, level: 'ok' } : { text: '✗ could not set active', level: 'bad' });
-          refreshAccounts();
-        } else if (cur.kind === 'self' || cur.kind === 'll-enabled') {
-          activate(cur);
-        }
-      } else if (inp === 'x' && cur.kind === 'acct') {
-        const target = cur.acc;
-        const k = 'acct:' + target.apiKey;
-        const wasActive = isActiveAccount(target.apiKey);
-        // Every OTHER account this device knows — the one that takes over the
-        // active guard key, or (when empty) the signal that removing this is a
-        // full local sign-out.
-        const others = accounts.filter((a) => a.apiKey !== target.apiKey);
-        if (confirmDel !== k) {
-          setConfirmDel(k);
-          const note = wasActive
-            ? others.length
-              ? ` — the ACTIVE guard key; ${acctLabel(others[0]!)} takes over`
-              : ' — your ONLY account & the active guard key; this signs the device out (guard has no key until you log in again)'
-            : ' (the cloud account is untouched)';
-          setMsg({ text: `press x again to remove ${acctLabel(target)} from this device${note}`, level: 'bad' });
-          return;
-        }
-        setConfirmDel(null);
-        // Remove from accounts.json, then repair the ACTIVE key so it doesn't get
-        // re-seeded as a placeholder by listAccounts(): promote another account, or —
-        // when this was the last one — clear the active credential entirely.
-        removeAccount(target.apiKey);
-        clearLocalLog();
-        let extra = ' from this device';
-        if (wasActive) {
-          if (others.length) {
-            setActiveAccount({ apiKey: others[0]!.apiKey, apiUrl: others[0]!.apiUrl });
-            extra = ` · ${acctLabel(others[0]!)} is now the active key`;
-          } else {
-            clearActiveCredential();
-            extra = ' · signed out of this device';
-          }
-        }
-        setMsg({ text: `✓ removed ${acctLabel(target)}${extra}`, level: 'ok' });
-        refreshAccounts();
-        onAccountsChanged?.(); // let the App shell re-derive header / view / lock from disk
+        if (cur.kind === 'self' || cur.kind === 'll-enabled') activate(cur);
       } else if (inp === 'e' && cur.kind === 'll-path') activate(cur);
-      else if (inp === 'n') beginLogin();
       else if (inp === 'd' && cur.kind === 'guard') {
         // Remove (uninstall) the guard hooks from this device — the dataroom twin
         // of `solongate` restore. Double-press to confirm; the TUI writes the
@@ -472,62 +323,13 @@ export function SettingsPanel({
 
   const spin = SPIN[tick % SPIN.length];
 
-  // ── login overlay ─────────────────────────────────────────────────────────
-  if (login && (login.phase === 'starting' || login.phase === 'waiting')) {
-    return (
-      <Box flexDirection="column">
-        <Text bold color={theme.accentBright}>
-          Add an account
-        </Text>
-        {login.phase === 'starting' ? (
-          <Text color={theme.dim}>{spin} asking your identity provider…</Text>
-        ) : (
-          // THE CODE IS THE POINT AND IT IS SHOWN. A provider may or may not
-          // honour verification_uri_complete, the browser may not open at all,
-          // and the whole reason this grant exists is that the person can
-          // finish on a DIFFERENT device — a phone, with the laptop headless.
-          <Box flexDirection="column" marginTop={1}>
-            <Text color={theme.dim}>Sign in with your organisation's identity provider.</Text>
-            <Box marginTop={1} flexDirection="column">
-              <Text color={theme.dim}> Enter this code:</Text>
-              <Text color={theme.accentBright} bold>
-                {' '}
-                {login.code}
-              </Text>
-            </Box>
-            <Box marginTop={1} flexDirection="column">
-              <Text color={theme.dim}> at:</Text>
-              <Text color={theme.accentBright} bold wrap="truncate">
-                {' '}
-                {login.url}
-              </Text>
-            </Box>
-            <Box marginTop={1}>
-              <Text color={theme.dim}>Your browser should have opened there. It works from a phone too.</Text>
-            </Box>
-            <Box marginTop={1}>
-              <Text color={theme.warn}>{spin} waiting for you to finish… </Text>
-              <Text color={theme.dim}>esc to cancel</Text>
-            </Box>
-          </Box>
-        )}
-      </Box>
-    );
-  }
 
-
-  const loading =
-    !locked &&
-    ((localQ.loading && !localQ.data) || (guardQ.loading && !guardQ.data) || (selfQ.loading && !selfQ.data));
-  const rawError = locked ? null : localQ.error ?? guardQ.error ?? selfQ.error;
-  // An AUTH failure must never take the panel over. Every cloud loader here 401s
-  // when the stored key is revoked or rotated, and DataView renders the error
-  // INSTEAD of the rows — which hides the Accounts section, i.e. the only way to
-  // remove the dead account and pair again. A device revoked from the dashboard
-  // was then stuck: the CLI said "Invalid API key. Run `solongate` and log in
-  // from the Accounts panel" while that panel showed nothing but that sentence.
-  // So: keep rendering (accounts + the local guard rows still work offline) and
-  // carry the auth problem as a banner with the actual way out.
+  const loading = (localQ.loading && !localQ.data) || (guardQ.loading && !guardQ.data) || (selfQ.loading && !selfQ.data);
+  // An error must never take the panel over: DataView renders it INSTEAD of the
+  // rows, and the rows are how somebody fixes whatever produced it. The one that
+  // reaches here now is an unreadable policy file — and the guard reads that same
+  // file, so hiding the rows would hide the only place to see that and repair it.
+  const rawError = localQ.error ?? guardQ.error ?? selfQ.error;
   const authError = rawError && /invalid api key|authentication|401|unauthor|not logged in/i.test(rawError) ? rawError : null;
   // Two different problems, two different ways out: a key that exists and is
   // rejected, versus no key at all. Telling someone already inside the dataroom
@@ -542,27 +344,6 @@ export function SettingsPanel({
   const cursor = (r: Row) => <Text color={isCur(r) ? theme.accentBright : theme.dim}>{isCur(r) ? '▸ ' : '  '}</Text>;
   const rowLine = (r: Row): JSX.Element => {
     switch (r.kind) {
-      case 'acct': {
-        const a = r.acc;
-        const isView = viewApiKey ? a.apiKey === viewApiKey : accounts[0]?.apiKey === a.apiKey;
-        const isActive = isActiveAccount(a.apiKey);
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            <Text color={theme.accent}>{truncate(acctLabel(a), 30).padEnd(31)}</Text>
-            {isView ? <Text color={theme.ok}>● viewing </Text> : <Text color={theme.dim}>{'          '}</Text>}
-            {isActive ? <Text color={theme.warn}>ACTIVE </Text> : <Text color={theme.dim}>{'       '}</Text>}
-            <Text color={theme.dim}>{a.project ? truncate(a.project, 20) : ''}</Text>
-          </Text>
-        );
-      }
-      case 'acct-add':
-        return (
-          <Text wrap="truncate">
-            {cursor(r)}
-            <Text color={theme.dim}>+ add account (enter — device login in the browser)</Text>
-          </Text>
-        );
       case 'guard':
         return (
           <Text wrap="truncate">
@@ -653,13 +434,10 @@ export function SettingsPanel({
   };
 
   const sectionOf = (r: Row): string =>
-    r.kind === 'acct' || r.kind === 'acct-add'
-      ? 'ACCOUNTS'
-      : r.kind === 'guard' || r.kind === 'self' || r.kind === 'doctor' || r.kind === 'repair'
-        ? 'PROTECTION'
-        : 'LOCAL LOGS';
+    r.kind === 'guard' || r.kind === 'self' || r.kind === 'doctor' || r.kind === 'repair'
+      ? 'PROTECTION'
+      : 'LOCAL LOGS';
   const SECTION_DESC: Record<string, string> = {
-    ACCOUNTS: `on this device (${accounts.length}) · ● viewing · ACTIVE = guard key · x removes`,
     PROTECTION: 'guard hook: enter install/update · d remove · self-protection · doctor + repair',
     'LOCAL LOGS': 'where the hooks write this machine\'s audit trail',
   };
@@ -764,8 +542,6 @@ export function SettingsPanel({
           </Box>
         ) : msg ? (
           <Text wrap="truncate" color={msg.level === 'bad' ? theme.bad : theme.ok}>{truncate(msg.text, cols)}</Text>
-        ) : login?.msg ? (
-          <Text wrap="truncate" color={login.phase === 'error' ? theme.bad : theme.ok}>{login.msg}</Text>
         ) : (
           <Text> </Text>
         )}

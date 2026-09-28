@@ -15,10 +15,7 @@ import { DlpPanel } from './panels/Dlp.js';
 import { AuditPanel } from './panels/Audit.js';
 import { SettingsPanel } from './panels/Settings.js';
 import { useTermSize } from './hooks.js';
-import { enforcingKey, listAccounts, saveAccount, setViewCredentials } from '../api-client/client.js';
-import type { SavedAccount } from '../api-client/client.js';
 import { api } from '../api-client/index.js';
-import { ensureLocalLogOwner } from './local-log.js';
 
 type PanelComponent = (props: { active: boolean; focused: boolean }) => JSX.Element;
 
@@ -79,98 +76,42 @@ function Banner({ cols }: { cols: number }): JSX.Element {
   );
 }
 
-const SETTINGS_SECTION = SECTIONS.findIndex((s) => s.label === 'Settings');
 
 export function App(): JSX.Element {
   const { exit } = useApp();
-  // Accounts logged in on this device. `a` cycles which one the dataroom VIEWS
-  // (data only — the guard hooks keep using the active key). Bumping viewNonce
-  // remounts every panel so it refetches for the newly-viewed account.
-  const [accounts, setAccounts] = useState<SavedAccount[]>(() => listAccounts());
-  const [viewKey, setViewKey] = useState<string | undefined>(() => accounts[0]?.apiKey);
+  // viewNonce remounts every panel, so a change made in one is refetched by the
+  // rest. It used to exist for switching between accounts; it still earns its
+  // keep, because Settings can delete the policy the other panels are showing.
   const [viewNonce, setViewNonce] = useState(0);
-  // With no account yet, land on Settings so the user can log in from here.
-  const [section, setSection] = useState(accounts.length === 0 ? SETTINGS_SECTION : 0);
+  const [section, setSection] = useState(0);
   const [focus, setFocus] = useState<'nav' | 'panel'>('nav');
 
   const [help, setHelp] = useState(false);
 
-  const acctIdx = Math.max(0, accounts.findIndex((a) => a.apiKey === viewKey));
-  const cur = accounts[acctIdx];
-  // The account label is the PERSON, not the project: e-mail first (that's who
-  // is logged in), then user name, then project. NEVER the API key — until the
-  // identity resolves (or offline) show a neutral key-tail reference. Identity
-  // comes from /auth/me once and is persisted to accounts.json.
-  const rawEmail = cur?.email ?? '';
-  // A saved row is not the same as a working session. When the key behind it is
-  // gone (signed out elsewhere, revoked, pairing never finished) the header used
-  // to keep naming the account while every panel said the opposite, which read
-  // as a bug rather than as "you need to sign in".
-  const acctLabel = !cur
-    ? 'not logged in'
-    : rawEmail || cur.user || cur.project || `account …${cur.apiKey.slice(-4)}`;
-
+  // What is being enforced, which is what an account label used to occupy. Read
+  // from the policy file, and re-read on viewNonce so deleting the policy in
+  // Settings is reflected here rather than leaving a name for a file that is gone.
+  const [policyLabel, setPolicyLabel] = useState('reading…');
   useEffect(() => {
-    if (!cur || cur.email) return; // e-mail is the primary label — backfill until we have it
     let alive = true;
-    api.auth
-      .me()
-      .then((r) => {
-        const project = r.project?.name || cur.project;
-        const user = r.user?.name || cur.user;
-        const email = r.user?.email || undefined;
-        if (!alive || (!project && !user && !email)) return;
-        saveAccount({ ...cur, project, user, email });
-        setAccounts(listAccounts());
+    api.policies
+      .list()
+      .then(({ policies }) => {
+        if (!alive) return;
+        const p = policies[0];
+        setPolicyLabel(p ? `${p.name} · ${p.rules.length} ${p.rules.length === 1 ? 'rule' : 'rules'}` : 'none yet');
       })
-      .catch(() => {
-        /* offline — current label stays */
+      .catch((e: unknown) => {
+        // An unreadable file is worth saying out loud: the guard reads the same
+        // one and enforces nothing when it cannot parse it.
+        if (alive) setPolicyLabel(e instanceof Error ? e.message.slice(0, 60) : 'unreadable');
       });
     return () => {
       alive = false;
     };
-  }, [cur]);
+  }, [viewNonce]);
 
-  const viewAccount = (a: SavedAccount) => {
-    setViewCredentials({ apiKey: a.apiKey, apiUrl: a.apiUrl });
-    setAccounts(listAccounts());
-    setViewKey(a.apiKey);
-    setViewNonce((n) => n + 1);
-  };
-  const switchAccount = () => {
-    if (accounts.length < 2) return;
-    viewAccount(accounts[(acctIdx + 1) % accounts.length]!);
-  };
-  // Settings calls this after it mutates the on-disk account set (remove /
-  // sign-out). Re-derive from disk so the header, the account count and the
-  // locked state stay in lockstep — falling back to a surviving account, or
-  // clearing the view entirely when the last account was removed.
-  const syncAccounts = () => {
-    const list = listAccounts();
-    setAccounts(list);
-    const next = list.find((a) => a.apiKey === viewKey) ?? list[0];
-    setViewCredentials(next ? { apiKey: next.apiKey, apiUrl: next.apiUrl } : null);
-    setViewKey(next?.apiKey);
-    setViewNonce((n) => n + 1);
-  };
-
-  // Locked until a device is paired: with no account, ONLY the Settings panel
-  // is reachable — every other section is inert (nothing to show without a key).
-  // Accounts on file is the whole test. A selected account is used through the
-  // viewing credential, which is module state rather than React state, so
-  // reading it during render returned "no key" on the first pass and never
-  // corrected itself — the dataroom locked itself out of an account that
-  // worked perfectly well.
-  // Before any panel reads it, make sure the machine-local log belongs to the
-  // account in use — it is one file per machine and carries no account of its
-  // own, so a newly paired account would otherwise open onto the last one's
-  // calls.
-  useEffect(() => {
-    try { ensureLocalLogOwner(enforcingKey()); } catch { /* nothing to reconcile */ }
-  }, [accounts.length]);
-
-  const locked = accounts.length === 0;
-  const effectiveSection = locked ? SETTINGS_SECTION : section;
+  const effectiveSection = section;
 
   useInput((input, key) => {
     if (help) {
@@ -181,18 +122,10 @@ export function App(): JSX.Element {
       setHelp(true);
       return;
     }
-    if (locked) {
-      // Only entering the Settings panel (and quitting) is allowed.
-      if (key.rightArrow || key.return || key.tab) setFocus('panel');
-      else if (key.escape) setFocus('nav');
-      else if ((input === 'q' || input === 'Q') && focus === 'nav') exit();
-      return;
-    }
     if (focus === 'nav') {
       if (key.upArrow) setSection((n) => (n - 1 + SECTIONS.length) % SECTIONS.length);
       else if (key.downArrow) setSection((n) => (n + 1) % SECTIONS.length);
       else if (key.rightArrow || key.return || key.tab) setFocus('panel');
-      else if (input === 'a' || input === 'A') switchAccount();
       else if ((input === 'q' || input === 'Q')) exit();
     } else {
       if (key.escape || key.tab) setFocus('nav');
@@ -222,7 +155,7 @@ export function App(): JSX.Element {
   const Panel = current.Panel;
   const panelBody =
     current.label === 'Settings' ? (
-      <SettingsPanel active focused={focus === 'panel'} viewApiKey={viewKey} onView={viewAccount} onAccountsChanged={syncAccounts} />
+      <SettingsPanel active focused={focus === 'panel'} onChanged={() => setViewNonce((n) => n + 1)} />
     ) : (
       <Panel active={focus === 'panel' || !TAKEOVER.has(current.label)} focused={focus === 'panel'} />
     );
@@ -234,17 +167,11 @@ export function App(): JSX.Element {
       <Banner cols={cols} />
 
       <Text wrap="truncate">
-        <Text color={theme.dim}>account: </Text>
-        <Text color={locked ? theme.warn : theme.accentBright} bold>
-          {acctLabel}
+        <Text color={theme.dim}>policy: </Text>
+        <Text color={theme.accentBright} bold>
+          {policyLabel}
         </Text>
-        {locked ? (
-          <Text color={theme.dim}>{'  · log in from Settings to unlock the dataroom'}</Text>
-        ) : accounts.length > 1 ? (
-          <Text color={theme.dim}>{`  (${acctIdx + 1}/${accounts.length} · a switch · Settings to manage)`}</Text>
-        ) : (
-          <Text color={theme.dim}>{'  · Settings to add another'}</Text>
-        )}
+        <Text color={theme.dim}>{'  · this machine, nothing leaves it'}</Text>
       </Text>
 
       <Box key={viewNonce} marginTop={1} flexGrow={1}>
@@ -254,12 +181,10 @@ export function App(): JSX.Element {
             resizes as you move between sections. */}
         <Box flexDirection="column" flexShrink={0} width={16} borderStyle="round" borderColor={focus === 'nav' ? theme.accent : 'gray'} paddingX={1}>
           {SECTIONS.map((s, i) => {
-            // When locked, only Settings is reachable — dim the rest with a lock.
             const isCur = i === effectiveSection;
-            const disabled = locked && s.label !== 'Settings';
             return (
-              <Text key={s.label} color={isCur ? theme.accentBright : disabled ? theme.dim : undefined} bold={isCur} dimColor={disabled}>
-                {(isCur ? '▸ ' : disabled ? '⊘ ' : '  ') + s.label}
+              <Text key={s.label} color={isCur ? theme.accentBright : undefined} bold={isCur}>
+                {(isCur ? '▸ ' : '  ') + s.label}
               </Text>
             );
           })}
@@ -274,10 +199,8 @@ export function App(): JSX.Element {
       </Box>
 
       <Box>
-        {locked ? (
-          <KeyHints hints={[['→/enter', 'open Settings'], ['n', 'log in'], ['q', 'quit']]} />
-        ) : focus === 'nav' ? (
-          <KeyHints hints={[['↑↓', 'section'], ['→/enter', 'open'], ...(accounts.length > 1 ? [['a', 'account'] as [string, string]] : []), ['?', 'help'], ['q', 'quit']]} />
+        {focus === 'nav' ? (
+          <KeyHints hints={[['↑↓', 'section'], ['→/enter', 'open'], ['?', 'help'], ['q', 'quit']]} />
         ) : (
           <KeyHints hints={[['←/esc', 'back'], ['↑↓', 'in-panel'], ['space/s', 'act']]} />
         )}

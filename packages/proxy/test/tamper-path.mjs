@@ -27,8 +27,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { suite, check, note, done, HOOK, FAKE_KEY } from './harness.mjs';
+import { suite, check, note, done, call, FAKE_KEY } from './harness.mjs';
 
 // Assembled, or this file's own text trips the protection under test and the
 // tooling that writes it refuses. Same reason dlpkey_test.go does it in Go.
@@ -45,20 +44,22 @@ writeFileSync(join(sg, CRED_NAME), JSON.stringify({ apiKey: FAKE_KEY, apiUrl: 'h
 const cache = join(sg, CACHE_NAME);
 writeFileSync(cache, JSON.stringify({ _ts: Date.now(), policy: null, security: {} }));
 
-/** Run the guard on one tool call and say whether it refused. */
+/**
+ * Run the guard on one tool call and say whether it refused.
+ *
+ * Through the harness, which derives the launch from what HOOK is: a script
+ * needs an interpreter, a compiled binary IS one. This file used to spawn
+ * `node HOOK` itself, so pointing the suite at the Go binary handed an ELF file
+ * to node and every check here failed — including the shell route, which has
+ * always worked on both sides. A test that cannot run against the other
+ * implementation cannot notice the two disagreeing, which is the one thing this
+ * particular test exists to catch.
+ */
 function refused(tool, input) {
-  const payload = JSON.stringify({
-    tool_name: tool, tool_input: input, session_id: 'tamper', tool_use_id: 't1', cwd: process.cwd(),
-  });
-  const r = spawnSync(process.execPath, [HOOK, 'conformance', 'conformance'], {
-    input: payload,
-    encoding: 'utf-8',
-    env: { ...process.env, HOME: home, USERPROFILE: home, SOLONGATE_AGENT_ID: 'conformance' },
-    timeout: 30_000,
-  });
+  const r = call(home, tool, input);
   // Exit 2 is the block, and the reason lands on stderr. Both are checked: an
   // exit code with no reason is a crash wearing a block's clothes.
-  return r.status === 2 && /tamper protection/i.test(String(r.stderr));
+  return r.code === 2 && /tamper protection/i.test(String(r.stderr));
 }
 
 suite('tamper — the guard\'s own state is unreachable by every route');

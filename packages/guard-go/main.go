@@ -199,7 +199,7 @@ func allow() { emit(decision{Type: "allow"}) }
 //
 // TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
 // cannot drift without the build saying so.
-const hookVersion = 92
+const hookVersion = 93
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.
@@ -264,12 +264,23 @@ func main() {
 	input, _ := io.ReadAll(os.Stdin)
 
 	cred := loadCredential(fleet.Managed)
-	// The key IS the project selector. Without one there is nothing to enforce,
-	// and saying so by allowing is the documented behaviour — but it also means
-	// a malformed key disarms the guard silently, which is why sgshared.IsRealKey exists.
-	if cred.APIKey == "" {
-		allow()
-	}
+	// THERE IS NO CREDENTIAL GATE HERE, and its absence is the point.
+	//
+	// This used to be `if cred.APIKey == "" { allow() }` — the key was the whole
+	// test, on the reasoning that the key selects the project and therefore the
+	// policy. That holds for a machine with a service to ask. It makes the guard
+	// a NO-OP on every machine that has none, which is how this is ordinarily
+	// run: the policy is a file, and it was never read.
+	//
+	// Nothing needs allowing early for that case. With no policy resolved,
+	// EvaluatePolicy answers nothing and the call reaches allow() at the end; the
+	// refresh and the audit POST are both skipped where they are written, each on
+	// its own empty-key check. What the early exit ALSO skipped was the tamper
+	// guard, so a machine with no credential could not protect its own state —
+	// and a local policy is kept in exactly that state.
+	//
+	// sgshared.IsRealKey still matters: it is what keeps a malformed key from
+	// being mistaken for a real one and pointing this at a service it cannot use.
 
 	// Translator, input side: every client's payload becomes ONE shape here.
 	// Claude's flat {tool_name, tool_input, …} and Antigravity's nested
@@ -311,11 +322,23 @@ func main() {
 		}
 	}
 
+	// Read here rather than at the policy step below, because what the file can
+	// carry BESIDE the policy is consulted before the policy is: the tamper flag
+	// just below, then the rate limit, the egress rules and the DLP scanner.
+	local := loadLocalPolicyFile(c.Cwd, fleet.Managed)
+
 	var sec *sgshared.Security
 	hasSecurity := false
 	if cache != nil {
 		sec = cache.Security
 		hasSecurity = cache.HasSecurity
+	}
+	// The service outranks the file, so the file only fills in what the cache did
+	// not answer. hasSecurity is that distinction: a cache CAN carry a security
+	// block of null, which is the service saying "none", and that is not the same
+	// as the service never having been asked.
+	if !hasSecurity && local != nil && local.HasSecurity {
+		sec, hasSecurity = local.Security, true
 	}
 
 	// Hardcoded tamper protection, and it runs FIRST — before the policy is even
@@ -331,6 +354,8 @@ func main() {
 	selfProtect := true
 	if cache != nil && cache.SelfProtect != nil {
 		selfProtect = *cache.SelfProtect
+	} else if local != nil && local.SelfProtect != nil {
+		selfProtect = *local.SelfProtect
 	}
 	if selfProtect {
 		if reason := tamperCheck(c.Tool, c.Args); reason != "" {
@@ -420,8 +445,8 @@ func main() {
 	if cache != nil {
 		pol = cache.Policy
 	}
-	if pol == nil {
-		pol = loadLocalPolicy(c.Cwd, fleet.Managed)
+	if pol == nil && local != nil {
+		pol = local.Policy
 	}
 	policyReason := sgpolicy.EvaluatePolicy(pol, c.Args, c.Tool, c.Cwd)
 
@@ -596,7 +621,7 @@ func recordDecision(cred sgshared.Credential, sec *sgshared.Security, hasSecurit
 		local[k] = v
 	}
 	writeLocalLog(sec, hasSecurity, cred, local)
-	if !localLogsOnly(sec, hasSecurity) {
+	if !localLogsOnly(sec, hasSecurity, cred.APIKey) {
 		postAuditDetached(cred, entry)
 	}
 }

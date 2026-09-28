@@ -92,7 +92,7 @@ import { createHash } from 'node:crypto';
 //
 // An installed hook self-updates on this number, and a disarm nobody picks up is
 // not fixed.
-const HOOK_VERSION = 92;
+const HOOK_VERSION = 93;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -108,6 +108,15 @@ const HOOK_VERSION = 92;
 // module initialisation — a `const` further down would be in its temporal dead
 // zone for those paths.
 const SG_DIR_MODE = 0o700;
+
+// SG_FILE_MODE is the mode for what this hook writes there.
+//
+// Owner-only for the same reason, and the local audit log is the sharpest case:
+// it records every command, path and URL the agent was told no about, which is a
+// log of what somebody was working on. It was being created 0644 inside a 0755
+// directory, so on a shared machine any other account could read it. Both sides
+// matter — a tight file inside a listable directory still leaks the filenames.
+const SG_FILE_MODE = 0o600;
 
 // ── The Go guard, when there is one and it is the right one ──────────────────
 //
@@ -275,7 +284,63 @@ if (!SG_REFRESH_ARG && process.env.SOLONGATE_NO_GO_GUARD !== '1') {
 // off — the answer fell through to the device-wide marker, and that marker is
 // shared by every agent on the box while the policy cache is per agent, so
 // whichever one refreshed last decided where everybody's logs went.
+// The policy a machine enforces when there is no service to ask.
+//
+// No credential is NOT an unconfigured machine. It is the ordinary deployment of
+// this program: the policy lives in a file, nothing is fetched, and nothing
+// leaves the device. So the file is a SOURCE here rather than a fallback for a
+// failed fetch — it used to be reachable only after a fetch had failed, which
+// meant a machine with no credential allowed every call while its policy sat on
+// disk unread.
+//
+// Two spellings are accepted. /policies/active answers with an envelope, and a
+// hand-written file is usually just the policy:
+//
+//   { "policy": {…}, "security": {…}, "selfProtect": true }   what the API sends
+//   { "mode": "denylist", "rules": [ … ] }                     the policy alone
+//
+// The envelope is what makes the rate limit, the egress rules and the DLP
+// scanner configurable with no service: they arrive in `security`, and a local
+// machine had no way to set them at all.
+//
+// Order: this machine's own ~/.solongate/policy.json first, then a per-project file
+// beside the working directory. Home first is deliberate — the project file
+// lives inside a repository the agent can write to, so it can only apply where
+// the person running this set nothing themselves.
+function loadLocalPolicyFile(cwd) {
+  for (const p of [
+    join(resolve(homedir(), '.solongate'), 'policy.json'),
+    cwd ? resolve(cwd, 'policy.json') : '',
+  ]) {
+    if (!p || !existsSync(p)) continue;
+    try {
+      const obj = JSON.parse(readFileSync(p, 'utf-8'));
+      if (!obj || typeof obj !== 'object') continue;
+      // Only THIS MACHINE's own file is trusted with more than rules. The
+      // project file sits in a repository the agent can write to: letting it
+      // carry selfProtect would be a one-line disarm of the tamper guard, and
+      // letting it carry `security` would switch off the DLP scanner from inside
+      // the checkout. It may add rules, and nothing else.
+      const own = !cwd || p !== resolve(cwd, 'policy.json');
+      if (obj.policy && typeof obj.policy === 'object') {
+        return {
+          policy: obj.policy,
+          security: own && obj.security !== undefined ? obj.security : undefined,
+          selfProtect: own && typeof obj.selfProtect === 'boolean' ? obj.selfProtect : undefined,
+          path: p,
+        };
+      }
+      return { policy: obj, security: undefined, selfProtect: undefined, path: p };
+    } catch { /* an unreadable file is not a reason to stop looking at the next */ }
+  }
+  return null;
+}
+
 function localLogsOnly(security) {
+  // Nothing to send to: disk is not a preference here, it is the only place the
+  // record can go. Answering "cloud only" for a machine with no credential is
+  // how a denial ended up written nowhere at all.
+  if (!API_KEY) return true;
   if (security !== undefined) {
     const l = security && security.localLogs;
     return !!(l && l.enabled && typeof l.path === 'string' && l.path.trim());
@@ -360,6 +425,12 @@ function accountMark() {
  * it to a detached child keeps the record and gives the time back.
  */
 function postAuditDetached(entry) {
+  // No credential, no destination. Without this the record went out UNAUTHENTICATED
+  // to whatever API_URL happened to be — by default a hosted service the person
+  // running this does not operate — carrying the command that was just blocked.
+  // On a local machine the audit line belongs on the local disk, and writeLocalLog
+  // is what puts it there.
+  if (!API_KEY) return;
   try {
     const payload = Buffer.from(JSON.stringify({
       url: API_URL + '/api/v1/audit-logs',
@@ -706,13 +777,24 @@ const AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_
         // entirely: "no logs on the Mac". Fall back to the per-device default
         // folder, which always exists, and leave a marker naming the bad path.
         let _dir = _pl.dir;
+        // The mode on appendFileSync applies only when it CREATES the file, so a
+        // log this hook already wrote 0644 would keep it forever. Narrowed
+        // afterwards as well. This runs in the DETACHED writer, never on the hot
+        // path, so the extra syscall costs the tool call nothing.
+        const _narrow = (f) => { try { chmodSync(f, SG_FILE_MODE); } catch {} };
         try {
-          mkdirSync(_dir, { recursive: true });
-          appendFileSync(join(_dir, 'solongate-audit.jsonl'), _pl.line);
+          mkdirSync(_dir, { recursive: true, mode: SG_DIR_MODE });
+          const _f = join(_dir, 'solongate-audit.jsonl');
+          appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+          _narrow(_f);
         } catch {
           const _fb = join(resolve(homedir(), '.solongate'), 'local-logs');
-          try { mkdirSync(_fb, { recursive: true }); } catch {}
-          try { appendFileSync(join(_fb, 'solongate-audit.jsonl'), _pl.line); } catch {}
+          try { mkdirSync(_fb, { recursive: true, mode: SG_DIR_MODE }); } catch {}
+          try {
+            const _f = join(_fb, 'solongate-audit.jsonl');
+            appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+            _narrow(_f);
+          } catch {}
           try {
             writeFileSync(join(resolve(homedir(), '.solongate'), '.local-logs-invalid-path'),
               JSON.stringify({ configured: _dir, fallback: _fb, ts: Date.now() }));
@@ -2617,16 +2699,21 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
   // Background-refresh invocation has no tool call to evaluate — it already ran
   // refreshPolicyCache() at startup; do nothing on the (empty) stdin.
   if (REFRESH_MODE) return;
-  // No policy selected => no enforcement. A plain launch (no SOLONGATE_AGENT_ID)
-  // is intentionally unrestricted.
+  // THERE IS NO CREDENTIAL GATE HERE, and its absence is the point.
+  //
+  // This used to be `if (!API_KEY) { allowTool(); return; }` — the key was the
+  // whole test, on the reasoning that the key selects the project and therefore
+  // the policy. That reasoning holds for a machine that has a service to ask. It
+  // makes the guard a NO-OP on every machine that does not, which is how this
+  // program is ordinarily run: the policy is a file, and it was never read.
+  //
+  // Nothing needs to be allowed early for that case anyway. With no policy
+  // resolved, evaluate() returns null and the call falls through to allowTool()
+  // at the end, and with no key the refresh spawn and the audit POST are both
+  // skipped where they are written. What the early return also skipped was the
+  // tamper guard, so a machine with no credential could not protect its own
+  // state — and that state is exactly what a local policy is kept in.
   if (process.env.SOLONGATE_DEBUG) {
-  }
-  // Cloud gate: the API key IS the policy selector — it identifies the project
-  // and its active policy. No key → nothing to enforce → allow. (Air-gap gated
-  // on SOLONGATE_AGENT_ID instead; here the key does that job.)
-  if (!API_KEY) {
-    allowTool();
-    return;
   }
   // NOT `Date.now()`. Every `Date.now() - _evalStart` below becomes an
   // evaluation_time_ms in the audit log — the number the dashboard, the dataroom
@@ -2816,16 +2903,15 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
       if (dashboardPolicy) {
         policy = dashboardPolicy;
       } else {
-        // Fall back to ~/.solongate/policy.json (where the wizard writes the
-        // default), then a per-project policy.json next to cwd.
-        const candidates = [
-          join(resolve(homedir(), '.solongate'), 'policy.json'),
-          resolve(hookCwd, 'policy.json'),
-        ];
-        for (const p of candidates) {
-          if (existsSync(p)) {
-            try { policy = JSON.parse(readFileSync(p, 'utf-8')); break; } catch {}
-          }
+        const local = loadLocalPolicyFile(hookCwd);
+        if (local) {
+          policy = local.policy;
+          // This is the branch where the service answered with nothing, so the
+          // file supplies the rest of what it would have sent. Only when it says
+          // so: a cache can hold a security block and a selfProtect flag even
+          // with no policy beside them, and the service still outranks the file.
+          if (local.security !== undefined) { securityCfg = local.security; writeLocalMarker(securityCfg); }
+          if (local.selfProtect !== undefined) selfProtectEnabled = local.selfProtect;
         }
       }
     } catch {

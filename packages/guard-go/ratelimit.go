@@ -51,10 +51,10 @@ func rateLimitCheck(agent string, limits *sgshared.RateLimit) string {
 	file := filepath.Join(dir, ".ratelimit-"+sgshared.AgentKey(agent)+".log")
 	now := time.Now().UnixMilli()
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, sgshared.DirMode); err != nil {
 		return ""
 	}
-	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, sgshared.FileMode)
 	if err != nil {
 		return "" // cannot account for this call; never hand out a free one by erroring
 	}
@@ -148,7 +148,7 @@ func compact(file string, stamps []int64) {
 		}
 		out = append(out, []byte(rec+"\n")...)
 	}
-	if os.WriteFile(tmp, out, 0o644) == nil {
+	if os.WriteFile(tmp, out, sgshared.FileMode) == nil {
 		_ = os.Rename(tmp, file)
 	}
 }

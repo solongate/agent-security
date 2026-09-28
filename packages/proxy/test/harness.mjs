@@ -10,9 +10,25 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-export const HOOK = process.env.SG_HOOK || join(homedir(), '.solongate', 'hooks', 'gu' + 'ard' + '.mjs');
+// THE HOOK IN THIS CHECKOUT, not the one installed on the machine.
+//
+// It used to default the other way round, and the result was a suite whose
+// answer depended on a file outside the repository. Both directions have now
+// cost real time: a runner has no installed hook, so five files failed against a
+// path that does not exist and read as the guard being broken; and a laptop with
+// an OLD installed hook reported three tamper failures for a fix that was
+// present in the source all along.
+//
+// The bundled build is what ships — readGuard in global-install.ts prefers it,
+// with opa-wasm inlined, and writes it out as the installed hook — so it is also
+// what should be under test. SG_HOOK still points this at an installed copy on
+// purpose, which is how you check an actual installation.
+const BUNDLED = join(dirname(dirname(fileURLToPath(import.meta.url))), 'hooks', 'gu' + 'ard' + '.bundled.mjs');
+export const HOOK = process.env.SG_HOOK
+  || (existsSync(BUNDLED) ? BUNDLED : join(homedir(), '.solongate', 'hooks', 'gu' + 'ard' + '.mjs'));
 export const AGENT = 'conformance';
 
 // A key has to look real: the hook refuses to enforce anything without one, and
@@ -69,10 +85,10 @@ const launch = HOOK.endsWith('.mjs') || HOOK.endsWith('.js')
   : [HOOK, [AGENT, AGENT]];
 
 /** One tool call, synchronously. Never use this when a stub cloud is running. */
-export function call(home, tool = 'bash', input = { command: 'echo x' }, cwd = home) {
+export function call(home, tool = 'bash', input = { command: 'echo x' }, cwd = home, extraEnv = {}) {
   const r = spawnSync(launch[0], launch[1], {
     input: payloadFor(tool, input, cwd),
-    env: { ...process.env, HOME: home, SOLONGATE_AGENT_ID: AGENT },
+    env: { ...process.env, HOME: home, SOLONGATE_AGENT_ID: AGENT, ...extraEnv },
     encoding: 'utf-8',
     timeout: 25000,
     cwd,
@@ -85,10 +101,10 @@ export function call(home, tool = 'bash', input = { command: 'echo x' }, cwd = h
  * spawnSync blocks the event loop the stub server runs on, so the guard's fetch
  * hangs on a server that cannot answer and the 8s backstop gets measured.
  */
-export function callAsync(home, tool = 'bash', input = { command: 'echo x' }, cwd = home) {
+export function callAsync(home, tool = 'bash', input = { command: 'echo x' }, cwd = home, extraEnv = {}) {
   return new Promise((resolve) => {
     const c = spawn(launch[0], launch[1], {
-      env: { ...process.env, HOME: home, SOLONGATE_AGENT_ID: AGENT },
+      env: { ...process.env, HOME: home, SOLONGATE_AGENT_ID: AGENT, ...extraEnv },
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd,
     });
@@ -136,6 +152,22 @@ export async function stubCloud({ delayMs = 0 } = {}) {
 export function localLines(home, dir) {
   const f = join(dir ?? join(home, '.solongate', 'local-logs'), 'solongate-audit.jsonl');
   return existsSync(f) ? readFileSync(f, 'utf-8').split('\n').filter(Boolean) : [];
+}
+
+/**
+ * Wait for the local audit log to reach `n` lines.
+ *
+ * The record is written by a DETACHED child — deliberately, so it survives the
+ * client killing the guard mid-denial — which means "look once, right after the
+ * call returned" measures the race and not the behaviour.
+ */
+export async function awaitLocalLines(home, n, dir, ms = 5000) {
+  const until = Date.now() + ms;
+  for (;;) {
+    const lines = localLines(home, dir);
+    if (lines.length >= n || Date.now() > until) return lines;
+    await new Promise((r) => setTimeout(r, 50));
+  }
 }
 
 export const DLP_AWS = { patterns: ['AWS access key'], custom: [] };

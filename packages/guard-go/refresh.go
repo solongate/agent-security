@@ -238,7 +238,7 @@ func fetchAndWriteCache(apiURL, key, agent string, timeout time.Duration) bool {
 	// reading the cache while this runs sees the old file or the new one and
 	// never a half-written one. A torn cache reads as "no policy".
 	dir := sgshared.SGDir()
-	if os.MkdirAll(dir, 0o755) != nil {
+	if os.MkdirAll(dir, sgshared.DirMode) != nil {
 		return false
 	}
 	tmp, err := os.CreateTemp(dir, ".policy-cache-*.tmp")

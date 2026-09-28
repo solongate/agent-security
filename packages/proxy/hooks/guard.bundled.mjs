@@ -6579,8 +6579,9 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 92;
+var HOOK_VERSION = 93;
 var SG_DIR_MODE = 448;
+var SG_FILE_MODE = 384;
 var SG_REFRESH_ARG = process.argv.includes("--sg-refresh-policy");
 var SG_STDIN = SG_REFRESH_ARG ? "" : (() => {
   try {
@@ -6677,7 +6678,35 @@ if (!SG_REFRESH_ARG && process.env.SOLONGATE_NO_GO_GUARD !== "1") {
   } catch {
   }
 }
+function loadLocalPolicyFile(cwd) {
+  for (const p of [
+    join(resolve(homedir(), ".solongate"), "policy.json"),
+    cwd ? resolve(cwd, "policy.json") : ""
+  ]) {
+    if (!p || !existsSync(p))
+      continue;
+    try {
+      const obj = JSON.parse(readFileSync(p, "utf-8"));
+      if (!obj || typeof obj !== "object")
+        continue;
+      const own = !cwd || p !== resolve(cwd, "policy.json");
+      if (obj.policy && typeof obj.policy === "object") {
+        return {
+          policy: obj.policy,
+          security: own && obj.security !== void 0 ? obj.security : void 0,
+          selfProtect: own && typeof obj.selfProtect === "boolean" ? obj.selfProtect : void 0,
+          path: p
+        };
+      }
+      return { policy: obj, security: void 0, selfProtect: void 0, path: p };
+    } catch {
+    }
+  }
+  return null;
+}
 function localLogsOnly(security) {
+  if (!API_KEY)
+    return true;
   if (security !== void 0) {
     const l = security && security.localLogs;
     return !!(l && l.enabled && typeof l.path === "string" && l.path.trim());
@@ -6705,6 +6734,8 @@ function accountMark() {
   }
 }
 function postAuditDetached(entry) {
+  if (!API_KEY)
+    return;
   try {
     const payload = Buffer.from(JSON.stringify({
       url: API_URL + "/api/v1/audit-logs",
@@ -6956,17 +6987,27 @@ var AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TY
       const _pl = JSON.parse(Buffer.from(process.argv[_wi + 1] || "", "base64").toString("utf-8"));
       if (_pl && _pl.dir && _pl.line) {
         let _dir = _pl.dir;
+        const _narrow = (f) => {
+          try {
+            chmodSync(f, SG_FILE_MODE);
+          } catch {
+          }
+        };
         try {
-          mkdirSync(_dir, { recursive: true });
-          appendFileSync(join(_dir, "solongate-audit.jsonl"), _pl.line);
+          mkdirSync(_dir, { recursive: true, mode: SG_DIR_MODE });
+          const _f = join(_dir, "solongate-audit.jsonl");
+          appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+          _narrow(_f);
         } catch {
           const _fb = join(resolve(homedir(), ".solongate"), "local-logs");
           try {
-            mkdirSync(_fb, { recursive: true });
+            mkdirSync(_fb, { recursive: true, mode: SG_DIR_MODE });
           } catch {
           }
           try {
-            appendFileSync(join(_fb, "solongate-audit.jsonl"), _pl.line);
+            const _f = join(_fb, "solongate-audit.jsonl");
+            appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+            _narrow(_f);
           } catch {
           }
           try {
@@ -8391,10 +8432,6 @@ if (!REFRESH_MODE) {
       return;
     if (process.env.SOLONGATE_DEBUG) {
     }
-    if (!API_KEY) {
-      allowTool();
-      return;
-    }
     const _evalStart = SG_ORIGIN_MS;
     try {
       const raw = JSON.parse(input);
@@ -8538,18 +8575,15 @@ if (!REFRESH_MODE) {
         if (dashboardPolicy) {
           policy = dashboardPolicy;
         } else {
-          const candidates = [
-            join(resolve(homedir(), ".solongate"), "policy.json"),
-            resolve(hookCwd, "policy.json")
-          ];
-          for (const p of candidates) {
-            if (existsSync(p)) {
-              try {
-                policy = JSON.parse(readFileSync(p, "utf-8"));
-                break;
-              } catch {
-              }
+          const local = loadLocalPolicyFile(hookCwd);
+          if (local) {
+            policy = local.policy;
+            if (local.security !== void 0) {
+              securityCfg = local.security;
+              writeLocalMarker(securityCfg);
             }
+            if (local.selfProtect !== void 0)
+              selfProtectEnabled = local.selfProtect;
           }
         }
       } catch {

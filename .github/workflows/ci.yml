@@ -104,11 +104,11 @@ jobs:
         working-directory: packages/proxy
         run: npx tsc -p tsconfig.json
 
-      # SG_HOOK, because the suite defaults to the hook INSTALLED in the home
-      # directory and a runner has none. Without it five of the ten files fail
-      # against a path that does not exist, which reads as the guard being
-      # broken rather than absent — and it passes on a developer's laptop, where
-      # one is installed, so nothing says so until CI.
+      # SG_HOOK is set explicitly even though the suite now defaults to this same
+      # bundled build. The default used to be the hook INSTALLED in the home
+      # directory, which failed here (a runner has none) and passed on a laptop —
+      # and later failed on a laptop whose installed copy was older than the fix
+      # under test. Naming the file is how this job says WHICH hook it certifies.
       #
       # The bundled build is the one under test because it is the one that
       # ships: readGuard in global-install.ts prefers it, with opa-wasm inlined,
@@ -116,6 +116,27 @@ jobs:
       - name: run the suite
         env:
           SG_HOOK: ${{ github.workspace }}/packages/proxy/hooks/guard.bundled.mjs
+        run: node packages/proxy/test/run-all.mjs
+
+      # AND AGAIN AGAINST THE GO GUARD. The two implementations are deliberately
+      # identical, and which one decides a call depends on whether a machine has
+      # the binary — so certifying only one of them certifies half the machines.
+      # This is the same suite, unchanged: the harness derives the launch from
+      # what SG_HOOK is, a script needing an interpreter and a binary being one.
+      #
+      # It would not have run before now. tamper-path.mjs spawned `node $SG_HOOK`
+      # itself, which handed an ELF file to node, and the failures that produced
+      # read as the guard being broken.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: packages/guard-go/go.sum
+      - name: build the go guard
+        working-directory: packages/guard-go
+        run: go build -o solongate-guard .
+      - name: run the suite against the go guard
+        env:
+          SG_HOOK: ${{ github.workspace }}/packages/guard-go/solongate-guard
         run: node packages/proxy/test/run-all.mjs
 
   schema:

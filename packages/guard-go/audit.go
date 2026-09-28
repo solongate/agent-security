@@ -24,7 +24,13 @@ import (
 // localLogsOnly answers from the SETTING. `nil` security with hasSecurity=true
 // is an answer ("the API sent no security block"), not a gap — only a cache that
 // could not be read at all falls through to the device marker.
-func localLogsOnly(sec *sgshared.Security, hasSecurity bool) bool {
+func localLogsOnly(sec *sgshared.Security, hasSecurity bool, apiKey string) bool {
+	// Nothing to send to: disk is not a preference here, it is the only place the
+	// record can go. Answering "cloud only" for a machine with no credential is
+	// how a denial ended up written nowhere at all.
+	if apiKey == "" {
+		return true
+	}
 	if hasSecurity {
 		if sec == nil || sec.LocalLogs == nil {
 			return false
@@ -81,7 +87,7 @@ func writeLocalLog(sec *sgshared.Security, hasSecurity bool, cred sgshared.Crede
 	if dir == "" {
 		// No usable folder in the config, but the marker can still say local is
 		// on — keep the copy in the per-device default rather than dropping it.
-		if !localLogsOnly(sec, hasSecurity) {
+		if !localLogsOnly(sec, hasSecurity, cred.APIKey) {
 			return
 		}
 		dir = filepath.Join(sgshared.SGDir(), "local-logs")
@@ -90,18 +96,23 @@ func writeLocalLog(sec *sgshared.Security, hasSecurity bool, cred sgshared.Crede
 	if err != nil {
 		return
 	}
-	if os.MkdirAll(dir, 0o755) != nil {
+	if os.MkdirAll(dir, sgshared.DirMode) != nil {
 		dir = filepath.Join(sgshared.SGDir(), "local-logs")
-		if os.MkdirAll(dir, 0o755) != nil {
+		if os.MkdirAll(dir, sgshared.DirMode) != nil {
 			return
 		}
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "solongate-audit.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	logFile := filepath.Join(dir, "solongate-audit.jsonl")
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, sgshared.FileMode)
 	if err != nil {
 		return
 	}
 	defer f.Close()
 	_, _ = f.Write(append(line, '\n'))
+	// The mode on OpenFile applies only when it CREATES the file, so a log an
+	// older version wrote 0644 would keep it forever. The Node twin narrows it
+	// the same way, in its detached writer.
+	_ = os.Chmod(logFile, sgshared.FileMode)
 }
 
 // postAuditDetached records a decision in the cloud WITHOUT the caller waiting.

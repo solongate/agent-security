@@ -73,7 +73,18 @@ func loadPolicyCache(agent string) *sgshared.PolicyCache {
 // read the file in this checkout" is a one-line escape. A guest whose cache is
 // empty enforces nothing local and waits for the cloud, which is what every
 // machine did before a local policy existed.
-func loadLocalPolicy(cwd string, managed bool) *sgshared.Policy {
+// It answers a PolicyCache rather than a Policy because the file is allowed to
+// be written in the shape the service answers in, and that shape carries the
+// three things a machine with no service had no way to set at all: the rate
+// limit, the egress rules and the DLP scanner arrive in `security`, and the
+// tamper flag in `selfProtect`.
+//
+//	{"policy": {…}, "security": {…}, "selfProtect": true}   what the service sends
+//	{"mode": "denylist", "rules": [ … ]}                     the policy on its own
+//
+// Both are accepted. A `policy` key is what tells them apart, so a bare policy
+// keeps working and nobody has to rewrite a file that already exists.
+func loadLocalPolicyFile(cwd string, managed bool) *sgshared.PolicyCache {
 	if managed {
 		return nil
 	}
@@ -82,18 +93,39 @@ func loadLocalPolicy(cwd string, managed bool) *sgshared.Policy {
 			cwd = wd
 		}
 	}
-	for _, p := range []string{
-		filepath.Join(sgshared.SGDir(), "policy.json"),
-		filepath.Join(cwd, "policy.json"),
-	} {
+	own := filepath.Join(sgshared.SGDir(), "policy.json")
+	for _, p := range []string{own, filepath.Join(cwd, "policy.json")} {
 		b, err := os.ReadFile(p)
 		if err != nil {
 			continue
 		}
-		var pol sgshared.Policy
-		if json.Unmarshal(b, &pol) == nil {
-			return &pol
+		var env *sgshared.PolicyCache
+		var probe struct {
+			Policy json.RawMessage `json:"policy"`
 		}
+		if json.Unmarshal(b, &probe) == nil && len(probe.Policy) > 0 && string(probe.Policy) != "null" {
+			var e sgshared.PolicyCache
+			if json.Unmarshal(b, &e) != nil || e.Policy == nil {
+				continue
+			}
+			env = &e
+		} else {
+			var pol sgshared.Policy
+			if json.Unmarshal(b, &pol) != nil {
+				continue
+			}
+			env = &sgshared.PolicyCache{Policy: &pol}
+		}
+		// Only THIS MACHINE's own file is trusted with more than rules. The
+		// second path is a file inside whatever repository the agent is working
+		// in, which is a file the agent can write: `selfProtect: false` there
+		// would be a one-line disarm of the tamper guard, and a `security` block
+		// would switch the DLP scanner off from inside the checkout. It may add
+		// rules, and nothing else.
+		if p != own {
+			env.Security, env.HasSecurity, env.SelfProtect = nil, false, nil
+		}
+		return env
 	}
 	return nil
 }

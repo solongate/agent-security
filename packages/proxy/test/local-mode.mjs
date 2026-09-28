@@ -117,6 +117,35 @@ for (const [label, own] of [
   check('for the stated reason', /rate limit/i.test(second.stderr), true);
 }
 
+// ── security written INSIDE the policy document ──────────────────────────────
+//
+// That is how the service stores it — store.SecurityLayersIn reads exactly that
+// block — so it is the shape a policy exported from one arrives in. Reading the
+// envelope only made a hand-copied policy's DLP configuration a silent no-op:
+// the rules applied, the layers did not, and nothing said so.
+{
+  const home = machine({
+    own: { id: 'l', name: 'L', mode: 'denylist', rules: [], security: { rateLimit: { mode: 'enforce', perMinute: 1 } } },
+  });
+  const first = call(home, 'Bash', { command: 'echo one' });
+  const second = call(home, 'Bash', { command: 'echo two' });
+  check('a rate limit inside the policy is honoured', [blocked(first), blocked(second)].join(','), 'false,true');
+}
+
+// And the envelope wins when both are present: it is the outer, more specific
+// statement, and a document that arrived with one inside it should not override
+// what somebody wrote around it.
+{
+  const home = machine({
+    own: {
+      policy: { id: 'l', name: 'L', mode: 'denylist', rules: [], security: { rateLimit: { mode: 'enforce', perMinute: 1 } } },
+      security: { rateLimit: { mode: 'enforce', perMinute: 5 } },
+    },
+  });
+  const calls = [1, 2, 3].map(() => blocked(call(home, 'Bash', { command: 'echo x' })));
+  check('the envelope outranks the block inside', calls.join(','), 'false,false,false');
+}
+
 // ── the per-project file may add rules, and nothing else ─────────────────────
 //
 // It lives in a repository the agent can write to. Rules there can only make the

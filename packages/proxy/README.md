@@ -1,73 +1,102 @@
-<div align="center">
-  <img src="https://solongate.com/hero.png" alt="SolonGate. For AI agents to execute tools safely. Make agents secure again." width="900" />
-</div>
+# @solongate/proxy
 
-<a href="https://www.npmjs.com/package/@solongate/proxy"><img align="right" alt="npm" src="https://img.shields.io/npm/v/@solongate/proxy?style=flat-square&color=eeeeee&labelColor=111111&logo=npm&logoColor=white" /></a>
-<a href="https://nodejs.org"><img align="right" alt="Node.js" src="https://img.shields.io/node/v/@solongate/proxy?style=flat-square&label=Node.js&labelColor=111111&color=eeeeee&logo=nodedotjs&logoColor=white" /></a>
-<a href="https://github.com/Solongate"><img src="https://solongate.com/github-w.png" height="20" alt="GitHub" /></a>&nbsp;
-<a href="https://www.linkedin.com/company/solongate/"><img src="https://solongate.com/linkedin-w.png" height="20" alt="LinkedIn" /></a>
+A policy gate for AI coding agents. It sits in front of every tool call an agent
+makes — every shell command, every file read, every write — and decides whether
+it runs, against rules you wrote.
 
-SolonGate is the guardrail for AI agents. It checks every action an agent takes (each shell command, file read or write, and network request) and allows, blocks, or logs it before it runs, based on a policy you control. No code changes.
+The decision happens on the machine, in a hook the agent calls before it acts.
+Nothing is asked over the network on the decision path: the policy is compiled to
+Rego and evaluated locally.
 
-**[solongate.com](https://solongate.com)** | [Documentation](https://solongate.com/docs) | [Dashboard](https://dashboard.solongate.com)
+Agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
 
-<div align="center">
-  <img src="https://solongate.com/flow.gif" alt="A tool call from an AI agent passes through SolonGate, which runs a policy check, DLP scan, and rate limit, then allows, blocks, or logs it before the tool runs" width="900" />
-</div>
+## Install
 
-## Get started
-
-You need a free [SolonGate account](https://auth.solongate.com) and Node.js 20+ on the machine you want to protect. There's nothing to import; the two commands below pair your machine.
+Node.js 20+. No account, no sign-in, nothing to import.
 
 ```sh
 npm i -g @solongate/proxy
-solongate
+solongate                    # install the guard from the Settings panel
 ```
 
-`solongate` opens your browser to authorize the device. Approve it and SolonGate installs a global guard hook that checks every tool call from every AI session on the machine against your active policy. No API keys to copy.
+Start a new terminal afterwards — hooks load when a session starts, so
+already-open terminals are not guarded yet.
+
+## Write a policy
+
+`~/.solongate/policy.json`:
+
+```json
+{
+  "mode": "denylist",
+  "rules": [
+    {
+      "id": "no-force-push",
+      "description": "Rewriting shared history is not an agent's decision",
+      "effect": "DENY",
+      "priority": 10,
+      "enabled": true,
+      "toolPattern": "*",
+      "minimumTrustLevel": "UNTRUSTED",
+      "commandConstraints": { "denied": ["*push --force*", "*push -f*"] }
+    }
+  ]
+}
+```
+
+The next tool call is decided against it. `git push --force` and `git push -f`
+are refused from that point; `git push` is not.
+
+A `policy.json` beside your working directory is read when the machine has no file of
+its own. It may add rules and nothing else — it lives in a repository the agent
+can write to.
+
+## What it enforces
+
+- **Policy rules** — allow or block by path, command, filename or URL.
+- **DLP** — when a call carries a secret (API key, token, private key), block it
+  or keep it from the model.
+- **Rate limiting** — cap tool calls per minute, hour or day.
+- **Tamper protection** — the guard's own state cannot be edited by a tool call,
+  by any route.
+
+The last three are configured in the same file. Wrap the policy and add
+`security`:
+
+```json
+{
+  "policy": { "mode": "denylist", "rules": [] },
+  "security": {
+    "rateLimit": { "mode": "enforce", "perMinute": 60 },
+    "dlpBlock": { "patterns": ["AWS access key", "Anthropic key"] }
+  }
+}
+```
+
+## Where the record goes
+
+Denials are appended to `~/.solongate/local-logs/solongate-audit.jsonl`,
+owner-only. With no service configured there is nothing to send anywhere and no
+attempt is made.
+
+## A service, if a team needs one
+
+Optional. What it adds is one place to keep the policy and the audit log for many
+machines, and sign-in against your own identity provider so it knows who is
+asking. `SOLONGATE_API_URL` points a machine at it; it defaults to
+`http://127.0.0.1:3002`. The decision still happens on each machine.
+
+The server is in this repository (`apps/system`) and runs on infrastructure you
+operate. There is no hosted service.
+
+## The CLI
 
 ```
-Start a new terminal session afterwards. Hooks load when a
-session starts, so already-open terminals aren't guarded yet.
+solongate                    the dataroom (policies, audit, settings)
+solongate doctor             what is installed, and whether it is enforcing
+solongate trace              watch decisions as they happen
 ```
 
-## Guarding a live Claude Code session
+## Licence
 
-Drops in front of any MCP-speaking agent over stdio, SSE, or HTTP. Every tool call is checked in real time, and each allow or deny decision streams to your dashboard with the full arguments attached.
-
-<div align="center">
-  <img src="https://solongate.com/cc-hd.png" alt="SolonGate guarding a live Claude Code session" width="720" />
-</div>
-
-## Command center for every decision area
-
-Live analytics by tool, agent, and policy. Version your policies with cloud sync and one-click rollback. Every decision lands in a tamper-evident, searchable audit trail you can export as CSV.
-
-<div align="center">
-  <img src="https://solongate.com/dash-hd.png" alt="SolonGate dashboard: analytics, policies, and audit trail" width="720" />
-</div>
-
-## What SolonGate can enforce
-
-- **Policy rules:** allow or block tool calls by path, command, filename, or URL.
-- **Data loss prevention (DLP):** when a call carries a secret (API key, token, private key), block it or hide it from the model.
-- **Rate limiting:** cap how many tool calls an agent can make per minute, hour, or day.
-
-Manage everything from the **Policies**, **Audit**, and **Settings** pages in the [dashboard](https://dashboard.solongate.com). When a legitimate action is blocked, click **Whitelist this** to add a narrow exception. Keep logs local instead of in the cloud, and get alerted by Telegram, email, or webhook when blocks spike.
-
-**Compatible with every tool.** SolonGate guards any MCP-speaking agent out of the box. Missing yours? [Reach out](https://solongate.com/contact) and we will consider it.
-
-<table cellspacing="0" cellpadding="0" border="0" align="center">
-  <tr>
-    <td><a href="https://claude.com/claude-code"><img src="https://solongate.com/cells/claude.png" width="200" alt="Claude Code" /></a></td>
-    <td><a href="https://openai.com/codex"><img src="https://solongate.com/cells/codex.png?v=3" width="200" alt="Codex CLI" /></a></td>
-    <td><a href="https://antigravity.google"><img src="https://solongate.com/cells/antigravity.png?v=2" width="200" alt="Antigravity CLI" /></a></td>
-    <td><a href="https://openclaw.ai"><img src="https://solongate.com/cells/openclaw.png?v=3" width="200" alt="OpenClaw" /></a></td>
-  </tr>
-  <tr>
-    <td><a href="https://opencode.ai"><img src="https://solongate.com/cells/opencode.png?v=3" width="200" alt="OpenCode" /></a></td>
-    <td><a href="https://hermes.nousresearch.com"><img src="https://solongate.com/cells/hermes.png" width="200" alt="Hermes (soon)" /></a></td>
-    <td><a href="https://chainabit.com"><img src="https://solongate.com/cells/chainabit.png?v=3" width="200" alt="Chainabit (soon)" /></a></td>
-    <td><a href="https://solongate.com/contact"><img src="https://solongate.com/cells/yourtool.png" width="200" alt="Your tool" /></a></td>
-  </tr>
-</table>
+See the repository root.

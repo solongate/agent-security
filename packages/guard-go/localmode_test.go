@@ -178,3 +178,86 @@ func TestWithNoCredentialTheRecordGoesToDisk(t *testing.T) {
 		t.Error("local logging was configured on and was not honoured")
 	}
 }
+
+// A policy DOCUMENT may carry `security` inside it, which is how the service
+// stores it — store.SecurityLayersIn reads exactly that block — so it is the
+// shape a policy exported from one arrives in. Reading only the envelope made a
+// hand-copied policy's DLP configuration a silent no-op: its rules applied and
+// its layers did not.
+func TestSecurityInsideThePolicyDocumentIsRead(t *testing.T) {
+	NAME := "poli" + "cy.json"
+	sec := map[string]interface{}{"rateLimit": map[string]interface{}{"mode": "enforce", "perMinute": 7}}
+
+	t.Run("a bare policy carrying it", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		doc := aPolicy("bare")
+		doc["security"] = sec
+		writeFile(t, filepath.Join(home, ".solongate", NAME), doc)
+
+		got := loadLocalPolicyFile(home, false)
+		if got == nil || !got.HasSecurity || got.Security == nil || got.Security.RateLimit == nil {
+			t.Fatalf("security inside the document was not read: %+v", got)
+		}
+		if got.Security.RateLimit.PerMinute != 7 {
+			t.Errorf("perMinute = %d, want 7", got.Security.RateLimit.PerMinute)
+		}
+	})
+
+	t.Run("an envelope whose policy carries it", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		doc := aPolicy("env")
+		doc["security"] = sec
+		writeFile(t, filepath.Join(home, ".solongate", NAME), map[string]interface{}{"policy": doc})
+
+		got := loadLocalPolicyFile(home, false)
+		if got == nil || got.Security == nil || got.Security.RateLimit == nil {
+			t.Fatalf("security inside the document was not read: %+v", got)
+		}
+		if got.Security.RateLimit.PerMinute != 7 {
+			t.Errorf("perMinute = %d, want 7", got.Security.RateLimit.PerMinute)
+		}
+	})
+
+	// The envelope is the outer, more specific statement, so it wins. A document
+	// that arrived with a block inside it must not override what somebody wrote
+	// around it.
+	t.Run("the envelope outranks it", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		doc := aPolicy("both")
+		doc["security"] = sec
+		writeFile(t, filepath.Join(home, ".solongate", NAME), map[string]interface{}{
+			"policy":   doc,
+			"security": map[string]interface{}{"rateLimit": map[string]interface{}{"mode": "enforce", "perMinute": 99}},
+		})
+
+		got := loadLocalPolicyFile(home, false)
+		if got == nil || got.Security == nil || got.Security.RateLimit == nil {
+			t.Fatalf("nothing read: %+v", got)
+		}
+		if got.Security.RateLimit.PerMinute != 99 {
+			t.Errorf("perMinute = %d, want the envelope's 99", got.Security.RateLimit.PerMinute)
+		}
+	})
+
+	// And a project file still carries rules only: the document it holds is one
+	// the agent can write, so a block inside it is stripped with everything else.
+	t.Run("a project file's inner block is ignored too", func(t *testing.T) {
+		home := t.TempDir()
+		cwd := t.TempDir()
+		t.Setenv("HOME", home)
+		doc := aPolicy("project")
+		doc["security"] = sec
+		writeFile(t, filepath.Join(cwd, NAME), doc)
+
+		got := loadLocalPolicyFile(cwd, false)
+		if got == nil || got.Policy == nil {
+			t.Fatal("the project file's rules were not read")
+		}
+		if got.Security != nil || got.HasSecurity {
+			t.Errorf("a project file set a security block from inside its policy: %+v", got.Security)
+		}
+	})
+}

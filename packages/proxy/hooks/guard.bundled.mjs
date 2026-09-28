@@ -6579,7 +6579,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 94;
+var HOOK_VERSION = 95;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_REFRESH_ARG = process.argv.includes("--sg-refresh-policy");
@@ -6690,15 +6690,21 @@ function loadLocalPolicyFile(cwd) {
       if (!obj || typeof obj !== "object")
         continue;
       const own = !cwd || p !== resolve(cwd, "policy.json");
+      const inner = own && obj.policy && typeof obj.policy === "object" ? obj.policy.security : void 0;
       if (obj.policy && typeof obj.policy === "object") {
         return {
           policy: obj.policy,
-          security: own && obj.security !== void 0 ? obj.security : void 0,
+          security: own && obj.security !== void 0 ? obj.security : inner,
           selfProtect: own && typeof obj.selfProtect === "boolean" ? obj.selfProtect : void 0,
           path: p
         };
       }
-      return { policy: obj, security: void 0, selfProtect: void 0, path: p };
+      return {
+        policy: obj,
+        security: own && obj.security !== void 0 ? obj.security : void 0,
+        selfProtect: void 0,
+        path: p
+      };
     } catch {
     }
   }

@@ -4,7 +4,7 @@ import type { PolicySet } from '../api-client/index.js';
 import { flagBool, flagStr, parse } from './args.js';
 import { bold, cyan, decisionColor, dim, err, green, printJson, table, truncate, unknownSub, usage } from './format.js';
 
-const USAGE = usage('solongate policy', 'manage cloud policies', [
+const USAGE = usage('solongate policy', 'manage policies', [
   ['policy list', 'list all policies'],
   ['policy create <name>', 'create a new empty policy'],
   ['policy delete <id>', 'delete a policy'],
@@ -16,7 +16,6 @@ const USAGE = usage('solongate policy', 'manage cloud policies', [
   ['policy mode <id> <denylist|whitelist>', 'switch deny-by-default / allow-by-default'],
   ['policy rule <id> <ruleId> <enable|disable>', 'turn one rule on or off without deleting it'],
   ['policy activate <id> | --off', 'pin the active policy, or enforce nothing'],
-  ['policy dry-run <id|file.json> [--limit N] [--mode denylist|whitelist]', 'replay recent traffic against rules'],
 ], 'Add --json to any read command for machine-readable output.');
 
 export async function run(argv: string[]): Promise<number> {
@@ -34,7 +33,7 @@ export async function run(argv: string[]): Promise<number> {
       const { policies } = await api.policies.list();
       if (json) return printJson(policies), 0;
       if (policies.length === 0) {
-        err(dim('  No policies. Create one at https://dashboard.solongate.com'));
+        err(dim('  No policies. `solongate policy create <name>` makes one.'));
         return 0;
       }
       table(

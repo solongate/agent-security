@@ -104,7 +104,7 @@ import { createHash } from 'node:crypto';
 //
 // An installed hook self-updates on this number, and a disarm nobody picks up is
 // not fixed.
-const HOOK_VERSION = 94;
+const HOOK_VERSION = 95;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -334,15 +334,27 @@ function loadLocalPolicyFile(cwd) {
       // letting it carry `security` would switch off the DLP scanner from inside
       // the checkout. It may add rules, and nothing else.
       const own = !cwd || p !== resolve(cwd, 'policy.json');
+      // A policy DOCUMENT may carry `security` inside it. That is how the
+      // service stores it (SecurityLayersIn reads exactly that), so it is the
+      // shape a policy exported from one arrives in — and reading the envelope
+      // only would have made a hand-copied policy's DLP config a silent no-op.
+      // The envelope wins when both are present: it is the outer, more specific
+      // statement.
+      const inner = own && obj.policy && typeof obj.policy === 'object' ? obj.policy.security : undefined;
       if (obj.policy && typeof obj.policy === 'object') {
         return {
           policy: obj.policy,
-          security: own && obj.security !== undefined ? obj.security : undefined,
+          security: own && obj.security !== undefined ? obj.security : inner,
           selfProtect: own && typeof obj.selfProtect === 'boolean' ? obj.selfProtect : undefined,
           path: p,
         };
       }
-      return { policy: obj, security: undefined, selfProtect: undefined, path: p };
+      return {
+        policy: obj,
+        security: own && obj.security !== undefined ? obj.security : undefined,
+        selfProtect: undefined,
+        path: p,
+      };
     } catch { /* an unreadable file is not a reason to stop looking at the next */ }
   }
   return null;

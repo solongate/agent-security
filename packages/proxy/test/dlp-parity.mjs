@@ -146,4 +146,19 @@ for (const [label, file] of HOOKS) {
   check(`${label}: every expression compiles`, broken.join(', '), '');
 }
 
+// ── and the fifth list, which is a MENU rather than an implementation ────────
+//
+// src/dlp-patterns.ts is what the CLI offers when somebody chooses which patterns
+// a policy enables. It used to arrive from a service as `availablePatterns`. A
+// name here that no implementation carries would offer a pattern that enforces
+// nothing — which is this repository's recurring failure with these lists, from
+// the other end.
+{
+  const ts = readFileSync(fileURLToPath(new URL('../src/dlp-patterns.ts', import.meta.url)), 'utf-8');
+  const from = ts.indexOf('DLP_PATTERN_NAMES');
+  const names = [...ts.slice(from).matchAll(/^\s*'((?:[^'\\]|\\.)*)',$/gm)].map((m) => m[1]);
+  check('the CLI menu carries every pattern', names.length, go.length);
+  check('the CLI menu is in the same order', names.join('|'), go.map(([n]) => n).join('|'));
+}
+
 process.exit(done());

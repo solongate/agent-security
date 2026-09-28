@@ -7,7 +7,7 @@
  *
  * So this file is a shim, not an engine. It spawns the same guard every other
  * client runs and turns its answer into the shape OpenCode wants — which keeps
- * one implementation of policy, DLP, rate limiting, ghost paths and auditing
+ * one implementation of policy, DLP, rate limiting and auditing
  * instead of a second one that drifts.
  *
  * Measured against opencode 1.18.10, because none of this is documented:
@@ -113,7 +113,7 @@ function denyReason(res) {
   return line || 'Blocked by SolonGate.';
 }
 
-/** A rewrite instruction, when the guard asked for one (ghost-path listings). */
+/** A rewrite instruction, when the guard asked for one (DLP read redaction). */
 function rewritePatch(res) {
   try {
     const j = JSON.parse(res.stdout);

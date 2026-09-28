@@ -58,8 +58,8 @@ const (
 // Stringify(body, body.SortedKeys()) — a JavaScript ARRAY REPLACER, which is a
 // property allow-list applied at EVERY nesting level rather than a sort. Under
 // it a nested object keeps only the members whose names are also top-level
-// policy keys, so the security block, whose members are rateLimit, dlp and
-// ghost, would vanish from the hash entirely. Two policies differing only in
+// policy keys, so the security block, whose members are rateLimit and dlp,
+// would vanish from the hash entirely. Two policies differing only in
 // their DLP patterns would hash the same, and a guard decides whether its
 // cached policy changed by comparing that hash.
 //

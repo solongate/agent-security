@@ -33,10 +33,9 @@ import (
 
 // DECISION. Type is one of "deny", "allow", "rewrite".
 type decision struct {
-	Type    string
-	Reason  string
-	Patch   map[string]interface{}
-	Stealth bool
+	Type   string
+	Reason string
+	Patch  map[string]interface{}
 }
 
 // What an adapter's Parse produces: the client-specific half of CALL, before
@@ -302,7 +301,7 @@ func emitHookSpecific(d decision) int {
 	switch d.Type {
 	case "deny":
 		msg := d.Reason
-		if !d.Stealth && msg == "" {
+		if msg == "" {
 			msg = "[SolonGate] Blocked by policy"
 		}
 		out, err := json.Marshal(map[string]hookDenyOutput{
@@ -429,10 +428,7 @@ type agyAllow struct {
 func emitAntigravity(d decision) int {
 	switch d.Type {
 	case "deny":
-		msg := d.Reason
-		if !d.Stealth {
-			msg = "[SolonGate] " + d.Reason
-		}
+		msg := "[SolonGate] " + d.Reason
 		// Exit 0: agy reads the JSON, not the code. Returning 2 here would be a
 		// hook FAILURE to agy, and a failed hook does not block.
 		writeJSON(agyDeny{Decision: "deny", Reason: msg, AllowTool: false, DenyReason: msg})
@@ -480,7 +476,7 @@ func writeJSON(v interface{}) {
 // Codex sends every file edit as ONE tool call: tool_name "apply_patch" with
 // tool_input { command: "*** Begin Patch\n*** Update File: src/a.ts\n…" }. The
 // target paths live INSIDE that patch text, so without this every path-scoped
-// rule (policy DENY, tamper, ghost, DLP) would see no path at all and a Codex
+// rule (policy DENY, tamper, DLP) would see no path at all and a Codex
 // edit to a protected file would sail through.
 
 // The set is exactly JavaScript's \s. Go's own \s is [\t\n\f\r ] and
@@ -564,7 +560,7 @@ func applyPatchTargets(patch string) []string {
 // in an argument. Codex does this with apply_patch: one call, every touched path
 // living inside the patch body. Keyed on the patch TEXT as well as the tool
 // name, so this runs for any client that adopts the same format. Without it, no
-// path-scoped layer (policy, tamper, ghost, DLP) sees a path at all and an edit
+// path-scoped layer (policy, tamper, DLP) sees a path at all and an edit
 // to a protected file passes unexamined. The body is left intact so DLP can
 // still scan what is about to be written.
 //

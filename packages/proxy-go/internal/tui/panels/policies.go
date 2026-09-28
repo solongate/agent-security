@@ -27,7 +27,7 @@ func init() { tui.Register(tui.SectionPolicies, func(d tui.Deps) tui.Panel { ret
 //	rule   : the rule editor, mirroring the dashboard — Effect, one Constraint
 //	         type, Permissions, Priority, Description, Match
 //	match  : the constraint's value list, with [ ] wildcard toggles
-//	dlp    : that variant's secret detectors and ghost paths
+//	dlp    : that variant's secret detectors
 //	rate   : that variant's rate limit, beside this project's real bursts
 //
 // A POLICY IS NOT ONE SET OF RULES, and this is the part worth reading before
@@ -528,12 +528,8 @@ func normaliseLayers(l api.SecurityLayers) api.SecurityLayers {
 	if out.RateLimit.Mode == "" {
 		out.RateLimit.Mode = api.LayerOff
 	}
-	if out.Ghost.Mode == "" {
-		out.Ghost.Mode = "off"
-	}
 	out.DLP.Patterns = append([]string(nil), l.DLP.Patterns...)
 	out.DLP.Custom = append([]api.CustomPattern(nil), l.DLP.Custom...)
-	out.Ghost.Patterns = append([]string(nil), l.Ghost.Patterns...)
 	return out
 }
 
@@ -1135,8 +1131,7 @@ func (p *Policies) syncToLayer() {
 func (p *Policies) syncFromLayer() {
 	switch p.view {
 	case viewDLP:
-		got := p.dlpPanel.Bound()
-		p.sec.DLP, p.sec.Ghost = got.DLP, got.Ghost
+		p.sec.DLP = p.dlpPanel.Bound().DLP
 	case viewRate:
 		p.sec.RateLimit = p.ratePanel.Bound().RateLimit
 	}
@@ -1146,10 +1141,10 @@ func (p *Policies) syncFromLayer() {
 // rather than trusting the child's own dirty flag keeps one definition of
 // unsaved on this panel, and means a key that moved a cursor is not a change.
 func layersEqual(a, b api.SecurityLayers) bool {
-	if a.RateLimit != b.RateLimit || a.DLP.Mode != b.DLP.Mode || a.Ghost.Mode != b.Ghost.Mode {
+	if a.RateLimit != b.RateLimit || a.DLP.Mode != b.DLP.Mode {
 		return false
 	}
-	if !sameStrings(a.DLP.Patterns, b.DLP.Patterns) || !sameStrings(a.Ghost.Patterns, b.Ghost.Patterns) {
+	if !sameStrings(a.DLP.Patterns, b.DLP.Patterns) {
 		return false
 	}
 	if len(a.DLP.Custom) != len(b.DLP.Custom) {
@@ -1542,9 +1537,6 @@ func (p *Policies) layerSummary(layer int) (string, lipgloss.Style) {
 			return "off · nothing scanned", stDim
 		}
 		text := string(d.Mode) + " · " + itoa(len(d.Patterns)+len(d.Custom)) + " detectors"
-		if p.sec.Ghost.Mode == "on" {
-			text += " · ghost on (" + itoa(len(p.sec.Ghost.Patterns)) + ")"
-		}
 		return text, modeStyle(string(d.Mode))
 	default:
 		rl := p.sec.RateLimit

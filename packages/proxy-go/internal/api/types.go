@@ -234,10 +234,6 @@ type DLPSettings struct {
 	Custom   []json.RawMessage `json:"custom"`
 }
 
-type GhostSettings struct {
-	Patterns []string `json:"patterns"`
-}
-
 // ActivePolicySecurity mirrors the /policies/active security block. Every field
 // is a pointer because `null` there is an ANSWER — this project has no such
 // layer configured — and has to stay distinguishable from a field the API did
@@ -246,7 +242,6 @@ type ActivePolicySecurity struct {
 	RateLimit *RateLimitSettings `json:"rateLimit"`
 	DLPBlock  *DLPSettings       `json:"dlpBlock"`
 	DLPRedact *DLPSettings       `json:"dlpRedact"`
-	Ghost     *GhostSettings     `json:"ghost"`
 	LocalLogs json.RawMessage    `json:"localLogs"`
 }
 
@@ -299,10 +294,6 @@ type SecurityLayers struct {
 		Patterns []string        `json:"patterns"`
 		Custom   []CustomPattern `json:"custom"`
 	} `json:"dlp"`
-	Ghost struct {
-		Mode     string   `json:"mode"`
-		Patterns []string `json:"patterns"`
-	} `json:"ghost"`
 }
 
 type RateLimitChange struct {

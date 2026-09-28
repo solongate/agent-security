@@ -142,7 +142,7 @@ func usageWith(title, tagline string, rows []usageRow, footer string) string {
 // screen appears, and finding the mistake means diffing it against what you
 // typed. Naming the token first costs one line and removes that step.
 //
-// `solongate ghost -g` is the case that made it obvious. parse() treats only
+// `solongate dlp -g` is the case that made it obvious. parse() treats only
 // `--x` as a flag, so a single-dash token arrives as a SUBCOMMAND, and the
 // result was a help screen that looked like a successful command.
 //

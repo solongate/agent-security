@@ -54,7 +54,7 @@ const exitNotPorted = 69
 // whether the human-only gate applies.
 var cliSubcommands = map[string]bool{
 	"repair": true, "logs-server": true, "local-logs": true,
-	"policy": true, "ratelimit": true, "dlp": true, "ghost": true, "stats": true, "audit": true,
+	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
 	"sessions": true, "session": true, "doctor": true, "trace": true, "watch": true,
 	"alerts": true, "webhooks": true, "dataroom": true,
 }
@@ -270,7 +270,6 @@ func table() []command {
 		{"policy", "list, create, edit and activate policies", commands.Runner("policy")},
 		{"ratelimit", "show and edit rate limits", commands.Runner("ratelimit")},
 		{"dlp", "show and edit secret detection", commands.Runner("dlp")},
-		{"ghost", "show and edit hidden paths", commands.Runner("ghost")},
 		{"stats", "traffic and security statistics", commands.Runner("stats")},
 		{"audit", "browse the audit log", commands.Runner("audit")},
 		{"sessions", "live agent-session feed", commands.Runner("sessions")},
@@ -453,12 +452,6 @@ func printHelp() {
 	cmd("dlp disable <pattern>", "disable a built-in pattern")
 	cmd("dlp add-custom --name X --re <regex>", "add a custom pattern")
 	cmd("dlp remove-custom <name>", "remove a custom pattern")
-
-	head("Ghost (hidden paths)")
-	cmd("ghost show", "current mode + routes")
-	cmd("ghost on | off", "start or stop hiding the routes")
-	cmd("ghost add <glob>", "hide one more path")
-	cmd("ghost remove <glob>", "stop hiding one path")
 
 	head("Monitoring")
 	cmd("audit [--filter ALLOW|DENY] [--tool <s>] [--signal dlp|ratelimit] [--limit N]", "browse the audit log")

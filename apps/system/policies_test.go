@@ -50,7 +50,7 @@ func TestPolicyRoutesAreAllClaimed(t *testing.T) {
 // has NO policy at all.
 //
 // This is the branch that matters most and the easiest one to get wrong. A
-// project with no policy still has DLP, rate limits, ghost paths and local
+// project with no policy still has DLP, rate limits and local
 // logging, and the guard REPLACES its cached security block with whatever
 // arrives — so leaving the key out here would freeze a stale configuration on
 // every laptop in that project forever.
@@ -90,7 +90,7 @@ func TestActivePolicyAlwaysCarriesTheGuardsFourFields(t *testing.T) {
 	if err := json.Unmarshal(probe["security"], &sec); err != nil {
 		t.Fatalf("security is not an object: %v", err)
 	}
-	for _, key := range []string{"rateLimit", "rateLimitObserve", "dlpBlock", "dlpRedact", "ghost", "localLogs"} {
+	for _, key := range []string{"rateLimit", "rateLimitObserve", "dlpBlock", "dlpRedact", "localLogs"} {
 		if _, ok := sec[key]; !ok {
 			t.Errorf("security.%s is missing; a missing key and a null are not the same answer", key)
 		}

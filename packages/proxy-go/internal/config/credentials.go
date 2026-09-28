@@ -309,7 +309,7 @@ func SetActiveAccount(c Credential) bool {
 // ClearActiveCredential is a local sign-out: it removes the key and URL from
 // the active-key file so ListAccounts stops re-seeding them.
 //
-// That re-seeding is the "ghost account …xxxx" that used to linger after
+// That re-seeding is the "phantom account …xxxx" that used to linger after
 // removing the account you were logged in as. The guard then has no key until
 // the next login, so this only runs when the LAST account is removed.
 func ClearActiveCredential() bool {

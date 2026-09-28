@@ -153,7 +153,7 @@ func Install() Result {
 	// re-fetches it on its own schedule, and even a stale cache keeps the
 	// security config set — whereas deleting it forces a cold start where the
 	// first tool call has no cached config at all (the refresh is a detached
-	// background spawn), so DLP-block, rate limits and ghost silently do not
+	// background spawn), so DLP-block and rate limits silently do not
 	// apply on that one call.
 
 	if !locksDisabled() {

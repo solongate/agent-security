@@ -12,7 +12,7 @@ import (
 // The on-disk shapes, in the spelling the Node implementation already writes.
 //
 // DUPLICATION, stated rather than hidden: DLPCustom, DLPConfig, RateLimit,
-// LocalLogs, GhostConfig, Security, Policy, PolicyCache and Credential are the
+// LocalLogs, Security, Policy, PolicyCache and Credential are the
 // same declarations as packages/guard-go/config.go. They are copied because the
 // two modules do not depend on each other today, not because they are allowed
 // to drift — a field added on one side and not the other is a setting that
@@ -26,8 +26,6 @@ type DLPConfig = sgshared.DLPConfig
 type RateLimit = sgshared.RateLimit
 
 type LocalLogs = sgshared.LocalLogs
-
-type GhostConfig = sgshared.GhostConfig
 
 type Security = sgshared.Security
 

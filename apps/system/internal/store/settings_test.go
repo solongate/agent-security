@@ -31,9 +31,6 @@ func TestCoerceLayersDefaults(t *testing.T) {
 	if got.DLP.Mode != LayerDetect || len(got.DLP.Patterns) != len(DLPPatterns) {
 		t.Errorf("dlp = %+v, want detect with every built-in pattern", got.DLP)
 	}
-	if got.Ghost.Mode != "off" {
-		t.Errorf("ghost mode = %q, want off", got.Ghost.Mode)
-	}
 }
 
 // The compatibility branches. Each of these is a shape somebody's project is
@@ -113,8 +110,7 @@ func TestCoerceLayersClampsAndTrims(t *testing.T) {
 	got := coerceLayers(decode(t, `{
 		"rateLimit":{"mode":"block","perMinute":-5,"perHour":99999999999,"perDay":3.9},
 		"dlp":{"mode":"block","patterns":["JWT","not a real pattern","AWS access key"],
-		       "custom":[{"name":"  x  ","re":"  y  "},{"name":"","re":"z"}]},
-		"ghost":{"mode":"on","patterns":["a","a","b",""]}
+		       "custom":[{"name":"  x  ","re":"  y  "},{"name":"","re":"z"}]}
 	}`))
 
 	if got.RateLimit.PerMinute != 0 {
@@ -135,9 +131,6 @@ func TestCoerceLayersClampsAndTrims(t *testing.T) {
 	if len(got.DLP.Custom) != 1 || got.DLP.Custom[0].Name != "x" || got.DLP.Custom[0].Re != "y" {
 		t.Errorf("custom = %+v, want one trimmed entry and the nameless one dropped", got.DLP.Custom)
 	}
-	if len(got.Ghost.Patterns) != 2 {
-		t.Errorf("ghost patterns = %v, want duplicates and blanks removed", got.Ghost.Patterns)
-	}
 }
 
 // GuardEnforcementConfig is what the guard receives. null is an answer here,
@@ -146,7 +139,6 @@ func TestGuardEnforcementConfig(t *testing.T) {
 	detect := SecurityLayers{
 		RateLimit: RateLimitLayer{Mode: LayerDetect, PerMinute: 120},
 		DLP:       DLPLayer{Mode: LayerDetect, Patterns: []string{"JWT"}},
-		Ghost:     GhostLayer{Mode: "off"},
 	}
 	g := GuardEnforcementConfig(detect)
 	if g.RateLimit != nil {
@@ -165,7 +157,6 @@ func TestGuardEnforcementConfig(t *testing.T) {
 	block := SecurityLayers{
 		RateLimit: RateLimitLayer{Mode: LayerBlock, PerMinute: 10},
 		DLP:       DLPLayer{Mode: LayerBlock, Patterns: []string{"JWT"}},
-		Ghost:     GhostLayer{Mode: "on", Patterns: []string{"secret"}},
 	}
 	g = GuardEnforcementConfig(block)
 	if g.RateLimit == nil || g.RateLimit.PerMinute != 10 {
@@ -177,14 +168,11 @@ func TestGuardEnforcementConfig(t *testing.T) {
 	if g.DLPBlock == nil || g.DLPRedact == nil {
 		t.Error("block sets both dlpBlock and dlpRedact")
 	}
-	if g.Ghost == nil {
-		t.Error("ghost on with patterns must be delivered")
-	}
 
 	// The whole point of the pointers: an off project sends nulls, and the key
 	// must be PRESENT. sgshared.PolicyCache distinguishes a null security block
 	// from an absent one, and so does the guard.
-	off := SecurityLayers{RateLimit: RateLimitLayer{Mode: LayerOff}, DLP: DLPLayer{Mode: LayerOff}, Ghost: GhostLayer{Mode: "off"}}
+	off := SecurityLayers{RateLimit: RateLimitLayer{Mode: LayerOff}, DLP: DLPLayer{Mode: LayerOff}}
 	b, err := json.Marshal(GuardEnforcementConfig(off))
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +181,7 @@ func TestGuardEnforcementConfig(t *testing.T) {
 	if err := json.Unmarshal(b, &probe); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"rateLimit", "rateLimitObserve", "dlpBlock", "dlpRedact", "ghost"} {
+	for _, key := range []string{"rateLimit", "rateLimitObserve", "dlpBlock", "dlpRedact"} {
 		v, ok := probe[key]
 		if !ok {
 			t.Errorf("%q is missing from the security block; it must be present and null", key)

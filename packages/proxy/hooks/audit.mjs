@@ -113,175 +113,8 @@ function readLastEvalMs(toolName, sessionId) {
   } catch { return null; }
 }
 
-// ── Ghost paths (PostToolUse twin of guard.mjs) ──
-// The guard's PreToolUse hook blocks MUTATIONS to hidden paths; here we make
-// hidden paths invisible to READS and LISTINGS by rewriting the tool output the
-// model sees (Claude Code `updatedToolOutput`). The matcher below is mirrored
-// verbatim from guard.mjs — keep the two in sync. Config is read from the policy
-// cache the guard just wrote (same PreToolUse call), so no extra API request.
-function ghostGlobToRegExp(glob) {
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*') {
-      if (glob[i + 1] === '*') { re += '.*'; i++; }
-      else re += '[^/]*';
-    } else if (c === '?') re += '[^/]';
-    else if ('\\^$.|+()[]{}'.indexOf(c) !== -1) re += '\\' + c;
-    else re += c;
-  }
-  try { return new RegExp('^' + re + '$'); } catch { return null; }
-}
-function ghostMatch(targetPath, patterns) {
-  if (!targetPath || !Array.isArray(patterns) || patterns.length === 0) return false;
-  const norm = String(targetPath).replace(/\\/g, '/').replace(/\/+$/, '');
-  if (!norm) return false;
-  const segments = norm.split('/').filter(Boolean);
-  const base = segments.length ? segments[segments.length - 1] : norm;
-  for (let pat of patterns) {
-    pat = String(pat || '').trim();
-    if (!pat) continue;
-    let dirOnly = false;
-    if (pat.endsWith('/')) { dirOnly = true; pat = pat.slice(0, -1); }
-    if (!pat) continue;
-    const hasSlash = pat.indexOf('/') !== -1;
-    const hasWild = /[*?]/.test(pat);
-    const re = ghostGlobToRegExp(pat);
-    if (!re) continue;
-    if (dirOnly) {
-      if (!hasSlash && !hasWild) { if (segments.indexOf(pat) !== -1) return true; continue; }
-      let acc = '';
-      for (const s of segments) { acc = acc ? acc + '/' + s : s; if (re.test(acc) || re.test(s)) return true; }
-      continue;
-    }
-    if (!hasSlash) {
-      if (re.test(base)) return true;
-      if (segments.some((s) => re.test(s))) return true;
-      continue;
-    }
-    if (re.test(norm)) return true;
-    // A path ghost must also hide the file when a tool lists it by BARE name —
-    // `ls dir/` prints just "secret-plan.txt" (no slash), which a slash-pattern
-    // like `*/secret-plan.txt` would otherwise miss. Match the pattern's last
-    // segment against the target's basename.
-    const patBase = pat.slice(pat.lastIndexOf('/') + 1);
-    if (patBase && patBase !== pat) {
-      const reBase = ghostGlobToRegExp(patBase);
-      if (reBase && reBase.test(base)) return true;
-    }
-  }
-  return false;
-}
-function ghostCleanToken(tok) {
-  let t = String(tok || '').trim();
-  t = t.replace(/^[<>|;&(]+/, '').replace(/[);&|]+$/, '');
-  t = t.replace(/^['"]+/, '').replace(/['"]+$/, '');
-  t = t.replace(/^\d*>>?/, '');
-  return t.trim();
-}
-// Drop listing lines that reference a ghost entry. `find`/glob output (one path
-// per line) drops the whole line; multi-column `ls -l` rows drop entirely; a
-// bare space-separated `ls` row drops only the matching names.
-function ghostStripLines(text, pats) {
-  const lines = String(text).split('\n');
-  const kept = [];
-  let stripped = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) { kept.push(line); continue; }
-    if (ghostMatch(trimmed, pats)) { stripped = true; continue; } // full-path listing line
-    // grep -n / ripgrep output is `path:line:content` (or `path:content`) — the
-    // path is the first colon field. Drop the whole match line if it's a ghost.
-    const firstField = trimmed.split(':')[0];
-    if (firstField && firstField !== trimmed && ghostMatch(firstField, pats)) { stripped = true; continue; }
-    const toks = trimmed.split(/\s+/);
-    const anyHit = toks.some((t) => ghostMatch(ghostCleanToken(t), pats));
-    if (!anyHit) { kept.push(line); continue; }
-    stripped = true;
-    if (toks.length > 3) continue; // ls -l style row → drop entirely
-    const remaining = toks.filter((t) => !ghostMatch(ghostCleanToken(t), pats));
-    if (remaining.length === 0) continue;
-    kept.push(remaining.join('  '));
-  }
-  // `ls -la` prints a `total <blocks>` header that still counts the hidden file's
-  // blocks — a size/existence side-channel even once the row is gone. Drop it
-  // when we stripped anything so the aggregate can't be used to enumerate ghosts.
-  const out = stripped ? kept.filter((l) => !/^\s*total\s+\d+\s*$/.test(l)) : kept;
-  return out.join('\n');
-}
-// Read ghost patterns from the policy cache the guard wrote on the matching
-// PreToolUse call. Same agent-key derivation as guard.mjs.
-function loadGhostPatterns() {
-  try {
-    const sel = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const f = resolve(homedir(), '.solongate', '.policy-cache-' + sel + '.json');
-    if (!existsSync(f)) return [];
-    const c = JSON.parse(readFileSync(f, 'utf-8'));
-    const g = c && c.security && c.security.ghost;
-    return g && Array.isArray(g.patterns) ? g.patterns : [];
-  } catch { return []; }
-}
-// Returns the rewritten output text, or null if nothing is hidden.
-function buildGhostOutput(toolName, toolInput, toolResponse, toolOutput, pats) {
-  if (!Array.isArray(pats) || pats.length === 0) return null;
-  const name = toolName || '';
-  // Use the SAME broad extraction as DLP redaction (Read file.content, array
-  // content, stdout, …). Previously this was narrower, so ghost-strip silently
-  // skipped tool shapes DLP still scanned — a ghosted file then survived in a
-  // listing (e.g. the LS tool) even though names elsewhere got redacted.
-  const getText = () => extractOutputText(toolResponse, toolOutput);
-  try {
-    // Direct read of a hidden file → looks like it doesn't exist.
-    if (name === 'Read' || name === 'NotebookRead') {
-      const p = toolInput && (toolInput.file_path || toolInput.notebook_path);
-      if (p && ghostMatch(p, pats)) return p + ': No such file or directory';
-      return null;
-    }
-    if (name === 'Bash' || name === 'BashOutput') {
-      const text = getText();
-      if (text == null) return null;
-      const cmd = String((toolInput && toolInput.command) || '');
-      for (const raw of cmd.split(/\s+/)) {
-        const t = ghostCleanToken(raw);
-        // A command that names the hidden path directly (cat A/Y/.data, ls A/Y)
-        // → not-found, regardless of what the command actually returned. Skip
-        // flags and any token carrying regex/shell metacharacters: the guard's
-        // PreToolUse listing rewrite injects a ghost REGEX (e.g.
-        // ")([^/]*ghosttest[^/]*)(/|$)") into the command, and tokenizing that
-        // would falsely "match" and emit a bogus not-found string as the result.
-        if (!t || t[0] === '-' || /[()|[\]^$*?]/.test(t)) continue;
-        if (ghostMatch(t, pats)) return t + ': No such file or directory';
-      }
-      const stripped = ghostStripLines(text, pats);
-      return stripped === text ? null : stripped;
-    }
-    // MCP filesystem direct reads → make a hidden file look absent, mirroring
-    // the native Read branch above (these never reach the Bash/LS branches).
-    if (name === 'mcp__filesystem__read_file' || name === 'mcp__filesystem__read_text_file' ||
-        name === 'mcp__filesystem__read_media_file' || name === 'mcp__filesystem__get_file_info') {
-      const p = toolInput && (toolInput.path || toolInput.file_path);
-      if (p && ghostMatch(p, pats)) return String(p) + ': No such file or directory';
-    }
-    // Every OTHER tool that returns listing-like text → strip hidden entries.
-    // Native Glob/Grep/LS plus any non-shell lister (MCP filesystem
-    // list_directory / directory_tree / search_files, and future tools). Bash
-    // listings are already covered above (and via the guard's PreToolUse command
-    // rewrite); this catch-all is the post-hoc safety net so a ghost entry can't
-    // survive in ANY listing shape — previously only the hard-coded
-    // Glob/Grep/LS names were stripped, so an MCP/unknown lister leaked it.
-    {
-      const text = getText();
-      if (text == null) return null;
-      const stripped = ghostStripLines(text, pats);
-      return stripped === text ? null : stripped;
-    }
-  } catch { /* fail open */ }
-  return null;
-}
-
 // ── DLP output redaction (PostToolUse) ──
-// Same family as ghost, but ghost hides files/dirs by PATH while this masks
-// secret VALUES inside the tool OUTPUT the model sees (file reads, stdout,
+// Masks secret VALUES inside the tool OUTPUT the model sees (file reads, stdout,
 // fetched pages). Active whenever DLP is on (detect OR block) — the server
 // delivers the enabled pattern set as `security.dlpRedact` in the policy cache.
 // Patterns mirror guard.mjs / apps/api/src/lib/security-layers.ts (global flag
@@ -473,7 +306,7 @@ function appendLocalLog(cfg, entry) {
 // Replace every secret match with a labelled placeholder. cfg = { patterns:
 // string[] (enabled built-in names), custom: {name,re}[] }.
 // Custom patterns are GLOBs: `*` = any run of non-whitespace (so a fragment
-// matches a whole token), same wildcard mechanic as policy/ghost.
+// matches a whole token), same wildcard mechanic as the policy layer.
 function dlpGlobToRe(glob, flags) {
   let re = '';
   for (const ch of String(glob || '')) {
@@ -514,10 +347,9 @@ function extractOutputText(toolResponse, toolOutput) {
       if (t) return t;
     }
     // Native Glob delivers its hits as a `filenames` string[] with NO stdout/
-    // content field, so getText() returned null and the ghost/DLP strip silently
-    // skipped it — a ghosted file then survived in the Glob listing the model saw
-    // (the exact leak: a `*ghosttest*` path showed up in a Glob result). Join to
-    // one-path-per-line so ghostStripLines/dlpRedactText can act on it; the
+    // content field, so getText() returned null and the DLP redaction silently
+    // skipped it — a secret-looking path then survived in the Glob listing the
+    // model saw. Join to one-path-per-line so dlpRedactText can act on it; the
     // PostToolUse updatedToolOutput then replaces the model-visible list.
     if (Array.isArray(r.filenames)) {
       const t = r.filenames.filter((x) => typeof x === 'string').join('\n');
@@ -635,13 +467,10 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
     const toolOutput = data.tool_output || data.toolOutput || '';
     const resultJson = data.result_json ? (typeof data.result_json === 'string' ? data.result_json : JSON.stringify(data.result_json)) : '';
 
-    // Ghost paths: rewrite the output the model sees so hidden files/dirs are
-    // stripped from listings and direct reads look like "no such file". Emit the
-    // updated output BEFORE the (fire-and-forget) audit log. Fail-open: any
+    // DLP: rewrite the output the model sees so secret values are masked. Emit
+    // the updated output BEFORE the (fire-and-forget) audit log. Fail-open: any
     // error leaves the original output untouched.
-    let ghostFired = false;
     try {
-      const ghostPats = loadGhostPatterns();
       const dlpCfg = loadDlpRedact();
       const redactName = (s) => (dlpCfg && typeof s === 'string') ? dlpRedactText(s, dlpCfg) : s;
 
@@ -649,16 +478,13 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
       //   { filenames: string[], numFiles, truncated, totalMatches, ... }
       // Claude Code REJECTS a plain-string updatedToolOutput for such a tool —
       // it prints "PostToolUse:Glob hook warning" and keeps the ORIGINAL result,
-      // so the ghost entry leaks into the listing the model sees. The fix is to
-      // return the SAME shape: the filenames array with ghost entries dropped
-      // (and secret-looking names masked), preserving every other field.
+      // so the unredacted listing is what the model sees. The fix is to return
+      // the SAME shape: the filenames array with secret-looking names masked,
+      // preserving every other field.
       if (toolResponse && typeof toolResponse === 'object' && Array.isArray(toolResponse.filenames)) {
-        const orig = toolResponse.filenames;
-        const kept = orig.filter((f) => !(ghostPats.length && ghostMatch(String(f), ghostPats)));
-        ghostFired = kept.length !== orig.length;
-        const masked = kept.map((f) => redactName(String(f)));
-        const changed = ghostFired || masked.some((f, i) => f !== String(kept[i]));
-        if (changed) {
+        const orig = toolResponse.filenames.map((f) => String(f));
+        const masked = orig.map(redactName);
+        if (masked.some((f, i) => f !== orig[i])) {
           const updated = { ...toolResponse, filenames: masked, numFiles: masked.length };
           if (typeof toolResponse.totalMatches === 'number') updated.totalMatches = masked.length;
           EMITTED_PAYLOAD = JSON.stringify({
@@ -666,20 +492,18 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
           });
         }
       } else {
-        // String-output tools (Bash, Read, text Grep, MCP listers): strip ghost
-        // lines and redact secrets in the TEXT, return a STRING.
-        const ghostText = buildGhostOutput(toolName, toolInput, toolResponse, toolOutput, ghostPats);
-        ghostFired = typeof ghostText === 'string';
-        let out = typeof ghostText === 'string' ? ghostText : null;
+        // String-output tools (Bash, Read, text Grep, MCP listers): redact
+        // secrets in the TEXT, return a STRING.
+        let out = null;
         if (dlpCfg) {
-          const base = typeof ghostText === 'string' ? ghostText : extractOutputText(toolResponse, toolOutput);
+          const base = extractOutputText(toolResponse, toolOutput);
           if (typeof base === 'string') {
             const redacted = dlpRedactText(base, dlpCfg);
-            if (redacted !== base || typeof ghostText === 'string') out = redacted;
+            if (redacted !== base) out = redacted;
           }
         }
         if (typeof out === 'string') {
-          // Never emit EMPTY content. When ghost/DLP stripping removes every line
+          // Never emit EMPTY content. When DLP stripping removes every line
           // (e.g. a grep/cat that hit only hidden or secret lines) and the tool
           // ALSO errored, the resulting tool_result is is_error:true with empty
           // content — which the API rejects ("content cannot be empty if is_error
@@ -729,15 +553,15 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
     // (updatedMCPToolOutput) is explicitly rejected as unsupported — so emitting
     // our `updatedToolOutput` there wouldn't redact anything, it would just make
     // Codex report a failed hook on every single tool call. Drop the payload and
-    // keep the audit log. The ghost/DLP protection Codex DOES get runs earlier,
-    // in the PreToolUse guard (direct hits blocked, listings rewritten, secret
-    // reads redirected to a redacted copy) — see guard.mjs dlpRedactReadPlan.
+    // keep the audit log. The DLP protection Codex DOES get runs earlier, in the
+    // PreToolUse guard (secret reads redirected to a redacted copy) — see
+    // guard.mjs dlpRedactReadPlan.
     if (AGENT_ID === 'codex' && typeof EMITTED_PAYLOAD === 'string') EMITTED_PAYLOAD = null;
 
     // Flush the model-visible replacement to stdout, THEN exit. On Windows a
     // bare process.exit() can truncate an un-drained pipe write, so Claude Code
     // receives malformed hook JSON, prints "PostToolUse hook warning", and
-    // DISCARDS the replacement — leaving the ghost entry visible. Gate the exit
+    // DISCARDS the replacement — leaving the unredacted output visible. Gate the exit
     // on the write's flush callback (and on the fire-and-forget audit POST).
     let flushed = (typeof EMITTED_PAYLOAD !== 'string');
     let fetchDone = false;
@@ -755,7 +579,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
 
     const sessionId = data.session_id || data.sessionId || data.conversation_id || '';
     const decision = hasError ? 'DENY' : 'ALLOW';
-    const reason = guardDenied ? 'blocked by policy guard' : hasError ? 'tool returned error' : ghostFired ? 'ghost path (hidden from agent)' : 'allowed';
+    const reason = guardDenied ? 'blocked by policy guard' : hasError ? 'tool returned error' : 'allowed';
     const permission = guessPermission(toolName);
     const evaluationTimeMs = readLastEvalMs(toolName, sessionId);
 
@@ -794,10 +618,6 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
         body: JSON.stringify({
           tool: toolName,
           arguments: argsSummary,
-          // Ghost-on-a-listing is NOT a denial: the call was ALLOWED and succeeded,
-          // we just hid ghost entries from its result. Log it as ALLOW but carry the
-          // ghost reason so the dashboard can badge it Ghost (the allow-side twin of
-          // the guard's DENY+Ghost for a direct ghost hit). Real denials stay DENY.
           decision,
           reason,
           permission,

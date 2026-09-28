@@ -159,7 +159,6 @@ solongate                    the dataroom (policies, audit, settings)
 solongate policy             list, create, edit and activate policies
 solongate ratelimit          show and edit rate limits
 solongate dlp                show and edit secret detection
-solongate ghost              show and edit hidden paths
 solongate audit              browse the audit log
 solongate watch              live-tail tool calls
 solongate sessions           live agent-session feed

@@ -148,7 +148,6 @@ type insightsBits struct {
 	Layers struct {
 		RateLimit *insightsRateLimit `json:"rateLimit"`
 		DLP       *insightsDLP       `json:"dlp"`
-		Ghost     *insightsGhost     `json:"ghost"`
 	} `json:"layers"`
 	DLPByPattern []insightsPatternHit `json:"dlpByPattern"`
 }
@@ -171,11 +170,6 @@ type insightsCustom struct {
 	Re   string `json:"re"`
 }
 
-type insightsGhost struct {
-	Mode     string   `json:"mode"`
-	Patterns []string `json:"patterns"`
-}
-
 type insightsPatternHit struct {
 	Pattern string `json:"pattern"`
 	Count   int    `json:"count"`
@@ -193,13 +187,6 @@ func (d *insightsDLP) mode() string {
 		return ""
 	}
 	return d.Mode
-}
-
-func (g *insightsGhost) mode() string {
-	if g == nil {
-		return ""
-	}
-	return g.Mode
 }
 
 // summary is the one-line rate-limit state in the LAYERS column.
@@ -1768,7 +1755,7 @@ var liveHelp = []helpGroup{
 		{"f", "source: all → LOC (this machine's local log) → CLD (cloud)"},
 		{"/", "live search (tool, agent, command…) · enter done"},
 		{"s", "session picker"},
-		{"l", "layers detail (rate limit · dlp · ghost · guard)"},
+		{"l", "layers detail (rate limit · dlp · guard)"},
 		{"e", "export visible rows → ~/.solongate/live-export.jsonl"},
 		{"space", "copy mode: freeze screen for mouse selection"},
 		{"esc", "back to menu"},
@@ -1898,7 +1885,6 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) []string {
 	rl := p.insights.Layers.RateLimit
 	dl := p.insights.Layers.DLP
-	gh := p.insights.Layers.Ghost
 	barW := maxInt(10, minInt(40, width-30))
 
 	var body []string
@@ -2027,31 +2013,6 @@ func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) [
 	}
 	push("")
 
-	ghMode, ghNote := "", "no hidden paths"
-	if gh != nil {
-		ghMode = gh.Mode
-		if gh.Mode == "on" {
-			ghNote = "matching paths are hidden from agents"
-		}
-	}
-	section("GHOST", ghMode, ghNote)
-	var ghostPats []string
-	if gh != nil {
-		ghostPats = gh.Patterns
-	}
-	if len(ghostPats) > 0 {
-		kv("patterns", plain(strconv.Itoa(len(ghostPats))))
-	} else {
-		kv("patterns", plain("none"))
-	}
-	for _, line := range wrapLines(strings.Join(ghostPats, " · "), maxInt(20, width-18)) {
-		if line == "" {
-			continue
-		}
-		push(renderRow(width, sg("                "+line, theme.Dim)))
-	}
-	push("")
-
 	guardMode := "?"
 	if p.guard != nil {
 		guardMode = "stale"
@@ -2115,7 +2076,7 @@ func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) [
 	}
 	return append(lines, renderRow(width,
 		seg{text: " LAYERS ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
-		seg{text: " rate limit · dlp · ghost · guard ", fg: theme.White, bg: lipgloss.Color(hexFooterBG)},
+		seg{text: " rate limit · dlp · guard ", fg: theme.White, bg: lipgloss.Color(hexFooterBG)},
 		seg{text: " ↑↓ scroll · ? all keys · ← back · esc menu ", fg: theme.White, bg: lipgloss.Color(hexPanelBG)}))
 }
 
@@ -2260,7 +2221,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 
 	rl := p.insights.Layers.RateLimit
 	dl := p.insights.Layers.DLP
-	gh := p.insights.Layers.Ghost
 
 	minuteNow := 0
 	for _, e := range p.merged {
@@ -2293,7 +2253,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	counters = append(counters,
 		sg(" │ rl ", theme.Dim), sg(modeOr(rl.mode()), modeColor(rl.mode())),
 		sg(" │ dlp ", theme.Dim), sg(modeOr(dl.mode()), modeColor(dl.mode())),
-		sg(" │ ghost ", theme.Dim), sg(modeOr(gh.mode()), modeColor(gh.mode())),
 		sg(" │ sess ", theme.Dim),
 		sg(strconv.Itoa(len(p.sessRows))+" ("+strconv.Itoa(p.sessCounts.active)+" live)", theme.Accent),
 		sg(" │ hooks ", theme.Dim))

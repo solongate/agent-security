@@ -45,10 +45,6 @@ type LocalLogs struct {
 	Path    string `json:"path"`
 }
 
-type GhostConfig struct {
-	Patterns []string `json:"patterns"`
-}
-
 type Security struct {
 	DLPBlock  *DLPConfig `json:"dlpBlock"`
 	DLPRedact *DLPConfig `json:"dlpRedact"`
@@ -61,9 +57,8 @@ type Security struct {
 	// Read by the post-tool audit hook on clients that have one, and by the
 	// guard itself on clients that do not — where nothing else runs, so a
 	// detect-mode burst that is not counted here is not counted anywhere.
-	RateLimitObserve *RateLimit   `json:"rateLimitObserve"`
-	LocalLogs        *LocalLogs   `json:"localLogs"`
-	Ghost            *GhostConfig `json:"ghost"`
+	RateLimitObserve *RateLimit `json:"rateLimitObserve"`
+	LocalLogs        *LocalLogs `json:"localLogs"`
 }
 
 // Rules stays raw. The guard compiles it to Rego and the CLI passes it through;

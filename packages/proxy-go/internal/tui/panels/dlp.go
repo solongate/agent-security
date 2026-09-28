@@ -18,11 +18,11 @@ import (
 // The DLP panel, ported from tui/panels/Dlp.tsx. Draft-only edits, saved with
 // `s`, never auto-saved.
 //
-// ONE scrollable cursor runs over three sections so nothing is ever clipped:
-// the built-in secret patterns (space toggles each), the custom patterns
-// (a add · d remove) and the ghost routes (g on/off · r add · d remove).
+// ONE scrollable cursor runs over two sections so nothing is ever clipped: the
+// built-in secret patterns (space toggles each) and the custom patterns
+// (a add · d remove).
 //
-// Custom patterns and ghost routes take the SAME GLOB syntax as the built-in
+// Custom patterns take the SAME GLOB syntax as the built-in
 // patterns — `*` matches any run of characters — not regular expressions. The
 // field is named `re` on the wire, which is exactly why the prompts say glob
 // every time they are shown.
@@ -38,23 +38,21 @@ type dlpEntryKind int
 const (
 	dlpBuiltin dlpEntryKind = iota
 	dlpCustom
-	dlpGhost
 )
 
 type dlpEntry struct {
 	kind dlpEntryKind
 	name string // built-in pattern name
-	i    int    // index into custom / ghost
+	i    int    // index into custom
 }
 
 // dlpAdding is which text prompt is open, if any.
 type dlpAdding string
 
 const (
-	dlpAddNone  dlpAdding = ""
-	dlpAddName  dlpAdding = "name"
-	dlpAddRe    dlpAdding = "re"
-	dlpAddRoute dlpAdding = "route"
+	dlpAddNone dlpAdding = ""
+	dlpAddName dlpAdding = "name"
+	dlpAddRe   dlpAdding = "re"
 )
 
 type (
@@ -84,11 +82,9 @@ type DLP struct {
 	loading bool
 	loadErr error
 
-	dlp       api.SecurityLayers // the draft; only the dlp and ghost parts are edited
+	dlp       api.SecurityLayers // the draft; only the dlp part is edited
 	hasDraft  bool
 	available []string
-	ghostOn   bool
-	ghostPats []string
 
 	sel    int
 	dirty  bool
@@ -129,18 +125,8 @@ func (p *DLP) SetBound(sec api.SecurityLayers, available []string, dirty bool) {
 	p.adoptServer(sec)
 }
 
-// Bound reads the draft back out, with the ghost half folded in. The ghost mode
-// is kept as a bool while editing because the layer has two states and the wire
-// spells them as strings.
-func (p *DLP) Bound() api.SecurityLayers {
-	out := p.dlp
-	out.Ghost.Mode = "off"
-	if p.ghostOn {
-		out.Ghost.Mode = "on"
-	}
-	out.Ghost.Patterns = append([]string(nil), p.ghostPats...)
-	return out
-}
+// Bound reads the draft back out.
+func (p *DLP) Bound() api.SecurityLayers { return p.dlp }
 
 // CapturingKeys is true while the add/edit prompt is open, so the shell leaves
 // every key — including q and esc — to the prompt.
@@ -227,20 +213,15 @@ func (p *DLP) adoptServer(l api.SecurityLayers) {
 	p.dlp.DLP.Patterns = append([]string(nil), l.DLP.Patterns...)
 	p.dlp.DLP.Custom = append([]api.CustomPattern(nil), l.DLP.Custom...)
 	p.hasDraft = true
-	p.ghostOn = l.Ghost.Mode == "on"
-	p.ghostPats = append([]string(nil), l.Ghost.Patterns...)
 }
 
 func (p *DLP) entries() []dlpEntry {
-	out := make([]dlpEntry, 0, len(p.available)+len(p.dlp.DLP.Custom)+len(p.ghostPats))
+	out := make([]dlpEntry, 0, len(p.available)+len(p.dlp.DLP.Custom))
 	for _, name := range p.available {
 		out = append(out, dlpEntry{kind: dlpBuiltin, name: name})
 	}
 	for i := range p.dlp.DLP.Custom {
 		out = append(out, dlpEntry{kind: dlpCustom, i: i})
-	}
-	for i := range p.ghostPats {
-		out = append(out, dlpEntry{kind: dlpGhost, i: i})
 	}
 	return out
 }
@@ -304,10 +285,6 @@ func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
 		p.editIdx = -1
 		p.beginInput(dlpAddName, "")
 
-	case "r":
-		p.editIdx = -1
-		p.beginInput(dlpAddRoute, "")
-
 	case "d":
 		if !hasCur {
 			return nil
@@ -315,10 +292,6 @@ func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
 		switch cur.kind {
 		case dlpCustom:
 			p.dlp.DLP.Custom = append(p.dlp.DLP.Custom[:cur.i:cur.i], p.dlp.DLP.Custom[cur.i+1:]...)
-			p.mutated()
-			p.sel = max(0, selC-1)
-		case dlpGhost:
-			p.ghostPats = append(p.ghostPats[:cur.i:cur.i], p.ghostPats[cur.i+1:]...)
 			p.mutated()
 			p.sel = max(0, selC-1)
 		}
@@ -335,16 +308,7 @@ func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
 				p.newName = p.dlp.DLP.Custom[cur.i].Name
 				p.beginInput(dlpAddRe, p.dlp.DLP.Custom[cur.i].Re)
 			}
-		case dlpGhost:
-			if cur.i < len(p.ghostPats) {
-				p.editIdx = cur.i
-				p.beginInput(dlpAddRoute, p.ghostPats[cur.i])
-			}
 		}
-
-	case "g":
-		p.ghostOn = !p.ghostOn
-		p.mutated()
 
 	case "s":
 		if p.bound {
@@ -402,7 +366,7 @@ func (p *DLP) editKey(k tea.KeyMsg) tea.Cmd {
 		p.beginInput(dlpAddRe, "")
 		return nil
 
-	case dlpAddRe:
+	default: // the pattern itself
 		if v != "" {
 			if p.editIdx >= 0 && p.editIdx < len(p.dlp.DLP.Custom) {
 				p.dlp.DLP.Custom[p.editIdx] = api.CustomPattern{Name: p.newName, Re: v}
@@ -410,19 +374,6 @@ func (p *DLP) editKey(k tea.KeyMsg) tea.Cmd {
 				p.dlp.DLP.Custom = append(p.dlp.DLP.Custom, api.CustomPattern{Name: p.newName, Re: v})
 			}
 			p.mutated()
-		}
-		p.endInput()
-		return nil
-
-	default: // route
-		if v != "" {
-			if p.editIdx >= 0 && p.editIdx < len(p.ghostPats) {
-				p.ghostPats[p.editIdx] = v
-				p.mutated()
-			} else if !containsString(p.ghostPats, v) {
-				p.ghostPats = append(p.ghostPats, v)
-				p.mutated()
-			}
 		}
 		p.endInput()
 		return nil
@@ -436,11 +387,6 @@ func (p *DLP) save() tea.Cmd {
 	p.status = "Saving…"
 	next := p.server.Layers
 	next.DLP = p.dlp.DLP
-	next.Ghost.Mode = "off"
-	if p.ghostOn {
-		next.Ghost.Mode = "on"
-	}
-	next.Ghost.Patterns = append([]string(nil), p.ghostPats...)
 	t := p.tag()
 	return func() tea.Msg {
 		got, err := p.deps.API.Settings.SetSecurityLayers(bg(), next)
@@ -571,40 +517,6 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 		ei++
 	}
 
-	ghostState := "off"
-	if p.ghostOn {
-		ghostState = "ON"
-	}
-	header("ghost — hidden paths", ghostState+" (g) · r add route · d remove")
-	note("  glob path · * = any chars · green ✱ = wildcard active on that side · e.g.  */.env   *.pem")
-	if len(p.ghostPats) == 0 {
-		note("  (none — g turns ghost on, r adds a path to hide)")
-	}
-	for _, pat := range p.ghostPats {
-		isCur := p.focused && ei == selC
-		left, core, right := wcParts(pat)
-		l := newLine(isCur)
-		cursorStyle, cursor := stDim, "  "
-		if isCur {
-			cursorStyle, cursor = stAccent, "▸ "
-		}
-		l.put(cursor, cursorStyle.Bold(isCur))
-		txt, st := starLeft(left)
-		l.put(txt, st.Bold(isCur))
-		coreStyle := stDim
-		if p.ghostOn {
-			coreStyle = stAccent
-		}
-		l.put(truncate(core, max(6, p.cols-12)), coreStyle.Bold(isCur))
-		txt, st = starRight(right)
-		l.put(txt, st.Bold(isCur))
-		if !p.ghostOn {
-			l.put("  (ghost off)", stDim)
-		}
-		lines = append(lines, dlpLine{l.String(), ei})
-		ei++
-	}
-
 	// ── header block (always visible) + windowed list ──────────────────────
 	editRows := 0
 	if p.adding != dlpAddNone {
@@ -654,7 +566,7 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 		if p.bound {
 			tail = " · s save · ← back"
 		}
-		hint = "↑↓ move · space on/off · m mode · a add · r route · e/enter edit · d remove · g ghost" +
+		hint = "↑↓ move · space on/off · m mode · a add · e/enter edit · d remove" +
 			tail + scrollTag(above, below)
 	}
 	out = append(out, stDim.Render(hint))
@@ -664,18 +576,12 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 		switch p.adding {
 		case dlpAddName:
 			l.put("new pattern name: ", stWarn)
-		case dlpAddRe:
+		default:
 			verb := "new"
 			if p.editIdx >= 0 {
 				verb = "edit"
 			}
 			l.put(verb+` pattern for "`+p.newName+`" (glob, * = any chars): `, stWarn)
-		default:
-			verb := "ghost path to hide"
-			if p.editIdx >= 0 {
-				verb = "edit ghost path"
-			}
-			l.put(verb+" (glob, * = any chars, e.g. */.env  *.pem): ", stWarn)
 		}
 		v := p.input.Value()
 		if p.adding != dlpAddName {

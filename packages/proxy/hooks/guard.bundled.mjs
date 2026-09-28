@@ -7088,7 +7088,7 @@ function parseFlatPayload(raw) {
 }
 function emitHookSpecific(d) {
   if (d.type === "deny") {
-    const msg = d.stealth ? d.reason : d.reason || "[SolonGate] Blocked by policy";
+    const msg = d.reason || "[SolonGate] Blocked by policy";
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -7164,7 +7164,7 @@ var CLIENTS = {
     },
     emit(d) {
       if (d.type === "deny") {
-        const msg = d.stealth ? d.reason : `[SolonGate] ${d.reason}`;
+        const msg = `[SolonGate] ${d.reason}`;
         process.stdout.write(JSON.stringify({ decision: "deny", reason: msg, allow_tool: false, deny_reason: msg }));
         return 0;
       }
@@ -7202,8 +7202,8 @@ function emitDecision(d) {
   }
   sgFinish(0);
 }
-function blockTool(reason, stealth) {
-  emitDecision({ type: "deny", reason, stealth: !!stealth });
+function blockTool(reason) {
+  emitDecision({ type: "deny", reason });
 }
 function allowTool() {
   emitDecision({ type: "allow" });
@@ -7669,109 +7669,6 @@ function extractTargetPaths(args) {
   }
   return out;
 }
-function ghostGlobToRe(glob) {
-  let re = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === "*") {
-      if (glob[i + 1] === "*") {
-        re += ".*";
-        i++;
-      } else
-        re += "[^/]*";
-    } else if (c === "?")
-      re += "[^/]";
-    else if ("\\^$.|+()[]{}".indexOf(c) !== -1)
-      re += "\\" + c;
-    else
-      re += c;
-  }
-  try {
-    return new RegExp("^" + re + "$");
-  } catch {
-    return null;
-  }
-}
-function ghostPathMatch(p, patterns) {
-  if (!p)
-    return false;
-  const norm = String(p).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  if (!norm)
-    return false;
-  const base = norm.split("/").filter(Boolean).pop() || norm;
-  for (let pat of patterns) {
-    pat = String(pat || "").trim().toLowerCase();
-    if (!pat)
-      continue;
-    const re = ghostGlobToRe(pat);
-    if (re && (re.test(norm) || re.test(base)))
-      return true;
-    const patBase = pat.slice(pat.lastIndexOf("/") + 1);
-    if (patBase && patBase !== pat) {
-      const rb = ghostGlobToRe(patBase);
-      if (rb && rb.test(base))
-        return true;
-    }
-  }
-  return false;
-}
-function ghostCheck(toolName, args, sec, ghostCwd) {
-  try {
-    const pats = sec && sec.ghost && Array.isArray(sec.ghost.patterns) ? sec.ghost.patterns : [];
-    if (!pats.length)
-      return null;
-    for (const p of extractTargetPaths(args)) {
-      if (ghostPathMatch(p, pats))
-        return String(p) + ": No such file or directory";
-    }
-    for (const cmd of extractCommands(args)) {
-      const c = String(cmd || "").toLowerCase();
-      for (let pat of pats) {
-        const patBase = String(pat || "").trim().toLowerCase().slice(String(pat).lastIndexOf("/") + 1).replace(/[*?]/g, "");
-        if (patBase && patBase.length > 2 && c.includes(patBase))
-          return patBase + ": No such file or directory";
-      }
-    }
-    for (const cmd of extractCommands(args)) {
-      const c = String(cmd || "");
-      if (!/\b(du|df)\b/.test(c.toLowerCase()))
-        continue;
-      const toks = c.split(/\s+/);
-      const dirs = [];
-      for (let i = 1; i < toks.length; i++) {
-        const t = toks[i];
-        if (t && !t.startsWith("-"))
-          dirs.push(t);
-      }
-      if (!dirs.length)
-        dirs.push(".");
-      const base = ghostCwd || process.cwd();
-      for (let d of dirs) {
-        if (d.startsWith("~"))
-          d = homedir() + d.slice(1);
-        let abs;
-        try {
-          abs = isAbsolute(d) ? d : resolve(base, d);
-        } catch {
-          continue;
-        }
-        let entries = [];
-        try {
-          if (statSync(abs).isDirectory())
-            entries = readdirSync(abs);
-        } catch {
-          continue;
-        }
-        for (const e of entries) {
-          if (ghostPathMatch(join(abs, e), pats) || ghostPathMatch(e, pats))
-            return d + ": No such file or directory";
-        }
-      }
-    }
-  } catch {
-  }
-  return null;
-}
 function tamperCheck(toolName, args) {
   const tn = String(toolName || "").toLowerCase();
   const isExec = TAMPER_GUARD_TOOLS_EXEC.has(tn) || /bash|shell|exec|powershell|cmd|run|eval/.test(tn);
@@ -8027,166 +7924,6 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
     return { block: true };
   }
   return null;
-}
-function ghostGlobToRegExp(glob) {
-  let re = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === "*") {
-      if (glob[i + 1] === "*") {
-        re += ".*";
-        i++;
-      } else
-        re += "[^/]*";
-    } else if (c === "?")
-      re += "[^/]";
-    else if ("\\^$.|+()[]{}".indexOf(c) !== -1)
-      re += "\\" + c;
-    else
-      re += c;
-  }
-  try {
-    return new RegExp("^" + re + "$");
-  } catch {
-    return null;
-  }
-}
-function ghostMatch(targetPath, patterns) {
-  if (!targetPath || !Array.isArray(patterns) || patterns.length === 0)
-    return false;
-  const norm = String(targetPath).replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!norm)
-    return false;
-  const segments = norm.split("/").filter(Boolean);
-  const base = segments.length ? segments[segments.length - 1] : norm;
-  for (let pat of patterns) {
-    pat = String(pat || "").trim();
-    if (!pat)
-      continue;
-    let dirOnly = false;
-    if (pat.endsWith("/")) {
-      dirOnly = true;
-      pat = pat.slice(0, -1);
-    }
-    if (!pat)
-      continue;
-    const hasSlash = pat.indexOf("/") !== -1;
-    const hasWild = /[*?]/.test(pat);
-    const re = ghostGlobToRegExp(pat);
-    if (!re)
-      continue;
-    if (dirOnly) {
-      if (!hasSlash && !hasWild) {
-        if (segments.indexOf(pat) !== -1)
-          return true;
-        continue;
-      }
-      let acc = "";
-      for (const s of segments) {
-        acc = acc ? acc + "/" + s : s;
-        if (re.test(acc) || re.test(s))
-          return true;
-      }
-      continue;
-    }
-    if (!hasSlash) {
-      if (re.test(base))
-        return true;
-      if (segments.some((s) => re.test(s)))
-        return true;
-      continue;
-    }
-    if (re.test(norm))
-      return true;
-  }
-  return false;
-}
-function ghostCleanToken(tok) {
-  let t = String(tok || "").trim();
-  t = t.replace(/^[<>|;&(]+/, "").replace(/[);&|]+$/, "");
-  t = t.replace(/^['"]+/, "").replace(/['"]+$/, "");
-  t = t.replace(/^\d*>>?/, "");
-  return t.trim();
-}
-function ghostBlock(toolName, args, ghostCfg) {
-  if (!ghostCfg || !Array.isArray(ghostCfg.patterns) || ghostCfg.patterns.length === 0)
-    return null;
-  const pats = ghostCfg.patterns;
-  const name = toolName || "";
-  const notFound = (p) => p + ": No such file or directory";
-  try {
-    if (name === "Write" || name === "Edit" || name === "MultiEdit" || name === "NotebookEdit" || name === "Read" || name === "NotebookRead" || name === "LS") {
-      const p = args?.file_path || args?.notebook_path || args?.path || "";
-      if (p && ghostMatch(p, pats))
-        return notFound(p);
-      return null;
-    }
-    if (name === "Glob" || name === "Grep") {
-      const p = args?.path || "";
-      const pat = args?.pattern || args?.glob || "";
-      if (p && ghostMatch(p, pats))
-        return notFound(p);
-      if (pat && ghostMatch(pat, pats))
-        return notFound(String(pat));
-      return null;
-    }
-    if (name === "Bash" || name === "BashOutput" || guessPermission(name) === "EXECUTE") {
-      const cmd = String(args?.command || "");
-      if (!cmd)
-        return null;
-      for (const raw of cmd.split(/\s+/)) {
-        const tok = ghostCleanToken(raw);
-        if (tok && tok.indexOf("-") !== 0 && ghostMatch(tok, pats))
-          return notFound(tok);
-      }
-    }
-  } catch {
-  }
-  return null;
-}
-function ghostListingRewrite(args, ghostCfg) {
-  if (!ghostCfg || !Array.isArray(ghostCfg.patterns) || ghostCfg.patterns.length === 0)
-    return null;
-  const cmd = String(args?.command || "");
-  if (!cmd)
-    return null;
-  if (/[|>;&\n`]/.test(cmd))
-    return null;
-  if (!/^\s*(ls|ll|dir|find|tree|exa|lsd|fd|grep|egrep|fgrep|rg)(\s|$)/.test(cmd))
-    return null;
-  const globToEre = (g) => {
-    let re = "";
-    for (let i = 0; i < g.length; i++) {
-      const c = g[i];
-      if (c === "*") {
-        if (g[i + 1] === "*") {
-          re += ".*";
-          i++;
-        } else
-          re += "[^/]*";
-      } else if (c === "?")
-        re += "[^/]";
-      else if (".^$+(){}[]|\\/".indexOf(c) >= 0)
-        re += "\\" + c;
-      else
-        re += c;
-    }
-    return re;
-  };
-  const alts = [];
-  for (let p of ghostCfg.patterns) {
-    p = String(p).replace(/\/$/, "");
-    if (!p)
-      continue;
-    alts.push(globToEre(p));
-    const bn = p.slice(p.lastIndexOf("/") + 1).replace(/^\*+/, "");
-    if (bn && bn !== p)
-      alts.push(globToEre(bn));
-  }
-  if (alts.length === 0)
-    return null;
-  const ere = "(^|/| )(" + alts.join("|") + ")(/|$|:)";
-  return cmd + " | grep -vE '" + ere.replace(/'/g, "'\\''") + "'";
 }
 var RL_WINDOWS = [
   { key: "perDay", ms: 864e5, label: "day" },
@@ -8688,9 +8425,8 @@ if (!REFRESH_MODE) {
         } catch {
         }
         const _tr = _cacheOk && _selfProt ? tamperCheck(toolName, args) : null;
-        const _gr = !_tr && _cacheOk ? ghostCheck(toolName, args, _sec, call.cwd) : null;
-        const _er = !_tr && !_gr && _cacheOk ? egressSecretCheck(args, _sec, call.cwd) : null;
-        const _deny = _tr || _gr || _er;
+        const _er = !_tr && _cacheOk ? egressSecretCheck(args, _sec, call.cwd) : null;
+        const _deny = _tr || _er;
         if (_deny) {
           const _logEntry = {
             tool: toolName,
@@ -8813,39 +8549,6 @@ if (!REFRESH_MODE) {
       if (process.env.SOLONGATE_DEBUG) {
       }
       let reason = selfProtectEnabled ? tamperCheck(toolName, args) : null;
-      let pendingGhostPatch = null;
-      if (!reason && securityCfg && securityCfg.ghost) {
-        const ghostHit = ghostBlock(toolName, args, securityCfg.ghost);
-        if (ghostHit) {
-          try {
-            writeDenyFlag(toolName);
-          } catch {
-          }
-          writeLocalLog(securityCfg, { ts: (/* @__PURE__ */ new Date()).toISOString(), tool: toolName, arguments: args, decision: "DENY", reason: "ghost path (hidden from agent)", permission: guessPermission(toolName), source: `${AGENT_TYPE}-guard`, agent_id: AGENT_TYPE, agent_name: AGENT_NAME, session_id: call.sessionId, evaluation_time_ms: Date.now() - _evalStart });
-          try {
-            if (!localLogsOnly(securityCfg))
-              postAuditDetached({
-                tool: toolName,
-                arguments: args,
-                decision: "DENY",
-                reason: "ghost path (hidden from agent)",
-                permission: guessPermission(toolName),
-                source: `${AGENT_TYPE}-guard`,
-                agent_id: AGENT_TYPE,
-                agent_name: AGENT_NAME,
-                session_id: call.sessionId,
-                evaluation_time_ms: Date.now() - _evalStart
-              });
-          } catch {
-          }
-          blockTool(ghostHit, true);
-        }
-        if (toolName === "Bash" || toolName === "run_command" || guessPermission(toolName) === "EXECUTE") {
-          const rw = ghostListingRewrite(args, securityCfg.ghost);
-          if (rw)
-            pendingGhostPatch = { command: rw };
-        }
-      }
       if (!reason)
         reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
       if (process.env.SOLONGATE_DEBUG) {
@@ -8877,12 +8580,9 @@ if (!REFRESH_MODE) {
           reason = "Security layer (DLP): reading a file that contains a secret is blocked. Blocked by SolonGate.";
           opaRoute = "black";
         } else if (plan && plan.rewrite) {
-          rewriteTool({ ...pendingGhostPatch || {}, ...plan.rewrite });
-          pendingGhostPatch = null;
+          rewriteTool(plan.rewrite);
         }
       }
-      if (!reason && pendingGhostPatch)
-        rewriteTool(pendingGhostPatch);
       if (AGENT_TYPE !== "codex")
         process.stderr.write(`[SolonGate ROUTE] ${opaRoute.toUpperCase()} (${reason ? "block" : "allow"})
 `);

@@ -5,9 +5,8 @@
  *   built-in secret patterns  · space toggles each on/off
  *   custom patterns           · a add (name → glob) · d remove
  *
- * Custom patterns and ghost routes use the SAME glob syntax as the built-in
- * secret patterns (`*` = any characters) — NOT regular expressions.
- *   ghost routes (hidden paths)· g on/off · r add a path · d remove
+ * Custom patterns use the SAME glob syntax as the built-in secret patterns
+ * (`*` = any characters) — NOT regular expressions.
  *
  * The add editor is pinned at the TOP (always visible) so you can see what you
  * type. Self-protection lives in Settings, not here.
@@ -24,21 +23,19 @@ import { modeColor, theme, truncate } from '../theme.js';
 const MODES: LayerMode[] = ['off', 'detect', 'block'];
 type Dlp = SecurityLayers['dlp'];
 
-// Selectable rows, flattened across the three sections in display order.
-type Entry = { kind: 'builtin'; name: string } | { kind: 'custom'; i: number } | { kind: 'ghost'; i: number };
+// Selectable rows, flattened across the two sections in display order.
+type Entry = { kind: 'builtin'; name: string } | { kind: 'custom'; i: number };
 
 export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JSX.Element {
   const { cols, rows } = usePanelSize();
   const q = useLoader(() => api.settings.getSecurityLayers());
   const [dlp, setDlp] = useState<Dlp | null>(null);
   const [available, setAvailable] = useState<string[]>([]);
-  const [ghostOn, setGhostOn] = useState(false);
-  const [ghostPats, setGhostPats] = useState<string[]>([]);
   const [sel, setSel] = useState(0);
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  // `name` → `re` builds a custom DLP pattern; `route` adds one ghost path.
-  const [adding, setAdding] = useState<null | 'name' | 're' | 'route'>(null);
+  // `name` → `re` builds a custom DLP pattern.
+  const [adding, setAdding] = useState<null | 'name' | 're'>(null);
   const [newName, setNewName] = useState('');
   const [input, setInput] = useState('');
   // When editing an existing entry (not adding a new one): its index, else null.
@@ -54,8 +51,6 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
     if (q.data && !dirty) {
       setDlp({ ...q.data.layers.dlp, patterns: [...q.data.layers.dlp.patterns], custom: [...q.data.layers.dlp.custom] });
       setAvailable(q.data.availablePatterns);
-      setGhostOn(q.data.layers.ghost.mode === 'on');
-      setGhostPats([...q.data.layers.ghost.patterns]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.data]);
@@ -76,11 +71,8 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
     if (!dlp || !q.data) return;
     setStatus('Saving…');
     try {
-      const ghost = { mode: (ghostOn ? 'on' : 'off') as 'on' | 'off', patterns: ghostPats };
-      const res = await api.settings.setSecurityLayers({ ...q.data.layers, dlp, ghost });
+      const res = await api.settings.setSecurityLayers({ ...q.data.layers, dlp });
       setDlp({ ...res.layers.dlp, patterns: [...res.layers.dlp.patterns], custom: [...res.layers.dlp.custom] });
-      setGhostOn(res.layers.ghost.mode === 'on');
-      setGhostPats([...res.layers.ghost.patterns]);
       setDirty(false);
       setStatus('✓ Saved');
       q.reload();
@@ -92,8 +84,6 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
   const discard = () => {
     if (!q.data) return;
     setDlp({ ...q.data.layers.dlp, patterns: [...q.data.layers.dlp.patterns], custom: [...q.data.layers.dlp.custom] });
-    setGhostOn(q.data.layers.ghost.mode === 'on');
-    setGhostPats([...q.data.layers.ghost.patterns]);
     setDirty(false);
     setStatus('discarded');
   };
@@ -101,7 +91,6 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
   const entries: Entry[] = [
     ...available.map((name) => ({ kind: 'builtin' as const, name })),
     ...(dlp?.custom ?? []).map((_, i) => ({ kind: 'custom' as const, i })),
-    ...ghostPats.map((_, i) => ({ kind: 'ghost' as const, i })),
   ];
   const selC = Math.min(sel, Math.max(0, entries.length - 1));
   const cur = entries[selC];
@@ -122,35 +111,19 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
         setNewName('');
         setInput('');
         setAdding('name');
-      } else if (input2 === 'r') {
-        setInput('');
-        setAdding('route');
       } else if (input2 === 'd') {
         if (cur?.kind === 'custom') {
           mutate({ ...dlp, custom: dlp.custom.filter((_, i) => i !== cur.i) });
           setSel(() => Math.max(0, selC - 1));
-        } else if (cur?.kind === 'ghost') {
-          setGhostPats((ps) => ps.filter((_, i) => i !== cur.i));
-          setDirty(true);
-          setStatus(null);
-          setSel(() => Math.max(0, selC - 1));
         }
       } else if (input2 === 'e' || key.return) {
-        // Edit the selected entry in place (custom pattern or ghost path).
+        // Edit the selected custom pattern in place.
         if (cur?.kind === 'custom' && dlp.custom[cur.i]) {
           setEditIdx(cur.i);
           setNewName(dlp.custom[cur.i]!.name);
           setInput(dlp.custom[cur.i]!.re);
           setAdding('re');
-        } else if (cur?.kind === 'ghost' && ghostPats[cur.i] != null) {
-          setEditIdx(cur.i);
-          setInput(ghostPats[cur.i]!);
-          setAdding('route');
         }
-      } else if (input2 === 'g') {
-        setGhostOn((v) => !v);
-        setDirty(true);
-        setStatus(null);
       } else if (input2 === 's') void save();
       else if (input2 === 'x') discard();
     },
@@ -228,27 +201,6 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
     });
   });
 
-  header('h:ghost', 'ghost — hidden paths', `${ghostOn ? 'ON' : 'off'} (g) · r add route · d remove`);
-  note('n:ghost-help', '  glob path · * = any chars · green ✱ = wildcard active on that side · e.g.  */.env   *.pem');
-  if (ghostPats.length === 0) note('n:ghost', '  (none — g turns ghost on, r adds a path to hide)');
-  ghostPats.forEach((p, i) => {
-    const isCur = focused && ei === selC;
-    const idx = ei++;
-    const w = wcParts(p);
-    lines.push({
-      node: (
-        <Text key={'g:' + p + i} wrap="truncate" backgroundColor={isCur ? '#1c2f63' : undefined} bold={isCur}>
-          <Text color={isCur ? theme.accentBright : theme.dim}>{isCur ? '▸ ' : '  '}</Text>
-          {starL(w.left)}
-          <Text color={ghostOn ? theme.accent : theme.dim}>{truncate(w.core, Math.max(6, cols - 12))}</Text>
-          {starR(w.right)}
-          {!ghostOn ? <Text color={theme.dim}>{'  (ghost off)'}</Text> : null}
-        </Text>
-      ),
-      entry: idx,
-    });
-  });
-
   // ── header block (fixed, always visible) + windowed list ──────────────────
   const editRows = adding ? 1 : 0;
   const headerRows = 2 + editRows + (status ? 1 : 0);
@@ -272,7 +224,7 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
           </Text>
           <Text color={theme.dim} wrap="truncate">
             {focused
-              ? `↑↓ move · space on/off · m mode · a add · r route · e/enter edit · d remove · g ghost · s save · ^R refresh${moreAbove ? ` · ▲${moreAbove}` : ''}${moreBelow ? ` · ▼${moreBelow}` : ''}`
+              ? `↑↓ move · space on/off · m mode · a add · e/enter edit · d remove · s save · ^R refresh${moreAbove ? ` · ▲${moreAbove}` : ''}${moreBelow ? ` · ▼${moreBelow}` : ''}`
               : 'press → to edit'}
           </Text>
 
@@ -280,7 +232,7 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
             <Box flexDirection="column">
               <Box>
                 <Text color={theme.warn}>
-                  {adding === 'name' ? 'new pattern name: ' : adding === 're' ? `${editIdx != null ? 'edit' : 'new'} pattern for "${newName}" (glob, * = any chars): ` : `${editIdx != null ? 'edit ghost path' : 'ghost path to hide'} (glob, * = any chars, e.g. */.env  *.pem): `}
+                  {adding === 'name' ? 'new pattern name: ' : `${editIdx != null ? 'edit' : 'new'} pattern for "${newName}" (glob, * = any chars): `}
                 </Text>
                 {adding !== 'name' ? starL(input.startsWith('*')) : null}
                 <TextInput
@@ -293,16 +245,10 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
                       setNewName(t);
                       setInput('');
                       setAdding('re');
-                    } else if (adding === 're') {
+                    } else {
                       if (t && dlp) {
                         if (editIdx != null) mutate({ ...dlp, custom: dlp.custom.map((c, i) => (i === editIdx ? { name: newName, re: t } : c)) });
                         else mutate({ ...dlp, custom: [...dlp.custom, { name: newName, re: t }] });
-                      }
-                      setAdding(null); setEditIdx(null);
-                    } else {
-                      if (t) {
-                        if (editIdx != null) { setGhostPats((ps) => ps.map((p, i) => (i === editIdx ? t : p))); setDirty(true); setStatus(null); }
-                        else if (!ghostPats.includes(t)) { setGhostPats((ps) => [...ps, t]); setDirty(true); setStatus(null); }
                       }
                       setAdding(null); setEditIdx(null);
                     }

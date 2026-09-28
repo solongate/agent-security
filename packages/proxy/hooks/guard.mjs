@@ -808,15 +808,12 @@ function sgFinish(code) {
 // one client:
 //
 //   CALL     { client, tool, args, command, cwd, sessionId, response, raw }
-//   DECISION { type: 'deny' | 'allow' | 'rewrite', reason, patch, stealth }
+//   DECISION { type: 'deny' | 'allow' | 'rewrite', reason, patch }
 //
 // Each adapter translates one client BOTH ways: `parse` maps that client's raw
 // payload onto CALL, `emit` maps DECISION onto that client's wire format and
 // returns the process exit code. No layer outside this block may branch on the
 // client. Adding a client = adding one entry here.
-//
-// `stealth` on a deny means: emit the reason verbatim, with no SolonGate
-// branding, so a hidden path looks like it simply does not exist.
 
 // Two clients happen to share Anthropic's PreToolUse wire format (Claude Code
 // and Codex CLI). That is a fact about those two clients, not a canonical
@@ -866,7 +863,7 @@ function parseFlatPayload(raw) {
 // the stderr text at exit 2 and ignores stdout, so both halves serve it too.
 function emitHookSpecific(d) {
   if (d.type === 'deny') {
-    const msg = d.stealth ? d.reason : (d.reason || '[SolonGate] Blocked by policy');
+    const msg = d.reason || '[SolonGate] Blocked by policy';
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
@@ -953,7 +950,7 @@ const CLIENTS = {
         // hooks.md contract is { decision, reason }; the older Go binary reads
         // { allow_tool, deny_reason }. Writing both makes the block land on
         // whichever build is running. Exit 0: agy reads the JSON, not the code.
-        const msg = d.stealth ? d.reason : `[SolonGate] ${d.reason}`;
+        const msg = `[SolonGate] ${d.reason}`;
         process.stdout.write(JSON.stringify({ decision: 'deny', reason: msg, allow_tool: false, deny_reason: msg }));
         return 0;
       }
@@ -1000,8 +997,8 @@ function emitDecision(d) {
   sgFinish(0);
 }
 
-function blockTool(reason, stealth) {
-  emitDecision({ type: 'deny', reason, stealth: !!stealth });
+function blockTool(reason) {
+  emitDecision({ type: 'deny', reason });
 }
 
 function allowTool() {
@@ -1573,84 +1570,6 @@ function extractTargetPaths(args) {
   return out;
 }
 
-// Ghost paths at PreToolUse: deny any tool call that DIRECTLY targets a hidden
-// path (read/cat/edit/open it). This is the only ghost enforcement possible
-// without rewriting tool OUTPUT — which needs a PostToolUse hook that Antigravity
-// does not run — so a plain `ls dir/` listing (which never names the file) can't
-// be hidden here; only direct access is. On Claude Code the PostToolUse audit
-// additionally strips listings. Deny reason mimics a missing file.
-function ghostGlobToRe(glob) {
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*') { if (glob[i + 1] === '*') { re += '.*'; i++; } else re += '[^/]*'; }
-    else if (c === '?') re += '[^/]';
-    else if ('\\^$.|+()[]{}'.indexOf(c) !== -1) re += '\\' + c;
-    else re += c;
-  }
-  try { return new RegExp('^' + re + '$'); } catch { return null; }
-}
-function ghostPathMatch(p, patterns) {
-  if (!p) return false;
-  const norm = String(p).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  if (!norm) return false;
-  const base = norm.split('/').filter(Boolean).pop() || norm;
-  for (let pat of patterns) {
-    pat = String(pat || '').trim().toLowerCase();
-    if (!pat) continue;
-    const re = ghostGlobToRe(pat);
-    if (re && (re.test(norm) || re.test(base))) return true;
-    const patBase = pat.slice(pat.lastIndexOf('/') + 1);
-    if (patBase && patBase !== pat) { const rb = ghostGlobToRe(patBase); if (rb && rb.test(base)) return true; }
-  }
-  return false;
-}
-function ghostCheck(toolName, args, sec, ghostCwd) {
-  try {
-    const pats = sec && sec.ghost && Array.isArray(sec.ghost.patterns) ? sec.ghost.patterns : [];
-    if (!pats.length) return null;
-    for (const p of extractTargetPaths(args)) {
-      if (ghostPathMatch(p, pats)) return String(p) + ': No such file or directory';
-    }
-    // A shell command that names the hidden file (cat/less/head/open <path>).
-    for (const cmd of extractCommands(args)) {
-      const c = String(cmd || '').toLowerCase();
-      for (let pat of pats) {
-        const patBase = String(pat || '').trim().toLowerCase().slice(String(pat).lastIndexOf('/') + 1).replace(/[*?]/g, '');
-        if (patBase && patBase.length > 2 && c.includes(patBase)) return patBase + ': No such file or directory';
-      }
-    }
-    // Aggregate SIZE commands (du/df) over a DIRECTORY don't name the hidden file,
-    // but their totals leak its size + existence. Block them when a target dir
-    // holds a ghosted entry (checks direct children — the demonstrated leak).
-    // du/df leak a ghosted file's SIZE via directory totals and can't be filtered
-    // by a command rewrite, so block them (both platforms). Plain LISTINGS
-    // (ls/find/tree) are NOT blocked here — they fall through to the stealth
-    // rewrite below, which filters the hidden entry out of the output on both
-    // Claude (updatedInput) and Antigravity (overwrite), so they stay invisible.
-    for (const cmd of extractCommands(args)) {
-      const c = String(cmd || '');
-      if (!/\b(du|df)\b/.test(c.toLowerCase())) continue;
-      const toks = c.split(/\s+/);
-      const dirs = [];
-      for (let i = 1; i < toks.length; i++) { const t = toks[i]; if (t && !t.startsWith('-')) dirs.push(t); }
-      if (!dirs.length) dirs.push('.');
-      const base = ghostCwd || process.cwd();
-      for (let d of dirs) {
-        if (d.startsWith('~')) d = homedir() + d.slice(1);
-        let abs;
-        try { abs = isAbsolute(d) ? d : resolve(base, d); } catch { continue; }
-        let entries = [];
-        try { if (statSync(abs).isDirectory()) entries = readdirSync(abs); } catch { continue; }
-        for (const e of entries) {
-          if (ghostPathMatch(join(abs, e), pats) || ghostPathMatch(e, pats)) return d + ': No such file or directory';
-        }
-      }
-    }
-  } catch {}
-  return null;
-}
-
 function tamperCheck(toolName, args) {
   const tn = String(toolName || '').toLowerCase();
   const isExec = TAMPER_GUARD_TOOLS_EXEC.has(tn) || /bash|shell|exec|powershell|cmd|run|eval/.test(tn);
@@ -1701,7 +1620,7 @@ const DLP_PATTERNS = [
 ];
 
 // Custom patterns are GLOBs: `*` = any run of non-whitespace, same wildcard
-// mechanic as policy/ghost.
+// mechanic as the policy layer.
 function dlpGlobToRe(glob) {
   let re = '';
   for (const ch of String(glob || '')) {
@@ -1925,7 +1844,7 @@ function dlpReadCheck(args, dlp, cwd) {
       const c = String(cmd);
       if (!/\b(cat|less|more|head|tail|bat|nl|od|xxd|strings|grep|egrep|rg|awk|sed)\b/.test(c.toLowerCase())) continue;
       for (const tok of c.split(/[\s'"|<>;&()]+/)) {
-        const t = ghostCleanToken(tok);
+        const t = cleanShellToken(tok);
         if (t && !t.startsWith('-') && /[./]/.test(t)) files.add(t);
       }
     }
@@ -1942,167 +1861,14 @@ function dlpReadCheck(args, dlp, cwd) {
   return null;
 }
 
-// ── Ghost paths ──
-// Files/dirs matching a ghost glob are INVISIBLE to the agent. This module is
-// mirrored verbatim in audit.mjs (the PostToolUse twin that strips them from
-// output). Keep the two copies in sync.
-//
-// Split of responsibility:
-//   - PreToolUse (here): block MUTATIONS (write/edit/delete/move) targeting a
-//     ghost path, returning a plain "No such file or directory" — never a
-//     SolonGate/policy message — so the path looks like it simply doesn't exist.
-//   - PostToolUse (audit.mjs): strip ghost entries from listings and rewrite
-//     direct reads to not-found. Reads are NOT blocked here so the agent gets a
-//     natural "missing file" rather than a visible hook block.
-function ghostGlobToRegExp(glob) {
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*') {
-      if (glob[i + 1] === '*') { re += '.*'; i++; }
-      else re += '[^/]*';
-    } else if (c === '?') re += '[^/]';
-    else if ('\\^$.|+()[]{}'.indexOf(c) !== -1) re += '\\' + c;
-    else re += c;
-  }
-  try { return new RegExp('^' + re + '$'); } catch { return null; }
-}
-
-// True if `targetPath` is ghosted by any pattern. A bare name (`.data`) matches
-// that entry anywhere in the path; a trailing `/` (`secrets/`) ghosts a whole
-// directory subtree; a pattern with `/` is matched against the full path.
-function ghostMatch(targetPath, patterns) {
-  if (!targetPath || !Array.isArray(patterns) || patterns.length === 0) return false;
-  const norm = String(targetPath).replace(/\\/g, '/').replace(/\/+$/, '');
-  if (!norm) return false;
-  const segments = norm.split('/').filter(Boolean);
-  const base = segments.length ? segments[segments.length - 1] : norm;
-  for (let pat of patterns) {
-    pat = String(pat || '').trim();
-    if (!pat) continue;
-    let dirOnly = false;
-    if (pat.endsWith('/')) { dirOnly = true; pat = pat.slice(0, -1); }
-    if (!pat) continue;
-    const hasSlash = pat.indexOf('/') !== -1;
-    const hasWild = /[*?]/.test(pat);
-    const re = ghostGlobToRegExp(pat);
-    if (!re) continue;
-    if (dirOnly) {
-      // Directory: ghost the dir itself and everything under it.
-      if (!hasSlash && !hasWild) { if (segments.indexOf(pat) !== -1) return true; continue; }
-      let acc = '';
-      for (const s of segments) { acc = acc ? acc + '/' + s : s; if (re.test(acc) || re.test(s)) return true; }
-      continue;
-    }
-    if (!hasSlash) {
-      // Name glob: match basename or any single path segment.
-      if (re.test(base)) return true;
-      if (segments.some((s) => re.test(s))) return true;
-      continue;
-    }
-    // Path glob (contains '/'): match the full normalized path.
-    if (re.test(norm)) return true;
-  }
-  return false;
-}
-
 // Strip shell decoration from a token so it can be tested as a path:
 // surrounding quotes, redirection operators, trailing punctuation.
-function ghostCleanToken(tok) {
+function cleanShellToken(tok) {
   let t = String(tok || '').trim();
   t = t.replace(/^[<>|;&(]+/, '').replace(/[);&|]+$/, '');
   t = t.replace(/^['"]+/, '').replace(/['"]+$/, '');
   t = t.replace(/^\d*>>?/, ''); // strip leading redirection like 2>
   return t.trim();
-}
-
-// Returns a plain not-found message if a tool DIRECTLY targets a ghost path —
-// read OR write — else null. Reads are sealed too: a hidden file must be
-// inaccessible, not merely unlisted, so `cat A/Y/.data` looks as absent as
-// `rm A/Y`. Listing a PARENT dir that only CONTAINS a ghost child is NOT a
-// direct hit (no token equals the ghost) and falls through to the listing
-// rewrite. Never returns a branded/policy string.
-function ghostBlock(toolName, args, ghostCfg) {
-  if (!ghostCfg || !Array.isArray(ghostCfg.patterns) || ghostCfg.patterns.length === 0) return null;
-  const pats = ghostCfg.patterns;
-  const name = (toolName || '');
-  const notFound = (p) => p + ': No such file or directory';
-  try {
-    // Tools that carry an explicit path argument.
-    if (name === 'Write' || name === 'Edit' || name === 'MultiEdit' || name === 'NotebookEdit' ||
-        name === 'Read' || name === 'NotebookRead' || name === 'LS') {
-      const p = args?.file_path || args?.notebook_path || args?.path || '';
-      if (p && ghostMatch(p, pats)) return notFound(p);
-      return null;
-    }
-    if (name === 'Glob' || name === 'Grep') {
-      const p = args?.path || '';
-      const pat = args?.pattern || args?.glob || '';
-      if (p && ghostMatch(p, pats)) return notFound(p);
-      if (pat && ghostMatch(pat, pats)) return notFound(String(pat));
-      return null;
-    }
-    // Bash & other exec: deny if any token directly names a ghost path. Seals
-    // direct reads (cat/head/less/…) and mutations (rm/mv/…) alike. A listing of
-    // a parent dir has no ghost token and falls through to the rewrite.
-    if (name === 'Bash' || name === 'BashOutput' || guessPermission(name) === 'EXECUTE') {
-      const cmd = String(args?.command || '');
-      if (!cmd) return null;
-      for (const raw of cmd.split(/\s+/)) {
-        const tok = ghostCleanToken(raw);
-        if (tok && tok.indexOf('-') !== 0 && ghostMatch(tok, pats)) return notFound(tok);
-      }
-    }
-  } catch { /* fail open */ }
-  return null;
-}
-
-// Shell single-quote a string.
-function ghostShq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
-
-// If `args.command` is a simple directory listing, return a rewritten command
-// that pipes its output through a filter dropping the ghost entries — so the
-// agent never sees them. Returns null when there's nothing to rewrite. Only
-// touches bare `ls` listings (no pipe/redirect/compound) to stay safe; richer
-// output formats are handled by the PostToolUse filter on clients that honor it.
-function ghostListingRewrite(args, ghostCfg) {
-  if (!ghostCfg || !Array.isArray(ghostCfg.patterns) || ghostCfg.patterns.length === 0) return null;
-  const cmd = String(args?.command || '');
-  if (!cmd) return null;
-  if (/[|>;&\n`]/.test(cmd)) return null;                            // no shell composition
-  if (!/^\s*(ls|ll|dir|find|tree|exa|lsd|fd|grep|egrep|fgrep|rg)(\s|$)/.test(cmd)) return null;
-  // Translate each hidden glob to an ERE alternative, then match it as a whole
-  // path component, the whole line, or the trailing token — covers `ls`,
-  // `ls -la`, `find`, `tree` AND `grep -rn` (whose `path:line:content` output has
-  // the path followed by a colon, so ':' is a valid trailing delimiter too).
-  const globToEre = (g) => {
-    let re = '';
-    for (let i = 0; i < g.length; i++) {
-      const c = g[i];
-      if (c === '*') { if (g[i + 1] === '*') { re += '.*'; i++; } else re += '[^/]*'; }
-      else if (c === '?') re += '[^/]';
-      else if ('.^$+(){}[]|\\/'.indexOf(c) >= 0) re += '\\' + c;
-      else re += c;
-    }
-    return re;
-  };
-  const alts = [];
-  for (let p of ghostCfg.patterns) {
-    p = String(p).replace(/\/$/, '');
-    if (!p) continue;
-    alts.push(globToEre(p));
-    // Also hide the BARE basename: a slash-glob like `*/secret-plan.txt` is
-    // slash-anchored, but `ls` / `ls -la` print entry names with NO path prefix
-    // (just `secret-plan.txt`), so the anchored form above never matches them.
-    // Adding the trailing name (minus a leading `*`) closes that leak.
-    const bn = p.slice(p.lastIndexOf('/') + 1).replace(/^\*+/, '');
-    if (bn && bn !== p) alts.push(globToEre(bn));
-  }
-  if (alts.length === 0) return null;
-  // grep -vE drops any line where a hidden name appears as a path component, the
-  // whole line, or the final token. Single-quoted so the shell leaves it intact.
-  const ere = '(^|/| )(' + alts.join('|') + ')(/|$|:)';
-  return cmd + " | grep -vE '" + ere.replace(/'/g, "'\\''") + "'";
 }
 
 // Multi-window sliding rate limit, persisted under ~/.solongate (tamper-protected
@@ -2607,7 +2373,7 @@ async function evaluateWithOpa(policy, args, toolName, cwd) {
 // Codex sends every file edit as ONE tool call: tool_name "apply_patch" with
 // tool_input { command: "*** Begin Patch\n*** Update File: src/a.ts\n…" }. The
 // target paths live INSIDE that patch text, so without this every path-scoped
-// rule (policy DENY, tamper, ghost, DLP) would see no path at all and a Codex
+// rule (policy DENY, tamper, DLP) would see no path at all and a Codex
 // edit to a protected file would sail through. Lift them into the canonical
 // fields the rest of the guard already reads: file_path (first target) and an
 // edits[] array of {file_path} (what extractTargetPaths walks for the rest).
@@ -2627,7 +2393,7 @@ function applyPatchTargets(patch) {
 // in an argument. Codex does this with apply_patch: one call, every touched path
 // living inside the patch body. Keyed on the patch TEXT rather than the tool
 // name, so this runs for any client that adopts the same format. Without it, no
-// path-scoped layer (policy, tamper, ghost, DLP) sees a path at all and an edit
+// path-scoped layer (policy, tamper, DLP) sees a path at all and an edit
 // to a protected file passes unexamined. The body is left intact so DLP can
 // still scan what is about to be written.
 function liftFreeformPatchPaths(call) {
@@ -2813,12 +2579,9 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
       // localLogs config). On a cache miss, fall through to the full flow, which
       // resolves the policy properly and still blocks tamper.
       const _tr = (_cacheOk && _selfProt) ? tamperCheck(toolName, args) : null;
-      // Ghost is a separate layer (not gated by selfProtect): deny direct access
-      // to a hidden path here so it works even where PostToolUse never runs (agy).
-      const _gr = (!_tr && _cacheOk) ? ghostCheck(toolName, args, _sec, call.cwd) : null;
       // Egress DLP: block a transfer command that would upload a local secret file.
-      const _er = (!_tr && !_gr && _cacheOk) ? egressSecretCheck(args, _sec, call.cwd) : null;
-      const _deny = _tr || _gr || _er;
+      const _er = (!_tr && _cacheOk) ? egressSecretCheck(args, _sec, call.cwd) : null;
+      const _deny = _tr || _er;
       if (_deny) {
         const _logEntry = {
           tool: toolName, arguments: args,
@@ -2887,7 +2650,7 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
         if (existsSync(policyCacheFile)) {
           const cached = JSON.parse(readFileSync(policyCacheFile, 'utf-8'));
           // Kept whenever it parses, NOT only when it carries a policy. The
-          // security layers (DLP, rate limit, ghost) are configured separately
+          // security layers (DLP, rate limit) are configured separately
           // from the policy, so gating the last-known-good on a policy existing
           // meant a project with DLP on and no policy lost DLP entirely the
           // moment this cache went past its 10s TTL — which is almost always,
@@ -2968,50 +2731,6 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
     // Tamper / self-protection — runs before policy eval. ON by default; the
     // per-project cloud setting can disable it (fail safe: stays on if unread).
     let reason = selfProtectEnabled ? tamperCheck(toolName, args) : null;
-    // A ghost listing rewrite decided BELOW but applied at the very end, so that
-    // rewriting a call is never the same thing as approving it.
-    let pendingGhostPatch = null;
-    // Ghost paths — handled BEFORE the other layers and emitted as a STEALTH
-    // block: a mutating op on a hidden path is denied with a bare OS-style
-    // "No such file or directory" and NOTHING else (no ROUTE line, no SolonGate
-    // wording), so the agent can't tell the path is protected — it just looks
-    // absent. (Reads/listings aren't blocked; the PostToolUse hook strips them.)
-    if (!reason && securityCfg && securityCfg.ghost) {
-      const ghostHit = ghostBlock(toolName, args, securityCfg.ghost);
-      if (ghostHit) {
-        try { writeDenyFlag(toolName); } catch {}
-        writeLocalLog(securityCfg, { ts: new Date().toISOString(), tool: toolName, arguments: args, decision: 'DENY', reason: 'ghost path (hidden from agent)', permission: guessPermission(toolName), source: `${AGENT_TYPE}-guard`, agent_id: AGENT_TYPE, agent_name: AGENT_NAME, session_id: call.sessionId, evaluation_time_ms: Date.now() - _evalStart });
-        try {
-          if (!localLogsOnly(securityCfg)) postAuditDetached({
-            tool: toolName, arguments: args, decision: 'DENY',
-            reason: 'ghost path (hidden from agent)',
-            permission: guessPermission(toolName),
-            source: `${AGENT_TYPE}-guard`, agent_id: AGENT_TYPE, agent_name: AGENT_NAME,
-            session_id: call.sessionId,
-            evaluation_time_ms: Date.now() - _evalStart,
-          });
-        } catch {}
-        // NOT maybeSelfUpdate() first: see the deny at the end of this flow.
-        // Stealth deny: ghostHit is a bare "No such file or directory", and the
-        // stealth flag keeps the adapter from adding any SolonGate branding, so
-        // the path looks like it simply is not there on every client.
-        blockTool(ghostHit, true);
-      }
-      // No direct hit: if this is a listing command, rewrite it so hidden entries
-      // are filtered out of its output — the agent never sees them. Works on BOTH
-      // Claude (updatedInput) and Antigravity (overwrite.CommandLine), since agy's
-      // PreToolUse `overwrite` replaces the command before it runs (hooks.md).
-      if (toolName === 'Bash' || toolName === 'run_command' || guessPermission(toolName) === 'EXECUTE') {
-        const rw = ghostListingRewrite(args, securityCfg.ghost);
-        // HELD, not emitted. Emitting a rewrite ends the hook, so doing it here
-        // meant the DLP argument scan, the rate limit and the POLICY never ran
-        // for any call ghost touched — under a whitelist, `ls` in a project with
-        // a ghost route was allowed whatever the policy said. Same reasoning as
-        // the DLP read-redaction below, which was moved after policy eval for
-        // exactly this failure. Applied at the end, once every layer has spoken.
-        if (rw) pendingGhostPatch = { command: rw };
-      }
-    }
     // Extra security layers run after tamper, before policy. Block reason wins
     // immediately (BLACK). Fail-open by design.
     if (!reason) reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
@@ -3061,7 +2780,7 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
     }
 
     // Antigravity / Codex read redaction — runs LAST, only when the call is
-    // otherwise ALLOWED (no tamper/ghost/security/policy DENY). Claude redacts a
+    // otherwise ALLOWED (no tamper/security/policy DENY). Claude redacts a
     // secret in a read's OUTPUT via its PostToolUse audit; neither agy nor Codex
     // can rewrite tool OUTPUT (agy has no PostToolUse at all; Codex has one but
     // explicitly rejects an output rewrite from it), so for both we redact the
@@ -3079,17 +2798,9 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
         reason = 'Security layer (DLP): reading a file that contains a secret is blocked. Blocked by SolonGate.';
         opaRoute = 'black';
       } else if (plan && plan.rewrite) {
-        // Both patches can be live at once (a listing ghost filters, pointed at a
-        // redacted copy). Redaction wins any key they share: it is the one that
-        // keeps a secret out of the agent's hands.
-        rewriteTool({ ...(pendingGhostPatch || {}), ...plan.rewrite }); // verdict first, update later
-        pendingGhostPatch = null;
+        rewriteTool(plan.rewrite); // verdict first, update later
       }
     }
-
-    // The held ghost rewrite, applied only now that tamper, DLP, the rate limit
-    // and the policy have all had their say and none of them blocked.
-    if (!reason && pendingGhostPatch) rewriteTool(pendingGhostPatch);
 
     // Diagnostic line for the terminal. NOT written on Codex: there the hook's
     // ENTIRE stderr becomes the block reason shown to the model (exit 2), so this

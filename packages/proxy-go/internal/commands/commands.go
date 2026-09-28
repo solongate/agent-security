@@ -16,7 +16,7 @@ import (
 // Names is the subcommand set this router owns. main.go uses it to decide what
 // to hand over; nothing else should be maintaining a second copy of the list.
 var Names = []string{
-	"policy", "ratelimit", "dlp", "ghost", "stats", "audit",
+	"policy", "ratelimit", "dlp", "stats", "audit",
 	"sessions", "session", "doctor", "trace", "watch", "alerts", "webhooks",
 }
 
@@ -43,7 +43,6 @@ func handlers() map[string]handler {
 		"policy":    runPolicy,
 		"ratelimit": runRateLimit,
 		"dlp":       runDLP,
-		"ghost":     runGhost,
 		"stats":     runStats,
 		"audit":     runAudit,
 		"sessions":  runSessions,

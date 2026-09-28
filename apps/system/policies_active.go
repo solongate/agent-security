@@ -29,7 +29,7 @@ import (
 //	                          hook's `typeof === 'boolean'` test means any other
 //	                          value leaves the cached value alone, and the
 //	                          default is ON.
-//	security                — the DLP, rate-limit, ghost and local-log layers.
+//	security                — the DLP, rate-limit and local-log layers.
 //	hook_versions           — what makes a device self-update.
 //
 // The one that has to be exactly right is `security`, because the guard

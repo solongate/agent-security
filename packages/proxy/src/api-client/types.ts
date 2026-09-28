@@ -81,7 +81,6 @@ export interface ActivePolicy {
     rateLimit: { perMinute: number; perHour: number; perDay: number } | null;
     dlpBlock: { patterns: string[]; custom: unknown[] } | null;
     dlpRedact: { patterns: string[]; custom: unknown[] } | null;
-    ghost: { patterns: string[] } | null;
     localLogs: unknown;
   };
   hook_versions: { guard: number; audit: number; shield: number };
@@ -94,7 +93,6 @@ export type LayerMode = 'off' | 'detect' | 'block';
 export interface SecurityLayers {
   rateLimit: { mode: LayerMode; perMinute: number; perHour: number; perDay: number };
   dlp: { mode: LayerMode; patterns: string[]; custom: { name: string; re: string }[] };
-  ghost: { mode: 'off' | 'on'; patterns: string[] };
 }
 
 export interface RateLimitChange {

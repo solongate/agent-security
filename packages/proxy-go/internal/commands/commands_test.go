@@ -139,8 +139,7 @@ func TestRateLimitSetKeepsTheWindowsItWasNotGiven(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"layers":{"rateLimit":{"mode":"block","perMinute":10,"perHour":100,"perDay":1000},
-		  "dlp":{"mode":"detect","patterns":["AWS access key"],"custom":[]},
-		  "ghost":{"mode":"off","patterns":[]}},"availablePatterns":["AWS access key"]}`))
+		  "dlp":{"mode":"detect","patterns":["AWS access key"],"custom":[]}},"availablePatterns":["AWS access key"]}`))
 	})
 	c := stubClient(t, mux)
 
@@ -173,7 +172,7 @@ func TestRateLimitSetRefusesAnUnparseableNumber(t *testing.T) {
 			put = true
 		}
 		_, _ = w.Write([]byte(`{"layers":{"rateLimit":{"mode":"block","perMinute":10,"perHour":100,"perDay":1000},
-		  "dlp":{"mode":"off","patterns":[],"custom":[]},"ghost":{"mode":"off","patterns":[]}},"availablePatterns":[]}`))
+		  "dlp":{"mode":"off","patterns":[],"custom":[]}},"availablePatterns":[]}`))
 	})
 	c := stubClient(t, mux)
 
@@ -202,7 +201,7 @@ func TestDLPRefusesAPatternTheCloudDoesNotOffer(t *testing.T) {
 			put = true
 		}
 		_, _ = w.Write([]byte(`{"layers":{"rateLimit":{"mode":"off","perMinute":0,"perHour":0,"perDay":0},
-		  "dlp":{"mode":"block","patterns":[],"custom":[]},"ghost":{"mode":"off","patterns":[]}},
+		  "dlp":{"mode":"block","patterns":[],"custom":[]}},
 		  "availablePatterns":["AWS access key","GitHub token"]}`))
 	})
 	c := stubClient(t, mux)
@@ -264,11 +263,10 @@ func TestUnknownCommandIsNotSilent(t *testing.T) {
 // level. A mistyped subcommand used to print the usage block and nothing else,
 // which reads as though the command has no default rather than as an error.
 //
-// `ghost -g` is the shape that made it obvious: parse() treats only `--x` as a
+// `dlp -g` is the shape that made it obvious: parse() treats only `--x` as a
 // flag, so a single-dash token arrives as a subcommand and gets here.
 func TestUnknownSubcommandNamesWhatWasTyped(t *testing.T) {
 	for _, tc := range []struct{ command, sub string }{
-		{"ghost", "-g"},
 		{"dlp", "-g"},
 		{"policy", "activat"},
 		{"ratelimit", "nonesuch"},
@@ -299,7 +297,7 @@ func TestUnknownSubcommandNamesWhatWasTyped(t *testing.T) {
 // `Unknown subcommand: ""` would be worse than none.
 func TestUnknownSubcommandWithNothingTypedJustShowsUsage(t *testing.T) {
 	_, e := capture(t, func() {
-		if code, _ := unknownSub("ghost", "", "USAGE-BLOCK"); code != 1 {
+		if code, _ := unknownSub("dlp", "", "USAGE-BLOCK"); code != 1 {
 			t.Fatalf("want exit 1, got %d", code)
 		}
 	})

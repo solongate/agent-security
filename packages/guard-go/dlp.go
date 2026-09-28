@@ -130,7 +130,7 @@ func dlpScan(text string, cfg *sgshared.DLPConfig) string {
 }
 
 // Custom DLP patterns are GLOBs, not regexes: `*` means any run of
-// non-whitespace. Same mechanic the policy and ghost layers use, so a user who
+// non-whitespace. Same mechanic the policy layer uses, so a user who
 // learns one has learned all three.
 func globToRegexp(glob string) (*regexp.Regexp, error) {
 	var b strings.Builder

@@ -162,7 +162,6 @@ interface InsightsBits {
   layers?: {
     rateLimit?: { perMinute?: number; perHour?: number; perDay?: number; mode?: string };
     dlp?: { mode?: string; patterns?: string[]; custom?: Array<{ name?: string; re?: string }> };
-    ghost?: { mode?: string; patterns?: string[] };
   };
   dlpByPattern?: Array<{ pattern: string; count: number }>;
 }
@@ -193,7 +192,7 @@ const LIVE_HELP: Array<[string, Array<[string, string]>]> = [
       ['f', 'source: all → LOC (this machine\'s local log) → CLD (cloud)'],
       ['/', 'live search (tool, agent, command…) · enter done'],
       ['s', 'session picker'],
-      ['l', 'layers detail (rate limit · dlp · ghost · guard)'],
+      ['l', 'layers detail (rate limit · dlp · guard)'],
       ['e', 'export visible rows → ~/.solongate/live-export.jsonl'],
       ['space', 'copy mode: freeze screen for mouse selection'],
       ['esc', 'back to menu'],
@@ -261,7 +260,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   // Entry inspector (enter on a stream/timeline row): the FULL log content.
   const [inspect, setInspect] = useState<StreamItem | null>(null);
   const [inspectScroll, setInspectScroll] = useState(0);
-  // Layers detail (l): full rate-limit / dlp / ghost / guard configuration.
+  // Layers detail (l): full rate-limit / dlp / guard configuration.
   const [layersScroll, setLayersScroll] = useState(0);
   const inspectFromRef = useRef<Exclude<Mode, 'inspect'>>('stream');
   const seenRef = useRef<Set<string>>(new Set());
@@ -615,7 +614,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
 
   const rl = ins.layers?.rateLimit;
   const dl = ins.layers?.dlp;
-  const gh = ins.layers?.ghost;
   const minuteNow = mergedAll.filter((e) => nowMs - e.at < 60_000).length;
   const dlpBars = (ins.dlpByPattern ?? []).slice(0, 2);
   const maxDlpBar = dlpBars[0]?.count ?? 1;
@@ -1115,12 +1113,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     for (const h of allHits) push(<HBar label={'  ' + truncate(h.pattern, 10)} value={h.count} max={maxHit} width={barW} color={theme.bad} />);
     blank();
 
-    section('GHOST', gh?.mode, gh?.mode === 'on' ? 'matching paths are hidden from agents' : 'no hidden paths');
-    const ghostPats = gh?.patterns ?? [];
-    kv('patterns', <Text>{ghostPats.length ? `${ghostPats.length}` : 'none'}</Text>);
-    for (const line of wrapLines(ghostPats.join(' · '), Math.max(20, innerW - 18))) push(<Text wrap="truncate" color={theme.dim}>{'                ' + line}</Text>);
-    blank();
-
     section('GUARD', guard.data ? (guard.data.up_to_date ? 'ok' : 'stale') : '?', 'the PreToolUse hook enforcing all of the above');
     kv(
       'hooks',
@@ -1157,7 +1149,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
             {' LAYERS '}
           </Text>
           <Text backgroundColor="#0b1530" color="white">
-            {' rate limit · dlp · ghost · guard '}
+            {' rate limit · dlp · guard '}
           </Text>
           <Text backgroundColor={BG} color="white">
             {' ↑↓ scroll · ? all keys · ← back · esc menu '}
@@ -1280,8 +1272,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
         <Text color={rl?.mode === 'block' ? theme.ok : rl?.mode === 'detect' ? theme.warn : theme.dim}>{rl?.mode ?? '?'}</Text>
         <Text color={theme.dim}> │ dlp </Text>
         <Text color={dl?.mode === 'block' ? theme.ok : dl?.mode === 'detect' ? theme.warn : theme.dim}>{dl?.mode ?? '?'}</Text>
-        <Text color={theme.dim}> │ ghost </Text>
-        <Text color={gh?.mode === 'on' ? theme.ok : theme.dim}>{gh?.mode ?? '?'}</Text>
         <Text color={theme.dim}> │ sess </Text>
         <Text color={theme.accent}>{`${combinedSess.length} (${sessCounts?.active ?? 0} live)`}</Text>
         <Text color={theme.dim}> │ hooks </Text>

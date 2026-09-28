@@ -172,28 +172,21 @@ type DLPLayer struct {
 	Custom   []CustomPattern `json:"custom"`
 }
 
-type GhostLayer struct {
-	Mode     string   `json:"mode"`
-	Patterns []string `json:"patterns"`
-}
-
 // SecurityLayers is the stored shape. It is serialised into system_settings
 // verbatim, so the json tags are the storage format as well as the wire format
 // — a renamed tag orphans every project's saved configuration.
 type SecurityLayers struct {
 	RateLimit RateLimitLayer `json:"rateLimit"`
 	DLP       DLPLayer       `json:"dlp"`
-	Ghost     GhostLayer     `json:"ghost"`
 }
 
 // DefaultSecurityLayers is what a project with no stored row gets: rate
 // limiting in detect at 120 a minute, DLP in detect with every built-in
-// pattern, ghost off.
+// pattern.
 func DefaultSecurityLayers() SecurityLayers {
 	return SecurityLayers{
 		RateLimit: RateLimitLayer{Mode: LayerDetect, PerMinute: 120},
 		DLP:       DLPLayer{Mode: LayerDetect, Patterns: DLPPatternNames(), Custom: []CustomPattern{}},
-		Ghost:     GhostLayer{Mode: "off", Patterns: []string{}},
 	}
 }
 
@@ -222,7 +215,6 @@ type GuardSecurity struct {
 	RateLimitObserve *RateLimitNumbers `json:"rateLimitObserve"`
 	DLPBlock         *DLPRules         `json:"dlpBlock"`
 	DLPRedact        *DLPRules         `json:"dlpRedact"`
-	Ghost            *GhostRules       `json:"ghost"`
 	LocalLogs        *LocalLogsConfig  `json:"localLogs,omitempty"`
 }
 
@@ -235,10 +227,6 @@ type RateLimitNumbers struct {
 type DLPRules struct {
 	Patterns []string        `json:"patterns"`
 	Custom   []CustomPattern `json:"custom"`
-}
-
-type GhostRules struct {
-	Patterns []string `json:"patterns"`
 }
 
 // GuardEnforcementConfig is src/lib/security-layers.ts's function of the same
@@ -260,9 +248,6 @@ func GuardEnforcementConfig(l SecurityLayers) GuardSecurity {
 	}
 	if l.DLP.Mode != LayerOff {
 		g.DLPRedact = &DLPRules{Patterns: l.DLP.Patterns, Custom: l.DLP.Custom}
-	}
-	if l.Ghost.Mode == "on" && len(l.Ghost.Patterns) > 0 {
-		g.Ghost = &GhostRules{Patterns: l.Ghost.Patterns}
 	}
 	return g
 }
@@ -576,27 +561,6 @@ func coerceLayers(o map[string]any) SecurityLayers {
 		}
 	}
 
-	ghost := subObject(o, "ghost")
-	ghostMode := "off"
-	if s, isStr := ghost["mode"].(string); isStr && s == "on" {
-		ghostMode = "on"
-	}
-	ghostPatterns := []string{}
-	if arr, isArr := ghost["patterns"].([]any); isArr {
-		seen := map[string]bool{}
-		for _, v := range arr {
-			g := Clip(trimAny(v), 300)
-			if g == "" || seen[g] {
-				continue
-			}
-			seen[g] = true
-			ghostPatterns = append(ghostPatterns, g)
-			if len(ghostPatterns) >= 50 {
-				break
-			}
-		}
-	}
-
 	// perMinute falls back to the `anomaly` block's number before the default,
 	// because that is where it lived first. `??` only falls through on
 	// null/undefined, so a stored 0 stays 0.
@@ -612,8 +576,7 @@ func coerceLayers(o map[string]any) SecurityLayers {
 			PerHour:   num0(rl["perHour"], d.RateLimit.PerHour),
 			PerDay:    num0(rl["perDay"], d.RateLimit.PerDay),
 		},
-		DLP:   DLPLayer{Mode: dlpMode, Patterns: patterns, Custom: custom},
-		Ghost: GhostLayer{Mode: ghostMode, Patterns: ghostPatterns},
+		DLP: DLPLayer{Mode: dlpMode, Patterns: patterns, Custom: custom},
 	}
 }
 

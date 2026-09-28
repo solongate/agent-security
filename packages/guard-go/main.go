@@ -143,7 +143,6 @@ func deny(reason string) { emit(decision{Type: "deny", Reason: reason}) }
 // A stealth deny is emitted verbatim, with no SolonGate branding, so a hidden
 // path looks like it simply does not exist rather than like something being
 // kept from the agent.
-func denyStealth(reason string) { emit(decision{Type: "deny", Reason: reason, Stealth: true}) }
 
 // Allow the call but REPLACE its input, so hidden entries are filtered out of a
 // listing, or a read is pointed at a redacted copy, before the tool runs. The
@@ -165,8 +164,8 @@ func rewriteCall(patch map[string]interface{}) {
 // only runs on clients that CANNOT mask tool output, so the rewrite is the only
 // thing standing between the agent and the secret. Antigravity (AbsolutePath)
 // and OpenCode (filePath) are both in that group. Only `command` was ever
-// translated back, which is why the ghost listing rewrite worked and this did
-// not.
+// translated back, which is why a rewrite of that key worked and a rewrite of
+// either of these did not.
 func clientArgNames(patch map[string]interface{}) map[string]interface{} {
 	if len(patch) == 0 || len(argOriginals) == 0 {
 		return patch
@@ -255,7 +254,7 @@ func main() {
 	agentID := agentType
 	// SOLONGATE_AGENT_ID names the policy cache AND the rate-limit counter, so
 	// on a managed machine a fresh value is a fresh empty counter on demand and
-	// a cache miss that switches DLP, the rate limit and ghost off together. It
+	// a cache miss that switches DLP and the rate limit off together. It
 	// is honoured for everyone else, which is what it is for: running two
 	// clients side by side without them sharing a bucket.
 	if v := os.Getenv("SOLONGATE_AGENT_ID"); v != "" && !fleet.Managed {
@@ -340,43 +339,11 @@ func main() {
 		}
 	}
 
-	// Ghost: paths the operator has hidden from the agent entirely.
-	//
-	// A hit is refused with the shape of a "no such file" answer rather than a
-	// branded block, which is the one place in the guard where what the agent is
-	// told and what the audit log records deliberately differ: the agent must not
-	// be able to learn that the path exists from the shape of the refusal. When
-	// nothing is hit outright, a listing command is REWRITTEN so hidden entries
-	// are filtered out of its output before the agent ever sees them.
-	//
-	// A rewrite is HELD here and applied at the end, so ghost never decides a
-	// call on its own. See the comment where it is set.
+	// A rewrite is HELD rather than emitted, so no layer decides a call on its
+	// own: emitting ends the process, and everything below -- the DLP argument
+	// scan, the rate limit and the POLICY -- would never run for a call the
+	// rewriting layer happened to touch. See where it is applied.
 	var pendingPatch map[string]interface{}
-	if sec != nil && sec.Ghost != nil {
-		if v := ghostLayer(c.Tool, c.Args, sec.Ghost, c.Cwd); v.Deny != "" {
-			audit := v.AuditReason
-			if audit == "" {
-				audit = v.Deny
-			}
-			record(cred, sec, hasSecurity, c, agentType, agentName, audit, started)
-			denyStealth(v.Deny)
-		} else if v.Rewrite != "" {
-			// HELD, not emitted. Emitting here ends the process, and everything
-			// below this line -- the DLP argument scan, the rate limit, and the
-			// POLICY -- would never run for a call ghost happened to touch.
-			//
-			// That was a bypass with a wide mouth: under a whitelist, `ls` in any
-			// project with a ghost route was allowed no matter what the policy
-			// said, because ghost answered first. Under a denylist the same call
-			// skipped whatever rule would have denied it, and skipped being
-			// counted against the rate limit as well.
-			//
-			// Ghost's job is to remove entries from a listing, not to decide the
-			// call. The patch rides along to the end and is applied only if
-			// everything else allows it.
-			pendingPatch = map[string]interface{}{"command": v.Rewrite}
-		}
-	}
 
 	// A secret leaving the machine in the ARGUMENTS of a call, as opposed to one
 	// being read out of a file, which is the redaction plan's job further down.

@@ -16,7 +16,6 @@ import { err, red } from './format.js';
 import * as policy from './policy.js';
 import * as ratelimit from './ratelimit.js';
 import * as dlp from './dlp.js';
-import * as ghost from './ghost.js';
 import * as stats from './stats.js';
 import * as audit from './audit.js';
 import * as agents from './agents.js';
@@ -34,8 +33,6 @@ async function dispatch(command: string, argv: string[]): Promise<number> {
       return ratelimit.run(argv);
     case 'dlp':
       return dlp.run(argv);
-    case 'ghost':
-      return ghost.run(argv);
     case 'stats':
       return stats.run(argv);
     case 'audit':

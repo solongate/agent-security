@@ -142,7 +142,7 @@ export function setActiveAccount(creds: Credentials): boolean {
 /**
  * Clear the ACTIVE login credential — a local sign-out. Removes the key/url from
  * the active-key file so `listAccounts` no longer re-seeds it (the source of the
- * "ghost account …xxxx" that lingers after removing the account you're logged in
+ * "phantom account …xxxx" that lingers after removing the account you're logged in
  * as). The guard hooks then have NO credential until the machine is paired again, so this
  * only runs when the user removes their LAST account. Best-effort; false on error.
  */

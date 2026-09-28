@@ -117,7 +117,7 @@ func runRateLimit(ctx context.Context, c *api.Client, p parsedArgs) (int, error)
 
 		// Read-modify-write against the whole layers document: the endpoint
 		// replaces it, so sending only the rate-limit block would erase the DLP
-		// and ghost settings on the way past.
+		// settings on the way past.
 		cur, err := c.Settings.GetSecurityLayers(ctx)
 		if err != nil {
 			return 1, err

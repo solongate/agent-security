@@ -603,7 +603,7 @@ export function SettingsPanel({
         }
         setConfirmDel(null);
         // Remove from accounts.json, then repair the ACTIVE key so it doesn't get
-        // re-seeded as a ghost by listAccounts(): promote another account, or —
+        // re-seeded as a placeholder by listAccounts(): promote another account, or —
         // when this was the last one — clear the active credential entirely.
         removeAccount(target.apiKey);
         clearLocalLog();

@@ -1227,7 +1227,7 @@ func (p *Settings) removeAccount(target config.SavedAccount) tea.Cmd {
 	p.confirmDel = ""
 
 	// Remove from accounts.json, then repair the ACTIVE key so it is not
-	// re-seeded as a ghost by ListAccounts: promote another account, or clear
+	// re-seeded as a placeholder by ListAccounts: promote another account, or clear
 	// the credential entirely when this was the last one.
 	config.RemoveAccount(target.APIKey)
 	extra := " from this device"

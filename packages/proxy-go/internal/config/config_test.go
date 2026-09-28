@@ -245,9 +245,9 @@ func TestSetActiveAccountPreservesUnknownFields(t *testing.T) {
 }
 
 // Signing out clears the key without deleting the file, so ListAccounts stops
-// re-seeding the account that was just removed — the "ghost account" this
+// re-seeding the account that was just removed — the "phantom account" this
 // function exists to prevent.
-func TestClearActiveCredentialRemovesTheGhost(t *testing.T) {
+func TestClearActiveCredentialRemovesThePhantom(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
@@ -262,7 +262,7 @@ func TestClearActiveCredentialRemovesTheGhost(t *testing.T) {
 		t.Errorf("key survived the sign-out: %q", EnforcingKey())
 	}
 	if len(ListAccounts()) != 0 {
-		t.Errorf("ghost account still listed: %+v", ListAccounts())
+		t.Errorf("phantom account still listed: %+v", ListAccounts())
 	}
 }
 

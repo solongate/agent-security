@@ -145,7 +145,7 @@ type UpdateStatusMsg struct {
 // UI: people navigate it by muscle memory.
 //
 // Rate Limit and DLP are NOT in it any more, and their absence is the point. A
-// policy is rules AND a DLP configuration AND a rate limit AND a ghost list, in
+// policy is rules AND a DLP configuration AND a rate limit, in
 // as many variants as a team keeps — so a rate limit that lived beside policies
 // rather than inside one described enforcement that no longer exists. They are
 // levels of the Policies panel, on the variant they belong to.
@@ -785,9 +785,7 @@ var shellHelp = []helpGroup{
 		{"space", "toggle a built-in detector on/off"},
 		{"m", "cycle mode"},
 		{"a", "add custom pattern (name → glob, * = any chars)"},
-		{"r", "add a ghost route (glob path to hide)"},
 		{"d", "remove custom / route"},
-		{"g", "ghost on/off"},
 		{"s", "save · ← back"},
 	}},
 	{"Policies · rate limit", [][2]string{

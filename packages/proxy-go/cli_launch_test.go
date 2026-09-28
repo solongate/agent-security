@@ -40,8 +40,8 @@ func TestTheWrapperHandsOverEveryCommandThisBinaryOwns(t *testing.T) {
 	}
 
 	// The TypeScript CLI's own dispatcher. A command it implements is REACHABLE
-	// whether or not the wrapper delegates it - `ghost` and `trace` live in
-	// both and run on the TypeScript path on purpose - so the invariant is not
+	// whether or not the wrapper delegates it - `trace` lives in
+	// both and runs on the TypeScript path on purpose - so the invariant is not
 	// "everything is delegated". It is that a command which exists ONLY in Go
 	// must be, or nothing can run it.
 	ts, err := os.ReadFile("../proxy/src/commands/index.ts")

@@ -41,7 +41,7 @@
 // to the proxy runtime; the human-facing CLI subcommands (login/etc.) and
 // the bare-run welcome screen keep normal console output so their banners aren't
 // mangled with a [SolonGate] prefix.
-const CLI_SUBCOMMANDS = new Set(['repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'ghost', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks', 'dataroom']);
+const CLI_SUBCOMMANDS = new Set(['repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks', 'dataroom']);
 // Human-facing flags/aliases that print a banner and must keep normal console
 // output (no [SolonGate] prefix): help, version, and the removed `login` alias.
 const CLI_INFO_ARGS = new Set(['login', 'help', '--help', '-h', '--version', '-v', 'version']);
@@ -158,11 +158,6 @@ function printHelp() {
   cmd('dlp add-custom --name X --re <regex>', 'add a custom pattern');
   cmd('dlp remove-custom <name>', 'remove a custom pattern');
 
-  head('Ghost (hidden paths)');
-  cmd('ghost show', 'current mode + routes');
-  cmd('ghost on | off', 'start or stop hiding the routes');
-  cmd('ghost add <glob>', 'hide one more path');
-  cmd('ghost remove <glob>', 'stop hiding one path');
 
   head('Monitoring');
   cmd('audit [--filter ALLOW|DENY] [--tool <s>] [--signal dlp|ratelimit] [--limit N]', 'browse the audit log');
@@ -290,7 +285,7 @@ async function main() {
   // Scriptable management commands (policy / ratelimit / dlp / stats / audit /
   // agents). Kept behind a dynamic import so the proxy runtime never loads the
   // API-client / command layer.
-  const MGMT_COMMANDS = new Set(['policy', 'ratelimit', 'dlp', 'ghost', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks']);
+  const MGMT_COMMANDS = new Set(['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks']);
   if (MGMT_COMMANDS.has(subcommand ?? '')) {
     const { runCommand } = await import('./commands/index.js');
     const code = await runCommand(subcommand!, process.argv.slice(3));

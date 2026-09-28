@@ -75,92 +75,14 @@ function loadCfg() {
     if (f && existsSync(f)) {
       const c = JSON.parse(readFileSync(f, 'utf-8'));
       const d = c && c.security && c.security.dlpRedact;
-      const g = c && c.security && c.security.ghost;
-      const ghost = g && Array.isArray(g.patterns) ? g.patterns : [];
-      if (d && Array.isArray(d.patterns)) return { patterns: d.patterns, custom: Array.isArray(d.custom) ? d.custom : [], ghost };
-      return { patterns: DLP_PATTERNS.map((p) => p.name), custom: [], ghost };
+      if (d && Array.isArray(d.patterns)) return { patterns: d.patterns, custom: Array.isArray(d.custom) ? d.custom : [] };
+      return { patterns: DLP_PATTERNS.map((p) => p.name), custom: [] };
     }
   } catch { /* default below */ }
-  return { patterns: DLP_PATTERNS.map((p) => p.name), custom: [], ghost: [] };
+  return { patterns: DLP_PATTERNS.map((p) => p.name), custom: [] };
 }
 
-// Ghost paths: hidden files/dirs the model must not even see exist. The audit
-// PostToolUse hook strips them per tool shape, but that depends on parsing each
-// tool's response. The shield sits on the request path where EVERY tool result
-// is already a plain string, so stripping here catches every listing shape
-// (Glob/LS/Grep/MCP/Bash) uniformly. Glob mirrors policy/audit: `*` = any run of
-// non-slash, `**` = any run. Anchored, so a pattern matches a whole path segment.
-function ghostGlobToRegExp(glob) {
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*') { if (glob[i + 1] === '*') { re += '.*'; i++; } else re += '[^/]*'; }
-    else if (c === '?') re += '[^/]';
-    else if ('\\^$.|+()[]{}'.indexOf(c) !== -1) re += '\\' + c;
-    else re += c;
-  }
-  try { return new RegExp('^' + re + '$'); } catch { return null; }
-}
-function ghostMatch(targetPath, patterns) {
-  if (!targetPath || !Array.isArray(patterns) || patterns.length === 0) return false;
-  const norm = String(targetPath).replace(/\\/g, '/').replace(/\/+$/, '');
-  if (!norm) return false;
-  const segments = norm.split('/').filter(Boolean);
-  const base = segments.length ? segments[segments.length - 1] : norm;
-  for (let pat of patterns) {
-    pat = String(pat || '').trim();
-    if (!pat) continue;
-    let dirOnly = false;
-    if (pat.endsWith('/')) { dirOnly = true; pat = pat.slice(0, -1); }
-    if (!pat) continue;
-    const hasSlash = pat.indexOf('/') !== -1;
-    const hasWild = /[*?]/.test(pat);
-    const re = ghostGlobToRegExp(pat);
-    if (!re) continue;
-    if (dirOnly) {
-      if (!hasSlash && !hasWild) { if (segments.indexOf(pat) !== -1) return true; continue; }
-      let acc = '';
-      for (const s of segments) { acc = acc ? acc + '/' + s : s; if (re.test(acc) || re.test(s)) return true; }
-      continue;
-    }
-    if (!hasSlash) {
-      if (re.test(base)) return true;
-      if (segments.some((s) => re.test(s))) return true;
-      continue;
-    }
-    if (re.test(norm)) return true;
-  }
-  return false;
-}
-function ghostCleanToken(tok) {
-  let t = String(tok || '').trim();
-  t = t.replace(/^[<>|;&(]+/, '').replace(/[);&|]+$/, '');
-  t = t.replace(/^['"]+/, '').replace(/['"]+$/, '');
-  t = t.replace(/^\d*>>?/, '');
-  return t.trim();
-}
-// Drop any line that references a ghost entry (full-path listings, ls -l rows,
-// space-separated names). Same logic as audit.mjs ghostStripLines.
-function ghostStripLines(text, pats) {
-  if (!Array.isArray(pats) || pats.length === 0) return text;
-  const lines = String(text).split('\n');
-  const kept = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) { kept.push(line); continue; }
-    if (ghostMatch(trimmed, pats)) continue;
-    const toks = trimmed.split(/\s+/);
-    const anyHit = toks.some((t) => ghostMatch(ghostCleanToken(t), pats));
-    if (!anyHit) { kept.push(line); continue; }
-    if (toks.length > 3) continue;
-    const remaining = toks.filter((t) => !ghostMatch(ghostCleanToken(t), pats));
-    if (remaining.length === 0) continue;
-    kept.push(remaining.join('  '));
-  }
-  return kept.join('\n');
-}
-
-// Custom patterns are GLOBs: `*` = any run of non-whitespace, same as policy/ghost.
+// Custom patterns are GLOBs: `*` = any run of non-whitespace, same as the policy layer.
 function dlpGlobToRe(glob, flags) {
   let re = '';
   for (const ch of String(glob || '')) {
@@ -185,20 +107,8 @@ function redactString(s, cfg) {
 }
 
 function redactDeep(value, cfg) {
-  const ghost = cfg && Array.isArray(cfg.ghost) ? cfg.ghost : null;
-  if (typeof value === 'string') {
-    let out = redactString(value, cfg);
-    if (ghost && ghost.length) out = ghostStripLines(out, ghost);
-    return out;
-  }
-  if (Array.isArray(value)) {
-    // Drop array elements that are themselves a whole ghost path (e.g. a Glob
-    // result delivered as one-path-per-element), so no empty husk remains.
-    const arr = ghost && ghost.length
-      ? value.filter((v) => !(typeof v === 'string' && ghostMatch(v.trim(), ghost)))
-      : value;
-    return arr.map((v) => redactDeep(v, cfg));
-  }
+  if (typeof value === 'string') return redactString(value, cfg);
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, cfg));
   if (value && typeof value === 'object') {
     const out = {};
     for (const [k, v] of Object.entries(value)) out[k] = redactDeep(v, cfg);

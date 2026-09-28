@@ -99,9 +99,8 @@ Not ported:
   live guard before it does would be exactly the "fast but unguarded" trade the
   rule above forbids.
 
-  Tamper protection and ghost ARE wired and enforced — `tamperCheck` and
-  `ghostLayer` run before policy in main.go — which an earlier version of this
-  list said otherwise about.
+  Tamper protection IS wired and enforced — `tamperCheck` runs before policy in
+  main.go — which an earlier version of this list said otherwise about.
 - **The deny flag** (`.last-deny`), which tells the audit hook not to log a
   second, ALLOW-looking entry for a call the guard already blocked. Left out
   deliberately rather than guessed: it carries a fingerprint of the raw

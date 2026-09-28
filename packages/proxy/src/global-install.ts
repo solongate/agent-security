@@ -914,7 +914,7 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     // every 10s (POLICY_TTL_MS), and even a stale cache keeps `securityCfg` set —
     // whereas DELETING it forces a cold start where the first tool call has NO
     // cached security config yet (the refresh is a detached background spawn), so
-    // DLP-block / rate-limit / ghost silently don't apply on that one call.
+    // DLP-block / rate-limit silently don't apply on that one call.
     // Part of self-protection: OS-level lock so a program can't silently rewrite
     // or delete the guard/settings/hook files to disarm the guard. Applied on
     // every install across all three OSes without sudo/admin (dev opt-out:

@@ -50,7 +50,6 @@ Live analytics by tool, agent, and policy. Version your policies with cloud sync
 ## What SolonGate can enforce
 
 - **Policy rules:** allow or block tool calls by path, command, filename, or URL.
-- **Ghost paths:** make chosen files and folders invisible to the agent, unlistable and unreadable.
 - **Data loss prevention (DLP):** when a call carries a secret (API key, token, private key), block it or hide it from the model.
 - **Rate limiting:** cap how many tool calls an agent can make per minute, hour, or day.
 

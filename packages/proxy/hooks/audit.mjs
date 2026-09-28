@@ -4,7 +4,7 @@
  * Logs tool execution results to SolonGate Cloud.
  * Auto-installed by: npx @solongate/proxy login
  */
-import { readFileSync, existsSync, writeFileSync, mkdirSync, appendFileSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, appendFileSync, chmodSync } from 'node:fs';
 import { resolve, join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -42,7 +42,7 @@ function projectFlagDir() {
 // fetchAndInstallHook / maybeSelfUpdate.
 // 29 collapses a run of `*` in a custom DLP glob before compiling it. That is a
 // HANG fix, so an installed hook must pick it up: see dlpGlobToRe.
-const HOOK_VERSION = 29;
+const HOOK_VERSION = 30;
 
 function loadEnvKey(dir) {
   try {
@@ -140,13 +140,63 @@ const DLP_PATTERNS = [
 ];
 
 // Read the redaction config the guard cached on the matching PreToolUse call.
-function loadDlpRedact() {
+// Owner-only, and the same numbers the guard and sgshared use: several programs
+// create this ONE directory, and a mode applies only on CREATE, so whichever runs
+// first on a machine decides it for all of them. The local audit log is the
+// sharpest case — it records every command, path and URL a call carried.
+const SG_DIR_MODE = 0o700;
+const SG_FILE_MODE = 0o600;
+
+// ── Where the security block comes from ──────────────────────────────────────
+//
+// The policy cache when a service filled it, and THIS MACHINE'S OWN FILE when
+// nothing did. That second half is what a machine with no service has, and
+// without it this hook read an empty cache and concluded there was no DLP
+// configuration at all — which is not a small miss. On a client that can rewrite
+// a tool's result (Claude Code, Codex) the GUARD deliberately leaves read-DLP to
+// this hook and allows the call; no configuration here meant no masking
+// anywhere, and nothing said so.
+//
+// The file is read in the two spellings the guard accepts: the envelope a
+// service answers with, and a policy document carrying `security` inside it.
+function localSecurity() {
+  try {
+    const p = resolve(homedir(), '.solongate', 'policy.json');
+    if (!existsSync(p)) return null;
+    const obj = JSON.parse(readFileSync(p, 'utf-8'));
+    if (!obj || typeof obj !== 'object') return null;
+    if (obj.security && typeof obj.security === 'object') return obj.security;
+    if (obj.policy && obj.policy.security && typeof obj.policy.security === 'object') return obj.policy.security;
+    return null;
+  } catch { return null; }
+}
+
+function loadSecurity() {
   try {
     const sel = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
     const f = resolve(homedir(), '.solongate', '.policy-cache-' + sel + '.json');
-    if (!existsSync(f)) return null;
-    const c = JSON.parse(readFileSync(f, 'utf-8'));
-    const d = c && c.security && c.security.dlpRedact;
+    if (existsSync(f)) {
+      const c = JSON.parse(readFileSync(f, 'utf-8'));
+      // A cache carrying the key AT ALL has an answer, `null` included — that is
+      // a service saying "this project has none", and it outranks the file. Same
+      // precedence the guard applies.
+      if (c && 'security' in c) return c.security || null;
+    }
+  } catch { /* unreadable cache: the file is the next answer, not "none" */ }
+  return localSecurity();
+}
+
+function loadDlpRedact() {
+  try {
+    const sec = loadSecurity();
+    // dlpBlock is honoured as redaction too, and that is not a convenience.
+    // A service sends BOTH when DLP is on — blocking is the extra step over
+    // redacting, so `dlpRedact` is always there. A file written by hand usually
+    // carries only `dlpBlock`, which is the spelling that reads as "refuse
+    // secrets": taking `dlpRedact` alone gave that file argument blocking and NO
+    // output masking, which on a client that redacts in this hook is the whole
+    // protection for a file read.
+    const d = (sec && sec.dlpRedact) || (sec && sec.dlpBlock);
     return d && Array.isArray(d.patterns) ? d : null;
   } catch { return null; }
 }
@@ -184,11 +234,8 @@ function dlpScanArgs(argsSummary, dlpCfg) {
 // Detect-mode rate-limit config (delivered only when mode === 'detect').
 function loadRateLimitObserve() {
   try {
-    const sel = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const f = resolve(homedir(), '.solongate', '.policy-cache-' + sel + '.json');
-    if (!existsSync(f)) return null;
-    const c = JSON.parse(readFileSync(f, 'utf-8'));
-    const r = c && c.security && c.security.rateLimitObserve;
+    const sec = loadSecurity();
+    const r = sec && sec.rateLimitObserve;
     return r && typeof r === 'object' ? r : null;
   } catch { return null; }
 }
@@ -232,6 +279,10 @@ function rateLimitObserveBurst(agentKey, limits) {
 // JSON object per line (JSONL) to that path. Fully local, best-effort, and
 // never blocks the tool call or the cloud audit POST.
 function loadLocalLogs() {
+  // Nothing to send to. Disk is not a preference here, it is the only place the
+  // entry can go — and answering "cloud" for a machine with no credential is how
+  // every ALLOW on such a machine went nowhere at all.
+  if (!API_KEY) return { path: resolve(homedir(), '.solongate', 'local-logs') };
   try {
     const sel = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
     const f = resolve(homedir(), '.solongate', '.policy-cache-' + sel + '.json');
@@ -289,9 +340,14 @@ function appendLocalLog(cfg, entry) {
     const dir = resolveLocalLogDir(cfg.path);
     if (!dir) return;
     const line = JSON.stringify(entry) + '\n';
+    const narrow = (f) => { try { chmodSync(f, SG_FILE_MODE); } catch { /* ignore */ } };
     try {
-      mkdirSync(dir, { recursive: true });
-      appendFileSync(join(dir, 'solongate-audit.jsonl'), line);
+      mkdirSync(dir, { recursive: true, mode: SG_DIR_MODE });
+      const file = join(dir, 'solongate-audit.jsonl');
+      appendFileSync(file, line, { mode: SG_FILE_MODE });
+      // The mode on append applies only when it CREATES, so a log an older
+      // version wrote 0644 would keep it. The guard narrows it the same way.
+      narrow(file);
     } catch {
       // The folder is a PROJECT setting shared by every device, so a path that
       // is valid on one machine can be unwritable on another (a Linux "/home/me"
@@ -299,8 +355,12 @@ function appendLocalLog(cfg, entry) {
       // since local-only mode also skips the cloud POST — fall back to the
       // per-device default folder and record the offending path.
       const fb = resolve(homedir(), '.solongate', 'local-logs');
-      try { mkdirSync(fb, { recursive: true }); } catch { /* ignore */ }
-      try { appendFileSync(join(fb, 'solongate-audit.jsonl'), line); } catch { /* ignore */ }
+      try { mkdirSync(fb, { recursive: true, mode: SG_DIR_MODE }); } catch { /* ignore */ }
+      try {
+        const file = join(fb, 'solongate-audit.jsonl');
+        appendFileSync(file, line, { mode: SG_FILE_MODE });
+        narrow(file);
+      } catch { /* ignore */ }
       try {
         writeFileSync(resolve(homedir(), '.solongate', '.local-logs-invalid-path'),
           JSON.stringify({ configured: dir, fallback: fb, ts: Date.now() }));
@@ -406,15 +466,31 @@ const globalCfg = loadGlobalCloudConfig();
 // left in the folder an agent starts in must never shadow the paired credential
 // and silence this hook's audit POST. The env file still applies when there is
 // no login at all.
-const API_KEY = process.env.SOLONGATE_API_KEY || globalCfg.apiKey || dotenv.SOLONGATE_API_KEY || '';
+let API_KEY = process.env.SOLONGATE_API_KEY || globalCfg.apiKey || dotenv.SOLONGATE_API_KEY || '';
 const API_URL = process.env.SOLONGATE_API_URL || globalCfg.apiUrl || dotenv.SOLONGATE_API_URL || 'http://127.0.0.1:3002';
 
 // Agent identity from CLI args: node audit.mjs <agent_id> <agent_name>
 const AGENT_ID = process.argv[2] || 'claude-code';
 const AGENT_NAME = process.argv[3] || 'Claude Code';
 
-// Accept both live and test keys (test keys are used for trials / sandboxes).
-if (!API_KEY || !(API_KEY.startsWith('sg_live_') || API_KEY.startsWith('sg_test_'))) process.exit(0);
+// A MALFORMED key counts as none, deliberately: a key this hook cannot use would
+// otherwise have it POST to a service that refuses every request, and the entry
+// is lost either way. None means local, and local works.
+if (API_KEY && !(API_KEY.startsWith('sg_live_') || API_KEY.startsWith('sg_test_'))) API_KEY = '';
+
+// THERE IS NO CREDENTIAL GATE HERE, and its absence is the point.
+//
+// The line above used to end `|| process.exit(0)`, so on a machine with no
+// service this hook did nothing whatsoever. Two things were lost that way, and
+// only one of them is bookkeeping:
+//
+//   Every ALLOW went unrecorded. The guard records denials and this records the
+//   rest, so a local audit log held refusals and nothing else.
+//
+//   And DLP MASKING OF TOOL OUTPUT never ran. On a client that can rewrite a
+//   result, the guard leaves read-DLP to this hook BY DESIGN and allows the call.
+//   With the hook gone the secret reached the model — so a `dlpBlock` in a local
+//   policy protected an argument while doing nothing at all for a file read.
 
 let input = '';
 // Read stdin SYNCHRONOUSLY (fd 0). Calling process.exit() from inside the

@@ -40,15 +40,13 @@ const (
 	GuardHookName = "guard.mjs"
 	auditHookName = "audit.mjs"
 	stopHookName  = "stop.mjs"
-	// The two halves of a turn, for a machine in a fleet: UserPromptSubmit
-	// carries what the person typed, Stop carries the answer to that turn.
+	// What a turn COST, read off whatever the client reports its usage in.
 	//
-	// This was registered by the npm installer and not by this one, which meant
-	// `solongate repair` silently REMOVED it — the Claude registration is owned
-	// wholesale by whichever implementation wrote it last, so a repair replaced
-	// a four-event registration with a three-event one. Caught by the parity
-	// test, which compares the two installers file for file.
-	conversationHookName = "conversation.mjs"
+	// It was `conversation.mjs` and recorded the words as well; the transcript
+	// half is gone and the file is named for what is left. A machine holding
+	// the old file has a stale registration until `solongate repair` rewrites
+	// it, which is what that command is for.
+	tokensHookName = "tokens.mjs"
 	// The shield is the LLM-path redaction shim, registered in the shell rather
 	// than in a client. It is installed with the hooks because it is one of the
 	// protected files.
@@ -187,7 +185,7 @@ func (p Paths) protectedTargets() []string {
 		filepath.Join(p.HooksDir, shieldHookName),
 		p.ConfigPath,
 		p.SettingsPath,
-		filepath.Join(p.HooksDir, conversationHookName),
+		filepath.Join(p.HooksDir, tokensHookName),
 		// The launcher, which is the enforcement path now: every hook command in
 		// every client config runs through it. A program that could rewrite it
 		// could point every hook at /bin/true and disarm the guard without

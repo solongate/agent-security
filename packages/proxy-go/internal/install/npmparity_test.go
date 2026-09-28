@@ -79,7 +79,7 @@ func TestRegistrationsMatchTheNpmPackage(t *testing.T) {
 		filepath.Join(".solongate", "hooks", GuardHookName),
 		filepath.Join(".solongate", "hooks", auditHookName),
 		filepath.Join(".solongate", "hooks", stopHookName),
-		filepath.Join(".solongate", "hooks", conversationHookName),
+		filepath.Join(".solongate", "hooks", tokensHookName),
 		filepath.Join(".solongate", "hooks", shieldHookName),
 		// The launcher. Every hook command in every file above runs through it,
 		// so a byte of difference between the two implementations is one of them

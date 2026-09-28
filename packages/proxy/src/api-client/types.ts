@@ -2,7 +2,7 @@
  * Wire types for the SolonGate v1 API, as consumed by the CLI.
  *
  * NOTE ON CASING: the API is inconsistent — policy list/version/audit responses
- * use snake_case (created_by, _version, tool_name), while settings/alerts/agents
+ * use snake_case (created_by, _version, tool_name), while settings/alerts
  * baselines use camelCase (perMinute, windowSeconds). These types reflect what
  * the wire actually sends; the command/TUI layers read them as-is.
  */
@@ -181,28 +181,3 @@ export interface AuditList {
   rate_limit_per_minute: number;
 }
 
-// ── Agents ───────────────────────────────────────────────────────────────────
-
-export interface LiveAgent {
-  session_id: string;
-  agent_id: string | null;
-  agent_name: string | null;
-  status: 'active' | 'idle' | 'deactivated';
-  started_at: string;
-  last_seen_at: string;
-  total_calls: number;
-  allowed_calls: number;
-  denied_calls: number;
-  dlp_events: number;
-  rate_limit_events: number;
-  pi_detections: number;
-  tool_mix: { read: number; write: number; execute: number; network: number };
-  character: string;
-  trust_score: number;
-  recent_anomalies: number;
-}
-
-export interface LiveAgents {
-  agents: LiveAgent[];
-  counts: { active: number; idle: number; deactivated: number };
-}

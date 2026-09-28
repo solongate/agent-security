@@ -94,7 +94,7 @@ export interface HookBeat {
 export function hookBeats(): HookBeat[] {
   const dir = join(sgDir(), BEAT_DIR);
   const out: HookBeat[] = [];
-  for (const hook of ['guard.mjs', 'audit.mjs', 'conversation.mjs', 'stop.mjs']) {
+  for (const hook of ['guard.mjs', 'audit.mjs', 'tokens.mjs', 'stop.mjs']) {
     const f = join(dir, hook);
     try {
       const st = statSync(f);

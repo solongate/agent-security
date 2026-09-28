@@ -11,8 +11,7 @@ import * as policies from './policies.js';
 import * as settings from './settings.js';
 import * as stats from './stats.js';
 import * as audit from './audit.js';
-import * as agents from './agents.js';
 import * as keys from './keys.js';
 import * as mcp from './mcp.js';
 
-export const api = { auth, policies, settings, stats, audit, agents, keys, mcp };
+export const api = { auth, policies, settings, stats, audit, keys, mcp };

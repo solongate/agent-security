@@ -102,10 +102,9 @@ function protectedTargets(): string[] {
     join(p.hooksDir, 'audit.mjs'),
     join(p.hooksDir, 'stop.mjs'),
     join(p.hooksDir, 'shield.mjs'),
-    // The conversation record is locked with the rest. A guest who could edit
-    // it could decide what their host sees them say, which is the same class of
-    // problem as editing the guard.
-    join(p.hooksDir, 'conversation.mjs'),
+    // The token report is locked with the rest. A guest who could edit it
+    // could decide what their host sees them spend.
+    join(p.hooksDir, 'tokens.mjs'),
     // The launcher is the enforcement path now: every hook command in every
     // client config runs THROUGH it. A program that could rewrite it could
     // point every hook at /bin/true and disarm the guard without touching a
@@ -312,11 +311,11 @@ function antigravityHookCommand(guardAbs: string): string {
   return hookCommandFor(dirname(guardAbs), basename(guardAbs), 'antigravity', 'Antigravity');
 }
 
-// antigravityConversationCommand is the same launcher with the conversation
-// hook behind it. It takes the guard's path only to derive the hooks directory,
-// which is the one thing every hook here shares.
-function antigravityConversationCommand(guardAbs: string): string {
-  return hookCommandFor(dirname(guardAbs), 'conversation.mjs', 'antigravity', 'Antigravity');
+// antigravityTokensCommand is the same launcher with the token hook behind it.
+// It takes the guard's path only to derive the hooks directory, which is the one
+// thing every hook here shares.
+function antigravityTokensCommand(guardAbs: string): string {
+  return hookCommandFor(dirname(guardAbs), 'tokens.mjs', 'antigravity', 'Antigravity');
 }
 
 function installAntigravityGuard(p: ReturnType<typeof globalPaths>, guardAbs: string): void {
@@ -329,21 +328,17 @@ function installAntigravityGuard(p: ReturnType<typeof globalPaths>, guardAbs: st
   }
   // Own a single named group — replace only ours, preserve every other group.
   //
-  // Two events. PreToolUse is the guard, and Stop is the conversation record —
-  // which on this client is ONE hook for both halves of an exchange, because
-  // its payload carries the person's last message on `common.lastUserInput`
-  // (present on every hook) and the answer on `stopHookArgs.finalModelOutput`.
-  // Claude Code and Codex need two events to record the same thing.
+  // Two events. PreToolUse is the guard, and Stop is the token report.
   //
   // Stop, not PostInvocation: an invocation is one model call and a turn is
-  // often several, so PostInvocation would write a row per step and the
-  // transcript would read as the agent interrupting itself. Stop is the end of
-  // the turn, which is what a person means by a message.
+  // often several, so PostInvocation would report a figure per step and the
+  // spend would read as many small turns instead of one. Stop is the end of the
+  // turn, which is what a person means by a message.
   const merged = {
     ...existing,
     [ANTIGRAVITY_GROUP]: {
       PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: antigravityHookCommand(guardAbs) }] }],
-      Stop: [{ matcher: '', hooks: [{ type: 'command', command: antigravityConversationCommand(guardAbs) }] }],
+      Stop: [{ matcher: '', hooks: [{ type: 'command', command: antigravityTokensCommand(guardAbs) }] }],
     },
   };
   writeFileSync(p.antigravityHooksPath, JSON.stringify(merged, null, 2) + '\n');
@@ -387,12 +382,7 @@ function removeAntigravityGuard(p: ReturnType<typeof globalPaths>): void {
 // before it runs, keyed by a hash of the hook's config. Our command string is
 // stable across guard updates (the file content changes, the registration does
 // not), so the trust survives every later update — it is asked for exactly once.
-// Codex declares UserPromptSubmit and Stop in the same shape Claude Code does,
-// so a fleet on that client records the conversation too. Antigravity runs
-// neither — it has PreToolUse and nothing else — which is why a fleet on agy has
-// tool calls and no conversation, and why the fleet page says so rather than
-// leaving a reader to wonder where the words went.
-const CODEX_EVENTS = ['PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'Stop'] as const;
+const CODEX_EVENTS = ['PreToolUse', 'PostToolUse', 'Stop'] as const;
 const CODEX_TIMEOUT_SEC = 30;
 
 type CodexHandler = { type: string; command?: string; [k: string]: unknown };
@@ -464,17 +454,15 @@ function installCodexGuard(p: ReturnType<typeof globalPaths>, hooksDir: string):
   const script: Record<(typeof CODEX_EVENTS)[number], string> = {
     PreToolUse: 'guard.mjs',
     PostToolUse: 'audit.mjs',
-    UserPromptSubmit: 'conversation.mjs',
-    // Codex takes one handler per event here, so the conversation record is
-    // what Stop runs. The Claude registration keeps both because its Stop
-    // already had a no-op registered that other machines are holding.
-    Stop: 'conversation.mjs',
+    // Codex takes one handler per event here, so the token report is what Stop
+    // runs. The Claude registration keeps both because its Stop already had a
+    // no-op registered that other machines are holding.
+    Stop: 'tokens.mjs',
   };
   const status: Record<(typeof CODEX_EVENTS)[number], string> = {
     PreToolUse: 'SolonGate policy check',
     PostToolUse: 'SolonGate audit',
-    UserPromptSubmit: 'SolonGate conversation record',
-    Stop: 'SolonGate conversation record',
+    Stop: 'SolonGate token report',
   };
   for (const ev of CODEX_EVENTS) {
     const kept = (file.hooks[ev] ?? []).filter((g) => !isOurCodexGroup(g)); // replace only ours
@@ -864,7 +852,7 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     writeFileSync(join(p.hooksDir, 'audit.mjs'), readHook('audit.mjs'));
     writeFileSync(join(p.hooksDir, 'stop.mjs'), readHook('stop.mjs'));
     writeFileSync(join(p.hooksDir, 'shield.mjs'), readHook('shield.mjs'));
-    writeFileSync(join(p.hooksDir, 'conversation.mjs'), readHook('conversation.mjs'));
+    writeFileSync(join(p.hooksDir, 'tokens.mjs'), readHook('tokens.mjs'));
   writeLauncher(p.hooksDir);
     writeLauncher(p.hooksDir);
     writeFileSync(p.configPath, JSON.stringify({ apiKey, apiUrl }, null, 2) + '\n');
@@ -881,22 +869,11 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
       hooks: {
         PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: hookCmd('guard.mjs') }] }],
         PostToolUse: [{ matcher: '', hooks: [{ type: 'command', command: hookCmd('audit.mjs') }] }],
-        // The two halves of a turn, for a machine in a fleet.
-        //
-        // UserPromptSubmit carries what the person typed. Stop carries
-        // last_assistant_message, which is the answer to THIS turn — the
-        // transcript on disk is flushed asynchronously and lags the live
-        // conversation, so reading that file instead would sometimes record the
-        // previous answer.
-        //
-        // Registering them does not start collecting anything: the server drops
-        // a turn from an account with no accepted fleet grant. That check is on
-        // the server on purpose, because a check on this side would live on the
-        // machine of the person it is about.
-        UserPromptSubmit: [{ matcher: '', hooks: [{ type: 'command', command: hookCmd('conversation.mjs') }] }],
+        // Stop fires both: the no-op turn marker other machines are already
+        // holding, and the reader that records what the turn cost.
         Stop: [
           { matcher: '', hooks: [{ type: 'command', command: hookCmd('stop.mjs') }] },
-          { matcher: '', hooks: [{ type: 'command', command: hookCmd('conversation.mjs') }] },
+          { matcher: '', hooks: [{ type: 'command', command: hookCmd('tokens.mjs') }] },
         ],
       },
     };
@@ -1164,7 +1141,7 @@ export async function runGlobalInstall(opts: { apiKey?: string; apiUrl?: string 
   writeFileSync(join(p.hooksDir, 'audit.mjs'), readHook('audit.mjs'));
   writeFileSync(join(p.hooksDir, 'stop.mjs'), readHook('stop.mjs'));
   writeFileSync(join(p.hooksDir, 'shield.mjs'), readHook('shield.mjs'));
-  writeFileSync(join(p.hooksDir, 'conversation.mjs'), readHook('conversation.mjs'));
+  writeFileSync(join(p.hooksDir, 'tokens.mjs'), readHook('tokens.mjs'));
   console.log(`  Installed hooks → ${p.hooksDir}`);
 
   // Auto-shield: wrap every terminal `claude` via a shell-profile shim so the
@@ -1195,10 +1172,9 @@ export async function runGlobalInstall(opts: { apiKey?: string; apiUrl?: string 
     hooks: {
       PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: hookCmd('guard.mjs') }] }],
       PostToolUse: [{ matcher: '', hooks: [{ type: 'command', command: hookCmd('audit.mjs') }] }],
-      UserPromptSubmit: [{ matcher: '', hooks: [{ type: 'command', command: hookCmd('conversation.mjs') }] }],
       Stop: [
         { matcher: '', hooks: [{ type: 'command', command: hookCmd('stop.mjs') }] },
-        { matcher: '', hooks: [{ type: 'command', command: hookCmd('conversation.mjs') }] },
+        { matcher: '', hooks: [{ type: 'command', command: hookCmd('tokens.mjs') }] },
       ],
     },
   };

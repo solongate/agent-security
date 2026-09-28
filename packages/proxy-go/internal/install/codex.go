@@ -37,12 +37,10 @@ import (
 
 // The events registered here, in the order they are written.
 //
-// UserPromptSubmit was missing, and Stop pointed at the wrong program. Codex
-// takes ONE handler per event, so its Stop is the conversation record rather
+// Codex takes ONE handler per event, so its Stop is the token reader rather
 // than the no-op the Claude registration keeps there for machines that already
-// have it. Both gaps meant `solongate repair` rewrote a four-event Codex
-// registration as a three-event one and dropped the conversation capture.
-var codexEvents = []string{"PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"}
+// have it.
+var codexEvents = []string{"PreToolUse", "PostToolUse", "Stop"}
 
 // The timeout Codex applies to each of our hooks, in seconds.
 const codexTimeoutSec = 30
@@ -184,16 +182,14 @@ func planCodex(p Paths, node string) (registration, error) {
 	file := readCodexHooks(p.CodexHooksPath)
 
 	script := map[string]string{
-		"PreToolUse":       GuardHookName,
-		"PostToolUse":      auditHookName,
-		"UserPromptSubmit": conversationHookName,
-		"Stop":             conversationHookName,
+		"PreToolUse":  GuardHookName,
+		"PostToolUse": auditHookName,
+		"Stop":        tokensHookName,
 	}
 	status := map[string]string{
-		"PreToolUse":       "SolonGate policy check",
-		"PostToolUse":      "SolonGate audit",
-		"UserPromptSubmit": "SolonGate conversation record",
-		"Stop":             "SolonGate conversation record",
+		"PreToolUse":  "SolonGate policy check",
+		"PostToolUse": "SolonGate audit",
+		"Stop":        "SolonGate token report",
 	}
 
 	for _, ev := range codexEvents {

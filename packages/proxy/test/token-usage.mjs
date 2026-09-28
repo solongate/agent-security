@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { suite, check, note, done } from './harness.mjs';
 
-const HOOK = new URL('../hooks/conversation.mjs', import.meta.url);
+const HOOK = new URL('../hooks/tokens.mjs', import.meta.url);
 
 /**
  * Load the hook's readers.

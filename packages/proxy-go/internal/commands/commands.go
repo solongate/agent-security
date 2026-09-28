@@ -17,7 +17,7 @@ import (
 // to hand over; nothing else should be maintaining a second copy of the list.
 var Names = []string{
 	"policy", "ratelimit", "dlp", "stats", "audit",
-	"sessions", "session", "doctor", "trace", "watch", "alerts", "webhooks",
+	"doctor", "trace", "watch", "alerts", "webhooks",
 }
 
 // LocalNames are the commands that talk to THIS MACHINE rather than to the API.
@@ -45,8 +45,6 @@ func handlers() map[string]handler {
 		"dlp":       runDLP,
 		"stats":     runStats,
 		"audit":     runAudit,
-		"sessions":  runSessions,
-		"session":   runSession,
 		"doctor":    runDoctor,
 		"trace":     runTrace,
 		"watch":     runWatch,

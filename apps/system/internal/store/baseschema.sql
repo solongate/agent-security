@@ -1,106 +1,4 @@
 
-CREATE TABLE `agent_baselines` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text NOT NULL,
-	`agent_id` text NOT NULL,
-	`tool_distribution` text DEFAULT '{}',
-	`permission_mix` text DEFAULT '{}',
-	`known_paths` text DEFAULT '[]',
-	`known_domains` text DEFAULT '[]',
-	`known_tools` text DEFAULT '[]',
-	`avg_calls_per_hour` real DEFAULT 0,
-	`deny_rate` real DEFAULT 0,
-	`sample_size` integer DEFAULT 0 NOT NULL,
-	`character` text,
-	`trust_score` real DEFAULT 50,
-	`computed_at` integer NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `agent_baselines_project_agent_idx` ON `agent_baselines` (`project_id`,`agent_id`);--> statement-breakpoint
-CREATE TABLE `agent_group_members` (
-	`id` text PRIMARY KEY NOT NULL,
-	`group_id` text NOT NULL,
-	`agent_id` text NOT NULL,
-	`project_id` text NOT NULL,
-	`created_at` integer NOT NULL,
-	FOREIGN KEY (`group_id`) REFERENCES `agent_groups`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `agent_group_members_group_id_idx` ON `agent_group_members` (`group_id`);--> statement-breakpoint
-CREATE INDEX `agent_group_members_agent_id_idx` ON `agent_group_members` (`agent_id`);--> statement-breakpoint
-CREATE INDEX `agent_group_members_project_id_idx` ON `agent_group_members` (`project_id`);--> statement-breakpoint
-CREATE TABLE `agent_groups` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text NOT NULL,
-	`name` text NOT NULL,
-	`description` text DEFAULT '',
-	`color` text DEFAULT '#6366f1',
-	`policy_rules` text DEFAULT '[]',
-	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `agent_groups_project_id_idx` ON `agent_groups` (`project_id`);--> statement-breakpoint
-CREATE TABLE `agent_relationships` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text NOT NULL,
-	`source_agent_id` text NOT NULL,
-	`target_agent_id` text NOT NULL,
-	`relationship_type` text DEFAULT 'peer' NOT NULL,
-	`trust_level` text DEFAULT 'VERIFIED',
-	`allowed_tools` text DEFAULT '[]',
-	`denied_tools` text DEFAULT '[]',
-	`allowed_permissions` text DEFAULT '[]',
-	`max_delegation_depth` integer DEFAULT 1,
-	`enabled` integer DEFAULT true NOT NULL,
-	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `agent_relationships_project_id_idx` ON `agent_relationships` (`project_id`);--> statement-breakpoint
-CREATE INDEX `agent_relationships_source_idx` ON `agent_relationships` (`project_id`,`source_agent_id`);--> statement-breakpoint
-CREATE INDEX `agent_relationships_target_idx` ON `agent_relationships` (`project_id`,`target_agent_id`);--> statement-breakpoint
-CREATE TABLE `agents` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text NOT NULL,
-	`agent_id` text NOT NULL,
-	`agent_name` text,
-	`first_seen_at` integer NOT NULL,
-	`last_seen_at` integer NOT NULL,
-	`total_calls` integer DEFAULT 0 NOT NULL,
-	`allowed_calls` integer DEFAULT 0 NOT NULL,
-	`denied_calls` integer DEFAULT 0 NOT NULL,
-	`pi_detections` integer DEFAULT 0 NOT NULL,
-	`parent_agent_id` text,
-	`api_key_id` text,
-	`api_key_name` text,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `agents_project_id_idx` ON `agents` (`project_id`);--> statement-breakpoint
-CREATE INDEX `agents_project_agent_id_idx` ON `agents` (`project_id`,`agent_id`);--> statement-breakpoint
-CREATE INDEX `agents_api_key_id_idx` ON `agents` (`api_key_id`);--> statement-breakpoint
-CREATE TABLE `anomaly_events` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text NOT NULL,
-	`agent_id` text NOT NULL,
-	`session_id` text,
-	`audit_log_id` text,
-	`kind` text NOT NULL,
-	`severity` text DEFAULT 'low' NOT NULL,
-	`score` real DEFAULT 0,
-	`description` text,
-	`detail` text,
-	`created_at` integer NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `anomaly_events_project_created_idx` ON `anomaly_events` (`project_id`,`created_at`);--> statement-breakpoint
-CREATE INDEX `anomaly_events_project_agent_idx` ON `anomaly_events` (`project_id`,`agent_id`);--> statement-breakpoint
 CREATE TABLE `api_keys` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -118,24 +16,6 @@ CREATE TABLE `api_keys` (
 CREATE INDEX `api_keys_key_prefix_idx` ON `api_keys` (`key_prefix`);--> statement-breakpoint
 CREATE INDEX `api_keys_project_id_idx` ON `api_keys` (`project_id`);--> statement-breakpoint
 CREATE INDEX `api_keys_project_name_idx` ON `api_keys` (`project_id`,`name`);--> statement-breakpoint
-CREATE TABLE `conversation_turns` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text NOT NULL,
-	`api_key_id` text,
-	`user_id` text,
-	`session_id` text NOT NULL,
-	`agent_id` text,
-	`agent_name` text,
-	`source` text,
-	`role` text NOT NULL,
-	`body` text NOT NULL,
-	`redacted` integer DEFAULT 0 NOT NULL,
-	`truncated` integer DEFAULT 0 NOT NULL,
-	`created_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `conversation_turns_project_user_created_idx` ON `conversation_turns` (`project_id`,`user_id`,`created_at`);--> statement-breakpoint
-CREATE INDEX `conversation_turns_session_idx` ON `conversation_turns` (`session_id`);--> statement-breakpoint
 CREATE TABLE `audit_logs` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -168,24 +48,6 @@ CREATE TABLE `audit_logs` (
 CREATE INDEX `audit_logs_project_id_created_at_idx` ON `audit_logs` (`project_id`,`created_at`);--> statement-breakpoint
 CREATE INDEX `audit_logs_agent_id_idx` ON `audit_logs` (`agent_id`);--> statement-breakpoint
 CREATE INDEX `audit_logs_session_id_idx` ON `audit_logs` (`project_id`,`session_id`);--> statement-breakpoint
-CREATE TABLE `delegation_chains` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text NOT NULL,
-	`chain` text NOT NULL,
-	`origin_agent_id` text NOT NULL,
-	`terminal_agent_id` text NOT NULL,
-	`effective_tools` text DEFAULT '[]',
-	`effective_permissions` text DEFAULT '[]',
-	`status` text DEFAULT 'active' NOT NULL,
-	`expires_at` integer,
-	`created_at` integer NOT NULL,
-	`revoked_at` integer,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `delegation_chains_project_id_idx` ON `delegation_chains` (`project_id`);--> statement-breakpoint
-CREATE INDEX `delegation_chains_origin_idx` ON `delegation_chains` (`origin_agent_id`);--> statement-breakpoint
-CREATE INDEX `delegation_chains_terminal_idx` ON `delegation_chains` (`terminal_agent_id`);--> statement-breakpoint
 CREATE TABLE `mcp_servers` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -270,29 +132,6 @@ CREATE TABLE `projects` (
 CREATE UNIQUE INDEX `projects_slug_unique` ON `projects` (`slug`);--> statement-breakpoint
 CREATE INDEX `projects_owner_id_idx` ON `projects` (`owner_id`);--> statement-breakpoint
 CREATE INDEX `projects_org_id_idx` ON `projects` (`org_id`);--> statement-breakpoint
-CREATE TABLE `sessions` (
-	`id` text PRIMARY KEY NOT NULL,
-	`project_id` text NOT NULL,
-	`agent_id` text,
-	`agent_name` text,
-	`api_key_id` text,
-	`started_at` integer NOT NULL,
-	`last_seen_at` integer NOT NULL,
-	`total_calls` integer DEFAULT 0 NOT NULL,
-	`allowed_calls` integer DEFAULT 0 NOT NULL,
-	`denied_calls` integer DEFAULT 0 NOT NULL,
-	`dlp_events` integer DEFAULT 0 NOT NULL,
-	`rate_limit_events` integer DEFAULT 0 NOT NULL,
-	`pi_detections` integer DEFAULT 0 NOT NULL,
-	`read_calls` integer DEFAULT 0 NOT NULL,
-	`write_calls` integer DEFAULT 0 NOT NULL,
-	`execute_calls` integer DEFAULT 0 NOT NULL,
-	`network_calls` integer DEFAULT 0 NOT NULL,
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
-);
---> statement-breakpoint
-CREATE INDEX `sessions_project_id_last_seen_idx` ON `sessions` (`project_id`,`last_seen_at`);--> statement-breakpoint
-CREATE INDEX `sessions_project_agent_idx` ON `sessions` (`project_id`,`agent_id`);--> statement-breakpoint
 CREATE TABLE `solon_usage` (
 	`user_id` text PRIMARY KEY NOT NULL,
 	`chats_used` integer DEFAULT 0 NOT NULL,

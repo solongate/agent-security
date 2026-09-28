@@ -39,7 +39,7 @@ import { dirname, join, resolve } from 'node:path';
 // that either never reaches Go or reaches it and is not understood.
 const GO_SUBCOMMANDS = new Set([
   'repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp',
-  'stats', 'audit', 'sessions', 'session', 'doctor', 'watch', 'alerts',
+  'stats', 'audit', 'doctor', 'watch', 'alerts',
   'webhooks', 'dataroom',
   // The `browser` command is gone on purpose: the agent installs, arranges and
   // restarts itself, and everything a person manages is on the dashboard. There

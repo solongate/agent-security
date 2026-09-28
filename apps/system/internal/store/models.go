@@ -4,9 +4,7 @@ import "encoding/json"
 
 // The tables, as Go.
 //
-// These are the schema's tables, in its order —
-// which src/db/index.ts creates at runtime and never declared in the drizzle
-// schema, and which the whole CLI login flow is built on.
+// These are the schema's tables, in the order schema.go creates them.
 //
 // Field names follow the Go convention rather than the column names; the column
 // names live in the queries, which is the only place they are load-bearing.
@@ -242,166 +240,7 @@ type AuditLog struct {
 	CreatedAt        int64
 }
 
-// ── 10. sessions ────────────────────────────────────────────────────────────
-
-// Session is `sessions`, one row per agent session, with the per-session
-// counters the live view reads. These are agent sessions and have nothing to do
-// with authentication.
-//
-// The id is the sessionId the client chose. It is the primary key, so it is
-// globally unique rather than unique per project — which means every read still
-// has to filter on project_id or one tenant's session id resolves another
-// tenant's row.
-type Session struct {
-	ID              string
-	ProjectID       string
-	AgentID         string
-	AgentName       string
-	APIKeyID        string
-	StartedAt       int64
-	LastSeenAt      int64
-	TotalCalls      int64
-	AllowedCalls    int64
-	DeniedCalls     int64
-	DLPEvents       int64
-	RateLimitEvents int64
-	PiDetections    int64
-	ReadCalls       int64
-	WriteCalls      int64
-	ExecuteCalls    int64
-	NetworkCalls    int64
-}
-
-// ── 11. agent_baselines ─────────────────────────────────────────────────────
-
-// AgentBaseline is `agent_baselines`: what normal looks like for one agent, so
-// anomaly_events can say what abnormal is. The four Known* columns and the two
-// distribution columns are JSON.
-type AgentBaseline struct {
-	ID               string
-	ProjectID        string
-	AgentID          string
-	ToolDistribution json.RawMessage
-	PermissionMix    json.RawMessage
-	KnownPaths       json.RawMessage
-	KnownDomains     json.RawMessage
-	KnownTools       json.RawMessage
-	AvgCallsPerHour  float64
-	DenyRate         float64
-	SampleSize       int64
-	Character        string
-	TrustScore       float64
-	ComputedAt       int64
-}
-
-// ── 12. anomaly_events ──────────────────────────────────────────────────────
-
-// AnomalyEvent is `anomaly_events`. Kind is one of new_tool, new_path,
-// new_domain, rate_spike, deny_spike, pi_spike; Severity is low, medium or
-// high. Neither is constrained by the database.
-type AnomalyEvent struct {
-	ID          string
-	ProjectID   string
-	AgentID     string
-	SessionID   string
-	AuditLogID  string
-	Kind        string
-	Severity    string
-	Score       float64
-	Description string
-	Detail      json.RawMessage
-	CreatedAt   int64
-}
-
-// ── 13. agents ──────────────────────────────────────────────────────────────
-
-// Agent is `agents`, the per-project roll-up of one agent identity. AgentID is
-// the client's own identifier and is unique only within a project — the primary
-// key is the surrogate ID.
-type Agent struct {
-	ID            string
-	ProjectID     string
-	AgentID       string
-	AgentName     string
-	FirstSeenAt   int64
-	LastSeenAt    int64
-	TotalCalls    int64
-	AllowedCalls  int64
-	DeniedCalls   int64
-	PiDetections  int64
-	ParentAgentID string
-	APIKeyID      string
-	APIKeyName    string
-}
-
-// ── 14. agent_groups ────────────────────────────────────────────────────────
-
-// AgentGroup is `agent_groups`. PolicyRules is a JSON array of partial rules
-// applied to every member.
-type AgentGroup struct {
-	ID          string
-	ProjectID   string
-	Name        string
-	Description string
-	Color       string
-	PolicyRules json.RawMessage
-	CreatedAt   int64
-	UpdatedAt   int64
-}
-
-// ── 15. agent_group_members ─────────────────────────────────────────────────
-
-// AgentGroupMember is `agent_group_members`. It carries project_id as well as
-// group_id, redundantly, and the redundancy is useful: a membership query can
-// be tenant-scoped without joining the group.
-type AgentGroupMember struct {
-	ID        string
-	GroupID   string
-	AgentID   string
-	ProjectID string
-	CreatedAt int64
-}
-
-// ── 16. agent_relationships ─────────────────────────────────────────────────
-
-// AgentRelationship is `agent_relationships`: what one agent may delegate to
-// another. RelationshipType is peer, delegation or supervisor; TrustLevel is
-// UNTRUSTED, VERIFIED or TRUSTED.
-type AgentRelationship struct {
-	ID                 string
-	ProjectID          string
-	SourceAgentID      string
-	TargetAgentID      string
-	RelationshipType   string
-	TrustLevel         string
-	AllowedTools       json.RawMessage
-	DeniedTools        json.RawMessage
-	AllowedPermissions json.RawMessage
-	MaxDelegationDepth int64
-	Enabled            bool
-	CreatedAt          int64
-	UpdatedAt          int64
-}
-
-// ── 17. delegation_chains ───────────────────────────────────────────────────
-
-// DelegationChain is `delegation_chains`. Chain is the ordered JSON array of
-// agent ids; Status is active, revoked or expired.
-type DelegationChain struct {
-	ID                   string
-	ProjectID            string
-	Chain                json.RawMessage
-	OriginAgentID        string
-	TerminalAgentID      string
-	EffectiveTools       json.RawMessage
-	EffectivePermissions json.RawMessage
-	Status               string
-	ExpiresAt            *int64
-	CreatedAt            int64
-	RevokedAt            *int64
-}
-
-// ── 18-21. the blog tables ──────────────────────────────────────────────────
+// ── 10-13. the blog tables ──────────────────────────────────────────────────
 //
 // blog_posts, blog_categories, blog_tags and blog_post_tags are in this
 // database and no route under src/app/api reads them — apps/manage owns the
@@ -451,7 +290,7 @@ type BlogPostTag struct {
 	TagID  string
 }
 
-// ── 22. admin_roles ─────────────────────────────────────────────────────────
+// ── 14. admin_roles ─────────────────────────────────────────────────────────
 
 // AdminRole is `admin_roles`. Role is super_admin, admin, editor or viewer.
 type AdminRole struct {
@@ -463,7 +302,7 @@ type AdminRole struct {
 	UpdatedAt int64
 }
 
-// ── 23. user_invitations ────────────────────────────────────────────────────
+// ── 15. user_invitations ────────────────────────────────────────────────────
 
 // UserInvitation is `user_invitations`. Token is a bearer credential: whoever
 // holds it can accept the invitation, so it is looked up and never listed.
@@ -478,7 +317,7 @@ type UserInvitation struct {
 	CreatedAt  int64
 }
 
-// ── 24. system_settings ─────────────────────────────────────────────────────
+// ── 16. system_settings ─────────────────────────────────────────────────────
 
 // SystemSetting is `system_settings`, a key/value table keyed by a string.
 //
@@ -497,7 +336,7 @@ type SystemSetting struct {
 	UpdatedAt   int64
 }
 
-// ── 25. mcp_servers ─────────────────────────────────────────────────────────
+// ── 17. mcp_servers ─────────────────────────────────────────────────────────
 
 // McpServer is `mcp_servers`. URL is an HTTP URL or `stdio://<command>`;
 // Status is active, inactive or error.
@@ -513,7 +352,7 @@ type McpServer struct {
 	UpdatedAt int64
 }
 
-// ── 26. solon_usage ─────────────────────────────────────────────────────────
+// ── 18. solon_usage ─────────────────────────────────────────────────────────
 
 // The value sets the write paths check against. They are the enums from
 // schema.ts, which SQLite does not enforce: the columns are plain TEXT, so a

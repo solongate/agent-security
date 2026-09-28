@@ -305,11 +305,11 @@ export function App(): JSX.Element {
 
 const HELP: Array<[string, Array<[string, string]>]> = [
   ['Global', [['↑↓', 'move between sections'], ['→ / enter', 'open a section'], ['← / esc', 'back to the menu'], ['?', 'this help'], ['q', 'quit']]],
-  ['Solo Live', [['↑↓', 'select a stream row'], ['enter', 'full entry content'], ['w', 'whitelist the selected DENY'], ['b', 'block the selected ALLOW'], ['d / x / r', 'filter denies / dlp / rate-limit'], ['f', 'local / cloud filter'], ['/', 'search'], ['s', 'sessions (↑↓ pick, enter open)'], ['space', 'copy mode (freeze)']]],
+  ['Solo Live', [['↑↓', 'select a stream row'], ['enter', 'full entry content'], ['w', 'whitelist the selected DENY'], ['b', 'block the selected ALLOW'], ['d / x / r', 'filter denies / dlp / rate-limit'], ['f', 'local / cloud filter'], ['/', 'search'], ['space', 'copy mode (freeze)']]],
   ['Policies', [['↑↓', 'browse / select'], ['a', 'activate (pin) selected policy'], ['x', 'deactivate — no active policy'], ['enter', 'open rules → open a rule'], ['space', 'toggle a rule on/off'], ['e', 'flip effect'], ['n', 'new rule'], ['d', 'delete rule'], ['m', 'flip mode'], ['D', 'dry-run the draft'], ['s', 'save'], ['x', 'discard']]],
   ['Rate limit', [['↑↓', 'field'], ['←→', 'adjust (shift = ±10)'], ['s', 'save']]],
   ['DLP', [['↑↓', 'move'], ['space', 'toggle a built-in pattern on/off'], ['m', 'cycle mode'], ['a', 'add custom pattern (name → glob, * = any chars)'], ['d', 'remove custom pattern'], ['s', 'save · x discard']]],
-  ['Audit', [['v', 'logs ↔ sessions'], ['s', 'source: cloud ↔ local'], ['← →', 'prev / next page (500 each)'], ['↑↓', 'select (list scrolls)'], ['enter', 'full entry / session logs'], ['f / g', 'decision / signal filter'], ['t / n / /', 'tool / agent / search'], ['x / X', 'delete entry / ALL (press twice)'], ['c', 'clear filters']]],
+  ['Audit', [['s', 'source: cloud ↔ local'], ['← →', 'prev / next page (500 each)'], ['↑↓', 'select (list scrolls)'], ['enter', 'full entry'], ['f / g', 'decision / signal filter'], ['t / n / /', 'tool / agent / search'], ['x / X', 'delete entry / ALL (press twice)'], ['c', 'clear filters']]],
   ['Settings', [['↑↓', 'move'], ['enter / space', 'toggle · edit · add'], ['e', 'webhook events'], ['d d', 'delete'], ['r', 'refresh']]],
   ['Accounts', [['a', 'switch account (view another account logged in on this device)'], ['', 'the header shows which account you are viewing; guard/logging keep the active key']]],
 ];

@@ -41,7 +41,7 @@
 // to the proxy runtime; the human-facing CLI subcommands (login/etc.) and
 // the bare-run welcome screen keep normal console output so their banners aren't
 // mangled with a [SolonGate] prefix.
-const CLI_SUBCOMMANDS = new Set(['repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks', 'dataroom']);
+const CLI_SUBCOMMANDS = new Set(['repair', 'logs-server', 'local-logs', 'policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch', 'alerts', 'webhooks', 'dataroom']);
 // Human-facing flags/aliases that print a banner and must keep normal console
 // output (no [SolonGate] prefix): help, version, and the removed `login` alias.
 const CLI_INFO_ARGS = new Set(['login', 'help', '--help', '-h', '--version', '-v', 'version']);
@@ -165,8 +165,6 @@ function printHelp() {
   cmd('audit block <logId> [--scope exact|tool]', 'turn a call into a DENY rule');
   cmd('stats [timeseries|drift]', 'traffic & security statistics');
   cmd('watch [--filter DENY] [--tool <s>]', 'live-tail tool calls (Ctrl+C to stop)');
-  cmd('sessions [--all]', 'live agent-session feed (calls, denies, trust)');
-  cmd('session <id>', "one session's detail");
 
   head('Alerts & webhooks');
   cmd('alerts list');
@@ -285,7 +283,7 @@ async function main() {
   // Scriptable management commands (policy / ratelimit / dlp / stats / audit /
   // agents). Kept behind a dynamic import so the proxy runtime never loads the
   // API-client / command layer.
-  const MGMT_COMMANDS = new Set(['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'sessions', 'session', 'doctor', 'trace', 'watch', 'alerts', 'webhooks']);
+  const MGMT_COMMANDS = new Set(['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch', 'alerts', 'webhooks']);
   if (MGMT_COMMANDS.has(subcommand ?? '')) {
     const { runCommand } = await import('./commands/index.js');
     const code = await runCommand(subcommand!, process.argv.slice(3));

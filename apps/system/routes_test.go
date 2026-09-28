@@ -185,7 +185,7 @@ func TestLiteralPathsWinOverWildcards(t *testing.T) {
 	// single-policy route and every installed guard would stop enforcing.
 	srv := testServer()
 	mux := srv.routes()
-	for _, path := range []string{"/api/v1/policies/active", "/api/v1/agents/live", "/api/v1/tools"} {
+	for _, path := range []string{"/api/v1/policies/active", "/api/v1/tools"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		if rec.Code == http.StatusNotFound {

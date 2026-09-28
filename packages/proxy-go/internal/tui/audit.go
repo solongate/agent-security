@@ -24,16 +24,12 @@ import (
 // Rows use the SAME renderer as Live ([HH:MM:SS LOC|CLD] DECISION tool perm
 // eval agent dlp: rl: {args}) and enter opens the SAME entry inspector; the only
 // thing Audit adds over Live is that it shows every log, not just the live
-// buffer. Two sub-views over ONE source toggle:
+// buffer: every call, newest first, 500 per page (←→ pages, and the selection
+// jumps to the top on a page change). Filters: f decision, g signal, t tool,
+// n agent, / search, c clear. enter = full entry.
 //
-//	logs     : every call, newest first, 500 per page (←→ pages, and the
-//	           selection jumps to the top on a page change). Filters: f decision,
-//	           g signal, t tool, n agent, / search, c clear. enter = full entry.
-//	sessions : every session with its own independent filters (f status,
-//	           / search). enter = that session's logs.
-//
-// `s` toggles the source everywhere: cloud (the API) against local (the JSONL
-// file the hooks write on this machine). `v` toggles logs against sessions.
+// `s` toggles the source: cloud (the API) against local (the JSONL file the
+// hooks write on this machine).
 
 func init() { Register(SectionAudit, func(d Deps) Panel { return newAudit(d) }) }
 
@@ -46,7 +42,6 @@ const (
 var (
 	auditDecisions = []string{"", "DENY", "ALLOW"}
 	auditSignals   = []string{"", "dlp", "ratelimit"}
-	auditSessState = []string{"", "active", "idle", "ended"}
 )
 
 // logRow is one row, unified across cloud entries and local JSONL lines.
@@ -204,17 +199,6 @@ func loadLocalRows() []logRow {
 	return out
 }
 
-type auditSess struct {
-	id     string
-	agent  string
-	status string
-	calls  int
-	denies int
-	dlp    int
-	trust  *float64
-	lastAt int64
-}
-
 type confirmState struct {
 	kind string // one | all
 	key  string
@@ -233,23 +217,18 @@ type Audit struct {
 	tok int
 
 	source string // cloud | local
-	view   string // logs | sessions | detail
+	view   string // logs | detail
 
-	di, gi     int
-	tool       string
-	agent      string
-	search     string
-	sessFilter string
-	page       int
-	sel        int
+	di, gi int
+	tool   string
+	agent  string
+	search string
+	page   int
+	sel    int
 
 	detailScroll int
-	editing      string // "" | tool | agent | search | sess-search
+	editing      string // "" | tool | agent | search
 	input        textinput.Model
-
-	si         int
-	sessSearch string
-	sessSel    int
 
 	confirm *confirmState
 	note    *auditNote
@@ -264,10 +243,6 @@ type Audit struct {
 	local     []logRow
 	localErr  error
 	localBusy bool
-
-	agents     *api.LiveAgents
-	agentsErr  error
-	agentsBusy bool
 }
 
 func newAudit(d Deps) *Audit {
@@ -282,7 +257,6 @@ func newAudit(d Deps) *Audit {
 const (
 	auditTickStats = iota
 	auditTickLogs
-	auditTickSessions
 )
 
 type auditTick struct {
@@ -321,14 +295,6 @@ type auditLocalResult struct {
 
 func (m auditLocalResult) Generation() int { return m.gen }
 
-type auditAgentsResult struct {
-	gen    int
-	agents api.LiveAgents
-	err    error
-}
-
-func (m auditAgentsResult) Generation() int { return m.gen }
-
 type auditNoteResult struct {
 	gen     int
 	note    auditNote
@@ -342,10 +308,9 @@ func (m auditNoteResult) Generation() int { return m.gen }
 func (p *Audit) Init(ctx PanelContext) tea.Cmd {
 	p.gen = ctx.Gen
 	return tea.Batch(
-		p.loadStats(), p.loadLogs(), p.loadSessions(),
+		p.loadStats(), p.loadLogs(),
 		p.tickCmd(auditTickStats, 15*time.Second),
 		p.tickCmd(auditTickLogs, 6*time.Second),
-		p.tickCmd(auditTickSessions, 8*time.Second),
 	)
 }
 
@@ -356,7 +321,6 @@ func (p *Audit) query() api.AuditQuery {
 		Tool:      p.tool,
 		AgentName: p.agent,
 		Search:    p.search,
-		SessionID: p.sessFilter,
 		Limit:     auditPage,
 		Offset:    p.page * auditPage,
 	}
@@ -402,20 +366,6 @@ func (p *Audit) loadLogsMode(quiet bool) tea.Cmd {
 	}
 }
 
-func (p *Audit) loadSessions() tea.Cmd {
-	if p.source != "cloud" {
-		return nil
-	}
-	gen, client := p.gen, p.deps.API
-	p.agentsBusy = true
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		a, err := client.Agents.Live(ctx, 100, true)
-		return auditAgentsResult{gen: gen, agents: a, err: err}
-	}
-}
-
 // ── derived ────────────────────────────────────────────────────────────────
 
 func (p *Audit) localFiltered() []logRow {
@@ -435,9 +385,6 @@ func (p *Audit) localFiltered() []logRow {
 			continue
 		}
 		if p.agent != "" && !strings.EqualFold(r.agent, p.agent) {
-			continue
-		}
-		if p.sessFilter != "" && r.session != p.sessFilter {
 			continue
 		}
 		if q != "" && !strings.Contains(strings.ToLower(r.tool+" "+r.agent+" "+r.reason+" "+r.args), q) {
@@ -489,85 +436,6 @@ func (p *Audit) current(rows []logRow) (logRow, bool) {
 	return rows[minInt(p.sel, len(rows)-1)], true
 }
 
-func (p *Audit) sessions() []auditSess {
-	var out []auditSess
-	if p.source == "cloud" {
-		if p.agents == nil {
-			return nil
-		}
-		for _, a := range p.agents.Agents {
-			name := a.SessionID
-			if a.AgentName != nil && *a.AgentName != "" {
-				name = *a.AgentName
-			}
-			status := a.Status
-			if status == "deactivated" {
-				status = "ended"
-			}
-			last, _ := parseMillis(a.LastSeenAt)
-			trust := a.TrustScore
-			out = append(out, auditSess{
-				id: a.SessionID, agent: name, status: status, calls: a.TotalCalls,
-				denies: a.DeniedCalls, dlp: a.DLPEvents, trust: &trust, lastAt: last,
-			})
-		}
-		return out
-	}
-	order := []string{}
-	byID := map[string]*auditSess{}
-	for _, r := range p.local {
-		if r.session == "" {
-			continue
-		}
-		cur := byID[r.session]
-		if cur == nil {
-			agent := r.agent
-			if agent == "" {
-				agent = "local agent"
-			}
-			cur = &auditSess{id: r.session, agent: agent, status: "ended"}
-			byID[r.session] = cur
-			order = append(order, r.session)
-		}
-		cur.calls++
-		if r.decision != "ALLOW" {
-			cur.denies++
-		}
-		if len(r.dlp) > 0 {
-			cur.dlp++
-		}
-		if r.at > cur.lastAt {
-			cur.lastAt = r.at
-		}
-		if r.agent != "" {
-			cur.agent = r.agent
-		}
-	}
-	for _, id := range order {
-		out = append(out, *byID[id])
-	}
-	return out
-}
-
-func (p *Audit) sessionsFiltered(now int64) []auditSess {
-	q := strings.ToLower(strings.TrimSpace(p.sessSearch))
-	var out []auditSess
-	for _, s := range p.sessions() {
-		if p.source != "cloud" {
-			s.status = sessStatus(s.lastAt, now)
-		}
-		if want := auditSessState[p.si]; want != "" && s.status != want {
-			continue
-		}
-		if q != "" && !strings.Contains(strings.ToLower(s.agent+" "+s.id), q) {
-			continue
-		}
-		out = append(out, s)
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].lastAt > out[j].lastAt })
-	return out
-}
-
 // Visible loading states. They also lock the keyboard below, because a queued
 // keypress would otherwise double-page or land on a row that is about to be
 // replaced.
@@ -579,23 +447,9 @@ func (p *Audit) logsLoading() bool {
 	return busy && p.editing == ""
 }
 
-func (p *Audit) sessLoading() bool {
-	if p.source == "cloud" {
-		return p.agentsBusy
-	}
-	return p.localBusy
-}
-
 func (p *Audit) logsError() error {
 	if p.source == "cloud" {
 		return p.cloudErr
-	}
-	return p.localErr
-}
-
-func (p *Audit) sessError() error {
-	if p.source == "cloud" {
-		return p.agentsErr
 	}
 	return p.localErr
 }
@@ -635,16 +489,6 @@ func (p *Audit) Update(msg tea.Msg, ctx PanelContext) (Panel, tea.Cmd) {
 		p.local, p.localErr = m.rows, nil
 		return p, nil
 
-	case auditAgentsResult:
-		p.agentsBusy = false
-		if m.err != nil {
-			p.agentsErr = m.err
-			return p, nil
-		}
-		a := m.agents
-		p.agents, p.agentsErr = &a, nil
-		return p, nil
-
 	case auditNoteResult:
 		note := m.note
 		p.note = &note
@@ -679,16 +523,10 @@ func (p *Audit) onTick(m auditTick) tea.Cmd {
 	case auditTickLogs:
 		next := p.tickCmd(auditTickLogs, 6*time.Second)
 		// Only page 0 auto-refreshes: a deeper page stays put while it is read.
-		if p.frozen || p.view != "logs" || p.editing != "" || p.page != 0 {
+		if p.frozen || p.editing != "" || p.page != 0 {
 			return next
 		}
 		return tea.Batch(next, p.loadLogsQuiet())
-	case auditTickSessions:
-		next := p.tickCmd(auditTickSessions, 8*time.Second)
-		if p.frozen || p.source != "cloud" || p.view != "sessions" {
-			return next
-		}
-		return tea.Batch(next, p.loadSessions())
 	}
 	return nil
 }
@@ -712,7 +550,7 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	if k.Type == tea.KeyCtrlR {
 		p.note = &auditNote{text: "⟳ refreshed " + ctx.Now.Format("15:04:05"), level: "ok"}
 		if p.source == "cloud" {
-			return tea.Batch(p.loadLogs(), p.loadSessions(), p.loadStats())
+			return tea.Batch(p.loadLogs(), p.loadStats())
 		}
 		return p.loadLogs()
 	}
@@ -746,9 +584,6 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	if p.view == "logs" && p.logsLoading() {
 		return nil
 	}
-	if p.view == "sessions" && p.sessLoading() {
-		return nil
-	}
 	// Any key other than the delete keys disarms a pending confirmation.
 	if p.confirm != nil && str != "x" && str != "X" {
 		p.confirm = nil
@@ -761,45 +596,8 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 		} else {
 			p.source = "cloud"
 		}
-		p.page, p.sel, p.sessSel = 0, 0, 0
-		return tea.Batch(p.loadLogs(), p.loadSessions(), p.loadStats())
-	}
-	if str == "v" {
-		if p.view == "logs" {
-			p.view = "sessions"
-		} else {
-			p.view = "logs"
-		}
-		return nil
-	}
-
-	if p.view == "sessions" {
-		sessions := p.sessionsFiltered(ctx.Now.UnixMilli())
-		switch {
-		case k.Type == tea.KeyUp:
-			p.sessSel = maxInt(0, p.sessSel-1)
-		case k.Type == tea.KeyDown:
-			p.sessSel = minInt(len(sessions)-1, p.sessSel+1)
-		case k.Type == tea.KeyPgUp:
-			p.sessSel = maxInt(0, p.sessSel-10)
-		case k.Type == tea.KeyPgDown:
-			p.sessSel = minInt(len(sessions)-1, p.sessSel+10)
-		case k.Type == tea.KeyEnter:
-			if len(sessions) > 0 {
-				p.sessFilter = sessions[minInt(p.sessSel, len(sessions)-1)].id
-				p.page, p.sel = 0, 0
-				p.view = "logs"
-				return p.loadLogs()
-			}
-		case str == "f":
-			p.si = (p.si + 1) % len(auditSessState)
-			p.sessSel = 0
-		case str == "/":
-			return p.beginEdit("sess-search")
-		case str == "c":
-			p.si, p.sessSearch, p.sessSel = 0, "", 0
-		}
-		return nil
+		p.page, p.sel = 0, 0
+		return tea.Batch(p.loadLogs(), p.loadStats())
 	}
 
 	// logs view
@@ -873,7 +671,7 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 		return p.beginEdit("search")
 	case str == "c":
 		p.di, p.gi = 0, 0
-		p.tool, p.agent, p.search, p.sessFilter = "", "", "", ""
+		p.tool, p.agent, p.search = "", "", ""
 		p.page, p.sel = 0, 0
 		return p.loadLogs()
 	}
@@ -889,8 +687,6 @@ func (p *Audit) beginEdit(field string) tea.Cmd {
 		p.input.SetValue(p.agent)
 	case "search":
 		p.input.SetValue(p.search)
-	case "sess-search":
-		p.input.SetValue(p.sessSearch)
 	}
 	p.input.CursorEnd()
 	return p.input.Focus()
@@ -901,12 +697,8 @@ func (p *Audit) beginEdit(field string) tea.Cmd {
 // key, which left esc reaching the shell and unfocusing the panel mid-edit.
 func (p *Audit) editField(k tea.KeyMsg) tea.Cmd {
 	if k.Type == tea.KeyEnter || k.Type == tea.KeyEsc {
-		field := p.editing
 		p.editing = ""
 		p.input.Blur()
-		if field == "sess-search" {
-			return nil
-		}
 		return p.loadLogs()
 	}
 	var cmd tea.Cmd
@@ -924,10 +716,6 @@ func (p *Audit) editField(k tea.KeyMsg) tea.Cmd {
 	case "search":
 		if v != p.search {
 			p.search, p.page, p.sel = v, 0, 0
-		}
-	case "sess-search":
-		if v != p.sessSearch {
-			p.sessSearch, p.sessSel = v, 0
 		}
 	}
 	return cmd
@@ -1070,8 +858,6 @@ func (p *Audit) View(ctx PanelContext) string {
 		lines = p.viewHelp(ctx)
 	case p.view == "detail" && p.hasRows():
 		lines = p.viewEntry(ctx)
-	case p.view == "sessions":
-		lines = p.viewSessions(ctx)
 	default:
 		lines = p.viewLogs(ctx)
 	}
@@ -1272,97 +1058,12 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 			fg: theme.White, bg: lipgloss.Color(hexPanelBG)}))
 }
 
-func (p *Audit) viewSessions(ctx PanelContext) []string {
-	width := ctx.Cols
-	sessions := p.sessionsFiltered(ctx.Now.UnixMilli())
-	headerRows := 5 + boolInt(p.editing != "")
-	listRows := maxInt(4, ctx.Rows-headerRows)
-	sel := minInt(p.sessSel, maxInt(0, len(sessions)-1))
-	start := minInt(maxInt(0, sel-(listRows-1)/2), maxInt(0, len(sessions)-listRows))
-	end := minInt(start+listRows, len(sessions))
-
-	head := append([]seg{}, p.srcChip()...)
-	head = append(head, sgb("SESSIONS", theme.AccentBright), sg(" · logs (v) ", theme.Dim))
-	head = append(head, chip("status", orAll(auditSessState[p.si]), p.si != 0)...)
-	head = append(head, chip("search", orDot(p.sessSearch), p.sessSearch != "")...)
-
-	hint := "press → to browse"
-	if ctx.Focused {
-		hint = "↑↓ select · enter → session logs · v logs · ^R refresh · ? all keys"
-	}
-
-	var body []string
-	body = append(body, p.strip(width))
-	if b := p.copyBanner(width); b != "" {
-		body = append(body, b)
-	}
-	body = append(body, renderRow(width, head...), renderRow(width, sg(hint, theme.Dim)))
-	if p.editing == "sess-search" {
-		body = append(body, renderRow(width, sg("search: ", theme.Warn))+p.input.View())
-	}
-	counts := strconv.Itoa(len(sessions)) + " sessions · " + strconv.Itoa(sel+1) + "/" + strconv.Itoa(len(sessions))
-	if start > 0 {
-		counts += " · ▲" + strconv.Itoa(start)
-	}
-	if start+listRows < len(sessions) {
-		counts += " · ▼" + strconv.Itoa(len(sessions)-start-listRows)
-	}
-	body = append(body, renderRow(width, sg(counts, theme.Dim)))
-
-	columns := []Column{
-		{"", 2}, {"STATUS", 8}, {"AGENT", 18}, {"SESSION", 10},
-		{"CALLS", 6}, {"DENY", 5}, {"DLP", 4}, {"TRUST", 5}, {"LAST", 6},
-	}
-	rows := make([][]Cell, 0, end-start)
-	for i := start; i < end; i++ {
-		r := sessions[i]
-		st := statusStyleOf(r.status)
-		isSel := i == sel && ctx.Focused
-		cursor := ""
-		if isSel {
-			cursor = "▸"
-		}
-		trust := "—"
-		if r.trust != nil {
-			trust = num(*r.trust)
-		}
-		denyCell := Cell{Value: strconv.Itoa(r.denies), Dim: r.denies == 0}
-		if r.denies > 0 {
-			denyCell.Color = theme.Bad
-		}
-		dlpCell := Cell{Value: strconv.Itoa(r.dlp), Dim: r.dlp == 0}
-		if r.dlp > 0 {
-			dlpCell.Color = theme.Bad
-		}
-		rows = append(rows, []Cell{
-			{Value: cursor, Color: theme.AccentBright},
-			{Value: st.dot + " " + r.status, Color: st.color},
-			{Value: truncate(r.agent, 18), Color: theme.Accent, Bold: isSel},
-			{Value: firstN(r.id, 8), Dim: true},
-			{Value: strconv.Itoa(r.calls)},
-			denyCell,
-			dlpCell,
-			{Value: trust, Dim: true},
-			{Value: agoAt(r.lastAt, ctx.Now), Dim: true},
-		})
-	}
-	body = append(body, table(columns, rows, width)...)
-	if len(sessions) == 0 {
-		where := ""
-		if p.source == "local" {
-			where = " in the local file"
-		}
-		body = append(body, renderRow(width, sg("(no sessions"+where+")", theme.Dim)))
-	}
-	return dataView(p.sessLoading() && !p.frozen, p.sessError(), false, "", width, body)
-}
-
 func (p *Audit) viewLogs(ctx PanelContext) []string {
 	width := ctx.Cols
 	rows, total := p.pageRows()
 	pages := p.pages(total)
 
-	headerRows := 6 + boolInt(p.editing != "" && p.editing != "sess-search") +
+	headerRows := 6 + boolInt(p.editing != "") +
 		boolInt(p.note != nil) + boolInt(p.frozen)
 	listRows := maxInt(4, ctx.Rows-headerRows)
 	sel := minInt(p.sel, maxInt(0, len(rows)-1))
@@ -1376,9 +1077,6 @@ func (p *Audit) viewLogs(ctx PanelContext) []string {
 	head = append(head, chip("tool", orDot(p.tool), p.tool != "")...)
 	head = append(head, chip("agent", orDot(p.agent), p.agent != "")...)
 	head = append(head, chip("search", orDot(p.search), p.search != "")...)
-	if p.sessFilter != "" {
-		head = append(head, chip("sess", firstN(p.sessFilter, 8), true)...)
-	}
 
 	hint := "press → to browse"
 	if ctx.Focused {
@@ -1398,7 +1096,7 @@ func (p *Audit) viewLogs(ctx PanelContext) []string {
 		}
 		body = append(body, renderRow(width, sg(truncate(p.note.text, width), color)))
 	}
-	if p.editing != "" && p.editing != "sess-search" {
+	if p.editing != "" {
 		body = append(body, renderRow(width, sg(p.editing+": ", theme.Warn))+p.input.View())
 	}
 

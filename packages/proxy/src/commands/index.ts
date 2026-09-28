@@ -1,6 +1,6 @@
 /**
  * Scriptable CLI command router. Invoked from src/index.ts for the human
- * management subcommands (policy / ratelimit / dlp / stats / audit / agents).
+ * management subcommands (policy / ratelimit / dlp / stats / audit).
  *
  * Submodules are STATICALLY imported so tsup bundles this whole layer into one
  * dist chunk (dist/commands/index.js) - the only dynamic boundary is between
@@ -18,7 +18,6 @@ import * as ratelimit from './ratelimit.js';
 import * as dlp from './dlp.js';
 import * as stats from './stats.js';
 import * as audit from './audit.js';
-import * as agents from './agents.js';
 import * as doctor from './doctor.js';
 import * as trace from './trace.js';
 import * as watch from './watch.js';
@@ -37,10 +36,6 @@ async function dispatch(command: string, argv: string[]): Promise<number> {
       return stats.run(argv);
     case 'audit':
       return audit.run(argv);
-    case 'sessions':
-      return agents.runAgents(argv);
-    case 'session':
-      return agents.runAgent(argv);
     case 'doctor':
       return doctor.run(argv);
     case 'trace':
@@ -80,4 +75,4 @@ export async function runCommand(command: string, argv: string[]): Promise<numbe
 }
 
 /** The subcommand names this router owns (used by src/index.ts to route). */
-export const COMMAND_NAMES = ['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'sessions', 'session', 'doctor', 'watch', 'alerts', 'webhooks'] as const;
+export const COMMAND_NAMES = ['policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'watch', 'alerts', 'webhooks'] as const;

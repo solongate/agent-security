@@ -90,7 +90,7 @@ type Beat struct {
 func Beats() []Beat {
 	dir := filepath.Join(GlobalPaths().SGDir, BeatDirName)
 	out := []Beat{}
-	for _, hook := range []string{GuardHookName, auditHookName, conversationHookName, stopHookName} {
+	for _, hook := range []string{GuardHookName, auditHookName, tokensHookName, stopHookName} {
 		f := filepath.Join(dir, hook)
 		info, err := os.Stat(f)
 		if err != nil {

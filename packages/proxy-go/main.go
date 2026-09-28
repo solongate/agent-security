@@ -55,7 +55,7 @@ const exitNotPorted = 69
 var cliSubcommands = map[string]bool{
 	"repair": true, "logs-server": true, "local-logs": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
-	"sessions": true, "session": true, "doctor": true, "trace": true, "watch": true,
+	"doctor": true, "trace": true, "watch": true,
 	"alerts": true, "webhooks": true, "dataroom": true,
 }
 
@@ -272,8 +272,6 @@ func table() []command {
 		{"dlp", "show and edit secret detection", commands.Runner("dlp")},
 		{"stats", "traffic and security statistics", commands.Runner("stats")},
 		{"audit", "browse the audit log", commands.Runner("audit")},
-		{"sessions", "live agent-session feed", commands.Runner("sessions")},
-		{"session", "one session's detail", commands.Runner("session")},
 		{"doctor", "health check: login, policy, guard, local logs", commands.Runner("doctor")},
 		{"trace", "what the guard saw in this directory", commands.Runner("trace")},
 		{"watch", "live-tail tool calls", commands.Runner("watch")},

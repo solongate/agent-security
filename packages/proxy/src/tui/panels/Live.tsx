@@ -6,11 +6,9 @@
  * works; the user copies whatever they want. No auto-copy key.
  *
  * Keys (stream mode): ↑↓ select a row · w whitelist a DENY · b block an ALLOW ·
- *   d/x/r deny/dlp/ratelimit filter · f source LOC/CLD · / search · s sessions ·
- *   space copy-mode · esc menu · q quit. Security events (deny/dlp/burst) and
- *   session-idle transitions raise a banner + bell + notify-send.
- * Session picker: ↑↓ choose · enter open · s/← cancel
- * Session detail: summary + full timeline · ↑↓ scroll · ← back
+ *   d/x/r deny/dlp/ratelimit filter · f source LOC/CLD · / search ·
+ *   space copy-mode · esc menu · q quit. Security events (deny/dlp/burst)
+ *   raise a banner + bell + notify-send.
  *
  * TRAFFIC uses 10-second buckets over the last 10 minutes, anchored to
  * wall-clock slots — fast flow with activity, zero movement without.
@@ -23,12 +21,12 @@ import { join, resolve } from 'node:path';
 import { localLogsSetting, tailLines, type LocalLogSetting } from '../local-log.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api } from '../../api-client/index.js';
-import type { AuditEntry, LiveAgent, Stats } from '../../api-client/index.js';
+import type { AuditEntry, Stats } from '../../api-client/index.js';
 import { loadConfig } from '../config.js';
 import { desktopNotify } from '../notify.js';
 import { useLoader, usePoll, useTermSize } from '../hooks.js';
 import { PaneTitle, StreamLine, hhmmss } from '../components.js';
-import { ago, decisionColor, prettyJson, theme, truncate, wrapLines } from '../theme.js';
+import { decisionColor, prettyJson, theme, truncate, wrapLines } from '../theme.js';
 
 const CONFIG = loadConfig();
 
@@ -168,16 +166,7 @@ interface InsightsBits {
 
 type Filter = 'all' | 'local' | 'cloud';
 const FILTERS: Filter[] = ['all', 'local', 'cloud'];
-type Mode = 'stream' | 'pick' | 'detail' | 'inspect' | 'layers';
-type SessStatus = 'active' | 'idle' | 'ended';
-
-/** active <60s since last call · idle <5m · ended otherwise. */
-const sessStatus = (lastAt: number, now: number): SessStatus => (now - lastAt < 60_000 ? 'active' : now - lastAt < 300_000 ? 'idle' : 'ended');
-const STATUS_STYLE: Record<SessStatus, { dot: string; label: string; color: string }> = {
-  active: { dot: '●', label: 'ACTIVE', color: theme.ok },
-  idle: { dot: '◐', label: 'IDLE', color: theme.warn },
-  ended: { dot: '○', label: 'ENDED', color: theme.dim },
-};
+type Mode = 'stream' | 'inspect' | 'layers';
 
 /** Full key reference shown by `?` inside Live (any mode). */
 const LIVE_HELP: Array<[string, Array<[string, string]>]> = [
@@ -191,7 +180,6 @@ const LIVE_HELP: Array<[string, Array<[string, string]>]> = [
       ['d / x / r', 'filter: denies / dlp hits / rate-limit bursts'],
       ['f', 'source: all → LOC (this machine\'s local log) → CLD (cloud)'],
       ['/', 'live search (tool, agent, command…) · enter done'],
-      ['s', 'session picker'],
       ['l', 'layers detail (rate limit · dlp · guard)'],
       ['e', 'export visible rows → ~/.solongate/live-export.jsonl'],
       ['space', 'copy mode: freeze screen for mouse selection'],
@@ -207,31 +195,8 @@ const LIVE_HELP: Array<[string, Array<[string, string]>]> = [
       ['←', 'back to where you came from'],
     ],
   ],
-  [
-    'Sessions',
-    [
-      ['↑↓ + enter', 'pick & open a session (picker)'],
-      ['s or ←', 'cancel the picker'],
-      ['↑↓', 'select a timeline row (detail)'],
-      ['enter', 'full entry content of the selected row'],
-      ['/', 'search within the timeline'],
-      ['←', 'back to stream'],
-    ],
-  ],
   ['Anywhere', [['?', 'this help'], ['any key', 'close this help']]],
 ];
-
-interface SessRow {
-  source: 'local' | 'cloud';
-  id: string;
-  agent: string;
-  calls: number;
-  denies: number;
-  lastAt: number;
-  status: SessStatus;
-  trust?: number;
-  isMe: boolean;
-}
 
 export function LivePanel({ active }: { active: boolean; focused: boolean }): JSX.Element {
   const [s, setS] = useState<Stats | null>(null);
@@ -253,10 +218,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   const notifiedRef = useRef<Set<string>>(new Set()); // security events already alerted
   const openedAtRef = useRef(Date.now()); // panel-open time; only alert on calls AFTER it
   const [mode, setMode] = useState<Mode>('stream');
-  const [pickIdx, setPickIdx] = useState(0);
-  const [detail, setDetail] = useState<SessRow | null>(null);
-  const [detailCloud, setDetailCloud] = useState<StreamItem[]>([]);
-  const [detailScroll, setDetailScroll] = useState(0);
   // Entry inspector (enter on a stream/timeline row): the FULL log content.
   const [inspect, setInspect] = useState<StreamItem | null>(null);
   const [inspectScroll, setInspectScroll] = useState(0);
@@ -271,9 +232,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   // (rendered above the frame) freezes the top of the screen. Never reuse ids.
   const localSeq = useRef(0);
   const pausedUntil = useRef(0);
-  const sessRef = useRef<SessRow[]>([]); // latest sessions, read by the idle-notify effect
   const mergedRef = useRef<StreamItem[]>([]); // latest merged stream, read by the security-notify effect
-  const prevStatus = useRef<Map<string, SessStatus>>(new Map());
   const [alerts, setAlerts] = useState<Array<{ id: string; msg: string; level: 'warn' | 'bad'; until: number }>>([]);
   // COPY MODE (space): a REAL freeze — polls skip, in-flight responses are
   // dropped at resolve time, and the tick stops, so the screen is pixel-static
@@ -430,7 +389,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     }
   }, [onApiError]);
 
-  // Poll budget (~40 req/min): feed 3s, stats 8s, sessions 8s, insights 20s.
+  // Poll budget (~40 req/min): feed 3s, stats 8s, insights 20s.
   // The 24h timeseries poll was dropped entirely (TRAFFIC is buffer-derived),
   // which pays for the faster cadence without risking the API's rate limit.
   useEffect(() => {
@@ -445,37 +404,14 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     };
   }, [active, pollFeed, pollMedium]);
 
-  const sessions = useLoader(() => api.agents.live({ limit: 30, includeDeactivated: true }));
   const insights = useLoader(() => api.stats.securityInsights(7));
   const guard = useLoader(() => api.settings.getGuardStatus());
-  usePoll(() => {
-    if (!paused()) sessions.reloadQuiet();
-  }, 8000, active);
   usePoll(() => {
     if (!paused()) insights.reloadQuiet();
   }, 20_000, active);
   usePoll(() => {
     if (!paused()) guard.reloadQuiet();
   }, 60_000, active);
-
-  // Fetch a picked session's full cloud history once when the detail opens.
-  useEffect(() => {
-    if (!detail) return;
-    setDetailCloud([]);
-    setDetailScroll(0);
-    let alive = true;
-    api.audit
-      .list({ session_id: detail.id, limit: 100 })
-      .then((r) => {
-        if (alive) setDetailCloud(r.entries.map(cloudItem));
-      })
-      .catch(() => {
-        /* local-only session — buffer covers it */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [detail]);
 
   // ── animation tick (2fps; fully halted in copy mode) ─────────────────────
   const [tick, setTick] = useState(0);
@@ -538,21 +474,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     },
     [pushLog, flushToasts],
   );
-
-  // ── per-session idle notifications ────────────────────────────────────────
-  useEffect(() => {
-    if (!active) return;
-    for (const r of sessRef.current) {
-      const prev = prevStatus.current.get(r.id);
-      if (prev && prev === 'active' && r.status === 'idle') {
-        const name = r.isMe ? `${r.agent} (this machine)` : r.agent;
-        // Banner-only: an idle transition is routine, not a security event —
-        // bell + desktop toasts here read as false "DLP/rate-limit" alarms.
-        fireAlert('idle:' + r.id, 'Agent idle', `${name} went IDLE, no tool call for 60s`, 'warn', false);
-      }
-      prevStatus.current.set(r.id, r.status);
-    }
-  }, [tick, active, fireAlert]);
 
   // ── security-event notifications (DENY / DLP / rate-limit burst) ───────────
   // Fire once per notable call that happens AFTER the panel opened. Gating on the
@@ -630,38 +551,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   const latHotAt = Math.max(2000, latMed * 2.5);
   const backingOff = Date.now() < pausedUntil.current;
 
-  const sess = (sessions.data?.agents ?? []).slice().sort((a, b) => Date.parse(b.last_seen_at) - Date.parse(a.last_seen_at));
-  const sessCounts = sessions.data?.counts;
-  const localSess = new Map<string, { agent: string; calls: number; denies: number; lastAt: number }>();
-  for (const e of localBuf) {
-    if (!e.session) continue;
-    const cur = localSess.get(e.session) ?? { agent: e.agent ?? 'local agent', calls: 0, denies: 0, lastAt: 0 };
-    cur.calls++;
-    if (e.decision !== 'ALLOW') cur.denies++;
-    cur.lastAt = Math.max(cur.lastAt, e.at);
-    if (e.agent) cur.agent = e.agent;
-    localSess.set(e.session, cur);
-  }
-  const combinedSess: SessRow[] = [
-    ...[...localSess.entries()]
-      .sort((a, b) => b[1].lastAt - a[1].lastAt)
-      .map(([id, v]) => ({ source: 'local' as const, id, agent: v.agent, calls: v.calls, denies: v.denies, lastAt: v.lastAt, status: sessStatus(v.lastAt, nowMs), isMe: ring?.session === id })),
-    ...sess
-      .filter((a) => !localSess.has(a.session_id))
-      .map((a) => ({
-        source: 'cloud' as const,
-        id: a.session_id,
-        agent: a.agent_name ?? a.session_id,
-        calls: a.total_calls,
-        denies: a.denied_calls,
-        lastAt: Date.parse(a.last_seen_at),
-        status: sessStatus(Date.parse(a.last_seen_at), nowMs),
-        trust: a.trust_score,
-        isMe: false,
-      })),
-  ];
-  sessRef.current = combinedSess; // feed the idle-notify effect
-
   // LOC means the record is on THIS MACHINE'S DISK. Nothing else.
   //
   // It used to mean "happened here", inferred from the session id in the eval
@@ -698,8 +587,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   const innerW = cols - 2;
   const leftW = Math.floor(innerW * 0.55);
   const rightW = innerW - leftW - 2;
-  const colW = Math.max(20, Math.floor((innerW - 4) / 3));
-  const pickable = combinedSess.slice(0, colH - 1);
+  const colW = Math.max(20, Math.floor((innerW - 2) / 2));
 
   // Reserve the first line for the persistent search bar so it's never clipped.
   const streamBodyRows = Math.max(3, streamRows - 1);
@@ -710,21 +598,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   const clampedScroll = Math.min(Math.max(0, selClamped - Math.floor((streamBodyRows - 1) / 2)), maxScroll);
   const windowed = visibleDesc.slice(clampedScroll, clampedScroll + streamBodyRows);
   const selEntry = visibleDesc[selClamped];
-
-  // Session-detail entries: cloud fetch + everything in the merged buffer.
-  const detailEntries = detail
-    ? (() => {
-        const seen = new Set<string>();
-        const all: StreamItem[] = [];
-        for (const e of [...detailCloud, ...mergedAll.filter((x) => x.session === detail.id)]) {
-          const key = `${e.at}:${e.tool}:${e.decision}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          if (matches(e)) all.push(e);
-        }
-        return all.sort((a, b) => b.at - a.at); // newest first
-      })()
-    : [];
 
   // ── whitelist / block the selected stream row ─────────────────────────────
   // Cloud entries use the audit endpoints (agent→policy resolution); local
@@ -784,8 +657,8 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
         setShowHelp(true);
         return;
       }
-      // `/` opens live search in the stream and in a session detail.
-      if (input === '/' && mode !== 'pick') {
+      // `/` opens live search in the stream.
+      if (input === '/') {
         setEditingSearch(true);
         return;
       }
@@ -807,39 +680,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
         else if (key.pageDown) setLayersScroll((n) => n + 10);
         return;
       }
-      if (mode === 'detail') {
-        // ↑↓ move a SELECTION over the timeline (window follows); enter inspects.
-        const maxD = Math.max(0, detailEntries.length - 1);
-        if (key.leftArrow) {
-          setMode('stream');
-          setDetail(null);
-        } else if (key.upArrow) setDetailScroll((n) => Math.max(0, n - 1));
-        else if (key.downArrow) setDetailScroll((n) => Math.min(maxD, n + 1));
-        else if (key.pageUp) setDetailScroll((n) => Math.max(0, n - 10));
-        else if (key.pageDown) setDetailScroll((n) => Math.min(maxD, n + 10));
-        else if (key.return) {
-          const e = detailEntries[Math.min(detailScroll, maxD)];
-          if (e) {
-            inspectFromRef.current = 'detail';
-            setInspect(e);
-            setInspectScroll(0);
-            setMode('inspect');
-          }
-        }
-        return;
-      }
-      if (mode === 'pick') {
-        if (key.upArrow) setPickIdx((n) => Math.max(0, n - 1));
-        else if (key.downArrow) setPickIdx((n) => Math.min(pickable.length - 1, n + 1));
-        else if (key.return) {
-          const row = pickable[pickIdx];
-          if (row) {
-            setDetail(row);
-            setMode('detail');
-          }
-        } else if (input === 's' || key.leftArrow) setMode('stream');
-        return;
-      }
       // stream mode
       const toggleSignal = (s: 'deny' | 'dlp' | 'ratelimit') => {
         setSignal((cur) => (cur === s ? 'none' : s));
@@ -855,9 +695,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
           setInspectScroll(0);
           setMode('inspect');
         }
-      } else if (input === 's') {
-        setPickIdx(0);
-        setMode('pick');
+      } else if (false) {
       } else if (input === 'l') {
         setLayersScroll(0);
         setMode('layers');
@@ -904,7 +742,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
               }
               setSearch(v);
               setSel(0);
-              setDetailScroll(0);
             }}
             onSubmit={() => setEditingSearch(false)}
           />
@@ -922,10 +759,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
       )}
     </Text>
   );
-
-  const sessionDot = (st: LiveAgent['status']): { ch: string; color: string } =>
-    st === 'active' ? { ch: '●', color: theme.ok } : st === 'idle' ? { ch: '◌', color: theme.warn } : { ch: '○', color: theme.dim };
-  void sessionDot;
 
   if (s === null && localOn === null) {
     return <Text color={theme.dim}>{spin} connecting…</Text>;
@@ -1159,99 +992,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     );
   }
 
-  // ── SESSION DETAIL VIEW (dashboard-style) ─────────────────────────────────
-  if (mode === 'detail' && detail) {
-    const d = detailEntries;
-    const allow = d.filter((e) => e.decision === 'ALLOW').length;
-    const deny = d.length - allow;
-    const dlpN = d.filter((e) => e.dlp).length;
-    const evals = d.filter((e) => e.evalMs != null).map((e) => e.evalMs!);
-    const evalAvg = evals.length ? Math.round(evals.reduce((a, b) => a + b, 0) / evals.length) : null;
-    const tCounts = new Map<string, number>();
-    const pCounts = new Map<string, number>();
-    for (const e of d) {
-      tCounts.set(e.tool, (tCounts.get(e.tool) ?? 0) + 1);
-      if (e.permission) pCounts.set(e.permission, (pCounts.get(e.permission) ?? 0) + 1);
-    }
-    const top = [...tCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-    const perms = [...pCounts.entries()].sort((a, b) => b[1] - a[1]);
-    const first = d[d.length - 1]?.at;
-    const last = d[0]?.at;
-    const tlRows = Math.max(4, rows - 10);
-    const tlBody = Math.max(3, tlRows - 1); // reserve a line for the search bar
-    const dSel = Math.min(detailScroll, Math.max(0, d.length - 1));
-    const maxStart = Math.max(0, d.length - tlBody);
-    const start = Math.min(Math.max(0, dSel - Math.floor((tlBody - 1) / 2)), maxStart);
-    const tl = d.slice(start, start + tlBody);
-    return (
-      <Box flexDirection="column" paddingX={1}>
-        {titleBar}
-        <Text wrap="truncate">
-          <Text backgroundColor={BG} color="white" bold>
-            {` SESSION ${detail.id.slice(0, 8)} `}
-          </Text>
-          {(() => {
-            const st = STATUS_STYLE[sessStatus(detail.lastAt, nowMs)];
-            return (
-              <Text color={st.color} bold>
-                {`  ${st.dot} ${st.label}`}
-              </Text>
-            );
-          })()}
-          <Text color={detail.source === 'local' ? theme.ok : 'white'}>{'  ' + detail.source.toUpperCase()}</Text>
-          <Text bold>{'  ' + truncate(detail.isMe ? detail.agent + ' (this machine)' : detail.agent, 34)}</Text>
-          {detail.trust != null ? <Text color={theme.dim}>{`  trust ${detail.trust}/100`}</Text> : null}
-          <Text color={theme.dim}>{'  ← back'}</Text>
-        </Text>
-        <Text wrap="truncate">
-          <Text color={theme.dim}>│ calls </Text>
-          <Text bold>{d.length}</Text>
-          <Text color={theme.dim}> │ allow </Text>
-          <Text color={theme.ok}>{allow}</Text>
-          <Text color={theme.dim}> │ deny </Text>
-          <Text color={deny ? theme.bad : theme.dim} bold={deny > 0}>
-            {deny}
-          </Text>
-          <Text color={theme.dim}> │ dlp </Text>
-          <Text color={dlpN ? theme.bad : theme.dim}>{dlpN}</Text>
-          <Text color={theme.dim}> │ avg eval </Text>
-          <Text>{evalAvg != null ? `${evalAvg}ms` : '—'}</Text>
-          <Text color={theme.dim}> │ first </Text>
-          <Text color={theme.dim}>{first ? `${hhmmss(first)} (${ago(first)} ago)` : '—'}</Text>
-          <Text color={theme.dim}> │ last </Text>
-          <Text color={theme.dim}>{last ? `${hhmmss(last)} (${ago(last)} ago)` : '—'}</Text>
-          <Text color={theme.dim}> │</Text>
-        </Text>
-        <Text wrap="truncate">
-          <Text color={theme.dim}>│ tools </Text>
-          <Text color={theme.accent}>{top.map(([t, c]) => `${t}×${c}`).join('  ') || '—'}</Text>
-          <Text color={theme.dim}> │ perms </Text>
-          <Text color={theme.dim}>{perms.map(([p, c]) => `${p}×${c}`).join(' ') || '—'}</Text>
-          <Text color={theme.dim}> │</Text>
-        </Text>
-        <PaneTitle label="TIMELINE" extra={`${dSel + 1}/${d.length} · newest first · ↑↓ select · enter full entry · / search · ← back`} width={innerW} />
-        <Box flexDirection="column" height={tlRows} overflow="hidden">
-          {searchRow}
-          {tl.length === 0 ? <Text color={theme.dim}>{detailCloud.length === 0 ? spin + ' loading history…' : 'no entries'}</Text> : null}
-          {tl.map((e, i) => (
-            <StreamLine key={e.id} e={e} loc={isLoc(e)} selected={start + i === dSel} />
-          ))}
-        </Box>
-        <Text wrap="truncate">
-          <Text backgroundColor={BG} color="white" bold>
-            {' SESSION '}
-          </Text>
-          <Text backgroundColor="#0b1530" color="white">
-            {` ${detail.id} `}
-          </Text>
-          <Text backgroundColor={BG} color="white">
-            {' ↑↓ select · enter full entry · ? all keys · ← back · esc menu '}
-          </Text>
-        </Text>
-      </Box>
-    );
-  }
-
   // ── MAIN GRID ─────────────────────────────────────────────────────────────
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -1272,8 +1012,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
         <Text color={rl?.mode === 'block' ? theme.ok : rl?.mode === 'detect' ? theme.warn : theme.dim}>{rl?.mode ?? '?'}</Text>
         <Text color={theme.dim}> │ dlp </Text>
         <Text color={dl?.mode === 'block' ? theme.ok : dl?.mode === 'detect' ? theme.warn : theme.dim}>{dl?.mode ?? '?'}</Text>
-        <Text color={theme.dim}> │ sess </Text>
-        <Text color={theme.accent}>{`${combinedSess.length} (${sessCounts?.active ?? 0} live)`}</Text>
         <Text color={theme.dim}> │ hooks </Text>
         <Text color={guard.data?.up_to_date ? theme.ok : theme.warn}>
           {guard.data ? `v${guard.data.installed ?? '?'}${guard.data.up_to_date ? '' : '→v' + guard.data.latest} ${guard.data.device_count}dev` : '·'}
@@ -1348,27 +1086,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
               <Text color={theme.dim}>no local ring in cwd</Text>
             )}
           </Text>
-        </Box>
-        <Box flexDirection="column" width={colW} height={colH} marginRight={2} overflow="hidden">
-          <PaneTitle label="SESSIONS" extra={mode === 'pick' ? '↑↓ pick · enter open' : `${combinedSess.length} · s = inspect`} width={colW} />
-          {pickable.length === 0 ? <Text color={theme.dim}>scanning…</Text> : null}
-          {pickable.map((r, i) => {
-            const sel = mode === 'pick' && i === pickIdx;
-            const st = STATUS_STYLE[r.status];
-            return (
-              <Text key={r.id} wrap="truncate" backgroundColor={sel ? '#1c2f63' : undefined} bold={sel || r.isMe}>
-                <Text color={sel ? theme.accentBright : st.color}>{sel ? '▸' : st.dot} </Text>
-                <Text color={st.color}>{st.label.padEnd(7)}</Text>
-                {/* ALWAYS the agent's real name — "this machine" hid it; the
-                    local session gets a dim `me` tag instead (and stays bold). */}
-                <Text color={theme.accentBright}>{truncate(r.agent, r.isMe ? 9 : 12).padEnd(r.isMe ? 10 : 13)}</Text>
-                {r.isMe ? <Text color={theme.ok}>{'me '}</Text> : null}
-                <Text>{String(r.calls).padStart(4)}c </Text>
-                <Text color={r.denies ? theme.bad : theme.dim}>{String(r.denies).padStart(3)}d </Text>
-                <Text color={theme.dim}>{(r.trust != null ? `t${r.trust} ` : '') + ago(r.lastAt)}</Text>
-              </Text>
-            );
-          })}
         </Box>
         <Box flexDirection="column" width={colW} height={colH} overflow="hidden">
           <PaneTitle label="EVENT LOG" extra="system heartbeat" width={colW} />

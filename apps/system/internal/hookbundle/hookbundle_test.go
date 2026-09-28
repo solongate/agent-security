@@ -35,11 +35,11 @@ var hookChecks = map[string]struct {
 	"guard":  {"SolonGate Cloud Policy Guard", 50000},
 	"audit":  {"SolonGate Audit Hook", 1500},
 	"shield": {"SolonGate Shield", 1500},
+	"tokens": {"SolonGate Token Hook", 5000},
 	// The one that carries the token reader. Its marker is its own heading,
 	// and the length floor is well under the file so a legitimate trim does not
 	// fail the build — the point of the floor is to catch an error page served
 	// in place of a hook, not to pin a byte count.
-	"conversation": {"SolonGate Conversation Hook", 5000},
 }
 
 const hookShebang = "#!/usr/bin/env node"

@@ -35,12 +35,12 @@ var hooks = []struct{ name, file string }{
 	{"guard", "guard.bundled.mjs"},
 	{"audit", "audit.mjs"},
 	{"shield", "shield.mjs"},
-	// The conversation hook is served for the same reason as the other three,
-	// and it was added late. It is the file that reads what a turn COST, and
-	// until it was here the only way a machine got that reader was a full
-	// reinstall — so a fleet that had simply updated reported no spend at all,
-	// which is indistinguishable from a fleet that spends nothing.
-	{"conversation", "conversation.mjs"},
+	// The token reader is served for the same reason as the other three. It is
+	// the surviving half of what used to be the conversation hook: until it was
+	// here the only way a machine got an updated reader was a full reinstall, so
+	// a fleet that had simply updated reported no spend at all — which is
+	// indistinguishable from a fleet that spends nothing.
+	{"tokens", "tokens.mjs"},
 }
 
 // hookVersionRe is the expression the hook, the CLI and embed-hook.mjs all use.

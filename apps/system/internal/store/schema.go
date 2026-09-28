@@ -45,42 +45,6 @@ var migrations = []string{
 	// one above — agent_name is the only other column it reads, so with it in
 	// the index the group-by never touches a row.
 	`CREATE INDEX IF NOT EXISTS audit_logs_project_created_agent_idx ON audit_logs (project_id, created_at, agent_name)`,
-	// conversation_turns: what a person said to their agent and what it said
-	// back, one row per turn.
-	//
-	// It is NOT a column on audit_logs and the reason is size. That row is a
-	// ledger entry capped at sixteen kilobytes of arguments; a turn is prose,
-	// and GET /audit-logs already allows limit=10000, so a large text column on
-	// that table would push existing reads into libSQL's RESPONSE_TOO_LARGE.
-	// Two tables, joined by session_id, which is the same id the agent's own
-	// transcript file is named after.
-	//
-	// Storing this at all is a decision and not a detail. The guard's other
-	// tables record what a machine DID; this records what a person WROTE. It
-	// it is written only for machines that are in one — the handler refuses a
-	// turn from an account with no accepted grant. Nobody's private
-	// conversation is collected because they happen to have installed this.
-	//
-	// prompt and reply are separate rows rather than one blob so that a
-	// retention sweep, an export, or a redaction can address either half.
-	`CREATE TABLE IF NOT EXISTS conversation_turns (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      api_key_id TEXT,
-      user_id TEXT,
-      session_id TEXT NOT NULL,
-      agent_id TEXT,
-      agent_name TEXT,
-      source TEXT,
-      role TEXT NOT NULL,
-      body TEXT NOT NULL,
-      redacted INTEGER NOT NULL DEFAULT 0,
-      truncated INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    )`,
-	// index is that query and nothing else.
-	`CREATE INDEX IF NOT EXISTS conversation_turns_project_user_created_idx ON conversation_turns (project_id, user_id, created_at)`,
-	`CREATE INDEX IF NOT EXISTS conversation_turns_session_idx ON conversation_turns (session_id)`,
 
 	// token_usage: what a turn cost, one row per turn.
 	//
@@ -89,12 +53,8 @@ var migrations = []string{
 	// CALL, and a turn makes several. Writing a turn's tokens onto its calls
 	// multiplies them by however many tools the model happened to reach for.
 	//
-	// NOT a column on conversation_turns either, though the grain matches
-	// the conversation record is on; what a turn cost is a different question
-	// from what was said in it, and a host who has switched transcripts off
-	// should still be able to see spend.
-	//
-	// unchanged — the same WHERE that scopes calls to one person or to the host
+	// It is scoped the same way audit_logs is — by project, and by api_key_id
+	// and user_id within it — so the same WHERE that scopes a person's calls
 	// scopes their tokens, and the two numbers cannot end up describing
 	// different sets of people.
 	//
@@ -134,60 +94,6 @@ var migrations = []string{
 	// The id is derived from (project, span, period end) and rows are inserted
 	// with OR IGNORE, so two instances ticking at the same second cannot file
 	// the same report twice.
-	// One read: a project's shelf, newest first.
-	`CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      agent_id TEXT,
-      agent_name TEXT,
-      api_key_id TEXT,
-      started_at INTEGER NOT NULL,
-      last_seen_at INTEGER NOT NULL,
-      total_calls INTEGER NOT NULL DEFAULT 0,
-      allowed_calls INTEGER NOT NULL DEFAULT 0,
-      denied_calls INTEGER NOT NULL DEFAULT 0,
-      dlp_events INTEGER NOT NULL DEFAULT 0,
-      rate_limit_events INTEGER NOT NULL DEFAULT 0,
-      pi_detections INTEGER NOT NULL DEFAULT 0,
-      read_calls INTEGER NOT NULL DEFAULT 0,
-      write_calls INTEGER NOT NULL DEFAULT 0,
-      execute_calls INTEGER NOT NULL DEFAULT 0,
-      network_calls INTEGER NOT NULL DEFAULT 0
-    )`,
-	`CREATE INDEX IF NOT EXISTS sessions_project_id_last_seen_idx ON sessions (project_id, last_seen_at)`,
-	`CREATE INDEX IF NOT EXISTS sessions_project_agent_idx ON sessions (project_id, agent_id)`,
-	`CREATE TABLE IF NOT EXISTS agent_baselines (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL,
-      tool_distribution TEXT DEFAULT '{}',
-      permission_mix TEXT DEFAULT '{}',
-      known_paths TEXT DEFAULT '[]',
-      known_domains TEXT DEFAULT '[]',
-      known_tools TEXT DEFAULT '[]',
-      avg_calls_per_hour REAL DEFAULT 0,
-      deny_rate REAL DEFAULT 0,
-      sample_size INTEGER NOT NULL DEFAULT 0,
-      character TEXT,
-      trust_score REAL DEFAULT 50,
-      computed_at INTEGER NOT NULL
-    )`,
-	`CREATE INDEX IF NOT EXISTS agent_baselines_project_agent_idx ON agent_baselines (project_id, agent_id)`,
-	`CREATE TABLE IF NOT EXISTS anomaly_events (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL,
-      session_id TEXT,
-      audit_log_id TEXT,
-      kind TEXT NOT NULL,
-      severity TEXT NOT NULL DEFAULT 'low',
-      score REAL DEFAULT 0,
-      description TEXT,
-      detail TEXT,
-      created_at INTEGER NOT NULL
-    )`,
-	`CREATE INDEX IF NOT EXISTS anomaly_events_project_created_idx ON anomaly_events (project_id, created_at)`,
-	`CREATE INDEX IF NOT EXISTS anomaly_events_project_agent_idx ON anomaly_events (project_id, agent_id)`,
 
 	// A host's request to a developer, and the developer's answer.
 	//

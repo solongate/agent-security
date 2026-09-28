@@ -111,14 +111,6 @@ type route struct {
 var routes = []route{
 	{path: "/api/health", methods: []string{"GET"}, source: "src/app/api/health/route.ts", auth: authIP, limit: limHealth, done: true},
 
-	{path: "/api/v1/agents/{id}/anomalies", methods: []string{"GET"}, source: "src/app/api/v1/agents/[id]/anomalies/route.ts", auth: authKey},
-	{path: "/api/v1/agents/{id}", methods: []string{"GET"}, source: "src/app/api/v1/agents/[id]/route.ts", auth: authKey},
-	{path: "/api/v1/agents/live", methods: []string{"GET"}, source: "src/app/api/v1/agents/live/route.ts", auth: authKey},
-
-	// The conversation record. Written here rather than ported, so there is no
-	// source file to name.
-	{path: "/api/v1/conversations", methods: []string{"GET", "POST"}, auth: authKey, done: true},
-
 	{path: "/api/v1/audit-logs/{id}/block", methods: []string{"POST"}, source: "src/app/api/v1/audit-logs/[id]/block/route.ts", auth: authKey},
 	{path: "/api/v1/audit-logs/{id}/whitelist", methods: []string{"POST"}, source: "src/app/api/v1/audit-logs/[id]/whitelist/route.ts", auth: authKey},
 	// No DELETE. The live route had one; this service deliberately does not, so
@@ -140,12 +132,11 @@ var routes = []route{
 	{path: "/api/v1/github/token", methods: []string{"POST"}, source: "src/app/api/v1/github/token/route.ts", auth: authKey},
 
 	{path: "/api/v1/hooks/audit", methods: []string{"GET"}, source: "src/app/api/v1/hooks/audit/route.ts", auth: authKey},
-	// No TypeScript original: the conversation hook became self-updating here,
-	// so that a machine could get the reader that measures what a turn costs
-	// without a reinstall.
-	{path: "/api/v1/hooks/conversation", methods: []string{"GET"}, auth: authKey, done: true},
 	{path: "/api/v1/hooks/guard", methods: []string{"GET"}, source: "src/app/api/v1/hooks/guard/route.ts", auth: authKey},
 	{path: "/api/v1/hooks/shield", methods: []string{"GET"}, source: "src/app/api/v1/hooks/shield/route.ts", auth: authKey},
+	// No TypeScript original: the token reader became self-updating here, so a
+	// machine could get a newer one without a reinstall.
+	{path: "/api/v1/hooks/tokens", methods: []string{"GET"}, auth: authKey, done: true},
 
 	{path: "/api/v1/keys/{id}", methods: []string{"PATCH", "DELETE"}, source: "src/app/api/v1/keys/[id]/route.ts", auth: authKey},
 	{path: "/api/v1/keys", methods: []string{"GET", "POST"}, source: "src/app/api/v1/keys/route.ts", auth: authKey},
@@ -177,9 +168,6 @@ var routes = []route{
 	{path: "/api/v1/projects/{id}", methods: []string{"GET", "PUT", "DELETE"}, source: "src/app/api/v1/projects/[id]/route.ts", auth: authKey},
 	{path: "/api/v1/projects", methods: []string{"GET"}, source: "src/app/api/v1/projects/route.ts", auth: authKey},
 
-	{path: "/api/v1/sessions/{id}", methods: []string{"GET"}, source: "src/app/api/v1/sessions/[id]/route.ts", auth: authKey},
-	{path: "/api/v1/sessions", methods: []string{"GET", "DELETE"}, source: "src/app/api/v1/sessions/route.ts", auth: authKey},
-
 	{path: "/api/v1/settings/denial-alerts", methods: []string{"GET", "POST", "PATCH", "DELETE"}, source: "src/app/api/v1/settings/denial-alerts/route.ts", auth: authKey},
 	{path: "/api/v1/settings/denial-webhook/send-test", methods: []string{"POST"}, source: "src/app/api/v1/settings/denial-webhook/send-test/route.ts", auth: authKey},
 	{path: "/api/v1/settings/denial-webhook", methods: []string{"GET", "POST", "PATCH", "DELETE"}, source: "src/app/api/v1/settings/denial-webhook/route.ts", auth: authKey},
@@ -202,6 +190,10 @@ var routes = []route{
 	{path: "/api/v1/tokens/verify", methods: []string{"POST"}, source: "src/app/api/v1/tokens/verify/route.ts", auth: authKey},
 	{path: "/api/v1/tokens", methods: []string{"POST"}, source: "src/app/api/v1/tokens/route.ts", auth: authKey},
 
+	// What a turn cost, reported by a hook. No TypeScript original: this
+	// service is where token accounting was added.
+	{path: "/api/v1/token-usage", methods: []string{"POST"}, auth: authKey, done: true},
+
 	{path: "/api/v1/tools/{name}", methods: []string{"GET", "PUT", "DELETE"}, source: "src/app/api/v1/tools/[name]/route.ts", auth: authKey},
 	{path: "/api/v1/tools", methods: []string{"GET", "POST"}, source: "src/app/api/v1/tools/route.ts", auth: authKey},
 
@@ -216,7 +208,7 @@ var routes = []route{
 // a row disappearing, and a row is a row whoever wrote it; splitting the count
 // into "ported" and "ours" would make the assertion weaker in exchange for a
 // distinction the source column already draws.
-const routeCount = 62
+const routeCount = 57
 
 // routeHandlers is how a finished route slice replaces a stub.
 //

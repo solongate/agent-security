@@ -2,17 +2,13 @@
  * Audit panel — the Live console's tool stream, over the FULL history. Rows use
  * the SAME StreamLine renderer as Live ([HH:MM:SS LOC|CLD] DECISION tool perm
  * eval agent dlp: rl: {args}) and enter opens the SAME entry inspector; the only
- * thing Audit adds over Live is that it shows every log, not just the live buffer.
- * Two sub-views over ONE source toggle:
+ * thing Audit adds over Live is that it shows every log, not just the live
+ * buffer: every call, newest first, 500 per page (←→ to page, selection jumps
+ * to top on page change). Filters: f decision · g signal · t tool · n agent ·
+ * / search · c clear. enter = full entry.
  *
- *   logs     : every call, newest first, 500 per page (←→ to page, selection
- *              jumps to top on page change). Filters: f decision · g signal ·
- *              t tool · n agent · / search · c clear. enter = full entry.
- *   sessions : every session with its own independent filters
- *              (f status · / search). enter = that session's logs.
- *
- *   s toggles the source everywhere: cloud (API) ↔ local (the JSONL file the
- *   hooks write on this machine). v toggles logs ↔ sessions.
+ *   s toggles the source: cloud (API) ↔ local (the JSONL file the hooks write
+ *   on this machine).
  *
  * The strip on top shows totals (cloud API, or computed from the local file).
  */
@@ -24,15 +20,14 @@ import { join } from 'node:path';
 import { useState } from 'react';
 import { api } from '../../api-client/index.js';
 import type { AuditQuery } from '../../api-client/audit.js';
-import type { AuditEntry, LiveAgent } from '../../api-client/index.js';
-import { DataView, PaneTitle, StreamLine, Table, type StreamRow } from '../components.js';
+import type { AuditEntry } from '../../api-client/index.js';
+import { DataView, PaneTitle, StreamLine, type StreamRow } from '../components.js';
 import { useLoader, usePanelSize, usePoll } from '../hooks.js';
 import { localLogFile, parseLocalLines, reasonSignals, tailLines } from '../local-log.js';
-import { ago, decisionColor, prettyJson, theme, truncate, wrapLines } from '../theme.js';
+import { decisionColor, prettyJson, theme, truncate, wrapLines } from '../theme.js';
 
 const DECISIONS: Array<AuditQuery['filter']> = [undefined, 'DENY', 'ALLOW'];
 const SIGNALS: Array<AuditQuery['signal'] | undefined> = [undefined, 'dlp', 'ratelimit'];
-const SESS_STATUS = [undefined, 'active', 'idle', 'ended'] as const;
 const PAGE = 500;
 const LOCAL_MAX_BYTES = 16 * 1024 * 1024; // read up to 16MB of local history
 const BG = '#12234f'; // ENTRY chrome — matches the Live inspector
@@ -52,7 +47,7 @@ const toStream = (e: LogRow): StreamRow => ({
 });
 
 type Source = 'cloud' | 'local';
-type View = 'logs' | 'sessions' | 'detail';
+type View = 'logs' | 'detail';
 
 /** One log row, unified across cloud entries and local JSONL lines. */
 interface LogRow {
@@ -70,17 +65,6 @@ interface LogRow {
   dlp: string[];
   burst: boolean;
   args: string | null; // raw JSON string of the arguments
-}
-
-interface SessRow {
-  id: string;
-  agent: string;
-  status: 'active' | 'idle' | 'ended';
-  calls: number;
-  denies: number;
-  dlp: number;
-  trust: number | null;
-  lastAt: number;
 }
 
 const cloudRow = (e: AuditEntry): LogRow => {
@@ -146,23 +130,12 @@ const AUDIT_HELP: Array<[string, Array<[string, string]>]> = [
       ['/', 'free-text search'],
       ['e', 'export this page → ~/.solongate/audit-export-<src>.jsonl'],
       ['E', 'export ALL matched rows (cloud: up to 10k)'],
-      ['c', 'clear every filter (incl. session)'],
-    ],
-  ],
-  [
-    'Sessions',
-    [
-      ['↑↓', 'select a session'],
-      ['enter', "open that session's logs"],
-      ['f', 'status filter: all → active → idle → ended'],
-      ['/', 'search agent / session id'],
-      ['c', 'clear session filters'],
+      ['c', 'clear every filter'],
     ],
   ],
   [
     'Anywhere in Audit',
     [
-      ['v', 'switch logs ↔ sessions'],
       ['s', 'switch source cloud ↔ local file'],
       ['space', 'copy mode: freeze screen for mouse selection'],
       ['?', 'this help · any key closes'],
@@ -172,36 +145,22 @@ const AUDIT_HELP: Array<[string, Array<[string, string]>]> = [
   ['Entry (full content)', [['↑↓ / PgUp PgDn', 'scroll the reason + arguments'], ['space', 'copy mode (freeze, then select)'], ['← / esc', 'back to the list']]],
 ];
 
-const sessStatus = (lastAt: number): SessRow['status'] =>
-  Date.now() - lastAt < 60_000 ? 'active' : Date.now() - lastAt < 300_000 ? 'idle' : 'ended';
-
-const STATUS_DOT: Record<SessRow['status'], { ch: string; color: string }> = {
-  active: { ch: '●', color: theme.ok },
-  idle: { ch: '◐', color: theme.warn },
-  ended: { ch: '○', color: theme.dim },
-};
 
 export function AuditPanel({ active, focused }: { active: boolean; focused: boolean }): JSX.Element {
   const { cols, rows } = usePanelSize();
   const [source, setSource] = useState<Source>('cloud');
   const [view, setView] = useState<View>('logs');
 
-  // ── logs filters (independent from sessions') ──────────────────────────
+  // ── logs filters ───────────────────────────────────────────────────────
   const [di, setDi] = useState(0); // decision: all
   const [gi, setGi] = useState(0); // signal: all
   const [tool, setTool] = useState('');
   const [agent, setAgent] = useState('');
   const [search, setSearch] = useState('');
-  const [sessFilter, setSessFilter] = useState(''); // set by enter on a session
   const [page, setPage] = useState(0);
   const [sel, setSel] = useState(0);
   const [detailScroll, setDetailScroll] = useState(0);
-  const [editing, setEditing] = useState<null | 'tool' | 'agent' | 'search' | 'sess-search'>(null);
-
-  // ── sessions filters (independent from logs') ──────────────────────────
-  const [si, setSi] = useState(0); // status: all
-  const [sessSearch, setSessSearch] = useState('');
-  const [sessSel, setSessSel] = useState(0);
+  const [editing, setEditing] = useState<null | 'tool' | 'agent' | 'search'>(null);
 
   // There are no delete keys here any more. The audit log is the record of what
   // an agent was allowed to do; one a person can clear is not a record. The API
@@ -225,13 +184,12 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
     tool: tool || undefined,
     agent_name: agent || undefined,
     search: search || undefined,
-    session_id: sessFilter || undefined,
     limit: PAGE,
     offset: page * PAGE,
   };
   const cloudQ = useLoader(
     () => (source === 'cloud' ? api.audit.list(query) : Promise.resolve(null)),
-    [source, di, gi, tool, agent, search, sessFilter, page],
+    [source, di, gi, tool, agent, search, page],
   );
   // Auto-refresh only page 0 — deeper pages stay put while you read them.
   usePoll(cloudQ.reloadQuiet, 6000, active && source === 'cloud' && view === 'logs' && !editing && page === 0 && !frozen);
@@ -247,7 +205,6 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
     if (SIGNALS[gi] === 'ratelimit' && !r.burst) return false;
     if (tool && !r.tool.toLowerCase().includes(tool.toLowerCase())) return false;
     if (agent && (r.agent ?? '').toLowerCase() !== agent.toLowerCase()) return false;
-    if (sessFilter && r.session !== sessFilter) return false;
     if (q && !`${r.tool} ${r.agent ?? ''} ${r.reason ?? ''} ${r.args ?? ''}`.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -263,51 +220,9 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
   const pages = Math.max(1, Math.ceil(total / PAGE));
   const current = pageRows[Math.min(sel, Math.max(0, pageRows.length - 1))];
 
-  // ── data: sessions ──────────────────────────────────────────────────────
-  const agentsQ = useLoader(
-    () => (source === 'cloud' ? api.agents.live({ limit: 100, includeDeactivated: true }) : Promise.resolve(null)),
-    [source],
-  );
-  usePoll(agentsQ.reloadQuiet, 8000, active && source === 'cloud' && view === 'sessions' && !frozen);
-
-  let sessions: SessRow[] = [];
-  if (source === 'cloud') {
-    sessions = (agentsQ.data?.agents ?? []).map((a: LiveAgent) => ({
-      id: a.session_id,
-      agent: a.agent_name ?? a.session_id,
-      status: a.status === 'deactivated' ? ('ended' as const) : a.status,
-      calls: a.total_calls,
-      denies: a.denied_calls,
-      dlp: a.dlp_events,
-      trust: a.trust_score,
-      lastAt: Date.parse(a.last_seen_at),
-    }));
-  } else {
-    const bySess = new Map<string, SessRow>();
-    for (const r of localQ.data ?? []) {
-      if (!r.session) continue;
-      const cur = bySess.get(r.session) ?? { id: r.session, agent: r.agent ?? 'local agent', status: 'ended' as const, calls: 0, denies: 0, dlp: 0, trust: null, lastAt: 0 };
-      cur.calls++;
-      if (r.decision !== 'ALLOW') cur.denies++;
-      if (r.dlp.length) cur.dlp++;
-      cur.lastAt = Math.max(cur.lastAt, r.at);
-      if (r.agent) cur.agent = r.agent;
-      bySess.set(r.session, cur);
-    }
-    sessions = [...bySess.values()];
-  }
-  const sq = sessSearch.trim().toLowerCase();
-  const sessionsFiltered = sessions
-    .map((s) => ({ ...s, status: source === 'cloud' ? s.status : sessStatus(s.lastAt) }))
-    .filter((s) => (SESS_STATUS[si] ? s.status === SESS_STATUS[si] : true))
-    .filter((s) => !sq || `${s.agent} ${s.id}`.toLowerCase().includes(sq))
-    .sort((a, b) => b.lastAt - a.lastAt);
-  const currentSess = sessionsFiltered[Math.min(sessSel, Math.max(0, sessionsFiltered.length - 1))];
-
   // Visible loading states (also lock the keyboard below so queued keypresses
   // can't double-page or land on the wrong row while data is in flight).
   const logsLoading = (source === 'cloud' ? cloudQ.loading : localQ.loading) && !editing;
-  const sessLoading = source === 'cloud' ? agentsQ.loading : localQ.loading;
 
   // e = export the current page · E = export EVERYTHING matching the filters.
   const doExport = (kind: 'page' | 'all') => {
@@ -339,10 +254,10 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
         return;
       }
       if (frozen) return;
-      // ^R — manual refresh: refetch the active source's logs/sessions/stats so a
-      // change made elsewhere (dashboard, another session) shows up on demand.
+      // ^R — manual refresh: refetch the active source's logs and stats so a
+      // change made elsewhere shows up on demand.
       if (key.ctrl && input === 'r') {
-        if (source === 'cloud') { cloudQ.reload(); agentsQ.reload(); statsQ.reloadQuiet(); }
+        if (source === 'cloud') { cloudQ.reload(); statsQ.reloadQuiet(); }
         else localQ.reload();
         setMsg({ text: `⟳ refreshed ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`, level: 'ok' });
         return;
@@ -366,7 +281,7 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
       }
       // Keyboard LOCK while data is loading: queued keypresses would otherwise
       // double-page or act on rows that are about to be replaced.
-      if (view === 'logs' ? logsLoading : sessLoading) return;
+      if (logsLoading) return;
       // A leftover message from the last action clears on the next keypress.
       if (msg) {
         setMsg(null);
@@ -376,34 +291,6 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
         setSource((s) => (s === 'cloud' ? 'local' : 'cloud'));
         setPage(0);
         toTop();
-        setSessSel(0);
-        return;
-      }
-      if (input === 'v') {
-        setView((v) => (v === 'logs' ? 'sessions' : 'logs'));
-        return;
-      }
-      if (view === 'sessions') {
-        if (key.upArrow) setSessSel((n) => Math.max(0, n - 1));
-        else if (key.downArrow) setSessSel((n) => Math.min(sessionsFiltered.length - 1, n + 1));
-        else if (key.pageUp) setSessSel((n) => Math.max(0, n - 10));
-        else if (key.pageDown) setSessSel((n) => Math.min(sessionsFiltered.length - 1, n + 10));
-        else if (key.return) {
-          if (currentSess) {
-            setSessFilter(currentSess.id);
-            setPage(0);
-            toTop();
-            setView('logs');
-          }
-        } else if (input === 'f') {
-          setSi((n) => (n + 1) % SESS_STATUS.length);
-          setSessSel(0);
-        } else if (input === '/') setEditing('sess-search');
-        else if (input === 'c') {
-          setSi(0);
-          setSessSearch('');
-          setSessSel(0);
-        }
         return;
       }
       // logs view
@@ -445,7 +332,6 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
         setTool('');
         setAgent('');
         setSearch('');
-        setSessFilter('');
         setPage(0);
         toTop();
       }
@@ -614,84 +500,8 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
     </Text>
   );
 
-  // ── sessions view ────────────────────────────────────────────────────────
-  if (view === 'sessions') {
-    const headerRows = 5 + (editing ? 1 : 0);
-    const listRows = Math.max(4, rows - headerRows);
-    const selC = Math.min(sessSel, Math.max(0, sessionsFiltered.length - 1));
-    const start = Math.min(Math.max(0, selC - Math.floor((listRows - 1) / 2)), Math.max(0, sessionsFiltered.length - listRows));
-    const win = sessionsFiltered.slice(start, start + listRows);
-    return (
-      <DataView loading={sessLoading && !frozen} error={source === 'cloud' ? agentsQ.error : localQ.error}>
-        <Box flexDirection="column">
-          {strip}
-          {copyBanner}
-          <Box>
-            {srcChip}
-            <Text color={theme.accentBright} bold>
-              SESSIONS
-            </Text>
-            <Text color={theme.dim}> · logs (v) </Text>
-            {chip('status', SESS_STATUS[si] ?? 'all', si !== 0)}
-            {chip('search', sessSearch || '·', !!sessSearch)}
-          </Box>
-          <Text color={theme.dim} wrap="truncate">
-            {focused ? '↑↓ select · enter → session logs · v logs · ^R refresh · ? all keys' : 'press → to browse'}
-          </Text>
-          {editing === 'sess-search' ? (
-            <Box>
-              <Text color={theme.warn}>search: </Text>
-              <TextInput
-                value={sessSearch}
-                onChange={(v) => {
-                  setSessSearch(v);
-                  setSessSel(0);
-                }}
-                onSubmit={() => setEditing(null)}
-              />
-            </Box>
-          ) : null}
-          <Text color={theme.dim} wrap="truncate">
-            {`${sessionsFiltered.length} sessions · ${selC + 1}/${sessionsFiltered.length}${start ? ` · ▲${start}` : ''}${
-              start + listRows < sessionsFiltered.length ? ` · ▼${sessionsFiltered.length - start - listRows}` : ''
-            }`}
-          </Text>
-          <Table
-            columns={[
-              { header: '', width: 2 },
-              { header: 'STATUS', width: 8 },
-              { header: 'AGENT', width: 18 },
-              { header: 'SESSION', width: 10 },
-              { header: 'CALLS', width: 6 },
-              { header: 'DENY', width: 5 },
-              { header: 'DLP', width: 4 },
-              { header: 'TRUST', width: 5 },
-              { header: 'LAST', width: 6 },
-            ]}
-            rows={win.map((r, i) => {
-              const st = STATUS_DOT[r.status];
-              const isSel = start + i === selC && focused;
-              return [
-                { value: isSel ? '▸' : '', color: theme.accentBright },
-                { value: `${st.ch} ${r.status}`, color: st.color },
-                { value: truncate(r.agent, 18), color: theme.accent, bold: isSel },
-                { value: r.id.slice(0, 8), dim: true },
-                { value: String(r.calls) },
-                { value: String(r.denies), color: r.denies ? theme.bad : undefined, dim: !r.denies },
-                { value: String(r.dlp), color: r.dlp ? theme.bad : undefined, dim: !r.dlp },
-                { value: r.trust != null ? String(r.trust) : '—', dim: true },
-                { value: ago(r.lastAt), dim: true },
-              ];
-            })}
-          />
-          {sessionsFiltered.length === 0 ? <Text color={theme.dim}>(no sessions{source === 'local' ? ' in the local file' : ''})</Text> : null}
-        </Box>
-      </DataView>
-    );
-  }
-
   // ── logs view ────────────────────────────────────────────────────────────
-  const headerRows = 6 + (editing && editing !== 'sess-search' ? 1 : 0) + (msg ? 1 : 0) + (frozen ? 1 : 0);
+  const headerRows = 6 + (editing ? 1 : 0) + (msg ? 1 : 0) + (frozen ? 1 : 0);
   const listRows = Math.max(4, rows - headerRows);
   const selClamped = Math.min(sel, Math.max(0, pageRows.length - 1));
   const maxStart = Math.max(0, pageRows.length - listRows);
@@ -708,20 +518,18 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
           <Text color={theme.accentBright} bold>
             LOGS
           </Text>
-          <Text color={theme.dim}> · sessions (v) </Text>
           {chip('dec', DECISIONS[di] ?? 'all', di !== 0)}
           {chip('sig', SIGNALS[gi] ?? 'all', gi !== 0)}
           {chip('tool', tool || '·', !!tool)}
           {chip('agent', agent || '·', !!agent)}
           {chip('search', search || '·', !!search)}
-          {sessFilter ? chip('sess', sessFilter.slice(0, 8), true) : null}
         </Box>
         <Text color={theme.dim} wrap="truncate">
-          {focused ? '↑↓ select · enter full entry · ←→ page · v sessions · ^R refresh · ? all keys' : 'press → to browse'}
+          {focused ? '↑↓ select · enter full entry · ←→ page · ^R refresh · ? all keys' : 'press → to browse'}
         </Text>
 
         {msg ? <Text color={msg.level === 'bad' ? theme.bad : theme.ok}>{truncate(msg.text, cols)}</Text> : null}
-        {editing && editing !== 'sess-search' ? (
+        {editing ? (
           <Box>
             <Text color={theme.warn}>{editing}: </Text>
             <TextInput

@@ -113,15 +113,14 @@ func claudeHooksValue(p Paths, node string) map[string][]hookGroup {
 		}}
 	}
 	return map[string][]hookGroup{
-		"PreToolUse":       group(GuardHookName),
-		"PostToolUse":      group(auditHookName),
-		"UserPromptSubmit": group(conversationHookName),
+		"PreToolUse":  group(GuardHookName),
+		"PostToolUse": group(auditHookName),
 		// Two groups, in this order, matching the npm package byte for byte.
-		// Stop fires both: the turn marker and the assistant's answer to the turn
-		// that just ended.
+		// Stop fires both: the turn marker and the reader that records what the
+		// turn cost.
 		"Stop": {
 			{Matcher: matcher(""), Hooks: []hookHandler{{Type: "command", Command: claudeHookCommand(p, node, stopHookName)}}},
-			{Matcher: matcher(""), Hooks: []hookHandler{{Type: "command", Command: claudeHookCommand(p, node, conversationHookName)}}},
+			{Matcher: matcher(""), Hooks: []hookHandler{{Type: "command", Command: claudeHookCommand(p, node, tokensHookName)}}},
 		},
 	}
 }
@@ -147,14 +146,13 @@ func planClaude(p Paths, node string) (registration, error) {
 	// TypeScript writes them; a map would come out sorted, which is a different
 	// file for no reason.
 	//
-	// UserPromptSubmit was missing from this list, and the list is what gets
-	// written — so the map could name it and the file would not. That made
-	// `solongate repair` quietly strip the conversation capture the npm
-	// installer had put there, because this object replaces the `hooks` key
-	// wholesale.
+	// The list is what gets written, so the map naming an event the list does not
+	// means the file will not have it — and this object replaces the `hooks` key
+	// wholesale, so a missing name here is a registration `solongate repair`
+	// quietly strips.
 	hooks := newJSONObject()
 	values := claudeHooksValue(p, node)
-	for _, ev := range []string{"PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"} {
+	for _, ev := range []string{"PreToolUse", "PostToolUse", "Stop"} {
 		if err := hooks.setValue(ev, values[ev]); err != nil {
 			return registration{}, err
 		}
@@ -267,19 +265,13 @@ func antigravityHookCommand(p Paths, node string) string {
 	return hookCommand(p, node, GuardHookName, "antigravity", "Antigravity")
 }
 
-// antigravityConversationCommand is the conversation record on this client.
-//
-// ONE hook for both halves of an exchange, because Antigravity's payload
-// carries the person's last message on `common.lastUserInput` — which rides on
-// every hook rather than on an event of its own — and the answer on
-// `stopHookArgs.finalModelOutput`. Claude Code and Codex need two events to
-// record the same thing.
+// antigravityTokensCommand is the token reader on this client.
 //
 // Stop rather than PostInvocation: an invocation is one model call and a turn
-// is often several, so PostInvocation would write a row per step and the
-// transcript would read as the agent interrupting itself.
-func antigravityConversationCommand(p Paths, node string) string {
-	return hookCommand(p, node, conversationHookName, "antigravity", "Antigravity")
+// is often several, so PostInvocation would report a figure per step and the
+// spend would read as many small turns instead of one.
+func antigravityTokensCommand(p Paths, node string) string {
+	return hookCommand(p, node, tokensHookName, "antigravity", "Antigravity")
 }
 
 func planAntigravity(p Paths, node string) (registration, error) {
@@ -300,7 +292,7 @@ func planAntigravity(p Paths, node string) (registration, error) {
 	}
 	if err := group.setValue("Stop", []hookGroup{{
 		Matcher: matcher(""),
-		Hooks:   []hookHandler{{Type: "command", Command: antigravityConversationCommand(p, node)}},
+		Hooks:   []hookHandler{{Type: "command", Command: antigravityTokensCommand(p, node)}},
 	}}); err != nil {
 		return registration{}, err
 	}

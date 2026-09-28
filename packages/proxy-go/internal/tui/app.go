@@ -764,7 +764,6 @@ var shellHelp = []helpGroup{
 		{"d / x / r", "filter denies / dlp / rate-limit"},
 		{"f", "local / cloud filter"},
 		{"/", "search"},
-		{"s", "sessions (↑↓ pick, enter open)"},
 		{"space", "copy mode (freeze)"},
 	}},
 	{"Policies", [][2]string{
@@ -794,7 +793,6 @@ var shellHelp = []helpGroup{
 		{"s", "save · ← back (from a burst row)"},
 	}},
 	{"Audit", [][2]string{
-		{"v", "logs ↔ sessions"},
 		{"s", "source: cloud ↔ local"},
 		{"← →", "prev / next page (500 each)"},
 		{"↑↓", "select (list scrolls)"},

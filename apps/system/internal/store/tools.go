@@ -264,3 +264,16 @@ func scanMcp(rows *sql.Rows) (McpServer, error) {
 	m.Args = text(args)
 	return m, nil
 }
+
+// jsonOrNull writes a JSON column, or NULL when there is nothing to write.
+// An empty string in a JSON column is not valid JSON and json_extract on it
+// returns nothing rather than erroring, which is the quiet kind of wrong.
+//
+// It lived beside the agent tables until those were removed; it is here because
+// this is the only file left that writes a nullable JSON column.
+func jsonOrNull(v []byte) any {
+	if len(v) == 0 {
+		return nil
+	}
+	return string(v)
+}

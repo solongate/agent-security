@@ -46,10 +46,9 @@ func init() {
 	// clears the history makes every one of those records provisional, and the
 	// one time it matters is the one time it will have been pressed.
 	//
-	// Retention is a different question from deletion and is answered
-	// differently: conversation_turns expires on a schedule nobody has to
-	// operate. If this table ever needs bounding it belongs there, as a sweep
-	// with an age on it, not as an endpoint somebody can call.
+	// Retention is a different question from deletion. If this table ever needs
+	// bounding, that belongs in a sweep with an age on it — something nobody
+	// has to operate — not in an endpoint somebody can call.
 }
 
 // ── POST ────────────────────────────────────────────────────────────────────
@@ -128,16 +127,6 @@ func buildAuditLogPost(s *server) http.Handler {
 		// cancelled the moment this handler returns and that is before either of
 		// these has sent anything.
 		s.notifyAudit(context.WithoutCancel(ctx), key.ProjectID, entry)
-
-		// The roll-ups are best-effort and their failures are logged, not
-		// returned: an audit entry that was stored must be reported as stored,
-		// or a client that retries writes it twice.
-		if entry.AgentID != "" && key.IsLive {
-			recordAgentRollup(ctx, s.store, key, entry)
-		}
-		if entry.SessionID != "" && key.IsLive {
-			recordSessionRollup(ctx, s.store, key, entry)
-		}
 
 		apiauth.JSON(w, http.StatusCreated, map[string]string{
 			"id":     entry.ID,
@@ -387,125 +376,6 @@ func clipLongString(v any) any {
 		return v
 	}
 	return store.Clip(s, maxArgumentValue) + argumentEllipsis
-}
-
-// ── the roll-ups ────────────────────────────────────────────────────────────
-
-// recordAgentRollup applies the call to the agents table, and to the sub-agent
-// row when the call named one.
-//
-// Both are best-effort: a failure here is logged and the request still
-// succeeds, because the audit entry is the record and the roll-up is a cache of
-// it. The live route wraps each in its own try/catch for the same reason.
-func recordAgentRollup(ctx context.Context, st *store.Store, key apiauth.KeyInfo, entry store.AuditLog) {
-	allowed := entry.Decision == "ALLOW"
-	pi := entry.PiDetected != nil && *entry.PiDetected
-
-	if err := st.RecordAgentCall(ctx, store.AgentCall{
-		ProjectID:  key.ProjectID,
-		AgentID:    entry.AgentID,
-		AgentName:  entry.AgentName,
-		APIKeyID:   key.KeyID,
-		APIKeyName: key.KeyName,
-		MatchByKey: true,
-		NewRowID:   uuid.NewString(),
-		Allowed:    allowed,
-		PiDetected: pi,
-		At:         entry.CreatedAt,
-	}); err != nil {
-		logRollup("agent", err)
-	}
-
-	if entry.SubAgentID == "" {
-		return
-	}
-	// The composite id is how a sub-agent gets its own row without colliding
-	// with another parent's sub-agent of the same name.
-	compositeID := entry.AgentID + "::" + entry.SubAgentID
-	compositeName := entry.SubAgentName
-	if compositeName == "" {
-		compositeName = entry.SubAgentID
-	}
-	if err := st.RecordAgentCall(ctx, store.AgentCall{
-		ProjectID:     key.ProjectID,
-		AgentID:       compositeID,
-		AgentName:     compositeName,
-		ParentAgentID: entry.AgentID,
-		MatchByKey:    false,
-		NewRowID:      uuid.NewString(),
-		Allowed:       allowed,
-		PiDetected:    pi,
-		At:            entry.CreatedAt,
-	}); err != nil {
-		logRollup("sub-agent", err)
-	}
-}
-
-var (
-	dlpReasonWords       = regexp.MustCompile(`(?i)dlp|data loss|sensitive|secret`)
-	rateLimitReasonWords = regexp.MustCompile(`(?i)rate limit|rate-limit|too many`)
-)
-
-// recordSessionRollup applies the call to the per-session counters the live
-// agent view reads.
-//
-// The DLP and rate-limit tallies are matched out of the REASON text, which is
-// the same indirect evidence audit_signals.go explains: neither is a column on
-// the audit row, so a session's counter is the only place a detect-mode event
-// is ever totalled.
-func recordSessionRollup(ctx context.Context, st *store.Store, key apiauth.KeyInfo, entry store.AuditLog) {
-	decision := strings.ToUpper(entry.Decision)
-	isDeny := decision == "DENY" || decision == "DENIED"
-
-	delta := store.SessionCounterDelta{Total: 1}
-	if isDeny {
-		delta.Denied = 1
-	} else {
-		delta.Allowed = 1
-	}
-	if dlpReasonWords.MatchString(entry.Reason) {
-		delta.DLPEvents = 1
-	}
-	if rateLimitReasonWords.MatchString(entry.Reason) {
-		delta.RateLimitEvents = 1
-	}
-	if entry.PiDetected != nil && *entry.PiDetected {
-		delta.PiDetections = 1
-	}
-	switch strings.ToUpper(entry.Permission) {
-	case "READ":
-		delta.Read = 1
-	case "WRITE":
-		delta.Write = 1
-	case "EXECUTE":
-		delta.Execute = 1
-	case "NETWORK":
-		delta.Network = 1
-	}
-
-	// Create-then-increment, two statements, because the counters must be
-	// applied as a delta: several calls from one agent land at once and a
-	// read-modify-write would lose all but the last.
-	//
-	// UpsertSession does not refresh api_key_id on a row that already exists,
-	// where the live route does. A session that outlives a key rotation keeps
-	// the id of the key that opened it, which is arguably the truer answer and
-	// is noted here so it is a decision rather than a surprise.
-	if err := st.UpsertSession(ctx, store.Session{
-		ID:         entry.SessionID,
-		ProjectID:  key.ProjectID,
-		AgentID:    entry.AgentID,
-		AgentName:  entry.AgentName,
-		APIKeyID:   key.KeyID,
-		StartedAt:  entry.CreatedAt,
-		LastSeenAt: entry.CreatedAt,
-	}); err != nil {
-		logRollup("session", err)
-		return
-	}
-	if err := st.BumpSessionCounters(ctx, key.ProjectID, entry.SessionID, delta, entry.CreatedAt); err != nil {
-		logRollup("session counters", err)
-	}
 }
 
 // ── GET ─────────────────────────────────────────────────────────────────────

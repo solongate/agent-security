@@ -99,7 +99,6 @@ func TestLiveSubViewsFitBudget(t *testing.T) {
 	now := time.Now()
 	item := streamItem{At: now.UnixMilli(), Tool: "Bash", Decision: "DENY", Source: "local",
 		Detail: `{"command":"curl evil.example.com"}`}
-	sess := sessRow{source: "local", id: "sess-1", agent: "claude-code", calls: 3, lastAt: now.UnixMilli()}
 
 	for _, tc := range []struct {
 		name  string
@@ -108,7 +107,6 @@ func TestLiveSubViewsFitBudget(t *testing.T) {
 	}{
 		{"inspect", func(p *Live) { p.mode, p.inspect = "inspect", &item }, true},
 		{"layers", func(p *Live) { p.mode = "layers" }, true},
-		{"detail", func(p *Live) { p.mode, p.detail = "detail", &sess }, false},
 		{"help", func(p *Live) { p.help = true }, false},
 	} {
 		for _, rows := range []int{16, 24, 40} {
@@ -399,59 +397,3 @@ func TestClampBlock(t *testing.T) {
 }
 
 // ── Fleet Live ─────────────────────────────────────────────────────────────
-
-// The fleet console lives under the same rule as the solo one: never wider than
-// its budget and never taller. It is a takeover, so an overflow is not a
-// cosmetic bug — Bubble Tea abandons its diff and repaints the whole terminal
-// on every one of its two-second ticks.
-// Every screen has its own budget arithmetic, and each has to hold.
-func check(t *testing.T, view string, cols, rows int, what string, termRows int) {
-	t.Helper()
-	if got := widest(view); got > cols {
-		t.Fatalf("%s at %dx%d: %d columns wide", what, cols, termRows, got)
-	}
-	if got := lineCount(view); got > rows {
-		t.Fatalf("%s at %dx%d: %d lines, budget %d", what, cols, termRows, got, rows)
-	}
-}
-
-// The console shows what the audit page shows.
-//
-// Reported as "eval timelar yok. details yok. hicbirsey yok." — the row carried
-// five columns and the log it is a view of carries twenty-eight. Every one of
-// these is a field the user named or a field the reference console has.
-// The server's key is `turns`; the client asked for `said`, which decoded every
-// conversation as empty — a transcript screen that works perfectly and shows
-// nothing.
-// The signal filters narrow to the rows that carry that signal, and clearing
-// puts every one of them back.
-// The buffer accumulates across polls and never counts the same call twice.
-// Copy mode stops every poll. A screen that moves under a mouse selection is a
-// screen nothing can be copied out of.
-// Narrowing to a person shows only their calls, and cycling past the last one
-// goes back to everybody rather than sticking.
-// The reader is named by their ADDRESS, not by the API's placeholder.
-// A person's row carries what they ARE and which group they are in.
-// The sessions in the buffer are real sittings, most recent first, and each
-// carries whose it is so opening one can ask the right question of the API.
-// There was one key that cycled through people one at a time and three signal
-// toggles. The questions a host actually arrives with — what is the contractors
-// group doing, who is still on the old agent, show me every Bash call, what
-// happened this morning — could not be asked at all.
-// A console with filters and no statement of them is a console quietly showing
-// a fifth of the traffic, which is worse than one with no filters at all.
-// A cycle shows one option at a time and gives no way to see what there is to
-// choose between, which on a fleet of twenty is the whole difficulty.
-// Reported as "user verisi geliyor ama title veya grup verisi yok".
-// The layers screen says what the FLEET enforces, and does not report this
-// laptop's hooks as the fleet's.
-// Filtering what a console has already seen answers a smaller question than the
-// one asked: "every Bash call" becomes "every Bash call since I opened this".
-// The window sits on the same bar and reads as a filter, so leaving it set
-// while the hint says "clear every filter" is the hint contradicting itself.
-// Saying so is the difference between a filter that missed something and one
-// that was never asked of the record.
-// A timeline row is one line; the arguments a call carried and the words a turn
-// was cut from cannot be read from it at all.
-// `q` outside a search box exits the dataroom, which is a trap on a console
-// somebody is reading rather than typing into.

@@ -97,45 +97,6 @@ type ringStat struct {
 	count   int
 }
 
-type sessRow struct {
-	source string // local | cloud
-	id     string
-	agent  string
-	calls  int
-	denies int
-	lastAt int64
-	status string
-	trust  *float64
-	isMe   bool
-}
-
-// sessStatus: active under 60s since the last call, idle under 5m, ended after.
-func sessStatus(lastAt, now int64) string {
-	switch {
-	case now-lastAt < 60_000:
-		return "active"
-	case now-lastAt < 300_000:
-		return "idle"
-	}
-	return "ended"
-}
-
-type statusStyle struct {
-	dot   string
-	label string
-	color lipgloss.Color
-}
-
-func statusStyleOf(s string) statusStyle {
-	switch s {
-	case "active":
-		return statusStyle{"●", "ACTIVE", theme.OK}
-	case "idle":
-		return statusStyle{"◐", "IDLE", theme.Warn}
-	}
-	return statusStyle{"○", "ENDED", theme.Dim}
-}
-
 // insightsBits is the slice of /stats/security-insights this console reads. The
 // endpoint returns more and keeps growing; decoding only what is rendered means
 // a new field upstream cannot break the console.
@@ -226,14 +187,9 @@ type Live struct {
 	sel    int
 	action *flashMsg
 
-	mode          string // stream | pick | detail | inspect | layers
-	pickIdx       int
-	detail        *sessRow
-	detailCloud   []streamItem
-	detailScroll  int
+	mode          string // stream | inspect | layers
 	inspect       *streamItem
 	inspectScroll int
-	inspectFrom   string
 	layersScroll  int
 
 	seen        map[string]bool
@@ -243,11 +199,6 @@ type Live struct {
 	localSeq    int
 	pausedUntil int64
 	netFails    int
-
-	sessions   []api.LiveAgent
-	sessCounts struct{ active, idle, deactivated int }
-	sessRows   []sessRow
-	prevStatus map[string]string
 
 	insights       insightsBits
 	insightsLoaded bool
@@ -283,7 +234,6 @@ func newLive(d Deps) *Live {
 		input:      in,
 		seen:       map[string]bool{},
 		notified:   map[string]bool{},
-		prevStatus: map[string]string{},
 		toastQueue: map[string]*toastItem{},
 	}
 }
@@ -340,14 +290,6 @@ type liveStatsResult struct {
 
 func (m liveStatsResult) Generation() int { return m.gen }
 
-type liveSessResult struct {
-	gen    int
-	agents api.LiveAgents
-	err    error
-}
-
-func (m liveSessResult) Generation() int { return m.gen }
-
 type liveInsightsResult struct {
 	gen  int
 	bits insightsBits
@@ -363,13 +305,6 @@ type liveGuardResult struct {
 }
 
 func (m liveGuardResult) Generation() int { return m.gen }
-
-type liveDetailResult struct {
-	gen   int
-	items []streamItem
-}
-
-func (m liveDetailResult) Generation() int { return m.gen }
 
 type liveActionResult struct {
 	gen      int
@@ -390,12 +325,11 @@ func (p *Live) Init(ctx PanelContext) tea.Cmd {
 	// TRAFFIC is derived from the buffer — which is what pays for this cadence
 	// without risking the API's own rate limit.
 	return tea.Batch(
-		p.pollLocal(), p.pollFeed(), p.pollStats(), p.pollSessions(), p.pollInsights(), p.pollGuard(),
+		p.pollLocal(), p.pollFeed(), p.pollStats(), p.pollInsights(), p.pollGuard(),
 		p.tickCmd(tickAnim, 500*time.Millisecond),
 		p.tickCmd(tickLocal, 2*time.Second),
 		p.tickCmd(tickFeed, 3*time.Second),
 		p.tickCmd(tickStats, 8*time.Second),
-		p.tickCmd(tickSess, 8*time.Second),
 		p.tickCmd(tickInsights, 20*time.Second),
 		p.tickCmd(tickGuard, 60*time.Second),
 	)
@@ -489,16 +423,6 @@ func (p *Live) pollStats() tea.Cmd {
 	}
 }
 
-func (p *Live) pollSessions() tea.Cmd {
-	gen, client := p.gen, p.deps.API
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		a, err := client.Agents.Live(ctx, 30, true)
-		return liveSessResult{gen: gen, agents: a, err: err}
-	}
-}
-
 func (p *Live) pollInsights() tea.Cmd {
 	gen, client := p.gen, p.deps.API
 	return func() tea.Msg {
@@ -525,24 +449,6 @@ func (p *Live) pollGuard() tea.Cmd {
 
 // fetchSessionHistory pulls a picked session's full cloud history once, when
 // the detail view opens.
-func (p *Live) fetchSessionHistory(id string) tea.Cmd {
-	gen, client := p.gen, p.deps.API
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		list, err := client.Audit.List(ctx, api.AuditQuery{SessionID: id, Limit: 100})
-		if err != nil {
-			// A local-only session has no cloud history; the buffer covers it.
-			return liveDetailResult{gen: gen}
-		}
-		items := make([]streamItem, 0, len(list.Entries))
-		for _, e := range list.Entries {
-			items = append(items, cloudItem(e))
-		}
-		return liveDetailResult{gen: gen, items: items}
-	}
-}
-
 // cloudItem converts an audit entry into a stream row.
 func cloudItem(e api.AuditEntry) streamItem {
 	at, _ := parseMillis(e.CreatedAt)
@@ -621,17 +527,6 @@ func (p *Live) Update(msg tea.Msg, ctx PanelContext) (Panel, tea.Cmd) {
 		p.stats = &s
 		return p, nil
 
-	case liveSessResult:
-		if m.err != nil {
-			return p, p.apiError(m.err, now)
-		}
-		p.sessions = m.agents.Agents
-		p.sessCounts.active = m.agents.Counts.Active
-		p.sessCounts.idle = m.agents.Counts.Idle
-		p.sessCounts.deactivated = m.agents.Counts.Deactivated
-		p.sessRows = p.buildSessions(now)
-		return p, nil
-
 	case liveInsightsResult:
 		if m.err != nil {
 			return p, p.apiError(m.err, now)
@@ -645,10 +540,6 @@ func (p *Live) Update(msg tea.Msg, ctx PanelContext) (Panel, tea.Cmd) {
 		}
 		g := m.status
 		p.guard = &g
-		return p, nil
-
-	case liveDetailResult:
-		p.detailCloud = m.items
 		return p, nil
 
 	case liveActionResult:
@@ -679,22 +570,13 @@ func (p *Live) onTick(m liveTick, ctx PanelContext) tea.Cmd {
 			return p.tickCmd(tickAnim, 500*time.Millisecond)
 		}
 		p.tick++
-		// The session rows are rebuilt on the tick rather than only when data
-		// arrives: active/idle/ended is a function of TIME, and a session that
-		// stopped calling has to go idle without anything new coming in — which
-		// is exactly the transition the idle banner reports.
-		p.sessRows = p.buildSessions(ctx.Now.UnixMilli())
-		cmds := []tea.Cmd{p.tickCmd(tickAnim, 500*time.Millisecond)}
-		cmds = append(cmds, p.notifyIdleSessions(ctx)...)
-		return tea.Batch(cmds...)
+		return p.tickCmd(tickAnim, 500*time.Millisecond)
 	case tickLocal:
 		return p.cadence(tickLocal, 2*time.Second, p.pollLocal)
 	case tickFeed:
 		return p.cadence(tickFeed, 3*time.Second, p.pollFeed)
 	case tickStats:
 		return p.cadence(tickStats, 8*time.Second, p.pollStats)
-	case tickSess:
-		return p.cadence(tickSess, 8*time.Second, p.pollSessions)
 	case tickInsights:
 		return p.cadence(tickInsights, 20*time.Second, p.pollInsights)
 	case tickGuard:
@@ -896,71 +778,6 @@ func (p *Live) rebuildMerged(now int64) {
 	merged = append(merged, p.local...)
 	sort.SliceStable(merged, func(i, j int) bool { return merged[i].At < merged[j].At })
 	p.merged = merged
-	p.sessRows = p.buildSessions(now)
-}
-
-func (p *Live) buildSessions(now int64) []sessRow {
-	type agg struct {
-		agent  string
-		calls  int
-		denies int
-		lastAt int64
-	}
-	order := []string{}
-	byID := map[string]*agg{}
-	for _, e := range p.local {
-		if e.Session == "" {
-			continue
-		}
-		cur := byID[e.Session]
-		if cur == nil {
-			cur = &agg{agent: "local agent"}
-			byID[e.Session] = cur
-			order = append(order, e.Session)
-		}
-		cur.calls++
-		if e.Decision != "ALLOW" {
-			cur.denies++
-		}
-		if e.At > cur.lastAt {
-			cur.lastAt = e.At
-		}
-		if e.Agent != "" {
-			cur.agent = e.Agent
-		}
-	}
-	sort.SliceStable(order, func(i, j int) bool { return byID[order[i]].lastAt > byID[order[j]].lastAt })
-	rows := make([]sessRow, 0, len(order)+len(p.sessions))
-	for _, id := range order {
-		v := byID[id]
-		rows = append(rows, sessRow{
-			source: "local", id: id, agent: v.agent, calls: v.calls, denies: v.denies,
-			lastAt: v.lastAt, status: sessStatus(v.lastAt, now),
-			isMe: p.ring != nil && p.ring.session == id,
-		})
-	}
-	cloudSess := append([]api.LiveAgent(nil), p.sessions...)
-	sort.SliceStable(cloudSess, func(i, j int) bool {
-		a, _ := parseMillis(cloudSess[i].LastSeenAt)
-		b, _ := parseMillis(cloudSess[j].LastSeenAt)
-		return a > b
-	})
-	for _, a := range cloudSess {
-		if _, ok := byID[a.SessionID]; ok {
-			continue
-		}
-		last, _ := parseMillis(a.LastSeenAt)
-		name := a.SessionID
-		if a.AgentName != nil && *a.AgentName != "" {
-			name = *a.AgentName
-		}
-		trust := a.TrustScore
-		rows = append(rows, sessRow{
-			source: "cloud", id: a.SessionID, agent: name, calls: a.TotalCalls,
-			denies: a.DeniedCalls, lastAt: last, status: sessStatus(last, now), trust: &trust,
-		})
-	}
-	return rows
 }
 
 // ── alerts and toasts ──────────────────────────────────────────────────────
@@ -1100,23 +917,6 @@ func (p *Live) notifySecurityEvents(ctx PanelContext) []tea.Cmd {
 // notifyIdleSessions raises a banner when a session stops calling. Banner only:
 // an idle transition is routine, not a security event, and a bell plus a
 // desktop toast here read as a false DLP or rate-limit alarm.
-func (p *Live) notifyIdleSessions(ctx PanelContext) []tea.Cmd {
-	var cmds []tea.Cmd
-	for _, r := range p.sessRows {
-		prev := p.prevStatus[r.id]
-		if prev == "active" && r.status == "idle" {
-			name := r.agent
-			if r.isMe {
-				name = r.agent + " (this machine)"
-			}
-			cmds = append(cmds, p.fireAlert("idle:"+r.id, "Agent idle",
-				name+" went IDLE, no tool call for 60s", "warn", false, ctx))
-		}
-		p.prevStatus[r.id] = r.status
-	}
-	return cmds
-}
-
 // ── derived views over the buffer ──────────────────────────────────────────
 
 func (p *Live) matches(e streamItem) bool {
@@ -1176,34 +976,6 @@ func (p *Live) visibleDesc() []streamItem {
 
 // detailEntries is a picked session's timeline: its cloud history plus
 // everything in the merged buffer that belongs to it, newest first.
-func (p *Live) detailEntries() []streamItem {
-	if p.detail == nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	var all []streamItem
-	add := func(e streamItem) {
-		key := strconv.FormatInt(e.At, 10) + ":" + e.Tool + ":" + e.Decision
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		if p.matches(e) {
-			all = append(all, e)
-		}
-	}
-	for _, e := range p.detailCloud {
-		add(e)
-	}
-	for _, e := range p.merged {
-		if e.Session == p.detail.id {
-			add(e)
-		}
-	}
-	sort.SliceStable(all, func(i, j int) bool { return all[i].At > all[j].At })
-	return all
-}
-
 // ── keys ───────────────────────────────────────────────────────────────────
 
 func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
@@ -1241,7 +1013,7 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	case "inspect":
 		switch k.Type {
 		case tea.KeyLeft:
-			p.mode = p.inspectFrom
+			p.mode = "stream"
 			p.inspect = nil
 		case tea.KeyUp:
 			p.inspectScroll = maxInt(0, p.inspectScroll-1)
@@ -1271,52 +1043,6 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 		}
 		return nil
 
-	case "detail":
-		entries := p.detailEntries()
-		maxD := maxInt(0, len(entries)-1)
-		switch k.Type {
-		case tea.KeyLeft:
-			p.mode = "stream"
-			p.detail = nil
-		case tea.KeyUp:
-			p.detailScroll = maxInt(0, p.detailScroll-1)
-		case tea.KeyDown:
-			p.detailScroll = minInt(maxD, p.detailScroll+1)
-		case tea.KeyPgUp:
-			p.detailScroll = maxInt(0, p.detailScroll-10)
-		case tea.KeyPgDown:
-			p.detailScroll = minInt(maxD, p.detailScroll+10)
-		case tea.KeyEnter:
-			if len(entries) > 0 {
-				e := entries[minInt(p.detailScroll, maxD)]
-				p.inspectFrom = "detail"
-				p.inspect = &e
-				p.inspectScroll = 0
-				p.mode = "inspect"
-			}
-		}
-		return nil
-
-	case "pick":
-		pickable := p.pickable(p.colHeight(ctx))
-		switch {
-		case k.Type == tea.KeyUp:
-			p.pickIdx = maxInt(0, p.pickIdx-1)
-		case k.Type == tea.KeyDown:
-			p.pickIdx = minInt(len(pickable)-1, p.pickIdx+1)
-		case k.Type == tea.KeyEnter:
-			if p.pickIdx >= 0 && p.pickIdx < len(pickable) {
-				row := pickable[p.pickIdx]
-				p.detail = &row
-				p.detailCloud = nil
-				p.detailScroll = 0
-				p.mode = "detail"
-				return p.fetchSessionHistory(row.id)
-			}
-		case str == "s" || k.Type == tea.KeyLeft:
-			p.mode = "stream"
-		}
-		return nil
 	}
 
 	// stream mode
@@ -1343,14 +1069,10 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 		p.sel = 0
 	case k.Type == tea.KeyEnter:
 		if e, ok := p.selected(visible); ok {
-			p.inspectFrom = "stream"
 			p.inspect = &e
 			p.inspectScroll = 0
 			p.mode = "inspect"
 		}
-	case str == "s":
-		p.pickIdx = 0
-		p.mode = "pick"
 	case str == "l":
 		p.layersScroll = 0
 		p.mode = "layers"
@@ -1400,7 +1122,6 @@ func (p *Live) editSearch(k tea.KeyMsg) tea.Cmd {
 	if v != p.search {
 		p.search = v
 		p.sel = 0
-		p.detailScroll = 0
 	}
 	return cmd
 }
@@ -1612,20 +1333,6 @@ func (p *Live) activeAction(now int64) *flashMsg {
 	return nil
 }
 
-// pickable is the SESSIONS column: as many rows as fit under its pane title,
-// and the same list the picker moves through, so what `s` selects is always
-// what is on screen.
-func (p *Live) pickable(colH int) []sessRow {
-	n := colH - 1
-	if n > len(p.sessRows) {
-		n = len(p.sessRows)
-	}
-	if n < 0 {
-		n = 0
-	}
-	return p.sessRows[:n]
-}
-
 // ── rendering ──────────────────────────────────────────────────────────────
 
 // Hint is what the boxed layout shows while Live is selected but not opened.
@@ -1659,8 +1366,6 @@ func (p *Live) View(ctx PanelContext) string {
 		lines = p.viewInspect(ctx, innerW, now)
 	case p.mode == "layers":
 		lines = p.viewLayers(ctx, innerW, now, spin)
-	case p.mode == "detail" && p.detail != nil:
-		lines = p.viewDetail(ctx, innerW, now, spin)
 	default:
 		lines = p.viewMain(ctx, innerW, now, spin)
 	}
@@ -1765,14 +1470,6 @@ var liveHelp = []helpGroup{
 		{"↑↓ / PgUp PgDn", "scroll the content"},
 		{"space", "copy mode (freeze, then select with mouse)"},
 		{"←", "back to where you came from"},
-	}},
-	{"Sessions", [][2]string{
-		{"↑↓ + enter", "pick & open a session (picker)"},
-		{"s or ←", "cancel the picker"},
-		{"↑↓", "select a timeline row (detail)"},
-		{"enter", "full entry content of the selected row"},
-		{"/", "search within the timeline"},
-		{"←", "back to stream"},
 	}},
 	{"Anywhere", [][2]string{{"?", "this help"}, {"any key", "close this help"}}},
 }
@@ -2088,122 +1785,6 @@ func orDash(n int) string {
 }
 
 // viewDetail is one session, dashboard style: a summary and the full timeline.
-func (p *Live) viewDetail(ctx PanelContext, width int, now int64, spin string) []string {
-	d := p.detailEntries()
-	allow, dlpN := 0, 0
-	evalSum, evalN := 0.0, 0
-	tools, perms := newCounter(), newCounter()
-	for _, e := range d {
-		if e.Decision == "ALLOW" {
-			allow++
-		}
-		if e.DLP {
-			dlpN++
-		}
-		if e.EvalMs != nil {
-			evalSum += *e.EvalMs
-			evalN++
-		}
-		tools.add(e.Tool)
-		if e.Permission != "" {
-			perms.add(e.Permission)
-		}
-	}
-	deny := len(d) - allow
-	evalAvg := "—"
-	if evalN > 0 {
-		evalAvg = strconv.Itoa(int(evalSum/float64(evalN)+0.5)) + "ms"
-	}
-	top := tools.sorted()
-	if len(top) > 6 {
-		top = top[:6]
-	}
-	var first, last int64
-	if len(d) > 0 {
-		first, last = d[len(d)-1].At, d[0].At
-	}
-
-	tlRows := maxInt(4, ctx.Rows-9)
-	tlBody := maxInt(3, tlRows-1) // a line is reserved for the search bar
-	dSel := minInt(p.detailScroll, maxInt(0, len(d)-1))
-	maxStart := maxInt(0, len(d)-tlBody)
-	start := minInt(maxInt(0, dSel-(tlBody-1)/2), maxStart)
-
-	st := statusStyleOf(sessStatus(p.detail.lastAt, now))
-	agentLabel := p.detail.agent
-	if p.detail.isMe {
-		agentLabel = p.detail.agent + " (this machine)"
-	}
-	head := []seg{
-		{text: " SESSION " + firstN(p.detail.id, 8) + " ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
-		sgb("  "+st.dot+" "+st.label, st.color),
-	}
-	sourceColor := lipgloss.TerminalColor(theme.White)
-	if p.detail.source == "local" {
-		sourceColor = theme.OK
-	}
-	head = append(head,
-		seg{text: "  " + strings.ToUpper(p.detail.source), fg: sourceColor},
-		seg{text: "  " + truncate(agentLabel, 34), bold: true})
-	if p.detail.trust != nil {
-		head = append(head, sg("  trust "+num(*p.detail.trust)+"/100", theme.Dim))
-	}
-	head = append(head, sg("  ← back", theme.Dim))
-
-	denyColor := lipgloss.TerminalColor(theme.Dim)
-	if deny > 0 {
-		denyColor = theme.Bad
-	}
-	dlpColor := lipgloss.TerminalColor(theme.Dim)
-	if dlpN > 0 {
-		dlpColor = theme.Bad
-	}
-	lines := []string{
-		p.titleBar(ctx, width, now, spin),
-		renderRow(width, head...),
-		renderRow(width,
-			sg("│ calls ", theme.Dim), seg{text: strconv.Itoa(len(d)), bold: true},
-			sg(" │ allow ", theme.Dim), sg(strconv.Itoa(allow), theme.OK),
-			sg(" │ deny ", theme.Dim), seg{text: strconv.Itoa(deny), fg: denyColor, bold: deny > 0},
-			sg(" │ dlp ", theme.Dim), seg{text: strconv.Itoa(dlpN), fg: dlpColor},
-			sg(" │ avg eval ", theme.Dim), plain(evalAvg),
-			sg(" │ first ", theme.Dim), sg(stampAgo(first, now), theme.Dim),
-			sg(" │ last ", theme.Dim), sg(stampAgo(last, now), theme.Dim),
-			sg(" │", theme.Dim)),
-		renderRow(width,
-			sg("│ tools ", theme.Dim), sg(joinCounts(top, "  "), theme.Accent),
-			sg(" │ perms ", theme.Dim), sg(joinCounts(perms.sorted(), " "), theme.Dim),
-			sg(" │", theme.Dim)),
-		paneTitle("TIMELINE", strconv.Itoa(dSel+1)+"/"+strconv.Itoa(len(d))+
-			" · newest first · ↑↓ select · enter full entry · / search · ← back", width),
-	}
-
-	tl := []string{p.searchRow(width, len(d))}
-	if len(d) == 0 {
-		if len(p.detailCloud) == 0 {
-			tl = append(tl, renderRow(width, sg(spin+" loading history…", theme.Dim)))
-		} else {
-			tl = append(tl, renderRow(width, sg("no entries", theme.Dim)))
-		}
-	}
-	for i := 0; i < tlBody && start+i < len(d); i++ {
-		e := d[start+i]
-		tl = append(tl, streamLine(e.row(), e.isLoc(), start+i == dSel, false, width))
-	}
-	for i := 0; i < tlRows; i++ {
-		if i < len(tl) {
-			lines = append(lines, tl[i])
-		} else {
-			lines = append(lines, "")
-		}
-	}
-	return append(lines, renderRow(width,
-		seg{text: " SESSION ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
-		seg{text: " " + p.detail.id + " ", fg: theme.White, bg: lipgloss.Color(hexFooterBG)},
-		seg{text: " ↑↓ select · enter full entry · ? all keys · ← back · esc menu ",
-			fg: theme.White, bg: lipgloss.Color(hexPanelBG)}))
-}
-
 func stampAgo(at, now int64) string {
 	if at == 0 {
 		return "—"
@@ -2217,7 +1798,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	streamRows := p.streamRows(ctx)
 	leftW := width * 55 / 100
 	rightW := width - leftW - 2
-	colW := maxInt(20, (width-4)/3)
+	colW := maxInt(20, (width-3)/2)
 
 	rl := p.insights.Layers.RateLimit
 	dl := p.insights.Layers.DLP
@@ -2253,8 +1834,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	counters = append(counters,
 		sg(" │ rl ", theme.Dim), sg(modeOr(rl.mode()), modeColor(rl.mode())),
 		sg(" │ dlp ", theme.Dim), sg(modeOr(dl.mode()), modeColor(dl.mode())),
-		sg(" │ sess ", theme.Dim),
-		sg(strconv.Itoa(len(p.sessRows))+" ("+strconv.Itoa(p.sessCounts.active)+" live)", theme.Accent),
 		sg(" │ hooks ", theme.Dim))
 	if p.guard != nil {
 		installed := "?"
@@ -2378,58 +1957,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	}
 	layersCol = append(layersCol, renderRow(colW, guardSegs...))
 
-	pickable := p.pickable(colH)
-	sessExtra := strconv.Itoa(len(p.sessRows)) + " · s = inspect"
-	if p.mode == "pick" {
-		sessExtra = "↑↓ pick · enter open"
-	}
-	sessCol := []string{paneTitle("SESSIONS", sessExtra, colW)}
-	if len(pickable) == 0 {
-		sessCol = append(sessCol, renderRow(colW, sg("scanning…", theme.Dim)))
-	}
-	for i, r := range pickable {
-		selected := p.mode == "pick" && i == p.pickIdx
-		st := statusStyleOf(r.status)
-		cursor, cursorColor := st.dot, st.color
-		if selected {
-			cursor, cursorColor = "▸", theme.AccentBright
-		}
-		nameW, padW := 12, 13
-		if r.isMe {
-			nameW, padW = 9, 10
-		}
-		segs := []seg{
-			sg(cursor+" ", cursorColor),
-			sg(padEnd(st.label, 7), st.color),
-			// ALWAYS the agent's real name: "this machine" hid it, so the local
-			// session gets a dim `me` tag instead and stays bold.
-			sg(padEnd(truncate(r.agent, nameW), padW), theme.AccentBright),
-		}
-		if r.isMe {
-			segs = append(segs, sg("me ", theme.OK))
-		}
-		denyColor := lipgloss.TerminalColor(theme.Dim)
-		if r.denies > 0 {
-			denyColor = theme.Bad
-		}
-		trust := ""
-		if r.trust != nil {
-			trust = "t" + num(*r.trust) + " "
-		}
-		segs = append(segs,
-			plain(padStart(strconv.Itoa(r.calls), 4)+"c "),
-			seg{text: padStart(strconv.Itoa(r.denies), 3) + "d ", fg: denyColor},
-			sg(trust+agoAt(r.lastAt, time.UnixMilli(now)), theme.Dim))
-		bold := selected || r.isMe
-		for i := range segs {
-			segs[i].bold = segs[i].bold || bold
-		}
-		if selected {
-			segs = onBG(lipgloss.Color(hexSelectBG), segs)
-		}
-		sessCol = append(sessCol, renderRow(colW, segs...))
-	}
-
 	eventCol := []string{paneTitle("EVENT LOG", "system heartbeat", colW)}
 	tail := p.events
 	if len(tail) > colH-1 {
@@ -2449,8 +1976,8 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			seg{text: "▸ ", fg: tickColor},
 			seg{text: l.msg, fg: msgColor}))
 	}
-	lines = append(lines, joinColumns([][]string{layersCol, sessCol, eventCol},
-		[]int{colW, colW, colW}, colH)...)
+	lines = append(lines, joinColumns([][]string{layersCol, eventCol},
+		[]int{colW, colW}, colH)...)
 
 	// TOOL STREAM
 	visible := p.visibleDesc()

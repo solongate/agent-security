@@ -1,36 +1,25 @@
 #!/usr/bin/env node
 /**
- * SolonGate Conversation Hook (UserPromptSubmit + Stop)
+ * SolonGate Token Hook (Stop)
  *
- * What a person wrote to their agent, and what it wrote back, for a machine
- * that is in a FLEET. Nothing else in this package records either.
+ * What a turn COST: the tokens a client reports for one exchange with the model.
+ * Nothing else in this package records it.
  *
- * WHY THIS IS NOT A TRANSCRIPT READER. Every hook event carries a
- * transcript_path, and the whole conversation is in that file. Reading it would
- * mean tracking a byte offset per session on disk, re-reading a growing file on
- * every turn, and racing the writer: the transcript is flushed asynchronously
- * and lags the live conversation, which the documentation says out loud when it
- * tells you to use last_assistant_message for the current turn instead. Two
- * events carry exactly what is needed, once per turn, with no offset to keep:
+ * This is the surviving half of what used to be the conversation hook, which
+ * recorded both what was said and what it cost. The transcript half is gone —
+ * this product does not store what a person wrote to their agent — and the cost
+ * half stayed, because spend is a fact about the work rather than a copy of it.
  *
- *   UserPromptSubmit → user_input        what the person typed
- *   Stop             → last_assistant_message   what the agent said back
+ * WHERE THE FIGURE COMES FROM. Not from this hook counting anything: each client
+ * already reports its own usage, and the reader per client below pulls it out of
+ * whatever that client writes. Claude Code and Codex keep it in the transcript
+ * file the hook is handed a path to, Antigravity in a local database, OpenCode
+ * hands it over in process. That file is read ONLY for its usage numbers; no
+ * prose is read out of it and none is sent.
  *
- * WHAT IS SENT, AND WHEN NOTHING IS. Two gates, cheapest first:
- *
- *   1. No credential → nothing. The same rule every hook here follows.
- *   2. Not in a fleet → the SERVER drops it. This hook cannot know whether a
- *      grant exists, and asking would be a round trip before every send; the
- *      API answers 204 and the row is never written. That check is on the
- *      server deliberately: a check that lived here would live on the machine
- *      of the person it is about.
- *
- * SECRETS ARE REMOVED BEFORE THE TEXT LEAVES. The guard already strips secrets
- * out of tool results; shipping the same secret because somebody pasted it into
- * a prompt would be a leak with this product's name on it. The redaction uses
- * the pattern set the guard cached, so it is the customer's configured set and
- * not a second opinion, and the row is flagged so a host reading a masked line
- * knows it was masked rather than typed that way.
+ * WHAT IS SENT, AND WHEN NOTHING IS. No credential -> nothing, the same rule
+ * every hook here follows. The server keys on the turn id and ignores a repeat,
+ * so a re-send costs bytes and nothing else.
  *
  * Fire-and-forget, and every failure is silent. This hook must never delay a
  * turn and must never be the reason one fails: it records something ABOUT the
@@ -45,11 +34,10 @@ const require = createRequire(import.meta.url);
 
 // Bump on every change to this file, alongside the other hooks.
 //
-// 4 adds the token report: what a turn COST, sent beside the record of what was
-// said. It rides on this hook because the events are the same events — a turn
-// ends once, and a second registration for the same moment is a second thing to
-// install and a second thing that can be missing.
-const HOOK_VERSION = 4;
+// 5 drops the transcript half. The number carries on from the file this was
+// carved out of rather than restarting at 1, so a machine holding the old hook
+// sees a newer version and replaces it.
+const HOOK_VERSION = 5;
 
 const AGENT_ID = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
 
@@ -62,140 +50,10 @@ function loadGlobalCloudConfig() {
   } catch { return {}; }
 }
 
-function loadPolicyCache() {
-  try {
-    const f = resolve(homedir(), '.solongate', '.policy-cache-' + AGENT_ID + '.json');
-    if (!existsSync(f)) return null;
-    return JSON.parse(readFileSync(f, 'utf-8'));
-  } catch { return null; }
-}
-
-// The pattern set the guard cached, so redaction here is the customer's own
-// configuration rather than a second opinion invented in this file.
-const DLP_PATTERNS = [
-  { name: 'AWS key', re: /AKIA[0-9A-Z]{16}/g },
-  { name: 'GitHub token', re: /gh[pousr]_[A-Za-z0-9]{36,}/g },
-  { name: 'OpenAI key', re: /sk-[A-Za-z0-9]{20,}/g },
-  { name: 'Anthropic key', re: /sk-ant-[A-Za-z0-9_-]{20,}/g },
-  { name: 'Slack token', re: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
-  { name: 'Stripe key', re: /[rs]k_(live|test)_[A-Za-z0-9]{16,}/g },
-  { name: 'SendGrid key', re: /SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g },
-  { name: 'Twilio key', re: /SK[0-9a-fA-F]{32}/g },
-  { name: 'npm token', re: /npm_[A-Za-z0-9]{36}/g },
-  { name: 'JWT', re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
-  { name: 'Bearer token', re: /bearer\s+[A-Za-z0-9._-]{20,}/gi },
-  // Private keys are masked whatever the configured set says. A PEM block in a
-  // prompt is the one thing that must not reach a host's screen because
-  // somebody had not ticked a box.
-  { name: 'Private key block', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, always: true },
-];
-
-// Redact what the configured set names, plus what is always redacted.
-// Returns the text and whether anything was masked.
-function redact(text, cache) {
-  let out = String(text || '');
-  let masked = false;
-  let enabled = null;
-  try {
-    const d = cache && cache.security && cache.security.dlpRedact;
-    if (d && Array.isArray(d.patterns)) enabled = new Set(d.patterns);
-  } catch { enabled = null; }
-
-  for (const p of DLP_PATTERNS) {
-    if (!p.always && (!enabled || !enabled.has(p.name))) continue;
-    try {
-      p.re.lastIndex = 0;
-      if (!p.re.test(out)) continue;
-      p.re.lastIndex = 0;
-      out = out.replace(p.re, '[redacted: ' + p.name + ']');
-      masked = true;
-    } catch { /* a pattern that will not run leaves the text alone */ }
-  }
-  return { text: out, masked };
-}
-
-// There is no local-logs gate here any more, and its absence is deliberate.
-//
-// It read the local-log setting and sent nothing when it looked on — which it
-// did for anybody who had ever typed a folder into that field, because the
-// predicate counted the PATH as well as the switch and the path survives
-// turning the feature off. So the record was silently empty on accounts whose
-// settings said local logging was off, with nothing anywhere to say so.
-//
-// Fixing the predicate was the small answer. The gate itself is the wrong idea:
-// this record exists ONLY for a machine in a fleet, where a host is answerable
-// for what runs there, and a setting on the guest's own machine that switches
-// off the host's view of it is a self-disarm — the exact shape this product
-// exists to prevent everywhere else. Local logging decides where a machine
-// keeps its OWN copy; it was never a claim on somebody else's record.
-//
-// What still applies is unchanged and is what actually protects people: no
-// credential, nothing sent; no accepted grant, the server drops it; and secrets
-// are removed before the text leaves the machine.
-
 function readStdin() {
   try { return readFileSync(0, 'utf-8'); } catch { return ''; }
 }
 
-// send is one turn, redacted, to the API. Both payload shapes end here.
-async function send(sessionId, role, body, agentName) {
-  if (!sessionId || !String(body).trim()) return;
-
-  const cfg = loadGlobalCloudConfig();
-  const apiKey = process.env.SOLONGATE_API_KEY || cfg.apiKey || '';
-  const apiUrl = process.env.SOLONGATE_API_URL || cfg.apiUrl || 'https://api.solongate.com';
-  if (!apiKey) return;
-
-  const cache = loadPolicyCache();
-  const cleaned = redact(body, cache);
-  try {
-    await fetch(`${apiUrl}/api/v1/conversations`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        session_id: sessionId,
-        role,
-        body: cleaned.text,
-        redacted: cleaned.masked,
-        agent_id: AGENT_ID,
-        agent_name: agentName || '',
-        source: `${AGENT_ID}-hook`,
-        hook_version: HOOK_VERSION,
-      }),
-    });
-  } catch { /* silent: a record that could not be sent must not fail a turn */ }
-}
-
-// sendAntigravity writes both halves of the exchange from one Stop payload.
-//
-// The prompt goes first and the reply second, and they are sent in that order
-// rather than concurrently: the rows are ordered by their timestamps, and two
-// requests in flight at once can land in the other order on a fast link — which
-// would draw the answer above the question.
-async function sendAntigravity(common, stop) {
-  const sessionId = common.conversationId || common.conversation_id ||
-    common.sessionId || common.session_id || '';
-  if (!sessionId) return;
-  const name = common.agentName || common.agent_name || 'Antigravity';
-
-  const prompt = common.lastUserInput || common.last_user_input || '';
-  if (String(prompt).trim()) await send(sessionId, 'prompt', prompt, name);
-
-  const reply = stop ? (stop.finalModelOutput || stop.final_model_output || '') : '';
-  if (String(reply).trim()) await send(sessionId, 'reply', reply, name);
-}
-
-// ── what a turn COST ───────────────────────────────────────────────────────
-//
-// Inlined rather than imported from a sibling, and that is not tidiness. Hooks
-// are installed as individual files by name and refreshed over the wire the
-// same way; a conversation.mjs that imports ./tokens.mjs would MODULE_NOT_FOUND
-// on any machine whose installer predates the second file — and an import that
-// throws takes the whole hook with it, losing the conversation record as well
-// as the figure. One file cannot be half-installed.
 // How much of a transcript to read. A turn is a few kilobytes; two megabytes is
 // a long turn with large tool results in it, and reading a 50MB transcript on
 // every Stop is the cost this bound exists to refuse.
@@ -555,7 +413,7 @@ function tokenSourceOf(data) {
 
 (async () => {
   // Whatever happens below, this hook allows the turn. It has no opinion about
-  // whether the work should proceed; it is a record of it.
+  // whether the work should proceed; it is a record of what it cost.
   process.exitCode = 0;
 
   let data = {};
@@ -563,56 +421,41 @@ function tokenSourceOf(data) {
 
   const event = data.hook_event_name || data.hookEventName || '';
 
-  // ANTIGRAVITY sends a different shape, and one hook carries both halves.
-  //
-  // Its payload is `{common: {lastUserInput, conversationId, ...}, args: {...}}`
-  // — the person's last message rides on EVERY hook rather than on an event of
-  // its own, and the answer arrives as `stopHookArgs.finalModelOutput`. So one
-  // Stop registration records the whole exchange, where Claude Code and Codex
-  // need two events to do the same thing.
-  //
-  // It is detected by shape rather than by a flag, because the client name is
-  // an argv argument this hook is also given for the other three, and a payload
-  // is a fact while an argument is a claim.
-  // OPENCODE calls this hook directly from its plugin, which already knows
-  // which half it holds — its two halves arrive by different routes (a
-  // chat.message hook for the prompt, streamed text parts for the reply), so
-  // the plugin does the deciding and this file does the sending.
+  // OPENCODE calls this hook directly from its plugin, and its spend arrives
+  // already counted, in process, rather than being read back off a transcript
+  // the way the other three are.
   if (data.opencode === true) {
-    // Its spend arrives already counted, in process, rather than being read
-    // back off a transcript the way the other three are.
-    if (data.tokens === true) {
-      const cfg = loadGlobalCloudConfig();
-      await sendTokens({
-        apiUrl: cfg.apiUrl || 'https://api.solongate.com',
-        apiKey: cfg.apiKey || '',
-        sessionId: data.session_id || '',
-        agentId: AGENT_ID,
-        agentName: 'OpenCode',
-        source: 'opencode',
-        turns: [{
-          turn_key: data.turn_key || '',
-          input: data.input || 0,
-          output: data.output || 0,
-          cache_read: data.cache_read || 0,
-          cache_write: data.cache_write || 0,
-          reasoning: data.reasoning || 0,
-          total: data.total || 0,
-          at: data.at || 0,
-        }],
-      });
-      return;
-    }
-    await send(data.session_id || '', data.role === 'reply' ? 'reply' : 'prompt',
-      data.body || '', 'OpenCode');
+    if (data.tokens !== true) return;
+    const cfg = loadGlobalCloudConfig();
+    await sendTokens({
+      apiUrl: cfg.apiUrl || 'https://api.solongate.com',
+      apiKey: cfg.apiKey || '',
+      sessionId: data.session_id || '',
+      agentId: AGENT_ID,
+      agentName: 'OpenCode',
+      source: 'opencode',
+      turns: [{
+        turn_key: data.turn_key || '',
+        input: data.input || 0,
+        output: data.output || 0,
+        cache_read: data.cache_read || 0,
+        cache_write: data.cache_write || 0,
+        reasoning: data.reasoning || 0,
+        total: data.total || 0,
+        at: data.at || 0,
+      }],
+    });
     return;
   }
 
+  // ANTIGRAVITY sends a different shape: `{common: {...}, args: {...}}`, with
+  // the generations already on disk. It is detected by shape rather than by a
+  // flag, because the client name is an argv argument this hook is also given
+  // for the other three, and a payload is a fact while an argument is a claim.
   const agCommon = data.common || (data.hookArgs && data.hookArgs.common) || null;
   const agStop = data.stopHookArgs || (data.args && data.args.stopHookArgs) ||
     (data.hookArgs && data.hookArgs.stopHookArgs) || null;
-  if (agCommon && (agStop || agCommon.lastUserInput)) {
-    await sendAntigravity(agCommon, agStop);
+  if (agCommon) {
     // Only at the END of an exchange: this hook fires on several events and the
     // generations are already on disk, so reading them on every one would be
     // the same rows read many times for nothing.
@@ -624,32 +467,11 @@ function tokenSourceOf(data) {
     return;
   }
 
-  // The two halves. Nothing else is listened for: PreToolUse and PostToolUse
-  // already have hooks and are about tool calls rather than about words.
-  let role = '';
-  let body = '';
-  if (event === 'UserPromptSubmit') {
-    role = 'prompt';
-    body = data.user_input || data.prompt || '';
-  } else if (event === 'Stop' || event === 'SubagentStop') {
-    role = 'reply';
-    // The field the documentation points at for the CURRENT turn. The
-    // transcript on disk lags the live conversation, so reading it here would
-    // sometimes record the previous answer.
-    body = data.last_assistant_message || '';
-  } else {
-    return;
-  }
+  // Stop is the one event that matters: a turn ends once, and that is when its
+  // cost is final. A turn that ended with a tool call and no prose still cost
+  // something, so nothing here is gated on there having been words.
+  if (event !== 'Stop' && event !== 'SubagentStop') return;
   const sessionId = data.session_id || data.sessionId || data.conversation_id || '';
   if (!sessionId) return;
-
-  // The cost is read at Stop, whether or not there were words to record. A turn
-  // that ended with a tool call and no prose still cost something, and gating
-  // the figure on the transcript would lose exactly the turns that ran longest.
-  if (role === 'reply') {
-    await reportTokens(data, tokenSourceOf(data), sessionId, data.agent_name || '');
-  }
-
-  if (!String(body).trim()) return;
-  await send(sessionId, role, body, data.agent_name || '');
+  await reportTokens(data, tokenSourceOf(data), sessionId, data.agent_name || '');
 })();

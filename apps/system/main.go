@@ -201,9 +201,8 @@ func main() {
 	// EXISTS would take the API down for something already done.
 	//
 	// EnsureRuntimeTables stays retryable after a failure, so a route slice
-	// that touches device_codes, sessions, agent_baselines, anomaly_events or
-	// should call it first — that is what `await schemaReady` at
-	// the top of those routes means.
+	// that touches a table it creates should call it first — that is what
+	// `await schemaReady` at the top of those routes meant.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	if err := db.EnsureRuntimeTables(ctx); err != nil {
 		log.Printf("api: runtime tables not ready, routes that need them will retry: %v", err)
@@ -217,11 +216,6 @@ func main() {
 	// last_used_at is buffered and flushed on a timer; see the comment on
 	// StartLastUsedFlusher for why it is not written per request.
 	go srv.auth.StartLastUsedFlusher(root)
-
-	// The one table in this schema that expires. Everything else here grows
-	// forever, which is survivable for a ledger row and is not for a stored
-	// conversation; see TurnRetention.
-	startTurnPurge(srv)
 
 	httpServer := &http.Server{
 		Addr:    cfg.addr,

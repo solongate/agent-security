@@ -161,8 +161,6 @@ solongate ratelimit          show and edit rate limits
 solongate dlp                show and edit secret detection
 solongate audit              browse the audit log
 solongate watch              live-tail tool calls
-solongate sessions           live agent-session feed
-solongate session <id>       one session's detail
 solongate trace              what the guard saw in this directory
 solongate stats              traffic and security statistics
 solongate alerts             spike alerts on denials, DLP and rate limits

@@ -90,14 +90,13 @@ func DefaultLocalLogFile() string {
 	return filepath.Join(LocalLogsDir(), "solongate-audit.jsonl")
 }
 
-// Marker recording which account the local log belongs to. A hash, never the
-// key, and never deleted with the log: readers keep only their own entries so a
-// change of account separates the history rather than destroying it.
-func LocalLogOwnerPath() string { return filepath.Join(LocalLogsDir(), ".owner") }
-
-func PolicyCachePath(agent string) string {
-	return filepath.Join(Dir(), ".policy-cache-"+AgentKey(agent)+".json")
-}
+// LocalLogOwnerPath and PolicyCachePath stood here.
+//
+// The first named a `.owner` marker holding a hash of the account the local log
+// belonged to, so a change of account separated the history rather than destroying it.
+// The second named the per-agent policy cache. There are no accounts and nothing
+// writes a cache; see credentials.go and state.go for what the last readers of each
+// were doing wrong by the end.
 
 // AgentKey sanitises an agent id into a filename component. It has to produce
 // the same name as the hooks or this CLI opens a cache file nothing writes.

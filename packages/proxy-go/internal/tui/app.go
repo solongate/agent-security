@@ -61,15 +61,10 @@ type PanelContext struct {
 	// still renders while it does not.
 	Focused bool
 
-	// ViewAPIKey is the account the dataroom is LOOKING at, which is not
-	// necessarily the one this device enforces with (config.EnforcingKey).
-	// Empty means no account is paired.
-	ViewAPIKey string
-
 	// Gen is the mount generation. Any message a panel sends back to itself
 	// asynchronously should carry it and implement GenMsg, or a response that
-	// was in flight when the account changed lands in the panel that replaced
-	// it and shows the previous account's data.
+	// was in flight when the panel remounted lands in the panel that replaced it
+	// and shows the previous mount's data.
 	Gen int
 
 	// Now is fixed for the whole update-and-render pass, so a row cannot be
@@ -252,7 +247,8 @@ func New(deps Deps) *App {
 }
 
 func (a *App) Init() tea.Cmd {
-	return tea.Batch(a.mount(), a.reconcileLocalLogOwner(), a.readPolicyLabel())
+	// a.reconcileLocalLogOwner() ran here, before any panel read the log. See below.
+	return tea.Batch(a.mount(), a.readPolicyLabel())
 }
 
 // policyLabelMsg carries the header line back to the shell.
@@ -444,16 +440,9 @@ func (a *App) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
-// reconcileLocalLogOwner makes sure the machine-local log belongs to the
-// account in use before any panel reads it. It is one file per machine and
-// carries no account of its own, so a newly paired account would otherwise open
-// onto the previous one's calls.
-func (a *App) reconcileLocalLogOwner() tea.Cmd {
-	return func() tea.Msg {
-		config.EnsureLocalLogOwner(config.EnforcingKey())
-		return nil
-	}
-}
+// reconcileLocalLogOwner lived here. It stamped a `.owner` marker beside the log
+// naming the account the log belonged to, so a newly paired account did not open onto
+// the previous one's calls. One machine has one log and no account to own it.
 
 // ── rendering ──────────────────────────────────────────────────────────────
 
@@ -644,10 +633,6 @@ var shellHelp = []helpGroup{
 		{"e", "webhook events"},
 		{"d d", "delete"},
 		{"r", "refresh"},
-	}},
-	{"Accounts", [][2]string{
-		{"a", "switch account (view another account logged in on this device)"},
-		{"", "the header shows which account you are viewing; guard/logging keep the active key"},
 	}},
 }
 

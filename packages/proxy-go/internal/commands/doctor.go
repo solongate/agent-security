@@ -76,7 +76,6 @@ func CollectChecks(ctx context.Context, c *api.Client) []Check {
 
 	checks = append(checks, nativeGuardCheck()...)
 	checks = append(checks, clientChecks()...)
-	checks = append(checks, credentialCheck()...)
 	checks = append(checks, localLogCheck()...)
 	return checks
 }
@@ -316,44 +315,18 @@ func clientChecks() []Check {
 	return checks
 }
 
-// credentialCheck surfaces the cloud rejecting the credential a HOOK used.
+// credentialCheck stood here, and reported `hook credential  rejected by <api> 3m ago
+// · key from <source> - nothing is being logged from there`. It read a marker the
+// guard dropped on a 401 or a 403, which named which of three places the key had come
+// from — the point being that a stale key in the .env of whatever folder an agent
+// happened to start in silenced every audit write while enforcement kept working.
 //
-// The hooks resolve their key as env → the .env of the folder the agent runs in
-// → the login, so a stale key in a project (or home) .env makes every audit
-// write 401 while enforcement keeps working — invisible unless it is said out
-// loud. The guard drops this marker on a 401/403 and removes it on the next
-// success, so its presence is the whole finding.
-func credentialCheck() []Check {
-	m := config.LoadKeyRejected()
-	if m == nil {
-		return nil
-	}
-	apiURL := m.APIURL
-	if apiURL == "" {
-		apiURL = "the API"
-	}
-	age := ""
-	if m.TS != 0 {
-		mins := roundHalfUp(float64(time.Now().UnixMilli()-m.TS) / 60000)
-		age = " " + strconv.FormatInt(mins, 10) + "m ago"
-	}
-	keySource := m.KeySource
-	if keySource == "" {
-		keySource = "?"
-	}
-	cwd := ""
-	if m.Cwd != "" {
-		cwd = " (agent cwd " + m.Cwd + ")"
-	}
-	return []Check{{Name: "hook credential", OK: StateFail,
-		Detail: "rejected by " + apiURL + age + " · key from " + keySource + cwd +
-			" - nothing is being logged from there"}}
-}
+// Nothing writes to a service, so nothing is ever rejected. What could still silence
+// an audit write is a folder that cannot be written, and localLogCheck below says so.
 
-// localLogCheck resolves the folder configured in the dashboard rather than
-// assuming the default one. Every viewer used to read the default
-// unconditionally, so a custom folder made doctor report an empty log while
-// entries were landing correctly somewhere else.
+// localLogCheck resolves the folder the POLICY configures rather than assuming the
+// default one. Every viewer used to read the default unconditionally, so a custom
+// folder made doctor report an empty log while entries landed somewhere else.
 func localLogCheck() []Check {
 	file := config.LocalLogFile()
 	st, err := os.Stat(file)

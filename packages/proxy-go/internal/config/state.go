@@ -3,8 +3,6 @@ package config
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/codeyevsky/solongate/sgshared"
 )
@@ -34,66 +32,35 @@ type Security = sgshared.Security
 // how a policy round trip loses fields the CLI never knew about.
 type Policy = sgshared.Policy
 
-// PolicyCache mirrors ~/.solongate/.policy-cache-<agent>.json.
+// PolicyCache is the ENVELOPE the policy file may be written in:
+// `{policy, security, selfProtect}`. The name is historical — it mirrored
+// .policy-cache-<agent>.json, which a service filled — and it is kept because
+// sgshared calls it that and both guards decode the file into it.
 //
-// Security is a pointer on purpose. `null` there is an ANSWER — the API sent no
-// security block, so this project has none — and it has to stay distinguishable
-// from "the field was absent". HasSecurity carries that distinction, which a Go
+// Security is a pointer on purpose. `null` there is an ANSWER — this machine
+// configures no layers — and it has to stay distinguishable from "the field was
+// absent", which means defaults. HasSecurity carries that distinction, which a Go
 // pointer alone cannot.
 type PolicyCache = sgshared.PolicyCache
 
-// LoadPolicyCache returns nil when there is no readable cache for this agent.
-// Nil is a MISS and callers must treat it as one; it is never "there is nothing
-// configured".
-func LoadPolicyCache(agent string) *PolicyCache {
-	b, err := os.ReadFile(PolicyCachePath(agent))
-	if err != nil {
-		return nil
-	}
-	var c PolicyCache
-	if err := json.Unmarshal(b, &c); err != nil {
-		return nil
-	}
-	return &c
-}
-
-// PolicyCachesNewestFirst lists every agent's cache on this device, most
-// recently refreshed first. Readers that want "what is configured here" walk
-// them in this order: the freshest cache is the one whose agent last spoke to
-// the cloud, so it carries the current answer.
-func PolicyCachesNewestFirst() []string {
-	entries, err := os.ReadDir(Dir())
-	if err != nil {
-		return nil
-	}
-	type stamped struct {
-		path string
-		mod  int64
-	}
-	var found []stamped
-	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasPrefix(name, ".policy-cache-") || !strings.HasSuffix(name, ".json") {
-			continue
-		}
-		p := filepath.Join(Dir(), name)
-		var mod int64
-		if info, err := e.Info(); err == nil {
-			mod = info.ModTime().UnixNano()
-		}
-		found = append(found, stamped{p, mod})
-	}
-	for i := 1; i < len(found); i++ {
-		for j := i; j > 0 && found[j].mod > found[j-1].mod; j-- {
-			found[j], found[j-1] = found[j-1], found[j]
-		}
-	}
-	out := make([]string, 0, len(found))
-	for _, f := range found {
-		out = append(out, f.path)
-	}
-	return out
-}
+// LoadPolicyCache and PolicyCachesNewestFirst lived here.
+//
+// The cache held a service's answer — the policy, the layers, the tamper flag — per
+// agent, with the freshest file winning because its agent had spoken to the service
+// most recently. Nothing has written one since the refresh was removed, so every read
+// missed, and each reader then did something worse than nothing:
+//
+//	LocalLogsSetting    returned "off, default folder" on every machine, and Live
+//	                    SKIPS READING THE LOG when it is told off — so the guard
+//	                    wrote entries no viewer would show.
+//	audit.mjs           let a cache OUTRANK the policy file, so one left behind by an
+//	                    older install could switch off the DLP the file configures.
+//	shield.mjs          fell back to "every built-in pattern, no custom ones", so a
+//	                    custom pattern never reached the only surface that sees the
+//	                    prompt.
+//
+// All three read the policy file now. PolicyCache itself stays as a TYPE: it is the
+// shape of the policy file's envelope, which is what sgshared calls it.
 
 // TUIConfig is ~/.solongate/tui-config.json. Every field is optional; a missing
 // or unreadable file is defaults, never an error the user has to deal with.
@@ -234,19 +201,11 @@ type KeyRejected struct {
 	APIURL    string `json:"apiUrl,omitempty"`
 }
 
-// LoadKeyRejected returns nil when the last cloud call this device made was
-// accepted, which is the common case.
-func LoadKeyRejected() *KeyRejected {
-	b, err := os.ReadFile(KeyRejectedPath())
-	if err != nil {
-		return nil
-	}
-	var k KeyRejected
-	if json.Unmarshal(b, &k) != nil {
-		return nil
-	}
-	return &k
-}
+// LoadKeyRejected lived here. The guard dropped a marker when a service answered 401
+// or 403 to an audit write and removed it on the next success, so its presence was the
+// whole finding: a stale key in a project .env made every write fail while enforcement
+// kept working, which is invisible unless something says it out loud. Nothing writes a
+// marker, because nothing writes to a service.
 
 // writeJSONCompact matches the Node writers: JSON.stringify with no indent.
 // Indentation would be cosmetic here and these files are read by both

@@ -1,7 +1,6 @@
 package panels
 
 import (
-	"regexp"
 	"strings"
 	"time"
 
@@ -45,7 +44,10 @@ func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { ret
 // looks at it. The labels are honest about the passes; only the pacing is
 // cosmetic, and it exists because a check that answers in 8ms would otherwise
 // flash past unread and look like nothing ran.
-var doctorSteps = []string{"login", "active policy", "guard hook", "agent hooks", "local logs"}
+// The names doctor reports, in order, so the panel can show progress before the run
+// finishes. `login` was the first of them and is gone with the account: the first
+// thing doctor checks is the policy FILE everything else comes from.
+var doctorSteps = []string{"policy file", "active policy", "guard hook", "agent hooks", "local logs"}
 
 // ── rows ───────────────────────────────────────────────────────────────────
 
@@ -608,25 +610,20 @@ func (p *Settings) firstError() error {
 	return nil
 }
 
-var authErrorShape = regexp.MustCompile(`(?i)invalid api key|authentication|401|unauthor|not logged in`)
+// authErrorShape matched an error worth keeping the panel open for: every loader here
+// spoke to a service, and a revoked key 401'd all of them at once. Rendering that
+// error INSTEAD of the rows hid the Accounts section — the only way to remove the dead
+// account and pair again — so a device revoked from the dashboard was stuck being told
+// to use a panel it could not see.
+//
+// Nothing 401s. The loaders read a file, and the two failures a file has (absent,
+// unparseable) are already the ordinary error path below.
 
 func (p *Settings) viewList() string {
 	loading := !p.haveLocal && !p.haveGuard && !p.haveSelf && p.firstError() == nil
 	raw := p.firstError()
 
-	// An AUTH failure must never take the panel over. Every cloud loader here
-	// 401s when the stored key is revoked, and rendering the error INSTEAD of
-	// the rows hides the Accounts section — which is the only way to remove the
-	// dead account and pair again. A device revoked from the dashboard was then
-	// stuck: the CLI said "log in from the Accounts panel" while that panel
-	// showed nothing but that sentence.
-	var authErr error
-	var err error
-	if raw != nil && authErrorShape.MatchString(raw.Error()) {
-		authErr = raw
-	} else {
-		err = raw
-	}
+	err := raw
 	if err != nil || loading {
 		return dataView(loading, err, false, "", "")
 	}
@@ -734,12 +731,11 @@ func (p *Settings) viewList() string {
 	push(" ", "")
 	push(stDim.Render("solongate v"+Version), "")
 
-	// hint + status take one line each, and the auth banner one more when it is
-	// shown. The panel must not grow past its box.
+	// hint + status take one line each. The panel must not grow past its box.
+	//
+	// A third line used to be reserved when the auth banner was showing. There is no
+	// banner: nothing here can fail with a credential error.
 	budget := max(4, p.rows-2)
-	if authErr != nil {
-		budget = max(4, p.rows-3)
-	}
 	selLine := 0
 	for i, l := range lines {
 		if l.key == curKey {
@@ -759,17 +755,6 @@ func (p *Settings) viewList() string {
 		hint = "↑↓ move · enter act · m toggle · t test · e edit · x remove · d delete · n add" + scrollTag(above, below)
 	}
 	out = append(out, stDim.Render(hint))
-
-	if authErr != nil {
-		// Two different problems, two different ways out: a key that exists and
-		// is rejected, versus no key at all. Telling someone already inside the
-		// dataroom to "run solongate" is the message that made this look broken.
-		text := "✗ this device's key is invalid or was revoked — press x on the account below to remove it, then + add account to pair again"
-		if strings.Contains(strings.ToLower(authErr.Error()), "not logged in") {
-			text = "✗ this device is not paired yet — press + add account below to sign in and pair it"
-		}
-		out = append(out, stBad.Render(truncate(text, p.cols)))
-	}
 
 	switch {
 	case p.editing != "":

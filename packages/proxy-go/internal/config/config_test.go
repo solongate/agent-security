@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,208 +62,25 @@ func TestAgentKeyMatchesTheHooks(t *testing.T) {
 	}
 }
 
-// Credential precedence has to match the Node client's exactly: env, then the
-// active-key file, then a .env in the working directory. Getting the order
-// wrong means a machine with a stale project .env enforces with one account and
-// reports on another.
-func TestResolvePrecedence(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeCred(t, Credential{APIKey: "sg_live_fromfile0000000000", APIURL: "https://file.example"})
-
-	cwd := t.TempDir()
-	if err := os.WriteFile(filepath.Join(cwd, ".env"), []byte("SOLONGATE_API_KEY=sg_live_fromdotenv000000\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	chdir(t, cwd)
-
-	t.Run("env wins", func(t *testing.T) {
-		t.Setenv("SOLONGATE_API_KEY", "sg_live_fromenv00000000000")
-		r := &Resolver{}
-		c, err := r.Resolve("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if c.APIKey != "sg_live_fromenv00000000000" {
-			t.Errorf("key = %q, want the environment's", c.APIKey)
-		}
-		// The URL still comes from the file: only the key was overridden.
-		if c.APIURL != "https://file.example" {
-			t.Errorf("url = %q, want the file's", c.APIURL)
-		}
-	})
-
-	t.Run("file beats dotenv", func(t *testing.T) {
-		t.Setenv("SOLONGATE_API_KEY", "")
-		r := &Resolver{}
-		c, err := r.Resolve("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if c.APIKey != "sg_live_fromfile0000000000" {
-			t.Errorf("key = %q, want the active-key file's", c.APIKey)
-		}
-	})
-
-	t.Run("dotenv is the last resort", func(t *testing.T) {
-		t.Setenv("SOLONGATE_API_KEY", "")
-		if err := os.Remove(CredentialPath()); err != nil {
-			t.Fatal(err)
-		}
-		r := &Resolver{}
-		c, err := r.Resolve("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if c.APIKey != "sg_live_fromdotenv000000" {
-			t.Errorf("key = %q, want the .env's", c.APIKey)
-		}
-		if c.APIURL != DefaultAPIURL {
-			t.Errorf("url = %q, want the default", c.APIURL)
-		}
-	})
-}
-
-// A --api-url override must not be cached and must not be answered from the
-// view override, or one request against another environment changes what the
-// whole process reads afterwards.
-func TestAPIURLOverrideDoesNotLeak(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("SOLONGATE_API_KEY", "")
-	t.Setenv("SOLONGATE_API_URL", "")
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeCred(t, Credential{APIKey: "sg_live_abcdef0123456789", APIURL: "https://stored.example"})
-	chdir(t, t.TempDir())
-
-	r := &Resolver{}
-	if c, _ := r.Resolve("https://other.example/"); c.APIURL != "https://other.example" {
-		t.Errorf("override url = %q, want the override with its trailing slash trimmed", c.APIURL)
-	}
-	c, err := r.Resolve("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.APIURL != "https://stored.example" {
-		t.Errorf("url after an override = %q, want the stored one", c.APIURL)
-	}
-}
-
-// The view override is what the dataroom's account switcher sets. It must never
-// reach disk: the guard hooks keep enforcing with the device's real key while
-// the user looks at another account.
-func TestViewOverrideNeverTouchesDisk(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("SOLONGATE_API_KEY", "")
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeCred(t, Credential{APIKey: "sg_live_enforcing00000000", APIURL: DefaultAPIURL})
-	chdir(t, t.TempDir())
-
-	r := &Resolver{}
-	r.SetView(&Credential{APIKey: "sg_live_viewing000000000", APIURL: DefaultAPIURL})
-	if c, _ := r.Resolve(""); c.APIKey != "sg_live_viewing000000000" {
-		t.Errorf("view override ignored, got %q", c.APIKey)
-	}
-	if EnforcingKey() != "sg_live_enforcing00000000" {
-		t.Errorf("the on-disk enforcing key changed: %q", EnforcingKey())
-	}
-}
-
-// ListAccounts seeds from the active-key file so the account this device
-// enforces with is always visible, including on a machine that paired before
-// accounts.json existed.
-func TestListAccountsSeedsFromTheActiveKey(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeCred(t, Credential{APIKey: "sg_live_active0000000000", APIURL: DefaultAPIURL})
-
-	list := ListAccounts()
-	if len(list) != 1 || list[0].APIKey != "sg_live_active0000000000" {
-		t.Fatalf("expected the active key to be seeded, got %+v", list)
-	}
-
-	SaveAccount(SavedAccount{APIKey: "sg_live_other00000000000", APIURL: DefaultAPIURL, Email: "b@example.com"})
-	list = ListAccounts()
-	if len(list) != 2 {
-		t.Fatalf("expected both accounts, got %+v", list)
-	}
-	// The seed goes to the FRONT, matching the Node client: the account this
-	// device enforces with is the one the dataroom should land on.
-	if list[0].APIKey != "sg_live_active0000000000" {
-		t.Errorf("the enforcing account is not first: %+v", list)
-	}
-
-	RemoveAccount("sg_live_other00000000000")
-	if len(ListAccounts()) != 1 {
-		t.Errorf("remove did not take: %+v", ListAccounts())
-	}
-}
-
-// SetActiveAccount must merge, not replace. The file can carry keys written by
-// a newer version of the npm package and this CLI overwriting them would be one
-// implementation deleting the other's state.
-func TestSetActiveAccountPreservesUnknownFields(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	raw := `{"apiKey":"sg_live_old000000000000","apiUrl":"https://old.example","somethingElse":{"kept":true}}`
-	if err := os.WriteFile(CredentialPath(), []byte(raw), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if !SetActiveAccount(Credential{APIKey: "sg_live_new000000000000", APIURL: "https://new.example"}) {
-		t.Fatal("SetActiveAccount reported failure")
-	}
-	var got map[string]any
-	b, err := os.ReadFile(CredentialPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["apiKey"] != "sg_live_new000000000000" {
-		t.Errorf("apiKey not updated: %v", got["apiKey"])
-	}
-	if _, ok := got["somethingElse"]; !ok {
-		t.Errorf("an unknown field was dropped: %v", got)
-	}
-}
-
-// Signing out clears the key without deleting the file, so ListAccounts stops
-// re-seeding the account that was just removed — the "phantom account" this
-// function exists to prevent.
-func TestClearActiveCredentialRemovesThePhantom(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeCred(t, Credential{APIKey: "sg_live_gone0000000000000", APIURL: DefaultAPIURL})
-
-	if !ClearActiveCredential() {
-		t.Fatal("ClearActiveCredential reported failure")
-	}
-	if EnforcingKey() != "" {
-		t.Errorf("key survived the sign-out: %q", EnforcingKey())
-	}
-	if len(ListAccounts()) != 0 {
-		t.Errorf("phantom account still listed: %+v", ListAccounts())
-	}
-}
+// FIVE TESTS OF THE ACCOUNT LAYER STOOD HERE, and they were good tests of a thing
+// this build does not have:
+//
+//	TestResolvePrecedence                      env, then the active-key file, then a
+//	                                           .env — the order a key was resolved in
+//	TestAPIURLOverrideDoesNotLeak              a --api-url must not be written to disk
+//	TestViewOverrideNeverTouchesDisk           reading as one account while another
+//	                                           enforces changes no file
+//	TestListAccountsSeedsFromTheActiveKey      the enforcing account appears in the
+//	                                           list even if only the active-key file
+//	                                           holds it
+//	TestSetActiveAccountPreservesUnknownFields a newer version's fields survive a
+//	                                           write by an older one
+//	TestClearActiveCredentialRemovesThePhantom signing out of the last account does
+//	                                           not leave it re-seeding itself
+//
+// There is no Resolver, no accounts.json and no active account — see credentials.go
+// for what the last callers of each were doing, and which of them was a bug. What
+// still has a test is what still exists: IsRealKey, below.
 
 // A key that will not work must not be treated as a key. The guard reads an
 // unusable one as "no project selected", which means allow, so a placeholder
@@ -288,24 +104,45 @@ func TestIsRealKey(t *testing.T) {
 	}
 }
 
-// Local logging: the setting and the evidence of the setting are different
-// questions. An enabled-but-empty log must not report as off.
+// writePolicy puts a policy document on the machine the test is pretending to be —
+// the same file the guard, the hooks and the CLI all read.
+func writePolicy(t *testing.T, body string) {
+	t.Helper()
+	if err := os.MkdirAll(Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(Dir(), "policy.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// WHERE the local log goes, resolved the way the HOOKS resolve it.
+//
+// These used to seed a policy CACHE, because that is where a service's answer was
+// kept. Nothing writes one, so every case fell through to "off, default folder" — and
+// `off` is not cosmetic: Live SKIPS READING THE LOG when it is told off, so the guard
+// wrote entries no viewer would ever show, on every machine.
+//
+// Enabled is now always true, and that is the honest answer rather than a
+// simplification: both writers record unconditionally and the setting chooses only the
+// folder. A `false` here used to mean "the entries go to the service instead"; with
+// nowhere to send them it would mean "lose them".
 func TestLocalLogsSetting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 
-	t.Run("no cache is off", func(t *testing.T) {
+	t.Run("no policy file: recording, in the default folder", func(t *testing.T) {
 		s := LocalLogsSetting()
-		if s.Enabled || s.File != DefaultLocalLogFile() {
-			t.Errorf("got %+v", s)
+		if !s.Enabled {
+			t.Error("recording is unconditional — a machine with no policy still keeps its log")
+		}
+		if s.File != DefaultLocalLogFile() {
+			t.Errorf("file = %s, want the default", s.File)
 		}
 	})
 
-	t.Run("enabled with no folder uses the default", func(t *testing.T) {
-		writeCache(t, "claude-code", `{"security":{"localLogs":{"enabled":true,"path":"  "}}}`)
+	t.Run("a policy naming no folder uses the default", func(t *testing.T) {
+		writePolicy(t, `{"security":{"localLogs":{"enabled":true,"path":"  "}}}`)
 		s := LocalLogsSetting()
 		if !s.Enabled || !s.UsableHere || s.File != DefaultLocalLogFile() {
 			t.Errorf("got %+v", s)
@@ -313,11 +150,8 @@ func TestLocalLogsSetting(t *testing.T) {
 	})
 
 	t.Run("a folder from another OS falls back rather than dropping", func(t *testing.T) {
-		writeCache(t, "claude-code", `{"security":{"localLogs":{"enabled":true,"path":"C:/logs/"}}}`)
+		writePolicy(t, `{"security":{"localLogs":{"enabled":true,"path":"C:/logs/"}}}`)
 		s := LocalLogsSetting()
-		if !s.Enabled {
-			t.Fatalf("got %+v", s)
-		}
 		if s.UsableHere {
 			t.Errorf("a Windows path should not be usable on this host: %+v", s)
 		}
@@ -331,60 +165,60 @@ func TestLocalLogsSetting(t *testing.T) {
 
 	t.Run("an existing folder is used", func(t *testing.T) {
 		dir := t.TempDir()
-		writeCache(t, "claude-code", `{"security":{"localLogs":{"enabled":true,"path":"`+dir+`/"}}}`)
+		writePolicy(t, `{"security":{"localLogs":{"enabled":true,"path":"`+dir+`/"}}}`)
 		s := LocalLogsSetting()
 		want := filepath.Join(dir, "solongate-audit.jsonl")
 		if !s.Enabled || !s.UsableHere || s.File != want {
 			t.Errorf("got %+v, want file %s", s, want)
 		}
 	})
+
+	// BOTH SPELLINGS. A policy document carrying `security` inside it is how one
+	// exported from elsewhere arrives, and every other reader on this machine accepts
+	// it — a viewer that did not would read a different folder than the hooks write to.
+	t.Run("security inside the policy document is found", func(t *testing.T) {
+		dir := t.TempDir()
+		writePolicy(t, `{"id":"p1","name":"P","mode":"denylist","rules":[],`+
+			`"security":{"localLogs":{"enabled":true,"path":"`+dir+`"}}}`)
+		s := LocalLogsSetting()
+		if want := filepath.Join(dir, "solongate-audit.jsonl"); s.File != want {
+			t.Errorf("file = %s, want %s", s.File, want)
+		}
+	})
+
+	// `enabled: false` NO LONGER TURNS RECORDING OFF, only the folder choice stands.
+	// The writers ignore the flag, so a viewer that honoured it would refuse to read a
+	// file that is being written.
+	t.Run("enabled:false still reads the log", func(t *testing.T) {
+		dir := t.TempDir()
+		writePolicy(t, `{"security":{"localLogs":{"enabled":false,"path":"`+dir+`"}}}`)
+		s := LocalLogsSetting()
+		if !s.Enabled {
+			t.Error("a viewer that refuses to read a file the guard writes shows nothing")
+		}
+		if want := filepath.Join(dir, "solongate-audit.jsonl"); s.File != want {
+			t.Errorf("file = %s, want the folder the policy names (%s)", s.File, want)
+		}
+	})
+
+	// An unreadable policy must not move the log. The guard falls back to the default
+	// folder for the same file, so a viewer that did anything else would look in the
+	// wrong place at exactly the moment somebody is debugging.
+	t.Run("half a policy file reads the default folder", func(t *testing.T) {
+		writePolicy(t, `{"security":{"localLogs":{`)
+		s := LocalLogsSetting()
+		if !s.Enabled || s.File != DefaultLocalLogFile() {
+			t.Errorf("got %+v", s)
+		}
+	})
 }
 
-// A cache that carries no answer must not out-vote one that does. An older
-// agent's cache without the localLogs field used to silently win.
-func TestLocalLogsSkipsCachesWithNoAnswer(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeCache(t, "old-agent", `{"security":{}}`)
-	writeCache(t, "new-agent", `{"security":{"localLogs":{"enabled":true,"path":""}}}`)
-	if s := LocalLogsSetting(); !s.Enabled {
-		t.Errorf("the cache with an answer was ignored: %+v", s)
-	}
-}
-
-// A policy cache carrying `security: null` is an ANSWER, not an absence, and
-// the two have to stay distinguishable.
-func TestPolicyCacheDistinguishesNullSecurity(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	writeCache(t, "a", `{"policy":null,"security":null}`)
-	c := LoadPolicyCache("a")
-	if c == nil {
-		t.Fatal("cache did not load")
-	}
-	if !c.HasSecurity {
-		t.Error("an explicit null security should still count as present")
-	}
-	if c.Security != nil {
-		t.Error("null security should decode to nil")
-	}
-
-	writeCache(t, "b", `{"policy":null}`)
-	c = LoadPolicyCache("b")
-	if c == nil {
-		t.Fatal("cache did not load")
-	}
-	if c.HasSecurity {
-		t.Error("an absent security field should not count as present")
-	}
-}
+// TestLocalLogsSkipsCachesWithNoAnswer and TestPolicyCacheDistinguishesNullSecurity
+// stood here. The first held a real hazard — an older agent's cache carrying no
+// localLogs field must not out-vote a newer one that did — and the second held the
+// line between `security: null` (an answer) and an absent field. Both were about a
+// cache nothing writes; the null-versus-absent distinction that mattered lives on in
+// internal/api's TestNullPolicyInAnEnvelopeKeepsTheLayers, against the file.
 
 // TUI notifications default ON, so an absent field must not read as off.
 func TestTUIConfigDefaults(t *testing.T) {
@@ -415,23 +249,10 @@ func TestTUIConfigDefaults(t *testing.T) {
 	}
 }
 
-func writeCred(t *testing.T, c Credential) {
-	t.Helper()
-	b, err := json.Marshal(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(CredentialPath(), b, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeCache(t *testing.T, agent, body string) {
-	t.Helper()
-	if err := os.WriteFile(PolicyCachePath(agent), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
+// writeCred and writeCache stood here: one seeded the active-key file for the
+// resolution tests, the other a per-agent .policy-cache-<agent>.json. Neither file is
+// written by anything now, and what a test seeds instead is the POLICY — writePolicy,
+// above.
 
 func chdir(t *testing.T, dir string) {
 	t.Helper()

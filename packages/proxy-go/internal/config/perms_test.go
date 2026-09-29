@@ -7,66 +7,68 @@ import (
 	"testing"
 )
 
-// The accounts file holds live API keys in cleartext, and it was written 0644 —
-// world-readable. On the machines this tool actually runs on (shared build boxes,
-// CI runners, containers with more than one account in them) that hands every
-// other user a working credential for the project.
+// TestTheAccountsFileIsOwnerOnly stood here. accounts.json held live API keys in
+// cleartext and was written 0644 — world-readable — which on the machines this tool
+// runs on (shared build boxes, CI runners, containers) handed every other user a
+// working credential. Nothing writes accounts.json any more; see credentials.go.
 //
-// Both halves are asserted: the mode on a file this code CREATES, and the mode on
-// one that was already there. Go's WriteFile only applies a mode on creation, so a
-// fix that only passed 0600 would leave every existing install exactly as exposed
-// as before — which is most of them.
-func TestTheAccountsFileIsOwnerOnly(t *testing.T) {
+// What the test knew is still true of the files that ARE written, and is the reason
+// the policy writer goes through a temporary file: os.WriteFile applies a mode only
+// when it CREATES a file, so passing 0600 leaves every existing install exactly as
+// exposed as it was — which is most of them. A rename puts a NEW inode in place, and
+// the new inode carries the mode that was asked for.
+//
+// This test holds the directory those files live in. The policy file's own mode is
+// held by internal/api (it is written there), by test/local-cli.mjs against the
+// built artifact, and by test/post-tool-hook.mjs for the audit trail.
+func TestTheConfigDirectoryIsOwnerOnly(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("POSIX permission bits")
+		t.Skip("POSIX modes")
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
 
-	acct := SavedAccount{APIKey: "sg_live_" + "0123456789abcdef0123456789abcdef", APIURL: "http://127.0.0.1:9"}
+	// The state of a machine that was set up by an older version: the directory is
+	// there already, and it is group- and world-readable.
+	dir := filepath.Join(home, ".solongate")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
-	t.Run("a file this code creates", func(t *testing.T) {
-		SaveAccount(acct)
-		info, err := os.Stat(AccountsPath())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := info.Mode().Perm(); got != 0o600 {
-			t.Errorf("accounts.json mode = %04o, want 0600 — it holds a live key", got)
-		}
-	})
+	if err := EnsureDir(); err != nil {
+		t.Fatal(err)
+	}
 
-	t.Run("and one already on disk, written before the fix", func(t *testing.T) {
-		// The state an existing install is in.
-		if err := os.Chmod(AccountsPath(), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		SaveAccount(acct)
-		info, err := os.Stat(AccountsPath())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := info.Mode().Perm(); got != 0o600 {
-			t.Errorf("mode = %04o, want 0600 — an existing file keeps its mode unless something narrows it", got)
-		}
-	})
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// MkdirAll applies a mode only when it CREATES the directory, so an existing one
+	// keeps whatever it had — the same trap as WriteFile. A directory holding the
+	// policy and the audit trail must not be readable by every user on the machine.
+	if mode := info.Mode().Perm(); mode != 0o700 {
+		t.Errorf("~/.solongate mode = %04o, want 0700 — an existing directory was left as it was", mode)
+	}
+}
 
-	t.Run("and the directory is not listable either", func(t *testing.T) {
-		if err := os.Chmod(Dir(), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := EnsureDir(); err != nil {
-			t.Fatal(err)
-		}
-		info, err := os.Stat(Dir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		// 0600 files inside a 0755 directory are still ENUMERABLE, which names the
-		// projects, the accounts and every agent that has run here.
-		if got := info.Mode().Perm(); got != 0o700 {
-			t.Errorf("%s mode = %04o, want 0700", filepath.Base(Dir()), got)
-		}
-	})
+// A directory this code CREATES gets the same mode, which is the half that was never
+// in doubt and is worth keeping so a change to EnsureDir cannot pass by fixing only
+// the case above.
+func TestAFreshConfigDirectoryIsOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := EnsureDir(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(home, ".solongate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o700 {
+		t.Errorf("~/.solongate mode = %04o, want 0700", mode)
+	}
 }

@@ -27,6 +27,11 @@ export default defineConfig({
     // from both, which is the check that a policy cannot mean two things on one
     // machine. It can only do that if this is a file it can import.
     'src/policy-engine/engine.ts',
+    // Where this machine's audit trail is. Pure module, no React — and it has to be
+    // importable on its own because test/log-location.mjs holds it to the resolution
+    // the HOOKS use. The two answering differently is how a viewer ends up showing an
+    // empty log while entries land correctly somewhere else.
+    'src/tui/local-log.ts',
     // Management CLI: scriptable commands + interactive Ink TUI. Both are only
     // reached via dynamic import() from src/index.ts, so the proxy runtime never
     // pulls in the API-client / React / Ink code.

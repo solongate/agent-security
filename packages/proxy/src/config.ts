@@ -3,9 +3,9 @@ import { readFileSync, existsSync, mkdirSync, appendFileSync, chmodSync } from '
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 
-// Credential written when this machine is paired (~/.solongate/cloud-guard.json).
-// Lets every solongate command authenticate after pairing once — no API key
-// flag/env needed anywhere. Shape: { apiKey, apiUrl }.
+// The credential file, if a machine upgraded from a build that wrote one still has it.
+// NOTHING WRITES IT, and nothing decides anything with what it holds — reading a key
+// out of it is more honest than pretending it is not there. Shape: { apiKey, apiUrl }.
 function loginCredential(): { apiKey?: string; apiUrl?: string } {
   try {
     const p = join(homedir(), '.solongate', 'cloud-guard.json');
@@ -318,9 +318,8 @@ export function parseArgs(argv: string[]): ProxyConfig {
     }
   }
   if (!apiKey) {
-    // Fall back to the dataroom login credential — the zero-config path:
-    // log in once (run `solongate`, Accounts panel), then every command works
-    // with no API key anywhere.
+    // A credential this machine was left with by an older build. There is nothing to
+    // pair and nothing to log in to; this reads what is there rather than ignoring it.
     const cred = loginCredential();
     if (cred.apiKey) apiKey = cred.apiKey;
   }

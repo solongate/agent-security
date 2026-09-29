@@ -32,7 +32,6 @@ type localLogLine struct {
 	Permission       string          `json:"permission"`
 	TrustLevel       string          `json:"trust_level"`
 	SessionID        string          `json:"session_id"`
-	Acct             string          `json:"acct"`
 	AgentName        string          `json:"agent_name"`
 	EvaluationTimeMs *float64        `json:"evaluation_time_ms"`
 	MatchedRuleID    string          `json:"matched_rule_id"`
@@ -83,25 +82,24 @@ func tailLines(file string, maxBytes int64) []string {
 
 const defaultTailBytes = 131_072
 
-// ownMark is the account tag the hooks stamp on the lines this device writes.
-func ownMark() string { return config.AccountMark(config.EnforcingKey()) }
-
-// parseLocalLines keeps only the lines belonging to the account this device
-// enforces with.
+// parseLocalLines reads every line in the machine's own log.
 //
-// The log is one file per machine and nothing in it identifies an account, so
-// after pairing a different account the previous one's calls kept showing up in
-// Live. Unstamped lines predate the mark and cannot be attributed, so they stay
-// out rather than pass as ours.
+// IT USED TO FILTER BY ACCOUNT. The log is one file per machine and carried an `acct`
+// tag — a hash prefix of the key — because after pairing a different account the
+// previous one's calls kept showing up in Live; unstamped lines could not be
+// attributed, so they were dropped rather than pass as ours.
+//
+// Nothing stamps the tag now: there are no accounts, and both guards stopped reading a
+// credential. Keeping the filter would have been quietly destructive rather than
+// merely dead — a credential file left behind by an older install makes `mine`
+// non-empty, and then every line written since would be dropped as somebody else's.
+// Live would go blank on exactly the machines that had been upgraded, while a machine
+// that had never been paired looked fine.
 func parseLocalLines(lines []string) []localLogLine {
-	mine := ownMark()
 	out := make([]localLogLine, 0, len(lines))
 	for _, line := range lines {
 		var j localLogLine
 		if json.Unmarshal([]byte(line), &j) != nil {
-			continue
-		}
-		if mine != "" && j.Acct != mine {
 			continue
 		}
 		at, ok := parseMillis(j.TS)

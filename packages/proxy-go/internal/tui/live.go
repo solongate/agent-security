@@ -368,12 +368,12 @@ func (p *Live) pollLocal() tea.Cmd {
 		// to enable what was already enabled.
 		setting := config.LocalLogsSetting()
 		res := liveLocalResult{gen: gen, setting: setting}
-		// With the setting off the file is not read at all. It still holds
-		// whatever was written while it was on, and surfacing that would put LOC
-		// rows in the stream of a project that has local storage turned off.
-		if setting.Enabled {
-			res.lines = parseLocalLines(tailLines(setting.File, defaultTailBytes))
-		}
+		// THE FILE IS ALWAYS READ. This was `if setting.Enabled`, on the reasoning that
+		// a project which had turned local storage off should not have old LOC rows
+		// appear in its stream. Both writers record unconditionally now, and the
+		// setting resolved nothing but "off" for a while — so this panel skipped the
+		// one file the guard had been writing to all along.
+		res.lines = parseLocalLines(tailLines(setting.File, defaultTailBytes))
 		lines := tailLines(ringPath(), 8192)
 		if len(lines) > 30 {
 			lines = lines[len(lines)-30:]

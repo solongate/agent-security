@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,21 +8,29 @@ import (
 	"strings"
 )
 
-// LocalLogSetting is what local logging is set to on this device, and where it
-// can actually go.
+// LocalLogSetting is where this machine's audit trail goes.
 //
-// The two are separate questions and used to be answered as one. Live decided
-// on/off by whether the log file had lines in it, so an enabled log that
-// happened to be empty — a fresh install, a folder just changed, an account
-// just switched — reported "local logs off" and told the user to enable
-// something that was already on.
+// Enabled and File were two separate questions and used to be answered as one: Live
+// decided on/off by whether the file had lines in it, so an enabled log that happened
+// to be empty reported "local logs off" and told the user to enable what was already
+// on.
 type LocalLogSetting struct {
-	// The project setting, as the hooks read it.
+	// Enabled is ALWAYS TRUE, and the field is kept because Live and the Settings
+	// panel both read it.
+	//
+	// It used to mean what it says. While there was a service the choice was real —
+	// entries went to the service OR to a file, never both — so `localLogs.enabled:
+	// false` meant "do not write locally". With nowhere to send them, a false here
+	// stopped meaning "send them elsewhere" and started meaning "lose them", so both
+	// writers ignore it: the guard and the audit hook record unconditionally and the
+	// setting chooses only the FOLDER. A viewer that reported off would be describing
+	// a state the writers cannot be in — and worse, Live SKIPS READING THE FILE when
+	// this is false, so it showed nothing while entries landed correctly.
 	Enabled bool
-	// The folder the project asked for, verbatim. Empty when nothing is set.
+	// The folder the policy asks for, verbatim. Empty when the policy names none.
 	ConfiguredPath string
-	// False when that folder cannot be used HERE — a Windows path on Linux, or
-	// a directory that does not exist on this machine.
+	// False when that folder cannot be used HERE — a Windows path on Linux, or a
+	// directory that does not exist on this machine.
 	UsableHere bool
 	// The file entries actually land in, after any fallback.
 	File string
@@ -32,65 +38,73 @@ type LocalLogSetting struct {
 
 var trailingSep = regexp.MustCompile(`[\\/]+$`)
 
-// LocalLogsSetting resolves the setting the way the hooks resolve it.
+// LocalLogsSetting resolves the folder the way the HOOKS resolve it.
 //
-// Local logging takes a FOLDER from the dashboard and the hooks append
-// solongate-audit.jsonl inside it, so a user who set /home/me gets
-// /home/me/solongate-audit.jsonl. Every viewer used to read the DEFAULT folder
-// unconditionally, so with a custom folder configured the dataroom, `watch` and
-// `doctor` all showed an empty log while entries were landing correctly
+// Local logging takes a FOLDER and the hooks append solongate-audit.jsonl inside it,
+// so a policy naming /home/me gets /home/me/solongate-audit.jsonl. Every viewer used
+// to read the DEFAULT folder unconditionally, so with a custom folder configured the
+// dataroom, `watch` and `doctor` all showed an empty log while entries were landing
 // somewhere else.
 //
-// The folder lives in the policy cache the hooks themselves read, so it is read
-// from there, preferring the most recently refreshed cache.
+// IT READS THE POLICY FILE. It used to read the policy CACHES, newest first, because
+// that is where a service's answer was kept — and nothing has written one since the
+// refresh was removed, so this returned "off, default folder" on every machine. Which
+// is the same bug the paragraph above describes, arrived at from the other side: a
+// custom folder was ignored, and Live stopped reading the log at all.
+//
+// Both spellings of the file are accepted, as everywhere else: the envelope, and a
+// policy document carrying `security` inside it.
 func LocalLogsSetting() LocalLogSetting {
-	off := LocalLogSetting{UsableHere: true, File: DefaultLocalLogFile()}
-	for _, cache := range PolicyCachesNewestFirst() {
-		b, err := os.ReadFile(cache)
-		if err != nil {
-			continue
-		}
-		var c struct {
-			Security *struct {
-				LocalLogs *struct {
-					Enabled *bool  `json:"enabled"`
-					Path    string `json:"path"`
-				} `json:"localLogs"`
-			} `json:"security"`
-		}
-		if json.Unmarshal(b, &c) != nil {
-			continue
-		}
-		// No answer in this cache — an older agent that never carried the
-		// setting must not out-vote a newer one that does.
-		if c.Security == nil || c.Security.LocalLogs == nil || c.Security.LocalLogs.Enabled == nil {
-			continue
-		}
-		raw := strings.TrimSpace(c.Security.LocalLogs.Path)
-		if !*c.Security.LocalLogs.Enabled {
-			off.ConfiguredPath = raw
-			return off
-		}
-		dir := trailingSep.ReplaceAllString(raw, "")
-		if dir == "" {
-			return LocalLogSetting{Enabled: true, UsableHere: true, File: DefaultLocalLogFile()}
-		}
-		// Not absolute HERE means the hooks cannot use it and fall back. The
-		// usual cause is a folder set from another OS: a C:/... on Linux, which
-		// Node would treat as relative and create inside whatever repo the
-		// agent happened to be running in.
-		if !filepath.IsAbs(dir) {
-			return LocalLogSetting{Enabled: true, ConfiguredPath: raw, UsableHere: false, File: DefaultLocalLogFile()}
-		}
-		file := filepath.Join(dir, "solongate-audit.jsonl")
-		usable := exists(file) || exists(dir)
-		resolved := file
-		if !usable {
-			resolved = DefaultLocalLogFile()
-		}
-		return LocalLogSetting{Enabled: true, ConfiguredPath: raw, UsableHere: usable, File: resolved}
+	def := LocalLogSetting{Enabled: true, UsableHere: true, File: DefaultLocalLogFile()}
+
+	b, err := os.ReadFile(filepath.Join(Dir(), "policy.json"))
+	if err != nil {
+		return def
 	}
-	return off
+	type localLogsBlock struct {
+		Enabled *bool  `json:"enabled"`
+		Path    string `json:"path"`
+	}
+	type securityBlock struct {
+		LocalLogs *localLogsBlock `json:"localLogs"`
+	}
+	var doc struct {
+		Security *securityBlock `json:"security"`
+		Policy   *struct {
+			Security *securityBlock `json:"security"`
+		} `json:"policy"`
+	}
+	if json.Unmarshal(b, &doc) != nil {
+		return def
+	}
+	sec := doc.Security
+	if sec == nil || sec.LocalLogs == nil {
+		if doc.Policy != nil {
+			sec = doc.Policy.Security
+		}
+	}
+	if sec == nil || sec.LocalLogs == nil {
+		return def
+	}
+
+	raw := strings.TrimSpace(sec.LocalLogs.Path)
+	dir := trailingSep.ReplaceAllString(raw, "")
+	if dir == "" {
+		return def
+	}
+	// Not absolute HERE means the hooks cannot use it and fall back. The usual cause
+	// is a folder set from another OS: a C:/... on Linux, which Node would treat as
+	// relative and create inside whatever repository the agent happened to run in.
+	if !filepath.IsAbs(dir) {
+		return LocalLogSetting{Enabled: true, ConfiguredPath: raw, UsableHere: false, File: DefaultLocalLogFile()}
+	}
+	file := filepath.Join(dir, "solongate-audit.jsonl")
+	usable := exists(file) || exists(dir)
+	resolved := file
+	if !usable {
+		resolved = DefaultLocalLogFile()
+	}
+	return LocalLogSetting{Enabled: true, ConfiguredPath: raw, UsableHere: usable, File: resolved}
 }
 
 // LocalLogFile is the file this device is actually writing to. Long-lived views
@@ -103,42 +117,10 @@ func exists(p string) bool {
 	return err == nil
 }
 
-// AccountMark is the per-account tag written beside local log entries and into
-// the owner marker. A hash prefix, never the key itself, so a log file that
-// leaves the machine does not carry a credential.
-func AccountMark(apiKey string) string {
-	if apiKey == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(apiKey))
-	return hex.EncodeToString(sum[:])[:16]
-}
-
-// EnsureLocalLogOwner records which account the local log belongs to and
-// reports whether the owner changed.
+// AccountMark and EnsureLocalLogOwner lived here.
 //
-// The file is one per machine and no entry records which account produced it,
-// so after pairing a different account the previous one's calls were still
-// showing up in Live. Clearing on an in-app switch was not enough: the account
-// can also change by pairing a new device, by signing out, or from the
-// dashboard.
-//
-// Nothing is deleted. Entries carry the account that wrote them and readers
-// keep only their own, so a change of account separates the history instead of
-// destroying it; the marker is kept as the record of whose it is.
-func EnsureLocalLogOwner(activeAPIKey string) bool {
-	marker := LocalLogOwnerPath()
-	want := AccountMark(activeAPIKey)
-	have := ""
-	if b, err := os.ReadFile(marker); err == nil {
-		have = strings.TrimSpace(string(b))
-	}
-	if have == want {
-		return false
-	}
-	if os.MkdirAll(LocalLogsDir(), 0o755) == nil {
-		// Not writable is not fatal: the marker is retried on the next run.
-		_ = os.WriteFile(marker, []byte(want), 0o644)
-	}
-	return true
-}
+// AccountMark hashed the key into the 16-character `acct` tag stamped on every local
+// log line; EnsureLocalLogOwner wrote the same tag into a `.owner` marker beside the
+// log so a change of account could be noticed. Both existed because one machine's log
+// could hold two accounts' calls. There are no accounts, nothing writes the tag, and
+// a reader that still filtered on it would drop every line written since.

@@ -32,7 +32,7 @@ pinned, and the suite below is what says whether it does.
 
 `packages/proxy/test` is the conformance suite. It runs the guard as a
 subprocess, feeds it a client payload, and asserts on the exit code, the files
-touched, and what reached a stub cloud. Nothing in it imports any
+touched, and what a stub server does NOT receive. Nothing in it imports any
 implementation's internals.
 
     SG_HOOK=$PWD/packages/proxy/hooks/guard.bundled.mjs node packages/proxy/test/run-all.mjs
@@ -59,43 +59,42 @@ runs it twice for that reason — which of the two decides a call depends only o
 whether a machine has the binary, so certifying one certifies half the machines:
 
 - rate limit, including the ceiling under 30 parallel calls
-- local/cloud routing: exclusive, driven by the setting, `security: null` read
-  as an answer rather than as "unknown", a folder from another OS falling back
-  rather than dropping the entry
-- DLP built-in patterns and custom globs
-- deny latency: a denial does not wait on the network, and still arrives
+- where the record goes: the configured folder, the default when none is named,
+  and a folder from another OS falling back rather than dropping the entry
+- DLP built-in patterns and custom globs, and the 70 names agreeing across five
+  copies of the list
+- deny latency: a denial is answered without waiting for anything, and is recorded
 - the legacy scratch sweep, and only our own files
-- **policy evaluation**, in both modes
+- **policy evaluation**, in both modes, and the MCP proxy's engine agreeing with the
+  guard case for case
+- tamper protection by every route a tool can take, not only the shell
 
-Policy evaluation compiles the policy JSON to Rego **in the guard**, rather than
-fetching it. `/policies/:id/rego` exists and works, but compiling locally takes
-the network off the decision path entirely: the guard decides the same way on a
-plane as in an office. `packages/guard-go/rego.go` is the generator, and it
-produces byte-identical Rego for every policy the system compiles, plus valid Rego
-for one case where the original did not (a policy whose first rule is disabled
-emits a chain opening with `} else :=`).
+THE POLICY IS A FILE, and there are exactly two:
 
-A configured service is asked first, and its answer outranks the file — on a
-machine under somebody's policy the file is how you would work around it. Beyond
-that the file is a SOURCE rather than a fallback:
+- `~/.solongate/policy.json` — this machine's own. The whole file: rules, the
+  layers in `security`, and the tamper flag.
+- `./policy.json` beside the working directory, read when the machine has no file
+  of its own, and carrying RULES ONLY. It lives inside a repository the agent can
+  write to, so `selfProtect` and `security` are stripped from it — either would be
+  a way for the agent to switch a protection off from inside the checkout.
 
-- `~/.solongate/policy.json` is read when no service answered, INCLUDING when there
-  is no service and no credential at all. That case used to be decided by
-  `if (!API_KEY) allow()` before anything else ran, which made the guard a no-op
-  on the ordinary deployment of this program while its policy sat on disk unread.
-- `./policy.json` beside the working directory is read when the machine has no file
-  of its own, and may carry RULES ONLY. It is a file inside a repository the
-  agent can write to, so `selfProtect` and `security` are stripped from it:
-  either would be a way for the agent to switch a protection off from inside the
-  checkout.
-- A cache MISS is not only an absent file. A cache that parses and carries a null
-  policy is the same thing, and it is the state every machine is in on its first
-  tool call after install.
+Both are read in two spellings: the bare policy document, and an envelope
+`{policy, security, selfProtect}`. The PRESENCE of a `policy` key is what tells
+them apart, even when its value is null — a file carrying layers and no rules is a
+real configuration, and requiring a non-null policy threw one away in Go while the
+hook accepted it.
 
-The file may be written as the bare policy or as the envelope the service answers
-with (`{policy, security, selfProtect}`). The envelope is what makes the rate
-limit, the egress rules and the DLP scanner settable at all on a machine with no
-service — they arrive in `security`, and nothing else could supply it.
+There was a policy CACHE in front of all this, holding a service's answer with a
+TTL, a last-known-good fallback and a background refresh. It is gone, and while it
+remained it was worse than dead: a service answering with an EMPTY security block
+outranked the file by design, so a machine whose own file configured DLP had it
+switched off by a reply that said nothing about it.
+
+Evaluation compiles the policy JSON to Rego IN the guard, which is the reason the
+decision never needed a network. `packages/guard-go/rego.go` is the generator, and
+it emits valid Rego for a case the original did not (a policy whose first rule is
+disabled emits a chain opening with `} else :=`). The hook and the MCP proxy share
+`packages/proxy/hooks/policy-eval.mjs` rather than carrying an evaluator each.
 
 The extractors are in `extract.go` and are where the care went: glob dodges
 (`cut staging.e*` resolving to the real file), inlining referenced file contents
@@ -120,138 +119,54 @@ scoring was the third: it was never wired into either implementation after the P
 layer was removed, so `injection.go` and the hook's `detectPromptInjection` were
 both dead code, and they are gone rather than described.
 
+The OPA WASM path is not on the list either, and not because it was never written.
+It read a bundle a SERVICE compiled; with none to fetch, what decided was always
+the local evaluator. The bundle READER is still there, being pure and tested.
+
 Tamper protection IS wired and enforced — `tamperCheck` runs before policy in
 main.go — which an even earlier version of this list said otherwise about.
 
-## The schema
+## What the server left behind
 
-The system writes SQL by hand against 21 base tables plus 7 it creates itself.
+Two sections here described `apps/system` — the schema generated for two dialects,
+and the OAuth device grant a terminal signs in with. The server is deleted and they
+went with it. Three things it taught are not about a server at all:
 
-**One source, two dialects.** `apps/system/internal/store/baseschema.sql` is the
-base schema — drizzle's SQLite output, kept as it was written. `BaseDDL` renders
-it for a dialect and `RuntimeDDL` adds what `EnsureRuntimeTables` runs;
-`cmd/schemadump` prints the two together, and `tools/schema/{sqlite,postgres}.sql`
-are that output, checked in with a test that fails when they drift.
-
-Three things the PostgreSQL rendering has to do, and all three were found by
-applying the file to a real PostgreSQL rather than by reading it:
-
-- **Backticks dropped.** Every identifier in the source is backtick-quoted, which
-  PostgreSQL reads as a syntax error. `key` is the only one it knows as a keyword
-  and it is non-reserved; the parse refuses rather than emitting a reserved word
-  bare, so a future column called `order` fails the build instead of the deploy.
-- **Integers widened.** The source says `integer`, lowercase; PostgreSQL's is 32
-  bits and `device_codes.expires_at` holds milliseconds.
-- **Boolean defaults rewritten.** drizzle writes `integer DEFAULT true`. SQLite
-  stores that as 1; PostgreSQL refuses with "column is of type bigint but default
-  expression is of type boolean". The column stays an integer — the Go side scans
-  it as one — so the DEFAULT is what moves. See `integerBoolDefaults`.
-
-And one thing the ORDERING has to do: drizzle emits tables alphabetically, so
-`org_members` comes before `organizations`. SQLite does not care and PostgreSQL
-refuses a foreign key naming a table it has not seen. `orderByDependency` sorts
-them; a cycle is emitted in input order rather than silently rearranged, because
-a schema that fails loudly at apply time beats one that applied as something else.
-
-The API still does not create the base schema at boot — apply the file first. Two
-ways to read the shape without guessing:
-
-    cd apps/system && go run ./cmd/schemadump -dialect postgres
-    node tools/local-db.mjs                       # a seeded sqlite copy to run against
-
-## Signing in from a terminal
-
-A machine gets its credential through the OAuth 2.0 Device Authorization Grant
-(RFC 8628), run against **the operator's identity provider** and not against this
-service. The CLI shows a code, the person enters it at the provider, the CLI
-polls the provider's token endpoint, and the ID token it gets back is exchanged
-at `/auth/session` for a project-scoped credential.
-
-THE PREVIOUS FLOW HAD A HOLE AND THIS CLOSES IT BY CONSTRUCTION. The device
-endpoints used to be ours, finished on a page the hosted dashboard served, and
-`POST /auth/device/approve` took the person's address out of the REQUEST BODY
-without verifying it — possession of a user code was the whole authorisation.
-That was defensible only while the dashboard was its one caller and had already
-authenticated somebody. With no dashboard it would have been the only way in and
-it verified nothing. It is deleted: four routes, the `device_codes` table and its
-store.
-
-Now nothing reads an address from a request. `authVerifyOIDCToken` verifies the
-token's signature against the provider's published keys, checks the audience
-against `SG_OIDC_CLIENT_ID`, and takes the address from the claims. A caller can
-assert whatever it likes in a body; none of it is read.
-
-Three things worth knowing before changing any of it:
-
-- **The code is shown, not hidden in the URL.** `verification_uri_complete` is a
-  convenience a provider may not offer and a browser may not open, and the whole
-  reason this grant exists is that somebody can finish on a different device —
-  a phone, with the laptop headless. Both addresses come back from `Start`.
-- **A transport failure is `pending`, never an error.** The person is in a
-  browser during the poll loop; a dropped frame must not end a sign-in they are
-  halfway through. `ExpiresAt` is what ends it. Only the provider saying
-  `expired_token` or `access_denied` ends it early.
-- **A non-2xx is decoded rather than refused.** RFC 6749 puts the error in the
-  body with a 400, and `authorization_pending` — the normal state for most of the
-  flow — arrives exactly that way. Treating the status as the answer turns every
-  poll into a failure.
-
-The flow exists twice, in `packages/proxy-go/internal/api/device.go` and
-`packages/proxy/src/api-client/device-login.ts`, because the CLI does. They are
-read together when either changes.
-
-`GET /auth/config` is how a CLI learns which provider to use: the operator sets
-`SG_OIDC_ISSUER` once on the service and no laptop is configured at all. Nothing
-it answers is a secret — an issuer URL serves a public discovery document, and a
-device-flow client is public by definition because it runs on a laptop and can
-hold no secret. What authorises anything is the token the provider issues
-afterwards.
-
-With no provider configured there is nobody to sign in against. The CLI says so
-in one line naming the variable, and `/auth/session` answers 503 rather than
-trusting the caller — which it used to do, and which is the next thing here.
-
-Local development uses `tools/local-db.mjs`, which seeds a project and prints a
-credential; the person who sees it there is the developer running the harness.
-
-### The gate that asked the wrong question
-
-`/auth/session` read the address out of the REQUEST BODY, and a stub could never
-have shown it. The gate was:
-
-    if authSupabaseBase() != "" { ...verify the token... }
-
-which is wrong twice. A deployment on OIDC has no Supabase, so the branch was
-skipped and the token was never verified at all. And with neither configured it
-logged "provisioning is running unverified" and minted a credential for whatever
-address the body named — a credential for any account, to anybody who could
-reach the port. The same shape as the device-approve hole, on the route that
-replaced it.
-
-It was found by running the flow against a real Keycloak: the provider signed
-Ada in, the CLI presented her token, and the system answered
-`Missing required field: email` — because it wanted the field it should never
-have been reading.
-
-Now a provider must be configured, a token must be presented, and the address is
-the one its verified claims carry. `body.Email` is not read on this route at all.
-Three tests pin it, and the end-to-end job in CI is what would notice if the gate
-ever moved back.
+- **A provisioning endpoint trusted an e-mail in the REQUEST BODY.** It logged
+  "provisioning is running unverified" and minted a credential for whatever address
+  the body named — a credential for any account, to anybody who could reach it. It
+  was found by the CI job that signed a device in against a real Keycloak, which no
+  amount of reading had found. A test against a stub could not have: the stub was
+  written to the same wrong assumption.
+- **A schema applied to a real database is not the same as one that compiles.**
+  Applying the DDL to a real PostgreSQL and a real SQLite caught three conversion
+  bugs that every unit test had passed.
+- **A build tag is where broken code hides.** The store's PostgreSQL tests were
+  behind `//go:build postgres`, so they compiled nowhere in CI until a job was
+  added to vet them — and one of them was broken when it was.
 
 ## Traps worth not rediscovering
 
-- **A fake API key has to look real.** A key the guard rejects is a machine with
-  no service, and a machine with no service decides from its local file — so a
-  test that meant to exercise the cached policy silently exercises something
-  else. The first green run measured nothing at all this way, back when an
-  unusable key meant "allow everything" instead.
 - **`spawnSync` blocks the process it is called from.** If a stub server lives
-  in that process it can never answer, the guard's fetch hangs, and what gets
+  in that process it can never answer, the guard's request hangs, and what gets
   measured is the guard's own 8-second backstop. Two separate benchmarks were
   wrong this way before it was spotted.
 - **The 8s backstop exits with `process.exitCode || 0`.** Anything slow that
   runs before the verdict is emitted turns a DENY into an ALLOW. It already did
-  once, via the hook self-update.
+  once, via the hook self-update — 8043ms, exit 0, on a call DLP had refused. The
+  self-update is gone; the rule is not.
+- **A DENY WINS OVER AN ALLOW, whatever the priorities say.** The priority orders
+  rules of one effect. Sorting the Rego chain by priority alone let an ALLOW
+  written above a DENY win, in both modes, and made REORDERING RULES change what
+  was enforced with no number anywhere to explain why. The Node hook and
+  FallbackEvaluate both ran a DENY pass first; only the Rego generator did not, and
+  it is the one that decides.
+- **A second implementation is a second set of answers.** Four divergences have
+  been found between the Go guard and the Node hook, every one by running the same
+  conformance suite against both: the tamper globs disagreeing about `*` after a
+  `**`, the DLP list running 14 patterns against 70, the Rego ordering above, and a
+  policy file carrying layers with no rules that one side threw away. None was
+  visible from either side alone.
 - **Read-modify-write does not survive a burst.** The rate limiter lost
   increments under parallel calls and let 14 through a limit of 5. Reserve
   first, then decide.

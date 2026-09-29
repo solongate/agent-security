@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -40,7 +39,7 @@ func doctorStub(t *testing.T, c *api.Client, active string) *api.Client {
 // all in rateLimit. Reading only the first reported it as off — the guard was
 // flagging bursts and the health check said no rate limit was configured.
 func TestDoctorReportsDetectModeRateLimit(t *testing.T) {
-	c := stubClient(t, http.NewServeMux())
+	c := machine(t)
 	seedPolicy(t, `{
 		"policy":{"id":"pol-1","name":"Default","mode":"whitelist","rules":[]},
 		"security":{"rateLimitObserve":{"perMinute":60,"perHour":0,"perDay":0},
@@ -71,7 +70,7 @@ func TestDoctorReportsDetectModeRateLimit(t *testing.T) {
 }
 
 func TestDoctorReportsBlockingLayers(t *testing.T) {
-	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{
+	c := doctorStub(t, machine(t), `{
 		"policy":{"id":"pol-1","name":"Locked","rules":[]},
 		"version":2,"matched_by":"default","selfProtect":false,
 		"security":{"rateLimit":{"perMinute":10,"perHour":200,"perDay":0},
@@ -99,7 +98,7 @@ func TestDoctorReportsBlockingLayers(t *testing.T) {
 // nothing forbidden. It has to read as "no policy resolves" rather than as an error,
 // and the layers still have to be reported.
 func TestDoctorSaysWhenNoPolicyResolves(t *testing.T) {
-	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null,"selfProtect":false}`)
+	c := doctorStub(t, machine(t), `{"policy":null,"security":null,"selfProtect":false}`)
 	checks := CollectChecks(context.Background(), c)
 
 	pol := findCheck(t, checks, "active policy")
@@ -123,7 +122,7 @@ func TestDoctorSaysWhenNoPolicyResolves(t *testing.T) {
 // There is no network; the equivalent failure is a file the guard cannot parse — and
 // the guard answers that the same way, by enforcing nothing.
 func TestDoctorStillReportsLocalStateWhenThePolicyIsUnreadable(t *testing.T) {
-	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{ "rules": [ }`)
+	c := doctorStub(t, machine(t), `{ "rules": [ }`)
 
 	checks := CollectChecks(context.Background(), c)
 	if got := findCheck(t, checks, "policy"); got.OK != StateFail {
@@ -137,7 +136,7 @@ func TestDoctorStillReportsLocalStateWhenThePolicyIsUnreadable(t *testing.T) {
 }
 
 func TestDoctorReportsAClientOnlyWhenItIsInstalled(t *testing.T) {
-	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null}`)
+	c := doctorStub(t, machine(t), `{"policy":null,"security":null}`)
 	home := os.Getenv("HOME")
 
 	checks := CollectChecks(context.Background(), c)
@@ -180,7 +179,7 @@ func TestDoctorReportsAClientOnlyWhenItIsInstalled(t *testing.T) {
 // The top-level shape is what some installs have on disk; a reader that only
 // looked under "hooks" would send someone to repair an already-guarded machine.
 func TestCodexGuardFoundInEitherFileShape(t *testing.T) {
-	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null}`)
+	c := doctorStub(t, machine(t), `{"policy":null,"security":null}`)
 	_ = c
 	home := os.Getenv("HOME")
 	codex := filepath.Join(home, ".codex")
@@ -197,7 +196,7 @@ func TestCodexGuardFoundInEitherFileShape(t *testing.T) {
 }
 
 func TestDoctorJSONKeepsTheThreeStateVerdict(t *testing.T) {
-	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{
+	c := doctorStub(t, machine(t), `{
 		"policy":{"id":"p","name":"N","rules":[]},"version":1,"matched_by":"default",
 		"selfProtect":true,
 		"security":{"rateLimit":{"perMinute":5,"perHour":0,"perDay":0},"dlpBlock":{"patterns":[],"custom":[]}}
@@ -243,7 +242,7 @@ func TestDoctorJSONKeepsTheThreeStateVerdict(t *testing.T) {
 }
 
 func TestDoctorSummaryLines(t *testing.T) {
-	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null}`)
+	c := doctorStub(t, machine(t), `{"policy":null,"security":null}`)
 	_, e := capture(t, func() {
 		if _, err := runDoctor(context.Background(), c, parse(nil)); err != nil {
 			t.Fatal(err)
@@ -259,7 +258,7 @@ func TestDoctorSummaryLines(t *testing.T) {
 }
 
 func TestGuardHookRowPrefersTheVersionOnDisk(t *testing.T) {
-	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null}`)
+	c := doctorStub(t, machine(t), `{"policy":null,"security":null}`)
 	home := os.Getenv("HOME")
 	hooks := filepath.Join(home, ".solongate", "hooks")
 	if err := os.MkdirAll(hooks, 0o755); err != nil {

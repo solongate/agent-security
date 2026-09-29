@@ -92,12 +92,20 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # The suite imports the BUILT javascript. Without this it fails to resolve
-      # a module rather than reporting a test failure, which reads as the suite
-      # being broken instead of unbuilt.
+      # The suite imports the BUILT javascript. Without this it fails to resolve a
+      # module rather than reporting a test failure, which reads as the suite being
+      # broken instead of unbuilt.
+      #
+      # THE FULL BUILD (`pnpm build`), not `npx tsc`. tsc emits one .js per source file, which resolves
+      # every import the suite has and is NOT what ships: the package ships tsup's
+      # bundles, and `clean: true` means dist afterwards holds only those. So CI was
+      # certifying a layout no user ever gets — and the difference is not theoretical,
+      # because a module the suite imports has to be an ENTRY to survive bundling. Two
+      # of them were not, and the suite only noticed on a laptop that had run the real
+      # build. This also produces the bundled hook the next step names.
       - name: build
         working-directory: packages/proxy
-        run: npx tsc -p tsconfig.json
+        run: pnpm build
 
       # SG_HOOK is set explicitly even though the suite now defaults to this same
       # bundled build. The default used to be the hook INSTALLED in the home

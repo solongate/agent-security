@@ -3,8 +3,6 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,39 +12,29 @@ import (
 	"github.com/codeyevsky/solongate/proxy/internal/config"
 )
 
-// stubClient points a real client at a stub API, with a real credential on a
-// throwaway HOME.
+// machine gives a command a machine of its own: an empty HOME, an empty working
+// directory, and none of the environment a developer's shell carries.
 //
-// HOME is redirected for a second reason beyond the credential: doctor reads
-// this machine's actual guard registration out of ~/.claude, ~/.codex and
-// ~/.config/opencode, and a test that ran against the developer's own home
-// directory would pass or fail depending on which agents they happen to have
-// installed.
-func stubClient(t *testing.T, h http.Handler) *api.Client {
+// It was machine(t): it started an httptest server, wrote a credential
+// naming it, and handed back a client pointed there — so a test could assert which
+// route a command called and with what. There are no routes. Every caller now seeds the
+// FILE a command reads (seedPolicy, seedAudit) and the handlers they used to pass are
+// gone; the ones that asserted "nothing was PUT" could no longer fail, because nothing
+// can send anything.
+func machine(t *testing.T) *api.Client {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SOLONGATE_API_KEY", "")
-	t.Setenv("SOLONGATE_API_URL", "")
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 
-	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-
-	b, err := json.Marshal(config.Credential{APIKey: "sg_live_0123456789abcdef", APIURL: srv.URL})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(config.CredentialPath(), b, 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".solongate"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	// A working directory with no .env, so the last credential source cannot
-	// supply a key this test did not put there.
+	// A working directory with no .env and no policy file of its own, so nothing a
+	// test did not put there can be found.
 	prev, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -86,24 +74,23 @@ func seedAuditLog(t *testing.T, lines ...string) {
 	}
 }
 
-func jsonHandler(t *testing.T, routes map[string]any) http.Handler {
+// readPolicyFile is the whole file, verbatim. A command that fails must leave it
+// byte for byte as it was: a read-modify-write that half-succeeded is how a policy
+// loses rules, and the guard reads this file on every tool call.
+func readPolicyFile(t *testing.T) string {
 	t.Helper()
-	mux := http.NewServeMux()
-	for path, body := range routes {
-		b, err := json.Marshal(body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(b)
-		})
+	b, err := os.ReadFile(api.PolicyPath())
+	if err != nil {
+		t.Fatal(err)
 	}
-	return mux
+	return string(b)
 }
 
+// jsonHandler stood here: it turned a map of route → body into an http.Handler, so a
+// test could say what the service would answer with. Nothing answers anything.
+
 func TestPolicyListJSONPutsNothingButJSONOnStdout(t *testing.T) {
-	c := stubClient(t, jsonHandler(t, nil))
+	c := machine(t)
 	seedPolicy(t, `{"id":"pol-1","name":"Default","mode":"denylist","rules":[]}`)
 
 	o, e := capture(t, func() {
@@ -125,7 +112,7 @@ func TestPolicyListJSONPutsNothingButJSONOnStdout(t *testing.T) {
 }
 
 func TestPolicyListHumanOutputStaysOffStdout(t *testing.T) {
-	c := stubClient(t, jsonHandler(t, nil))
+	c := machine(t)
 	seedPolicy(t, `{"id":"pol-1","name":"Default","mode":"whitelist","rules":[
 	  {"id":"r1","effect":"DENY","toolPattern":"Bash","priority":10,"enabled":true},
 	  {"id":"r2","effect":"DENY","toolPattern":"Read","priority":11,"enabled":true},
@@ -151,7 +138,7 @@ func TestPolicyListHumanOutputStaysOffStdout(t *testing.T) {
 }
 
 func TestRateLimitSetKeepsTheWindowsItWasNotGiven(t *testing.T) {
-	c := stubClient(t, jsonHandler(t, nil))
+	c := machine(t)
 	// The layers as the GUARD reads them: a detect-mode DLP config is `dlpRedact`
 	// with no `dlpBlock`, and a block-mode rate limit is `rateLimit`.
 	seedPolicy(t, `{"policy":{"id":"p1","name":"P","mode":"denylist","rules":[]},
@@ -185,17 +172,16 @@ func TestRateLimitSetKeepsTheWindowsItWasNotGiven(t *testing.T) {
 	}
 }
 
+// A TYPO MUST NOT BECOME A LIMIT OF ZERO, and the file must be untouched.
+//
+// This used to stub a PUT route and assert nothing was sent to it. Nothing can be
+// sent, so that assertion could not fail — and the thing it stood for is now
+// checkable directly: the policy file before and the policy file after.
 func TestRateLimitSetRefusesAnUnparseableNumber(t *testing.T) {
-	var put bool
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/settings/security-layers", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPut {
-			put = true
-		}
-		_, _ = w.Write([]byte(`{"layers":{"rateLimit":{"mode":"block","perMinute":10,"perHour":100,"perDay":1000},
-		  "dlp":{"mode":"off","patterns":[],"custom":[]}},"availablePatterns":[]}`))
-	})
-	c := stubClient(t, mux)
+	c := machine(t)
+	seedPolicy(t, `{"policy":{"id":"p1","name":"P","mode":"denylist","rules":[]},`+
+		`"security":{"rateLimit":{"perMinute":10,"perHour":100,"perDay":1000}}}`)
+	before := readPolicyFile(t)
 
 	_, e := capture(t, func() {
 		code, err := runRateLimit(context.Background(), c, parse([]string{"set", "--minute", "oops"}))
@@ -206,26 +192,27 @@ func TestRateLimitSetRefusesAnUnparseableNumber(t *testing.T) {
 			t.Fatalf("a typo has to fail loudly, got exit %d", code)
 		}
 	})
-	if put {
-		t.Fatal("a limit of zero was saved from a typo")
+	if got := readPolicyFile(t); got != before {
+		t.Fatalf("the file was rewritten by a command that failed:\n have %s\n want %s", got, before)
 	}
 	if !strings.Contains(e, "Usage:") {
 		t.Fatalf("want the usage line, got %q", e)
 	}
 }
 
-func TestDLPRefusesAPatternTheCloudDoesNotOffer(t *testing.T) {
-	var put bool
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/settings/security-layers", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPut {
-			put = true
-		}
-		_, _ = w.Write([]byte(`{"layers":{"rateLimit":{"mode":"off","perMinute":0,"perHour":0,"perDay":0},
-		  "dlp":{"mode":"block","patterns":[],"custom":[]}},
-		  "availablePatterns":["AWS access key","GitHub token"]}`))
-	})
-	c := stubClient(t, mux)
+// A PATTERN NAME THE GUARD CANNOT LOOK UP MUST NOT BE SAVED.
+//
+// The names are matched exactly by every implementation, so `AWS Access Key` enables
+// nothing: it would sit in the policy file looking enabled and protect nothing. The
+// list to check against used to arrive from a service as `availablePatterns`, which
+// this test stubbed; it is the built-in list now (see dlppatterns.go and
+// src/dlp-patterns.ts, held in step by test/dlp-parity.mjs), so the stub is gone and
+// the real list is what refuses.
+func TestDLPRefusesAPatternTheGuardCannotLookUp(t *testing.T) {
+	c := machine(t)
+	seedPolicy(t, `{"policy":{"id":"p1","name":"P","mode":"denylist","rules":[]},`+
+		`"security":{"dlpBlock":{"patterns":[],"custom":[]}}}`)
+	before := readPolicyFile(t)
 
 	_, e := capture(t, func() {
 		code, _ := runDLP(context.Background(), c, parse([]string{"enable", "AWS Access Key"}))
@@ -233,8 +220,8 @@ func TestDLPRefusesAPatternTheCloudDoesNotOffer(t *testing.T) {
 			t.Fatalf("an unknown pattern must fail, got %d", code)
 		}
 	})
-	if put {
-		t.Fatal("a pattern name the guard cannot look up was saved anyway")
+	if got := readPolicyFile(t); got != before {
+		t.Fatalf("a pattern the guard cannot look up was written anyway:\n have %s\n want %s", got, before)
 	}
 	if !strings.Contains(e, "AWS access key") {
 		t.Fatalf("the available list has to be shown, got %q", e)
@@ -242,7 +229,7 @@ func TestDLPRefusesAPatternTheCloudDoesNotOffer(t *testing.T) {
 }
 
 func TestAuditWhitelistDefaultsToTheNarrowScope(t *testing.T) {
-	c := stubClient(t, jsonHandler(t, nil))
+	c := machine(t)
 	seedPolicy(t, `{"id":"pol-1","name":"P","mode":"denylist","rules":[]}`)
 	// An entry's id is its LINE NUMBER, which is what makes this work against a
 	// file: the log is append-only, so line 1 stays line 1.

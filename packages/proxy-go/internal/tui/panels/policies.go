@@ -1315,7 +1315,7 @@ func (p *Policies) saveBody() (api.PolicySet, bool) {
 		// delete them from the policy while the dashboard still showed them as
 		// active.
 		if v.unreadable > 0 {
-			p.status = "✗ " + itoa(v.unreadable) + " rule(s)" + where + " cannot be read by this version — saving would delete them; edit this policy in the dashboard"
+			p.status = "✗ " + itoa(v.unreadable) + " rule(s)" + where + " cannot be read by this version — saving would delete them; edit ~/.solongate/policy.json directly"
 			return api.PolicySet{}, false
 		}
 		for i, d := range v.rules {
@@ -1616,7 +1616,7 @@ func (p *Policies) viewPolicyBody() string {
 
 	if p.unreadable > 0 {
 		// Never silently show fewer rules than the policy has.
-		out = append(out, stBad.Render("⚠ "+itoa(p.unreadable)+" rule(s) here cannot be read by this version — edit this policy in the dashboard"))
+		out = append(out, stBad.Render("⚠ "+itoa(p.unreadable)+" rule(s) here cannot be read by this version — edit ~/.solongate/policy.json directly"))
 	}
 	if p.status != "" {
 		out = append(out, statusLine(p.status))

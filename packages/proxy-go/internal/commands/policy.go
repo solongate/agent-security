@@ -416,7 +416,7 @@ func printRules(rules api.Rules) {
 	// readable ones and saying nothing would show a policy that looks narrower
 	// than the one actually in force.
 	if rules.Unreadable > 0 {
-		errln(dim("  (" + strconv.Itoa(rules.Unreadable) + " rule(s) this version cannot read — see them in the dashboard)"))
+		errln(dim("  (" + strconv.Itoa(rules.Unreadable) + " rule(s) this version cannot read — they are kept, and visible in ~/.solongate/policy.json)"))
 	}
 }
 

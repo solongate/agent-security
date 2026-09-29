@@ -1059,12 +1059,10 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
       />
       <Box flexDirection="column" height={streamRows} overflow="hidden">
         {searchRow}
-        {localOn === false ? (
-          <Text wrap="truncate">
-            <Text color={theme.warn}>local logs off</Text>
-            <Text color={theme.dim}>{' — enable: dataroom → Settings (local logs) or dashboard → Settings'}</Text>
-          </Text>
-        ) : localOn && localPath && !localPath.usableHere ? (
+        {/* A "local logs off — enable: dataroom → Settings or dashboard → Settings" row
+            stood first here. Recording is unconditional: the setting chooses the folder
+            and nothing else, so `off` is a state the writers cannot be in. */}
+        {localOn && localPath && !localPath.usableHere ? (
           // The folder is a PROJECT setting, so it can name a path that exists
           // on another machine. Saying so beats showing a path nothing writes to.
           <Text wrap="truncate">

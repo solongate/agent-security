@@ -1868,10 +1868,9 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 
 	body := []string{p.searchRow(width, len(visible))}
 	switch {
-	case p.localOn != nil && !*p.localOn:
-		body = append(body, renderRow(width,
-			sg("local logs off", theme.Warn),
-			sg(" — enable: dataroom → Settings (local logs) or dashboard → Settings", theme.Dim)))
+	// A "local logs off — enable: dataroom → Settings or dashboard → Settings" row stood
+	// first here. Recording is unconditional: the setting chooses the folder and nothing
+	// else, so `off` is a state the writers cannot be in and the row could not appear.
 	case p.localOn != nil && *p.localOn && !p.localSetting.UsableHere:
 		// The folder is a PROJECT setting, so it can name a path that exists on
 		// another machine. Saying so beats showing a path nothing writes to.

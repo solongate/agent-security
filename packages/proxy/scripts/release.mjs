@@ -149,4 +149,7 @@ for (const name of readdirSync(platforms)) {
 step(6, 'the main package');
 run('npm', ['publish', '--access', 'public'], proxy);
 
-console.log('\n' + releasing + ' is out. Commit and push - the dashboard and the API deploy from main.');
+// It used to end "the dashboard and the API deploy from main", which is what a push
+// did in the monorepo this was carved out of. Nothing deploys from this repository:
+// the npm package IS the release, and it has just been published.
+console.log('\n' + releasing + ' is out on npm. Commit and push so the tag and the published version agree.');

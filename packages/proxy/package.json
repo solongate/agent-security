@@ -24,6 +24,7 @@
   "files": [
     "dist",
     "hooks/*.mjs",
+    "hooks/*.d.mts",
     "README.md"
   ],
   "scripts": {

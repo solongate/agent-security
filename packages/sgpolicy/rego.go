@@ -198,7 +198,27 @@ func ListGlobToRegex(patterns []string) string {
 func ConvertRulesToRego(rules []PolicyRule) string {
 	sorted := make([]PolicyRule, len(rules))
 	copy(sorted, rules)
-	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Priority < sorted[j].Priority })
+	// DENY FIRST, THEN BY PRIORITY. The chain this emits decides on the first rule
+	// that matches, so ordering IS the semantics — and sorting by priority alone
+	// let an ALLOW written above a DENY of the same priority win.
+	//
+	// Which made this engine disagree with the other two about a real policy. The
+	// Node hook runs a DENY pass over every deny rule before it considers an
+	// ALLOW ("DENY wins over ALLOW", in both modes) and so does FallbackEvaluate
+	// twenty lines below. Measured before this: whitelist mode, `ALLOW *` above
+	// `DENY *secret*` at the same priority, `cat secret` — the hook blocked it and
+	// the binary allowed it, in denylist mode too. A machine runs whichever of the
+	// two it has.
+	//
+	// It also meant REORDERING RULES CHANGED WHAT WAS ENFORCED, silently, with no
+	// priority anywhere to explain why.
+	sort.SliceStable(sorted, func(i, j int) bool {
+		di, dj := sorted[i].Effect == "DENY", sorted[j].Effect == "DENY"
+		if di != dj {
+			return di
+		}
+		return sorted[i].Priority < sorted[j].Priority
+	})
 
 	lines := []string{
 		`package solongate.policy`,

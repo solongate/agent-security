@@ -361,6 +361,11 @@ export class SolonGate {
     return this.policyEngine.loadWasmBundle(wasmBundle);
   }
 
+  /** Which backend decides: 'opa' with a WASM bundle loaded, 'local' without. */
+  getEvaluatorMode(): 'opa' | 'local' {
+    return this.policyEngine.getEvaluatorMode();
+  }
+
   /** Get current security warnings. */
   getWarnings(): readonly string[] {
     return [

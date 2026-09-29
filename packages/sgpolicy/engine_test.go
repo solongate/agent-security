@@ -458,7 +458,27 @@ func TestRegoDisabledFirstRuleStillCompiles(t *testing.T) {
 	}
 }
 
-func TestRegoRulesAreEmittedInPriorityOrder(t *testing.T) {
+// DENY IS EMITTED BEFORE ALLOW, and then by priority. The chain decides on the
+// first rule that matches, so the order IS the semantics.
+//
+// THIS TEST ASSERTED THE OPPOSITE and was wrong, which is worth recording. It
+// required the lower priority NUMBER first whatever its effect, and that is not
+// what the contract says or what the other two implementations do: the Node hook
+// runs a DENY pass over every deny rule before it looks at an ALLOW — "DENY wins
+// over ALLOW", in both modes — and so does FallbackEvaluate in this package.
+//
+// Measured, with the same policy in a file, before the fix:
+//
+//	whitelist, ALLOW * above DENY *secret* at the same priority, `cat secret`
+//	  the Node hook  BLOCK
+//	  the Go binary  ALLOW
+//	denylist, ALLOW at priority 1 above DENY at priority 50
+//	  the Node hook  BLOCK
+//	  the Go binary  ALLOW
+//
+// A machine runs whichever of the two it has. It also meant reordering rules
+// changed what was enforced, with no priority anywhere to explain why.
+func TestRegoEmitsDenyBeforeAllow(t *testing.T) {
 	rules := `[
 	  {"id":"late","description":"","effect":"DENY","priority":50,"toolPattern":"*",
 	   "minimumTrustLevel":"UNTRUSTED","enabled":true},
@@ -467,8 +487,22 @@ func TestRegoRulesAreEmittedInPriorityOrder(t *testing.T) {
 	]`
 	parsed, _ := ParsePolicyRules(json.RawMessage(rules))
 	src := ConvertRulesToRego(parsed)
-	if strings.Index(src, `"early"`) > strings.Index(src, `"late"`) {
-		t.Error("first match wins, so the lower priority number has to be emitted first")
+	if strings.Index(src, `"late"`) > strings.Index(src, `"early"`) {
+		t.Error("a DENY has to be emitted before an ALLOW, whatever the priority numbers say")
+	}
+
+	// And priority still orders rules of the SAME effect, which is what the
+	// number is for.
+	two := `[
+	  {"id":"second","description":"","effect":"DENY","priority":50,"toolPattern":"*",
+	   "minimumTrustLevel":"UNTRUSTED","enabled":true},
+	  {"id":"first","description":"","effect":"DENY","priority":1,"toolPattern":"*",
+	   "minimumTrustLevel":"UNTRUSTED","enabled":true}
+	]`
+	parsedTwo, _ := ParsePolicyRules(json.RawMessage(two))
+	srcTwo := ConvertRulesToRego(parsedTwo)
+	if strings.Index(srcTwo, `"first"`) > strings.Index(srcTwo, `"second"`) {
+		t.Error("among rules of one effect, the lower priority number comes first")
 	}
 	// An empty description falls back to a summary of what the rule DOES, not to
 	// a dangling colon and not to the bare effect: it is what the model is shown

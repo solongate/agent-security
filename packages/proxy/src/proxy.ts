@@ -183,7 +183,8 @@ export class SolonGateProxy {
   async start(): Promise<void> {
     log('Starting SolonGate Proxy...');
 
-    // Step 0: Validate license (API key is required)
+    // Step 0: a service, IF one is configured. With no key nothing here runs and
+    // the policy is the file this machine keeps — the same one the guard reads.
     const apiUrl = this.config.apiUrl ?? DEFAULT_API_URL;
     if (this.config.apiKey) {
       // sg_test_ keys only accepted in test/development environments
@@ -195,7 +196,7 @@ export class SolonGateProxy {
         }
         log('Using test API key — skipping online validation (non-production mode).');
       } else {
-        log(`Validating license with ${apiUrl}...`);
+        log(`Checking the API key with ${apiUrl}...`);
         try {
           const res = await fetch(`${apiUrl}/api/v1/auth/me`, {
             headers: {
@@ -209,12 +210,16 @@ export class SolonGateProxy {
             process.exit(1);
           }
           if (res.status === 403) {
-            log('ERROR: This API key is not permitted to use this API.');
+            log('ERROR: The service refused this API key (403). Check it with whoever runs it.');
             process.exit(1);
           }
-          log('License validated.');
+          log('API key accepted.');
         } catch (err) {
-          log(`ERROR: Unable to reach SolonGate license server. Check your internet connection.`);
+          // The service is the one the operator runs, so this is not an internet
+          // problem to report as one. Refusing to start is still right: the proxy
+          // has forwarded nothing yet, and coming up against a service it cannot
+          // read a policy from is worse than not coming up.
+          log(`ERROR: cannot reach ${apiUrl}. Check --api-url, or that the service is running.`);
           log(`Details: ${err instanceof Error ? err.message : String(err)}`);
           process.exit(1);
         }
@@ -235,18 +240,19 @@ export class SolonGateProxy {
     // Reload policy into SolonGate engine after cloud fetch
     this.gate.loadPolicy(this.config.policy);
 
-    // Load the compiled OPA WASM bundle — OPA is the sole evaluator. Until it
-    // loads, evaluation fails closed (DENY). The cloud API compiles every policy
-    // version to WASM on save; the proxy does not compile locally.
-    if (!this.config.apiKey!.startsWith('sg_test_')) {
-      const wasm = await fetchCloudPolicyWasm(this.config.apiKey!, apiUrl, this.config.policy.id);
+    // An OPA WASM bundle is an UPGRADE, not a requirement. A service compiles one
+    // per policy version and serving it makes this a NIST SP 800-207 PDP; without
+    // one the engine decides with the guard's own evaluator, which is the same code
+    // the hook runs. It used to fail closed here and deny every call instead, which
+    // on a machine with no service is not fail-safe — it is not working.
+    if (this.config.apiKey && !this.config.apiKey.startsWith('sg_test_')) {
+      const wasm = await fetchCloudPolicyWasm(this.config.apiKey, apiUrl, this.config.policy.id);
       if (wasm) {
         await this.gate.loadWasmBundle(wasm as Uint8Array<ArrayBuffer>);
         log(`OPA WASM policy loaded (${wasm.byteLength} bytes)`);
-      } else {
-        log('WARNING: No compiled OPA WASM bundle for this policy — evaluation will DENY until it is recompiled in the dashboard.');
       }
     }
+    log(`Deciding with the ${this.gate.getEvaluatorMode()} evaluator.`);
 
     log(`Policy: ${this.config.policy.name} (${this.config.policy.rules.length} rules)`);
     const transport = this.config.upstream.transport ?? 'stdio';

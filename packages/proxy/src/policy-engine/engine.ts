@@ -1,17 +1,29 @@
 // Engine: main PolicyEngine class that loads, validates, and evaluates policy sets.
 import type { PolicySet, PolicyDecision, PolicyEffect, ExecutionRequest } from '../core/index.js';
-import { POLICY_EVALUATION_TIMEOUT_MS, DEFAULT_POLICY_EFFECT } from '../core/index.js';
+import { POLICY_EVALUATION_TIMEOUT_MS } from '../core/index.js';
 import { validatePolicySet, type ValidationResult } from './validator.js';
 import { analyzeSecurityWarnings, type SecurityWarning } from './warnings.js';
 import { createDefaultDenyPolicySet } from './defaults.js';
 import { PolicyStore, type PolicyVersion } from './policy-store.js';
 import { OpaEvaluator } from './opa/opa-evaluator.js';
+// The guard's own evaluator, shared rather than reimplemented — see
+// hooks/policy-eval.mjs for why a second one would be a second set of answers.
+import { evaluate as evaluateLocally } from '../../hooks/policy-eval.mjs';
 
 // PolicyEngine is the primary interface for policy evaluation.
-// OPA WASM is the SOLE evaluation backend (NIST SP 800-207 PDP compliant).
-// There is no legacy/secondary engine: if the OPA WASM bundle is not loaded,
-// evaluation fails CLOSED (default DENY) rather than falling back. A WASM
-// bundle must be loaded via loadWasmBundle()/initOpa() before evaluate().
+//
+// TWO BACKENDS, AND THE LOCAL ONE IS THE FLOOR. OPA WASM decides when a bundle is
+// loaded (NIST SP 800-207 PDP); otherwise the decision falls through to the SAME
+// evaluator the guard hook uses.
+//
+// It used to fail CLOSED there instead — "there is no legacy/secondary engine" —
+// and that was only survivable because a service compiled the bundle and served
+// it. With no service the proxy loaded none and denied every call, which is not
+// fail-safe, it is not working. The guard never had that problem: OPA is an
+// optional upgrade there and the local evaluator is the primary path.
+//
+// The two agree about modes, which is the part that matters: a denylist allows
+// what no rule forbids, and a whitelist refuses what no ALLOW rule matches.
 export class PolicyEngine {
   private policySet: PolicySet;
   private readonly timeoutMs: number;
@@ -66,11 +78,19 @@ export class PolicyEngine {
     if (this.opaEvaluator?.isReady()) {
       decision = this.opaEvaluator.evaluate(request);
     } else {
+      // The guard's evaluator answers the REASON a call is refused, or null when
+      // nothing in the policy forbids it. Null is not "a rule allowed this" — in
+      // denylist mode nothing matching is the normal outcome, and in whitelist
+      // mode a call matching no ALLOW rule comes back with a reason.
+      const reason = evaluateLocally(
+        this.policySet as unknown as { mode?: string; rules?: readonly unknown[] },
+        request.arguments,
+        request.toolName,
+      );
       decision = {
-        effect: DEFAULT_POLICY_EFFECT as PolicyEffect,
+        effect: (reason ? 'DENY' : 'ALLOW') as PolicyEffect,
         matchedRule: null,
-        reason: 'OPA WASM evaluator not loaded — failing closed (default DENY). '
-          + 'Ensure the policy is compiled to WASM and loaded via loadWasmBundle().',
+        reason: reason ?? 'No rule forbids this call.',
         timestamp: new Date().toISOString(),
         evaluationTimeMs: performance.now() - startTime,
       };
@@ -88,11 +108,11 @@ export class PolicyEngine {
     return decision;
   }
 
-  // Returns the active evaluator backend. Always 'opa' — reports whether the
-  // WASM bundle is loaded ('opa') or not yet loaded ('opa-unloaded', which
-  // means evaluate() fails closed).
-  getEvaluatorMode(): 'opa' | 'opa-unloaded' {
-    return this.opaEvaluator?.isReady() ? 'opa' : 'opa-unloaded';
+  // Which backend decides. 'local' is the guard's evaluator, which is what runs
+  // when no WASM bundle is loaded — it used to be reported as 'opa-unloaded' and
+  // meant every call was denied.
+  getEvaluatorMode(): 'opa' | 'local' {
+    return this.opaEvaluator?.isReady() ? 'opa' : 'local';
   }
 
   // Loads a new policy set, replacing the current one.

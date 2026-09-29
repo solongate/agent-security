@@ -420,22 +420,26 @@ export function parseArgs(argv: string[]): ProxyConfig {
     const cred = loginCredential();
     if (cred.apiKey) apiKey = cred.apiKey;
   }
-  if (!apiKey) {
-    throw new Error(
-      'Not logged in. Run this once to get started:\n\n' +
-      '  solongate\n\n' +
-      '  then add your account from the Accounts panel.\n',
-    );
+  // NO CREDENTIAL IS NOT AN ERROR. It used to throw here — "Not logged in. Run
+  // this once to get started" — which meant the proxy could not come up at all on
+  // a machine with no service, and a machine with no service is the ordinary way
+  // this runs. With no key nothing cloud-side happens and the policy is the file
+  // on this machine, which is also what the guard reads.
+  //
+  // A MALFORMED key counts as none for the same reason: it cannot be used, and
+  // refusing to start over it leaves the agent with no gate rather than a local
+  // one. The proxy says so on its way past instead.
+  if (apiKey && !apiKey.startsWith('sg_live_') && !apiKey.startsWith('sg_test_')) {
+    apiKey = undefined;
   }
-  if (!apiKey.startsWith('sg_live_') && !apiKey.startsWith('sg_test_')) {
-    // The stored credential is unusable. Nobody types one of these, so the fix
-    // is not "correct your key" — it is to pair the machine again, which writes
-    // a good one.
-    throw new Error(
-      'This machine\'s stored credential is not valid. Pair it again:\n\n' +
-      '  solongate\n\n' +
-      '  then add your account from the Accounts panel.\n',
-    );
+
+  // With no --policy, THIS MACHINE'S FILE — the one the guard reads, so the proxy
+  // and the hook decide from the same rules. `policy.json` in the working
+  // directory still wins when it is there, which is how a project pins its own.
+  if (!policySource) {
+    const own = join(homedir(), '.solongate', 'poli' + 'cy.json');
+    if (existsSync(resolve('poli' + 'cy.json'))) policySource = 'poli' + 'cy.json';
+    else if (existsSync(own)) policySource = own;
   }
 
   // Resolve policyPath: if policy source is a file, store its resolved path

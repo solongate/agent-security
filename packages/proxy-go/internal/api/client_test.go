@@ -275,3 +275,75 @@ func TestTheAuditReaderFindsTheConfiguredFolder(t *testing.T) {
 		t.Errorf("stats counted %d calls, want at least the one on disk", s.TotalCalls)
 	}
 }
+
+// EVERY AUDIT FILTER HAS TO ACTUALLY FILTER.
+//
+// These assertions used to live on the Audit panel, against an in-memory filter it
+// applied to its own read of the file. The panel reads through this store now, so this
+// is where the filtering happens — and it is worth testing here for the reason the panel's
+// version gave: a filter that silently matched everything would show a clean audit log
+// for a machine that has denials in it, and a filter that silently matched nothing would
+// show a clean one for the same reason. Both look like good news.
+func TestEveryAuditFilterFilters(t *testing.T) {
+	c := newTestClient(t)
+	writeAuditLog(t,
+		`{"ts":"2026-01-01T00:00:03.000Z","tool":"Bash","decision":"DENY","agent_name":"claude",`+
+			`"reason":"Security layer (DLP): blocked - arguments contain a AWS access key",`+
+			`"dlp":["AWS access key"],"arguments":{"command":"echo secret"}}`,
+		`{"ts":"2026-01-01T00:00:02.000Z","tool":"Read","decision":"ALLOW","agent_name":"codex",`+
+			`"reason":"Security layer (rate limit): exceeded 5 calls/minute","rate_limit_burst":true,`+
+			`"arguments":{"file_path":"/tmp/x"}}`,
+		`{"ts":"2026-01-01T00:00:01.000Z","tool":"Bash","decision":"ALLOW","agent_name":"claude",`+
+			`"reason":"fine","arguments":{"command":"ls"}}`,
+	)
+
+	// wantTotal is the number of MATCHES, which is not the number of rows returned once
+	// a limit is involved: the pager needs "3 matches, showing 2" to draw a page count.
+	// Conflating them is how a panel ends up claiming one page of three entries.
+	count := func(name string, q AuditQuery, wantRows, wantTotal int) {
+		t.Helper()
+		list, err := c.Audit.List(context.Background(), q)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(list.Entries) != wantRows {
+			t.Errorf("%s: %d entries, want %d", name, len(list.Entries), wantRows)
+		}
+		if list.Total != wantTotal {
+			t.Errorf("%s: total = %d, want %d", name, list.Total, wantTotal)
+		}
+	}
+
+	count("no filters", AuditQuery{}, 3, 3)
+	count("decision", AuditQuery{Filter: "DENY"}, 1, 1)
+	// DENIED is the spelling the CLI's own flag uses; it has to mean the same thing.
+	count("decision, the other spelling", AuditQuery{Filter: "DENIED"}, 1, 1)
+	count("dlp signal", AuditQuery{Signal: "dlp"}, 1, 1)
+	count("ratelimit signal", AuditQuery{Signal: "ratelimit"}, 1, 1)
+	count("tool substring, case-insensitive", AuditQuery{Tool: "bash"}, 2, 2)
+	count("agent, case-insensitive", AuditQuery{AgentName: "CODEX"}, 1, 1)
+	count("free-text search over the reason", AuditQuery{Search: "fine"}, 1, 1)
+	count("free-text search over the arguments", AuditQuery{Search: "secret"}, 1, 1)
+	count("a filter matching nothing matches nothing", AuditQuery{Tool: "nosuchtool"}, 0, 0)
+
+	// Paging is over the FILTERED rows, and an offset past the end is empty rather than
+	// an error: a pager that threw would take the panel down on its last page.
+	count("limit", AuditQuery{Limit: 2}, 2, 3)
+	count("offset", AuditQuery{Limit: 2, Offset: 2}, 1, 3)
+	count("offset past the end", AuditQuery{Offset: 99}, 0, 3)
+}
+
+// writeAuditLog seeds the file the hooks append to, newest line first — which is the
+// order they are written in when a test lists them that way, and NOT something the
+// reader may rely on: it sorts.
+func writeAuditLog(t *testing.T, lines ...string) {
+	t.Helper()
+	dir := DefaultLogDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "solongate-audit.jsonl"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

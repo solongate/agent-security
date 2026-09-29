@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -350,67 +349,18 @@ func TestCopyModeStopsEveryPoll(t *testing.T) {
 	}
 }
 
-// The Audit local filters are applied here rather than by the API, so each one
-// is pinned: a filter that silently matched everything would show a clean audit
-// log for a machine that has denials in it.
-func TestAuditLocalFilters(t *testing.T) {
-	p := newAudit(Deps{API: api.New(), Cfg: config.TUIConfig{}})
-	p.source = "local"
-	p.local = []logRow{
-		{id: "1", tool: "Bash", decision: "DENY", agent: "claude", dlp: []string{"AWS key"}, at: 3},
-		{id: "2", tool: "Read", decision: "ALLOW", agent: "codex", burst: true, at: 2},
-		{id: "3", tool: "Bash", decision: "ALLOW", agent: "claude", reason: "fine", at: 1},
-	}
-	check := func(name string, want int) {
-		t.Helper()
-		if got := len(p.localFiltered()); got != want {
-			t.Fatalf("%s: %d rows, want %d", name, got, want)
-		}
-	}
-	check("no filters", 3)
-	p.di = 1 // DENY
-	check("decision", 1)
-	p.di = 0
-	p.gi = 1 // dlp
-	check("dlp signal", 1)
-	p.gi = 2 // ratelimit
-	check("ratelimit signal", 1)
-	p.gi = 0
-	p.tool = "bash"
-	check("tool substring, case-insensitive", 2)
-	p.tool = ""
-	p.agent = "CODEX"
-	check("agent exact, case-insensitive", 1)
-	p.agent = ""
-	p.search = "fine"
-	check("free-text search", 1)
-}
-
-// Paging is over the FILTERED rows, and the page the user is on has to be the
-// slice they are shown.
-func TestAuditLocalPaging(t *testing.T) {
-	p := newAudit(Deps{API: api.New(), Cfg: config.TUIConfig{}})
-	p.source = "local"
-	for i := 0; i < auditPage+7; i++ {
-		p.local = append(p.local, logRow{id: strconv.Itoa(i), tool: "Bash", decision: "ALLOW", at: int64(i)})
-	}
-	rows, total := p.pageRows()
-	if total != auditPage+7 || len(rows) != auditPage {
-		t.Fatalf("page 0: %d rows of %d total", len(rows), total)
-	}
-	if p.pages(total) != 2 {
-		t.Fatalf("expected 2 pages, got %d", p.pages(total))
-	}
-	p.page = 1
-	rows, _ = p.pageRows()
-	if len(rows) != 7 {
-		t.Fatalf("page 1: %d rows, want 7", len(rows))
-	}
-	p.page = 9 // past the end: an empty page, never a panic
-	if rows, _ := p.pageRows(); len(rows) != 0 {
-		t.Fatalf("page 9: %d rows, want 0", len(rows))
-	}
-}
+// TestAuditLocalFilters and TestAuditLocalPaging stood here.
+//
+// They pinned the Audit panel's own in-memory filtering and paging, applied to its own
+// read of the audit file — the "local" half of a source toggle whose other half read the
+// same file through the api-client store. One read remains, so the filtering and the
+// paging happen in the store, and both tests moved there:
+// internal/api TestEveryAuditFilterFilters.
+//
+// The insight they carried moved with them, because it is the whole reason to test this:
+// a filter that silently matched everything would show a clean audit log for a machine
+// that has denials in it, and one that silently matched nothing would show a clean log
+// for the opposite reason. Both look like good news.
 
 // clampBlock is the hard guarantee the whole budget rests on.
 func TestClampBlock(t *testing.T) {

@@ -624,7 +624,6 @@ var shellHelp = []helpGroup{
 		{"s", "save · ← back (from a burst row)"},
 	}},
 	{"Audit", [][2]string{
-		{"s", "source: cloud ↔ local"},
 		{"← →", "prev / next page (500 each)"},
 		{"↑↓", "select (list scrolls)"},
 		{"enter", "full entry / session logs"},

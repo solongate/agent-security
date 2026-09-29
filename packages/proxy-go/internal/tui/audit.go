@@ -28,8 +28,10 @@ import (
 // jumps to the top on a page change). Filters: f decision, g signal, t tool,
 // n agent, / search, c clear. enter = full entry.
 //
-// `s` toggles the source: cloud (the API) against local (the JSONL file the
-// hooks write on this machine).
+// There is ONE source: the JSONL file the hooks write on this machine, read through the
+// api-client store — the same path `solongate audit` reads, so the panel and the command
+// cannot disagree about what matches a filter. `s` used to toggle between that store and
+// a second in-memory read of the same file, labelled "cloud" against "local".
 
 func init() { Register(SectionAudit, func(d Deps) Panel { return newAudit(d) }) }
 
@@ -150,55 +152,6 @@ func cloudRow(e api.AuditEntry) logRow {
 	return r
 }
 
-// loadLocalRows reads the local file. The hooks do not write the dlp and burst
-// fields, so both are derived from the reason — otherwise the signal filters
-// would silently match nothing on the local source.
-func loadLocalRows() []logRow {
-	lines := parseLocalLines(tailLines(config.LocalLogFile(), localMaxBytes))
-	out := make([]logRow, 0, len(lines))
-	for i, j := range lines {
-		dlpFromReason, burstFromReason := reasonSignals(j.Reason)
-		var explicit []string
-		if len(j.DLP) > 0 && string(j.DLP) != "null" && string(j.DLP) != "false" {
-			var names []string
-			if json.Unmarshal(j.DLP, &names) == nil {
-				explicit = names
-			} else {
-				explicit = []string{"dlp"}
-			}
-		}
-		if len(explicit) == 0 {
-			explicit = dlpFromReason
-		}
-		r := logRow{
-			id: "l:" + strconv.FormatInt(j.At, 10) + ":" + strconv.Itoa(i), at: j.At,
-			tool: j.Tool, decision: j.Decision, permission: j.Permission, trust: j.TrustLevel,
-			agent: j.AgentName, session: j.SessionID, reason: j.Reason, rule: j.MatchedRuleID,
-			evalMs: j.EvaluationTimeMs, dlp: explicit,
-			burst: j.RateLimitBurst || burstFromReason,
-		}
-		if r.tool == "" {
-			r.tool = "?"
-		}
-		if r.decision == "" {
-			r.decision = "ALLOW"
-		}
-		if r.permission == "" {
-			r.permission = "—"
-		}
-		if r.trust == "" {
-			r.trust = "—"
-		}
-		if len(j.Arguments) > 0 && string(j.Arguments) != "null" {
-			r.args = string(j.Arguments)
-		}
-		out = append(out, r)
-	}
-	// Newest first, always date-ordered.
-	sort.SliceStable(out, func(i, k int) bool { return out[i].at > out[k].at })
-	return out
-}
-
 type confirmState struct {
 	kind string // one | all
 	key  string
@@ -216,8 +169,7 @@ type Audit struct {
 	// tok identifies THIS mount of the panel; see nextPanelToken.
 	tok int
 
-	source string // cloud | local
-	view   string // logs | detail
+	view string // logs | detail
 
 	di, gi int
 	tool   string
@@ -235,21 +187,20 @@ type Audit struct {
 	help    bool
 	frozen  bool
 
-	stats     *api.Stats
-	cloud     *api.AuditList
-	cloudErr  error
-	cloudBusy bool
-
-	local     []logRow
-	localErr  error
-	localBusy bool
+	stats *api.Stats
+	// The page, and whether it is in flight. These were `cloud`/`cloudErr`/`cloudBusy`,
+	// beside a second set — `local`/`localErr`/`localBusy` — for the other source. Both
+	// read the same file, so one set is all there is to be in.
+	list *api.AuditList
+	err  error
+	busy bool
 }
 
 func newAudit(d Deps) *Audit {
 	in := textinput.New()
 	in.Prompt = ""
 	in.CharLimit = 200
-	return &Audit{deps: d, tok: nextPanelToken(), source: "cloud", view: "logs", input: in}
+	return &Audit{deps: d, tok: nextPanelToken(), view: "logs", input: in}
 }
 
 // ── data ───────────────────────────────────────────────────────────────────
@@ -288,12 +239,7 @@ type auditLogsResult struct {
 
 func (m auditLogsResult) Generation() int { return m.gen }
 
-type auditLocalResult struct {
-	gen  int
-	rows []logRow
-}
-
-func (m auditLocalResult) Generation() int { return m.gen }
+// auditLocalResult carried the second read's rows. One read, one result type.
 
 type auditNoteResult struct {
 	gen     int
@@ -327,9 +273,6 @@ func (p *Audit) query() api.AuditQuery {
 }
 
 func (p *Audit) loadStats() tea.Cmd {
-	if p.source != "cloud" {
-		return nil
-	}
 	gen, client := p.gen, p.deps.API
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -348,14 +291,12 @@ func (p *Audit) loadLogsQuiet() tea.Cmd { return p.loadLogsMode(true) }
 
 func (p *Audit) loadLogsMode(quiet bool) tea.Cmd {
 	gen := p.gen
-	if p.source == "local" {
-		if !quiet {
-			p.localBusy = true
-		}
-		return func() tea.Msg { return auditLocalResult{gen: gen, rows: loadLocalRows()} }
-	}
+	// A SECOND PATH stood here, reading the same file directly and filtering it in
+	// memory, selected by `p.source == "local"`. Both paths read
+	// security.localLogs.path now, so the only difference left was which one paged —
+	// and this one pages through the store, which is what `solongate audit` uses.
 	if !quiet {
-		p.cloudBusy = true
+		p.busy = true
 	}
 	client, q := p.deps.API, p.query()
 	return func() tea.Msg {
@@ -366,59 +307,19 @@ func (p *Audit) loadLogsMode(quiet bool) tea.Cmd {
 	}
 }
 
-// ── derived ────────────────────────────────────────────────────────────────
-
-func (p *Audit) localFiltered() []logRow {
-	q := strings.ToLower(strings.TrimSpace(p.search))
-	out := make([]logRow, 0, len(p.local))
-	for _, r := range p.local {
-		if d := auditDecisions[p.di]; d != "" && r.decision != d {
-			continue
-		}
-		if auditSignals[p.gi] == "dlp" && len(r.dlp) == 0 {
-			continue
-		}
-		if auditSignals[p.gi] == "ratelimit" && !r.burst {
-			continue
-		}
-		if p.tool != "" && !strings.Contains(strings.ToLower(r.tool), strings.ToLower(p.tool)) {
-			continue
-		}
-		if p.agent != "" && !strings.EqualFold(r.agent, p.agent) {
-			continue
-		}
-		if q != "" && !strings.Contains(strings.ToLower(r.tool+" "+r.agent+" "+r.reason+" "+r.args), q) {
-			continue
-		}
-		out = append(out, r)
-	}
-	return out
-}
-
-// pageRows and total are the current page and the size of the whole result. The
-// cloud pages server-side; the local file is filtered and paged here.
+// pageRows is the current page and the size of the whole result. Filtering and paging
+// happen in the store, against the file — so the panel and `solongate audit` cannot
+// disagree about what matches.
 func (p *Audit) pageRows() (rows []logRow, total int) {
-	if p.source == "cloud" {
-		if p.cloud == nil {
-			return nil, 0
-		}
-		rows = make([]logRow, 0, len(p.cloud.Entries))
-		for _, e := range p.cloud.Entries {
-			rows = append(rows, cloudRow(e))
-		}
-		sort.SliceStable(rows, func(i, j int) bool { return rows[i].at > rows[j].at })
-		return rows, p.cloud.Total
+	if p.list == nil {
+		return nil, 0
 	}
-	filtered := p.localFiltered()
-	start := p.page * auditPage
-	if start > len(filtered) {
-		start = len(filtered)
+	rows = make([]logRow, 0, len(p.list.Entries))
+	for _, e := range p.list.Entries {
+		rows = append(rows, cloudRow(e))
 	}
-	end := start + auditPage
-	if end > len(filtered) {
-		end = len(filtered)
-	}
-	return filtered[start:end], len(filtered)
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].at > rows[j].at })
+	return rows, p.list.Total
 }
 
 func (p *Audit) pages(total int) int {
@@ -439,20 +340,9 @@ func (p *Audit) current(rows []logRow) (logRow, bool) {
 // Visible loading states. They also lock the keyboard below, because a queued
 // keypress would otherwise double-page or land on a row that is about to be
 // replaced.
-func (p *Audit) logsLoading() bool {
-	busy := p.cloudBusy
-	if p.source == "local" {
-		busy = p.localBusy
-	}
-	return busy && p.editing == ""
-}
+func (p *Audit) logsLoading() bool { return p.busy && p.editing == "" }
 
-func (p *Audit) logsError() error {
-	if p.source == "cloud" {
-		return p.cloudErr
-	}
-	return p.localErr
-}
+func (p *Audit) logsError() error { return p.err }
 
 // ── update ─────────────────────────────────────────────────────────────────
 
@@ -475,18 +365,13 @@ func (p *Audit) Update(msg tea.Msg, ctx PanelContext) (Panel, tea.Cmd) {
 		return p, nil
 
 	case auditLogsResult:
-		p.cloudBusy = false
+		p.busy = false
 		if m.err != nil {
-			p.cloudErr = m.err
+			p.err = m.err
 			return p, nil
 		}
 		list := m.list
-		p.cloud, p.cloudErr = &list, nil
-		return p, nil
-
-	case auditLocalResult:
-		p.localBusy = false
-		p.local, p.localErr = m.rows, nil
+		p.list, p.err = &list, nil
 		return p, nil
 
 	case auditNoteResult:
@@ -516,7 +401,7 @@ func (p *Audit) onTick(m auditTick) tea.Cmd {
 	switch m.kind {
 	case auditTickStats:
 		next := p.tickCmd(auditTickStats, 15*time.Second)
-		if p.frozen || p.source != "cloud" {
+		if p.frozen {
 			return next
 		}
 		return tea.Batch(next, p.loadStats())
@@ -545,14 +430,11 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	if p.frozen {
 		return nil
 	}
-	// ^R refetches the active source on demand, so a change made elsewhere (the
-	// dashboard, another session) shows up without waiting for a poll.
+	// ^R refetches on demand, so an entry written since the last poll — or a policy
+	// edited in another terminal — shows up without waiting for one.
 	if k.Type == tea.KeyCtrlR {
 		p.note = &auditNote{text: "⟳ refreshed " + ctx.Now.Format("15:04:05"), level: "ok"}
-		if p.source == "cloud" {
-			return tea.Batch(p.loadLogs(), p.loadStats())
-		}
-		return p.loadLogs()
+		return tea.Batch(p.loadLogs(), p.loadStats())
 	}
 	// `?` works from any view, even mid-load; any key closes it.
 	if p.help {
@@ -588,16 +470,6 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	if p.confirm != nil && str != "x" && str != "X" {
 		p.confirm = nil
 		p.note = nil
-	}
-
-	if str == "s" {
-		if p.source == "cloud" {
-			p.source = "local"
-		} else {
-			p.source = "cloud"
-		}
-		p.page, p.sel = 0, 0
-		return tea.Batch(p.loadLogs(), p.loadStats())
 	}
 
 	// logs view
@@ -653,8 +525,8 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	case str == "X":
 		if p.confirm == nil || p.confirm.kind != "all" {
 			p.confirm = &confirmState{kind: "all", key: "all"}
-			p.note = &auditNote{level: "bad", text: "⚠ X = delete ALL " + p.source +
-				" logs — every one of the " + strconv.Itoa(total) + " matched entries! press X again"}
+			p.note = &auditNote{level: "bad", text: "⚠ X = delete ALL matched entries — " +
+				"every one of the " + strconv.Itoa(total) + "! press X again"}
 			return nil
 		}
 		p.confirm = nil
@@ -755,9 +627,8 @@ func (p *Audit) doDelete(kind string, cur logRow) tea.Cmd {
 // doExport writes the current page (e) or everything matching the filters (E).
 func (p *Audit) doExport(kind string, pageRows []logRow) tea.Cmd {
 	p.note = &auditNote{text: "exporting…", level: "ok"}
-	gen, client, source := p.gen, p.deps.API, p.source
+	gen, client := p.gen, p.deps.API
 	q := p.query()
-	local := p.localFiltered()
 	return func() tea.Msg {
 		fail := func(err error) tea.Msg {
 			return auditNoteResult{gen: gen,
@@ -765,25 +636,25 @@ func (p *Audit) doExport(kind string, pageRows []logRow) tea.Cmd {
 		}
 		rows := pageRows
 		if kind == "all" {
-			if source == "cloud" {
-				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-				defer cancel()
-				q.Limit, q.Offset = 10_000, 0
-				list, err := client.Audit.List(ctx, q)
-				if err != nil {
-					return fail(err)
-				}
-				rows = make([]logRow, 0, len(list.Entries))
-				for _, e := range list.Entries {
-					rows = append(rows, cloudRow(e))
-				}
-				sort.SliceStable(rows, func(i, j int) bool { return rows[i].at > rows[j].at })
-			} else {
-				rows = local
+			// Everything matching the filters, not just the page on screen. A branch
+			// stood here for the other source, exporting a list filtered in memory.
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+			q.Limit, q.Offset = 10_000, 0
+			list, err := client.Audit.List(ctx, q)
+			if err != nil {
+				return fail(err)
 			}
+			rows = make([]logRow, 0, len(list.Entries))
+			for _, e := range list.Entries {
+				rows = append(rows, cloudRow(e))
+			}
+			sort.SliceStable(rows, func(i, j int) bool { return rows[i].at > rows[j].at })
 		}
 		dir := config.Dir()
-		file := filepath.Join(dir, "audit-export-"+source+".jsonl")
+		// It was "audit-export-<source>.jsonl", so the two sources could not overwrite
+		// each other's export. There is one.
+		file := filepath.Join(dir, "audit-export.jsonl")
 		var b strings.Builder
 		for _, r := range rows {
 			line, err := json.Marshal(r.export())
@@ -893,9 +764,12 @@ func (p *Audit) copyBanner(width int) string {
 		fg:   lipgloss.Color(hexOKFG), bg: lipgloss.Color(hexOKBG), bold: true})
 }
 
-// strip is the merged Stats page: the totals for whichever source is selected.
+// strip is the totals, from the same store the rows come from.
+//
+// It used to have a second branch counting p.local in memory, for the other source.
+// Both counted the same file.
 func (p *Audit) strip(width int) string {
-	if p.source == "cloud" {
+	{
 		calls, allow, deny, policies := "····", "···", "··", "·"
 		if p.stats != nil {
 			calls = strconv.Itoa(p.stats.TotalCalls)
@@ -903,34 +777,20 @@ func (p *Audit) strip(width int) string {
 			deny = strconv.Itoa(p.stats.Denied)
 			policies = strconv.Itoa(p.stats.ActivePolicies)
 		}
+		// The FILE is named, because "12 calls" with no path leaves the one question a
+		// person opening this panel has — am I looking at the right log? — unanswered,
+		// and the answer moves with the policy.
 		return renderRow(width,
 			seg{text: calls, bold: true}, sg(" calls · ", theme.Dim),
 			sg(allow+" allow", theme.OK), sg(" · ", theme.Dim),
-			sg(deny+" deny", theme.Bad), sg(" · "+policies+" policies", theme.Dim))
+			sg(deny+" deny", theme.Bad), sg(" · "+policies+" policies", theme.Dim),
+			sg(" · "+config.LocalLogFile(), theme.Dim))
 	}
-	allow, deny := 0, 0
-	for _, r := range p.local {
-		if r.decision == "ALLOW" {
-			allow++
-		} else {
-			deny++
-		}
-	}
-	return renderRow(width,
-		seg{text: strconv.Itoa(len(p.local)), bold: true},
-		sg(" calls in local file · ", theme.Dim),
-		sg(strconv.Itoa(allow)+" allow", theme.OK), sg(" · ", theme.Dim),
-		sg(strconv.Itoa(deny)+" deny", theme.Bad),
-		sg(" · "+config.LocalLogFile(), theme.Dim))
 }
 
-func (p *Audit) srcChip() []seg {
-	color := lipgloss.TerminalColor(lipgloss.Color("#4f6db8"))
-	if p.source == "local" {
-		color = theme.OK
-	}
-	return []seg{sg("src:", theme.Dim), seg{text: p.source, fg: color, bold: true}, sg(" (s) ", theme.Dim)}
-}
+// srcChip rendered `src: cloud (s)` at the head of the list. There is one source, and
+// the file it is is named in the totals strip instead — which is the useful half of what
+// this was telling anybody.
 
 func chip(label, value string, on bool) []seg {
 	color := lipgloss.TerminalColor(theme.Dim)
@@ -954,7 +814,6 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	if !ok {
 		return p.viewLogs(ctx)
 	}
-	loc := p.source == "local"
 	bodyW := maxInt(20, ctx.Cols-4)
 	width := ctx.Cols - 2
 
@@ -980,15 +839,12 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	maxScroll := maxInt(0, len(content)-bodyRows)
 	off := minInt(p.detailScroll, maxScroll)
 
-	locLabel, locColor := "CLD", lipgloss.TerminalColor(theme.White)
-	if loc {
-		locLabel, locColor = "LOC", theme.OK
-	}
+	// A LOC/CLD segment sat at the end of this header, from the source toggle. Every
+	// entry is read from this machine's own audit file.
 	head := []seg{
 		{text: " ENTRY ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
 		sgb("  "+e.decision, decisionColor(e.decision)),
 		sgb("  "+e.tool, theme.Accent),
-		{text: "  " + locLabel, fg: locColor},
 	}
 	if len(e.dlp) > 0 {
 		head = append(head, sg("  DLP!", theme.Bad))
@@ -1061,8 +917,7 @@ func (p *Audit) viewLogs(ctx PanelContext) []string {
 	start := minInt(maxInt(0, sel-(listRows-1)/2), maxInt(0, len(rows)-listRows))
 	end := minInt(start+listRows, len(rows))
 
-	head := append([]seg{}, p.srcChip()...)
-	head = append(head, sgb("LOGS", theme.AccentBright), sg(" · sessions (v) ", theme.Dim))
+	head := []seg{sgb("LOGS", theme.AccentBright), sg(" · sessions (v) ", theme.Dim)}
 	head = append(head, chip("dec", orAll(auditDecisions[p.di]), p.di != 0)...)
 	head = append(head, chip("sig", orAll(auditSignals[p.gi]), p.gi != 0)...)
 	head = append(head, chip("tool", orDot(p.tool), p.tool != "")...)
@@ -1112,11 +967,7 @@ func (p *Audit) viewLogs(ctx PanelContext) []string {
 			i == sel && ctx.Focused, true, width))
 	}
 	if len(rows) == 0 {
-		where := ""
-		if p.source == "local" {
-			where = " in the local file"
-		}
-		body = append(body, renderRow(width, sg("(no entries"+where+" — c clears filters)", theme.Dim)))
+		body = append(body, renderRow(width, sg("(no entries — c clears filters)", theme.Dim)))
 	}
 	return dataView(p.logsLoading() && !p.frozen, p.logsError(), false, "", width, body)
 }

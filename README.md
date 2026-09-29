@@ -174,7 +174,8 @@ SG_HOOK=$PWD/../guard-go/solongate-guard \
 Both, every time. The two implementations are meant to be indistinguishable, and
 every divergence found so far was found by running the same suite against each:
 the tamper globs disagreeing about `*`, the DLP list running 14 patterns against
-70, and an ALLOW beating a DENY in the Rego chain.
+70, an ALLOW beating a DENY in the Rego chain, and a `curl -d @creds.env` upload
+that one blocked and the other allowed.
 
 A change to the guard is correct exactly when this passes unchanged, against both.
 Every case in it exists because the behaviour it pins was once wrong, and the

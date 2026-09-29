@@ -147,6 +147,22 @@ went with it. Three things it taught are not about a server at all:
 
 ## Traps worth not rediscovering
 
+- **A TEST CAN PIN A BROKEN PRODUCT AND STAY GREEN.** `Install()` resolved a
+  credential first and returned `no login on this device — add an account first
+  (Accounts → + add)` when it found none. Nothing writes a credential on this build
+  and the Accounts panel is deleted, so it found none on every machine: the one
+  command that arms the guard refused to run, and `solongate repair` refused with
+  it. A test required exactly that refusal, and passed. So did its sibling, which
+  required `repair` to exit non-zero and print "no login on this device".
+  Both tests were correct when written and became a specification for a product
+  that could not be installed. When behaviour is removed, the tests that described
+  it do not fail — they start guarding the wrong thing.
+- **`go test` caches a PASS for a test whose subject was deleted.** A test that
+  read every Dockerfile and required a COPY per replaced Go module refused to pass
+  vacuously — "the test passed without testing anything" — so deleting the last
+  Dockerfile made it FAIL, exactly as it should. Then the cache served the previous
+  result until an unrelated edit in another package invalidated it. CI runs
+  `go test -count=1` now; a cached pass is not evidence.
 - **`spawnSync` blocks the process it is called from.** If a stub server lives
   in that process it can never answer, the guard's request hangs, and what gets
   measured is the guard's own 8-second backstop. Two separate benchmarks were
@@ -161,12 +177,23 @@ went with it. Three things it taught are not about a server at all:
   was enforced with no number anywhere to explain why. The Node hook and
   FallbackEvaluate both ran a DENY pass first; only the Rego generator did not, and
   it is the one that decides.
-- **A second implementation is a second set of answers.** Four divergences have
+- **A second implementation is a second set of answers.** Five divergences have
   been found between the Go guard and the Node hook, every one by running the same
   conformance suite against both: the tamper globs disagreeing about `*` after a
-  `**`, the DLP list running 14 patterns against 70, the Rego ordering above, and a
-  policy file carrying layers with no rules that one side threw away. None was
-  visible from either side alone.
+  `**`, the DLP list running 14 patterns against 70, the Rego ordering above, a
+  policy file carrying layers with no rules that one side threw away, and the
+  EGRESS check — a `curl -d @creds.env` uploading a file full of keys, which the Go
+  guard blocked and the Node hook allowed. None was visible from either side alone.
+- **Dead code in a security path is not inert, it is a hole.** The egress
+  divergence was not a difference in the check; it was that the Node hook ran it
+  only inside a fast path gated on reading a policy CACHE, and nothing had written
+  one since the refresh was removed. The gate was false on every call, so the
+  check never ran. Two more readers of that same cache were doing something worse
+  than nothing: one let a stale cache OUTRANK the policy file and switch off the
+  DLP it configured, and one fell back to "every built-in pattern, no custom ones"
+  on the only surface that sees the prompt. When something stops being written, the
+  question is not whether its readers still compile — it is what each of them does
+  when the answer is always missing.
 - **Read-modify-write does not survive a burst.** The rate limiter lost
   increments under parallel calls and let 14 through a limit of 5. Reserve
   first, then decide.

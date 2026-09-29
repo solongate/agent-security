@@ -841,6 +841,17 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     writeFileSync(join(p.hooksDir, 'tokens.mjs'), readHook('tokens.mjs'));
     writeLauncher(p.hooksDir);
 
+    // THE SHIELD'S SHIM. The shield goes onto disk just above and nothing was wiring
+    // it up, so the one surface that masks the PROMPT did nothing: the hooks see tool
+    // calls and tool results, and a secret somebody types — or one a client sweeps
+    // into the context it assembles — reaches the model without passing any of them.
+    //
+    // Best-effort. It does nothing when Claude Code is not on PATH (nothing to wrap),
+    // and the block is written between markers so running twice replaces it rather
+    // than defining `claude` twice. internal/install/install.go does the same, and
+    // internal/install/shim_install_test.go holds both to it.
+    try { installClaudeShim(join(p.hooksDir, 'shield.mjs')); } catch { /* best-effort */ }
+
     let existing: Record<string, unknown> = {};
     if (existsSync(p.settingsPath)) {
       const raw = readFileSync(p.settingsPath, 'utf-8');

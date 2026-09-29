@@ -97,109 +97,21 @@ func LoadTUIConfig() TUIConfig {
 	return cfg
 }
 
-// BrowserAgentState is ~/.solongate/.browser-agent.json.
+// BrowserAgentState and SelfUpdateState lived here, with their loaders and savers.
 //
-// The same shape and the same rule as the audit service above: Desired is what
-// the person asked for and outlives the process, Pid is only ever evidence
-// about right now. A reboot takes the process down and leaves the service
-// wanted, and the next human CLI run brings it back.
+// BrowserAgentState tracked a browser agent: a desired state that outlived the
+// process, the pid that was evidence about right now, the pipe name the browser's
+// policy had to agree with, and the DevTools port that decided whether the page layer
+// ran at all. There is no browser agent in this build.
 //
-// Pipe records which name the agent was started on, because that is the one
-// thing that has to agree with the browser's policy: a mismatch is not an error
-// anywhere, it is a browser that never connects and never says so.
-type BrowserAgentState struct {
-	Desired   string `json:"desired,omitempty"`
-	Pid       int    `json:"pid,omitempty"`
-	Pipe      string `json:"pipe,omitempty"`
-	StartedAt int64  `json:"startedAt,omitempty"`
-
-	// CDPPort is the browser's DevTools port, and it is what decides whether
-	// the page layer runs at all.
-	//
-	// The connector path — the browser's own content analysis protocol — sees
-	// pastes, drops, file pickers, downloads and printing. It is never told
-	// about a typed message, a request body, a dictated sentence or a
-	// microphone, so four of the six channels this product watches exist only
-	// in the page. The page layer needs a browser started with
-	// --remote-debugging-port, and nothing here starts one: this is the port to
-	// LOOK on, checked every five seconds and silent when nothing answers.
-	//
-	// Zero is off. See browseragent.Start for why the default is zero and what
-	// turning it on actually means.
-	CDPPort int `json:"cdpPort,omitempty"`
-
-	// Version is what the RUNNING agent was started as. It is how a later CLI
-	// tells a fresh agent from a stale one without asking the process: an update
-	// replaces the binary on disk, but the process already up keeps the code it
-	// launched with, and this is the stamp that says which. Ensure restarts the
-	// agent when this no longer matches the binary beside the hook.
-	Version string `json:"version,omitempty"`
-
-	// OCREngine is what the agent said would read screenshots here, and
-	// OCRStamp is the agent binary it said it about.
-	//
-	// A CACHE, and it is here rather than recomputed because finding out costs
-	// a process launch and a self test — PowerShell loading a WinRT projection
-	// on a cold machine is a second or two — and `browser status` is a command
-	// people type all day. The stamp is the binary's size and modification
-	// time, so an update that changes the recogniser invalidates this without
-	// anybody having to remember to.
-	//
-	// An empty OCREngine with a stamp means the answer was NO, and that is a
-	// real answer worth caching too: a fleet laptop with no language pack
-	// should not pay for finding that out on every command.
-	OCREngine string `json:"ocrEngine,omitempty"`
-	OCRAdvice string `json:"ocrAdvice,omitempty"`
-	OCRStamp  string `json:"ocrStamp,omitempty"`
-}
-
-func LoadBrowserAgentState() BrowserAgentState {
-	var s BrowserAgentState
-	if b, err := os.ReadFile(BrowserAgentStatePath()); err == nil {
-		_ = json.Unmarshal(b, &s)
-	}
-	return s
-}
-
-func SaveBrowserAgentState(s BrowserAgentState) error {
-	return writeJSONCompact(BrowserAgentStatePath(), s)
-}
-
-// SelfUpdateState is ~/.solongate/.self-update.json.
+// SelfUpdateState tracked a `npm i -g` that ran in the background: when it last
+// looked, what version it saw, which versions npm had refused for permissions so they
+// were not retried forever, and an opt-in flag that defaulted OFF because a global
+// install usually needs sudo on macOS and a daily failed install nobody asked for is
+// worse than no update. There is nothing to update from — this build fetches nothing —
+// and how a release reaches a machine is a decision for whoever ships it.
 //
-// Auto is opt-in and its absence means OFF. A global npm install usually needs
-// sudo on macOS, so a background install there can only fail; defaulting it on
-// would mean a daily failed install nobody asked for. NeedsAdmin records the
-// version npm refused for permissions so that one is not retried forever.
-type SelfUpdateState struct {
-	LastCheckAt int64            `json:"lastCheckAt,omitempty"`
-	LatestSeen  string           `json:"latestSeen,omitempty"`
-	Attempts    map[string]int64 `json:"attempts,omitempty"`
-	Installed   string           `json:"installed,omitempty"`
-	Auto        bool             `json:"auto,omitempty"`
-	NeedsAdmin  string           `json:"needsAdmin,omitempty"`
-}
-
-func LoadSelfUpdateState() SelfUpdateState {
-	var s SelfUpdateState
-	if b, err := os.ReadFile(SelfUpdateStatePath()); err == nil {
-		_ = json.Unmarshal(b, &s)
-	}
-	return s
-}
-
-func SaveSelfUpdateState(s SelfUpdateState) error {
-	return writeJSONCompact(SelfUpdateStatePath(), s)
-}
-
-// KeyRejected is ~/.solongate/.key-rejected.json — the marker the guard drops
-// when the cloud refuses the credential a hook used.
-type KeyRejected struct {
-	TS        int64  `json:"ts,omitempty"`
-	Cwd       string `json:"cwd,omitempty"`
-	KeySource string `json:"keySource,omitempty"`
-	APIURL    string `json:"apiUrl,omitempty"`
-}
+// Both were read and written by nothing outside this file.
 
 // LoadKeyRejected lived here. The guard dropped a marker when a service answered 401
 // or 403 to an audit write and removed it on the next success, so its presence was the

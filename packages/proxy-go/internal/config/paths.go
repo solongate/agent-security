@@ -58,26 +58,23 @@ func TUIConfigPath() string { return filepath.Join(Dir(), "tui-config.json") }
 // Desired state of the local audit-log service. `desired` in here outlives the
 // process: closing the terminal kills the server, it does not disable it.
 
-// The Shadow AI browser agent: the process a browser asks before it lets
-// somebody paste. Its own state file and its own log, beside the audit
-// service's, because they are two services with two lifetimes and one file
-// holding both would mean stopping one rewrote the other's row.
-func BrowserAgentStatePath() string { return filepath.Join(Dir(), ".browser-agent.json") }
+// Five paths stood here, to files nothing on this machine writes:
+//
+//	.browser-agent.json / browser-agent.log   the Shadow AI browser agent — the
+//	                                          process a browser asked before it let
+//	                                          somebody paste. Not in this build.
+//	.self-update.json / self-update.log       a background `npm i -g`. This build
+//	                                          fetches nothing.
+//	.key-rejected.json                        dropped by the guard when a service
+//	                                          rejected the key a HOOK used, and
+//	                                          removed on the next accepted call.
+//	                                          Nothing is sent, so nothing is
+//	                                          rejected; doctor stopped reporting it.
 
-func BrowserAgentLogPath() string { return filepath.Join(Dir(), "browser-agent.log") }
-
-func SelfUpdateStatePath() string { return filepath.Join(Dir(), ".self-update.json") }
-
-func SelfUpdateLogPath() string { return filepath.Join(Dir(), "self-update.log") }
-
-// Dropped by the guard when the cloud rejects the key a HOOK used, and removed
-// again on the next accepted call. Enforcement keeps working while this exists,
-// which is exactly why it has to be surfaced: nothing is being logged and
-// nothing says so.
-func KeyRejectedPath() string { return filepath.Join(Dir(), ".key-rejected.json") }
-
-// The starter policy the onboarding wizard writes. The guard falls back to it
-// when the cloud cache holds no policy.
+// THE policy file. It is not a fallback and not a starter: it is where a policy lives.
+// The comment here used to call it "the starter policy the onboarding wizard writes",
+// read when "the cloud cache holds no policy" — which had it exactly backwards by the
+// end, since the cache was the thing that did not exist.
 func LocalPolicyPath() string { return filepath.Join(Dir(), "policy.json") }
 
 func HooksDir() string { return filepath.Join(Dir(), "hooks") }

@@ -216,7 +216,7 @@ const HELP: Array<[string, Array<[string, string]>]> = [
   ['Rate limit', [['↑↓', 'field'], ['←→', 'adjust (shift = ±10)'], ['s', 'save']]],
   ['DLP', [['↑↓', 'move'], ['space', 'toggle a built-in pattern on/off'], ['m', 'cycle mode'], ['a', 'add custom pattern (name → glob, * = any chars)'], ['d', 'remove custom pattern'], ['s', 'save · x discard']]],
   ['Audit', [['s', 'source: cloud ↔ local'], ['← →', 'prev / next page (500 each)'], ['↑↓', 'select (list scrolls)'], ['enter', 'full entry'], ['f / g', 'decision / signal filter'], ['t / n / /', 'tool / agent / search'], ['x / X', 'delete entry / ALL (press twice)'], ['c', 'clear filters']]],
-  ['Settings', [['↑↓', 'move'], ['enter / space', 'toggle · edit · add'], ['e', 'webhook events'], ['d d', 'delete'], ['r', 'refresh']]],
+  ['Settings', [['↑↓', 'move'], ['enter / space', 'toggle · edit'], ['e', 'edit the log folder'], ['d d', 'delete'], ['r', 'refresh']]],
   ['Accounts', [['a', 'switch account (view another account logged in on this device)'], ['', 'the header shows which account you are viewing; guard/logging keep the active key']]],
 ];
 

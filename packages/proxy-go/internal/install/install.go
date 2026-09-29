@@ -145,11 +145,31 @@ func Install() Result {
 		_ = installOpencodePlugin(p, st.plugin)
 	}
 
+	// THE SHIELD'S SHIM, which nothing was installing.
+	//
+	// shield.mjs went onto disk with the other hooks and nothing ever wired it up, so
+	// the one surface that masks the PROMPT did nothing at all. The hooks see tool
+	// calls and tool results; a secret somebody types, or one a client sweeps into the
+	// context it assembles, reaches the model without passing any of them. The shim is
+	// what puts the shield in that path: a shell function that runs `claude` through
+	// it.
+	//
+	// Best-effort and quiet about it. It reports false when Claude Code is not on PATH
+	// — nothing to wrap — and the block is written between markers, so an install that
+	// runs twice replaces it rather than defining `claude` twice.
+	shimmed := InstallClaudeShim(filepath.Join(p.HooksDir, shieldHookName))
+
 	if !locksDisabled() {
 		LockProtected()
 	}
 
 	res := Result{OK: true, Message: "guard installed (open a new session)"}
+	if !shimmed {
+		// Said out loud, because the difference is invisible from the outside: tool
+		// calls are guarded either way, and only the prompt path is missing.
+		res.Notes = append(res.Notes,
+			"Secrets in tool calls are masked, but NOT in the prompt: the `claude` shell shim could not be installed (Claude Code is not on PATH, or no shell profile was found). Tool-call enforcement is unaffected.")
+	}
 	if st.sourceMissing {
 		// Said out loud rather than folded into success. The registrations were
 		// rewritten against the hooks that were already installed, which is the

@@ -651,17 +651,12 @@ func (p *Settings) viewList() string {
 			}
 			lastSec = sec
 			push(stAccentB.Render(sec)+stDim.Render("  — "+p.sectionDesc(sec)), "")
-			// Cloud notifications fire server-side off the cloud audit POST,
-			// which the guard SKIPS in local-log mode. Say so, or it is a silent
-			// no-op; the webhook test still delivers, because it posts directly.
-			if (sec == "WEBHOOKS" || sec == "ALERTS") && p.haveLocal && p.local.Enabled {
-				extra := ""
-				if sec == "WEBHOOKS" {
-					extra = " (t test still works)"
-				}
-				push(stWarn.Render("  ⚠ local logs on — real denials stay on this machine, so "+
-					strings.ToLower(sec)+" do NOT fire"+extra), "")
-			}
+			// A warning stood here for the WEBHOOKS and ALERTS sections: they fired
+			// server-side off the audit POST, which the guard skipped in local-log
+			// mode, so they were a silent no-op. sectionOf has produced only
+			// PROTECTION and LOCAL LOGS since those sections went, which made the
+			// branch unreachable — and its condition (`p.local.Enabled`) is now true
+			// on every machine, so it would have shown on all of them.
 		}
 		push(p.rowLine(r, r.key() == curKey && p.focused), r.key())
 

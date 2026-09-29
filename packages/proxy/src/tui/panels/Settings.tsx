@@ -537,7 +537,9 @@ export function SettingsPanel({
 
         {editing ? (
           <Box>
-            <Text color={theme.warn}>{editing === 'path' ? 'local log path: ' : 'webhook url: '}</Text>
+            {/* `path` is the only thing editable here. The other branch read
+                'webhook url: ', for a section that is gone. */}
+            <Text color={theme.warn}>local log path: </Text>
             <TextInput value={input} onChange={setInput} onSubmit={submitInput} />
           </Box>
         ) : msg ? (

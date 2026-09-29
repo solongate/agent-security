@@ -133,9 +133,16 @@ func loadLocalPolicyFile(cwd string, managed bool) *sgshared.PolicyCache {
 		var probe struct {
 			Policy json.RawMessage `json:"policy"`
 		}
-		if json.Unmarshal(b, &probe) == nil && len(probe.Policy) > 0 && string(probe.Policy) != "null" {
+		// The PRESENCE of a `policy` key is what makes it the envelope, even when
+		// its value is null — an absent key decodes to a nil RawMessage and a null
+		// one to the four bytes "null", so the two are distinguishable here and
+		// have to be. A file with layers and no rules is a real configuration (DLP
+		// on, nothing forbidden), and requiring a non-null policy threw the whole
+		// file away, layers included. The hook accepts it, so this has to.
+		isEnvelope := json.Unmarshal(b, &probe) == nil && len(probe.Policy) > 0
+		if isEnvelope {
 			var e sgshared.PolicyCache
-			if json.Unmarshal(b, &e) != nil || e.Policy == nil {
+			if json.Unmarshal(b, &e) != nil {
 				continue
 			}
 			// A policy DOCUMENT may carry `security` inside it — that is how the

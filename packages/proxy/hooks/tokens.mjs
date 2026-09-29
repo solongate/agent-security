@@ -356,22 +356,15 @@ function collectTokens(data, source) {
  * Silent on every failure, including a missing credential: a machine that is
  * not logged in has nowhere to report and nothing to say about it.
  */
-async function sendTokens({ apiUrl, apiKey, sessionId, agentId, agentName, source, turns }) {
-  if (!apiKey || !turns || !turns.length) return;
-  const body = turns.slice(-MAX_TURNS).map((t) => ({
-    ...t,
-    session_id: sessionId || '',
-    agent_id: agentId || '',
-    agent_name: agentName || '',
-    source: source || '',
-  }));
-  try {
-    await fetch(`${apiUrl.replace(/\/$/, '')}/api/v1/token-usage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ turns: body }),
-    });
-  } catch { /* silent: a figure that could not be sent must not fail a turn */ }
+async function sendTokens() {
+  // NOTHING IS SENT. This used to POST the per-turn token counts to
+  // /api/v1/token-usage — what a session cost, and which model ran it. There is no
+  // service to receive them; the counts are still read and still available to
+  // whatever reads this machine, but they do not leave it.
+  //
+  // Kept as a function rather than deleted at every call site: the readers above
+  // are the tested half (test/token-usage.mjs), and the shape of this hook is one
+  // collector feeding one sender.
 }
 
 // reportTokens sends what the turn cost, beside the record of what was said.

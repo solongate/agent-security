@@ -162,21 +162,47 @@ func TestAManagedMachineReadsNeitherFile(t *testing.T) {
 	}
 }
 
-// With no credential there is nowhere to POST a record, so disk is not a
-// preference — it is the only place it can go. Answering "cloud only" here is
-// how a denial on a local machine was written nowhere at all.
-func TestWithNoCredentialTheRecordGoesToDisk(t *testing.T) {
-	if !localLogsOnly(nil, true, "") {
-		t.Error("a machine with no credential would have sent its record to a service it has none for")
+// THE RECORD IS WRITTEN WHATEVER THE CONFIGURATION SAYS, because the file is the
+// only place it can go: the POST that used to be the alternative is gone with the
+// service. What the configuration still chooses is the FOLDER.
+//
+// This test used to assert the opposite half — that localLogsOnly answered "cloud"
+// for a project whose security block said local logging was off. That branch could
+// only ever lose the entry once there was nothing to POST to.
+func TestTheRecordIsWrittenWhateverTheSettingSays(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		sec  *sgshared.Security
+	}{
+		{"no security block at all", nil},
+		{"a block that says local logging is off", &sgshared.Security{
+			LocalLogs: &sgshared.LocalLogs{Enabled: false, Path: ""},
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			writeLocalLog(c.sec, sgshared.Credential{}, map[string]interface{}{
+				"tool": "Bash", "decision": "DENY",
+			})
+			f := filepath.Join(home, ".solongate", "local-logs", "solongate-audit.jsonl")
+			if _, err := os.Stat(f); err != nil {
+				t.Fatalf("the record was not written: %v", err)
+			}
+		})
 	}
-	// And with a credential it is still the configuration that decides.
-	if localLogsOnly(nil, true, "sg_live_x") {
-		t.Error("an empty security block means cloud, and that has not changed")
-	}
-	sec := &sgshared.Security{LocalLogs: &sgshared.LocalLogs{Enabled: true, Path: "/tmp/x"}}
-	if !localLogsOnly(sec, true, "sg_live_x") {
-		t.Error("local logging was configured on and was not honoured")
-	}
+
+	// And a named folder is still where it goes.
+	t.Run("a named folder is honoured", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		dir := filepath.Join(home, "elsewhere")
+		writeLocalLog(&sgshared.Security{LocalLogs: &sgshared.LocalLogs{Enabled: true, Path: dir}},
+			sgshared.Credential{}, map[string]interface{}{"tool": "Bash", "decision": "DENY"})
+		if _, err := os.Stat(filepath.Join(dir, "solongate-audit.jsonl")); err != nil {
+			t.Fatalf("the configured folder was not used: %v", err)
+		}
+	})
 }
 
 // A policy DOCUMENT may carry `security` inside it, which is how the service

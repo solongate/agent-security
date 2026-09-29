@@ -196,7 +196,7 @@ func allow() { emit(decision{Type: "allow"}) }
 //
 // TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
 // cannot drift without the build saying so.
-const hookVersion = 97
+const hookVersion = 98
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.
@@ -207,19 +207,6 @@ func main() {
 	// call was already being charged for this hook long before this process
 	// existed. See hookStart.
 	started := hookStart()
-
-	// The detached audit writer is this same binary, and it must never load the
-	// decision path — it has one job and exits.
-	if len(os.Args) > 2 && os.Args[1] == "--sg-audit-post" {
-		runAuditPost(os.Args[2])
-		return
-	}
-
-	// The detached policy refresh, same shape and for the same reason.
-	if len(os.Args) > 2 && os.Args[1] == "--sg-refresh-policy" {
-		runPolicyRefresh(os.Args[2])
-		return
-	}
 
 	// How the hook decides whether this binary is the one it expects. Cheap on
 	// purpose: it runs before any client is told the binary can be trusted, and
@@ -286,55 +273,24 @@ func main() {
 	activeClient = clientFor(agentType)
 	nc := normalizeToolCall(activeClient, agentType, input)
 	c := nc.call
-	cache := loadPolicyCache(agentID)
-
-	// Stale-while-revalidate, kicked off BEFORE the decision so the refresh and
-	// the evaluation overlap.
+	// THERE IS NO POLICY CACHE. It held a service's answer with a TTL, a bounded
+	// wait for a refresh, and a detached child to warm it for the next call — all
+	// of it so a rule added on a dashboard would land within one call. Nothing
+	// writes it now, and while it still existed it was worse than dead: a service
+	// answering with an empty security block OUTRANKED the file, so a machine whose
+	// file configured DLP had it switched off by a reply that said nothing.
 	//
-	// Pure stale-while-revalidate has a hole that matters for this particular
-	// program: the call that arrives right after a rule is added is answered from
-	// the cache that predates it, so the very thing just forbidden goes through
-	// once. "It lands within one call" is a fine guarantee for a cache and a poor
-	// one for a control.
-	//
-	// So a stale cache waits a bounded moment for the refresh it just started. If
-	// that lands, the call is judged against the policy the user actually has. If
-	// it does not, the cache is used exactly as before and nothing is slower than
-	// the bound — the child keeps going and its write lands for the next call,
-	// which is the behaviour this had before the wait existed.
-	//
-	// The cost is paid at most once per TTL, by whichever call finds the cache
-	// stale, and it is bounded well under what the client already spent starting
-	// Node and this binary to ask the question.
-	if cacheIsStale(cache) {
-		if fetchAndWriteCache(cred.APIURL, cred.APIKey, agentID, refreshGrace) {
-			if fresh := loadPolicyCache(agentID); fresh != nil {
-				cache = fresh
-			}
-		} else {
-			// The bounded attempt did not land. Hand it to a detached child on
-			// the way past so it finishes without this call waiting further, and
-			// decide from the cache that is there.
-			refreshPolicyDetached(cred, agentID)
-		}
-	}
-
 	// Read here rather than at the policy step below, because what the file can
 	// carry BESIDE the policy is consulted before the policy is: the tamper flag
 	// just below, then the rate limit, the egress rules and the DLP scanner.
 	local := loadLocalPolicyFile(c.Cwd, fleet.Managed)
 
+	// hasSecurity is not the same question as "is sec nil": the file can carry a
+	// `security` block of null, which is a machine saying it configures no layers,
+	// and that is different from a file that says nothing about them.
 	var sec *sgshared.Security
 	hasSecurity := false
-	if cache != nil {
-		sec = cache.Security
-		hasSecurity = cache.HasSecurity
-	}
-	// The service outranks the file, so the file only fills in what the cache did
-	// not answer. hasSecurity is that distinction: a cache CAN carry a security
-	// block of null, which is the service saying "none", and that is not the same
-	// as the service never having been asked.
-	if !hasSecurity && local != nil && local.HasSecurity {
+	if local != nil && local.HasSecurity {
 		sec, hasSecurity = local.Security, true
 	}
 
@@ -345,13 +301,11 @@ func main() {
 	// processes in a concurrent burst exceed the client's hook timeout and get
 	// killed partway through writing their log.
 	//
-	// The flag defaults ON: a cache that is missing or unreadable leaves
-	// self-protection enabled, because the failure mode of guessing wrong in the
-	// other direction is a guard that can be edited out of the way.
+	// The flag defaults ON: a file that is missing, unreadable or silent about it
+	// leaves self-protection enabled, because the failure mode of guessing wrong in
+	// the other direction is a guard that can be edited out of the way.
 	selfProtect := true
-	if cache != nil && cache.SelfProtect != nil {
-		selfProtect = *cache.SelfProtect
-	} else if local != nil && local.SelfProtect != nil {
+	if local != nil && local.SelfProtect != nil {
 		selfProtect = *local.SelfProtect
 	}
 	if selfProtect {
@@ -439,10 +393,7 @@ func main() {
 	// parses and carries a null policy, is the state every machine is in on its
 	// first call after install.
 	var pol *sgshared.Policy
-	if cache != nil {
-		pol = cache.Policy
-	}
-	if pol == nil && local != nil {
+	if local != nil {
 		pol = local.Policy
 	}
 	policyReason := sgpolicy.EvaluatePolicy(pol, c.Args, c.Tool, c.Cwd)
@@ -617,8 +568,8 @@ func recordDecision(cred sgshared.Credential, sec *sgshared.Security, hasSecurit
 	for k, v := range entry {
 		local[k] = v
 	}
-	writeLocalLog(sec, hasSecurity, cred, local)
-	if !localLogsOnly(sec, hasSecurity, cred.APIKey) {
-		postAuditDetached(cred, entry)
-	}
+	// The FILE is where a record goes. There used to be a POST here for the case
+	// where local logging was switched off, and with the service gone that branch
+	// could only ever lose the entry.
+	writeLocalLog(sec, cred, local)
 }

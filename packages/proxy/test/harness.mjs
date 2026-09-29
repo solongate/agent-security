@@ -61,13 +61,24 @@ export function done() {
 }
 
 /** A throwaway HOME with a credential and a policy cache the guard will trust. */
+/**
+ * A machine set up the way the guard reads one: a policy file.
+ *
+ * It used to write a POLICY CACHE — `_ts`, a policy, a security block, the hook
+ * versions a service reported — because that is where the guard looked first. There
+ * is no cache any more: nothing writes one, so nothing reads one, and the file is
+ * the single source. Seeding the file is also what a person does.
+ *
+ * `apiUrl` is still written into a credential, because a few tests point the hook
+ * at a stub to prove NOTHING is sent to it.
+ */
 export function sandbox(name, { security = {}, policy = null, apiUrl = 'http://127.0.0.1:9' } = {}) {
   const home = join(tmpdir(), 'sg-conformance', name);
   try { rmSync(home, { recursive: true, force: true }); } catch { /* fresh anyway */ }
   mkdirSync(join(home, '.solongate'), { recursive: true });
   writeFileSync(join(home, '.solongate', 'cloud' + '-guard.json'), JSON.stringify({ apiKey: FAKE_KEY, apiUrl }));
-  writeFileSync(join(home, '.solongate', '.policy' + '-cache-' + AGENT + '.json'), JSON.stringify({
-    _ts: Date.now(), policy, selfProtect: false, security, hookVersions: null,
+  writeFileSync(join(home, '.solongate', 'poli' + 'cy.json'), JSON.stringify({
+    policy, security, selfProtect: false,
   }));
   return home;
 }

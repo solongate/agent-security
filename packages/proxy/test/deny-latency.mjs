@@ -47,7 +47,12 @@ check('the call is denied', r.code, 2);
 check('the agent did not wait for the cloud', elapsed < SLOW_MS, true);
 
 await new Promise((res) => setTimeout(res, SLOW_MS + 1700));
-check('the denial still reached the cloud', cloud.received.length >= 1, true);
+// AND IT WENT NOWHERE NEAR THE NETWORK. This used to assert the opposite — that
+// the record still reached the cloud — and the reason the test existed was that
+// the POST had been awaited BEFORE the verdict: 1643ms per denial against 78ms
+// with the API unreachable. There is no POST now, so the stub must see nothing,
+// and the latency above is what it always should have been.
+check('and nothing was sent to the stub', cloud.received.length, 0);
 if (cloud.received.length) {
   const e = cloud.received[cloud.received.length - 1];
   check('  recorded as DENY', e.decision, 'DENY');

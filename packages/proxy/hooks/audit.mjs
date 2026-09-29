@@ -42,7 +42,7 @@ function projectFlagDir() {
 // fetchAndInstallHook / maybeSelfUpdate.
 // 29 collapses a run of `*` in a custom DLP glob before compiling it. That is a
 // HANG fix, so an installed hook must pick it up: see dlpGlobToRe.
-const HOOK_VERSION = 31;
+const HOOK_VERSION = 32;
 
 function loadEnvKey(dir) {
   try {
@@ -342,34 +342,15 @@ function rateLimitObserveBurst(agentKey, limits) {
 // JSON object per line (JSONL) to that path. Fully local, best-effort, and
 // never blocks the tool call or the cloud audit POST.
 function loadLocalLogs() {
-  // Nothing to send to. Disk is not a preference here, it is the only place the
-  // entry can go — and answering "cloud" for a machine with no credential is how
-  // every ALLOW on such a machine went nowhere at all.
-  if (!API_KEY) return { path: resolve(homedir(), '.solongate', 'local-logs') };
+  // WHERE, never WHETHER. This used to answer null for "send it to the service
+  // instead", and there is no service: a null here now would lose the entry.
+  // A configured folder wins; otherwise the per-device default.
   try {
-    const sel = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const f = resolve(homedir(), '.solongate', '.policy-cache-' + sel + '.json');
-    if (existsSync(f)) {
-      const c = JSON.parse(readFileSync(f, 'utf-8'));
-      const l = c && c.security && c.security.localLogs;
-      if (l && l.enabled && typeof l.path === 'string' && l.path.trim()) return { path: l.path.trim() };
-      // A cache that carries the key at all has an ANSWER, and the answer is
-      // "not local" — including when it is null, which is what the refresh
-      // writes for a project with no security config. Requiring it to be
-      // truthy sent that case to the device-wide marker instead, so a stale
-      // marker kept ALLOW rows on disk after local logging was switched off.
-      if (c && 'security' in c) return null;
-    }
-  } catch { /* unreadable cache — fall through to the marker */ }
-  // No usable config (cold cache, or a refresh that failed while the key was
-  // being rotated): honour the persisted local-only marker instead of defaulting
-  // to the cloud, which would ship an entry the project wants kept on-device.
-  // The guard writes this marker on every policy refresh (writeLocalMarker).
-  try {
-    const m = JSON.parse(readFileSync(resolve(homedir(), '.solongate', '.local-logs-mode.json'), 'utf-8'));
-    if (m && m.localOnly) return { path: resolve(homedir(), '.solongate', 'local-logs') };
-  } catch { /* no marker → cloud */ }
-  return null;
+    const sec = loadSecurity();
+    const l = sec && sec.localLogs;
+    if (l && typeof l.path === 'string' && l.path.trim()) return { path: l.path.trim() };
+  } catch { /* fall through to the default */ }
+  return { path: resolve(homedir(), '.solongate', 'local-logs') };
 }
 
 // Resolve the FOLDER local logs may be written into. It MUST be absolute on
@@ -749,47 +730,22 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
       try { rateLimitBurst = rateLimitObserveBurst(AGENT_ID, loadRateLimitObserve()); } catch { rateLimitBurst = false; }
     }
 
-    // Local log storage (opt-in): when ON, logs are kept LOCAL ONLY — we append
-    // this entry to the user's chosen file and do NOT send it to the cloud.
-    const localLogs = loadLocalLogs();
-    if (localLogs) {
-      appendLocalLog(localLogs, {
-        ts: new Date().toISOString(),
-        tool: toolName, arguments: argsSummary, decision, reason, permission,
-        evaluation_time_ms: evaluationTimeMs, agent_id: AGENT_ID, agent_name: AGENT_NAME, session_id: sessionId,
-        ...(dlpMatches.length ? { dlp: dlpMatches } : {}),
-        ...(rateLimitBurst ? { rate_limit_burst: true } : {}),
-      });
-      fetchDone = true;
-      maybeExit();
-    } else {
-      // Fire-and-forget: don't block tool execution waiting for API response
-      fetch(`${API_URL}/api/v1/audit-logs`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          tool: toolName,
-          arguments: argsSummary,
-          decision,
-          reason,
-          permission,
-          source: `${AGENT_ID}-hook`,
-          evaluationTimeMs,
-          agent_id: AGENT_ID,
-          agent_name: AGENT_NAME,
-          session_id: sessionId,
-          ...(dlpMatches.length ? { dlp: dlpMatches } : {}),
-          ...(rateLimitBurst ? { rate_limit_burst: true } : {}),
-        }),
-        signal: AbortSignal.timeout(5000),
-      }).catch(() => {}).finally(() => { fetchDone = true; maybeExit(); });
-    }
-    // Safety backstop ONLY (unref'd, 8s > the 5s fetch timeout): the normal path
-    // exits by natural drain ~1ms after the fetch settles. This fires only if the
-    // loop somehow fails to drain — by 8s the threadpool is idle, so exit() is safe.
+    // THE RECORD GOES TO THE FILE. There used to be a branch here that POSTed it
+    // instead, to whatever API_URL was — and that branch carried the tool, its
+    // arguments and the reason off the machine. It is gone with the service that
+    // received them, and so is the question of whether to record: the only thing
+    // left to choose is the folder.
+    appendLocalLog(loadLocalLogs(), {
+      ts: new Date().toISOString(),
+      tool: toolName, arguments: argsSummary, decision, reason, permission,
+      evaluation_time_ms: evaluationTimeMs, agent_id: AGENT_ID, agent_name: AGENT_NAME, session_id: sessionId,
+      ...(dlpMatches.length ? { dlp: dlpMatches } : {}),
+      ...(rateLimitBurst ? { rate_limit_burst: true } : {}),
+    });
+    fetchDone = true;
+    maybeExit();
+    // Safety backstop ONLY, unref'd: the normal path exits by natural drain. This
+    // fires only if the loop somehow fails to drain.
     try { setTimeout(() => { try { process.exit(process.exitCode || 0); } catch {} }, 8000).unref(); } catch {}
   } catch {
     process.exitCode = 0;

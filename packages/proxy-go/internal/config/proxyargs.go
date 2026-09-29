@@ -280,11 +280,28 @@ func ParseProxyArgs(args []string, now string) (ProxyConfig, error) {
 		// invocation works with no key anywhere.
 		apiKey = LoadCredentialFile().APIKey
 	}
-	if apiKey == "" {
-		return ProxyConfig{}, ErrProxyNotAuthenticated
-	}
+	// NO CREDENTIAL IS NOT AN ERROR. This used to refuse the whole config, so the
+	// proxy could not come up at all on a machine with no service — and that is
+	// the ordinary way this runs. With no key nothing cloud-side happens and the
+	// policy is the file on this machine, the same one the guard reads.
+	//
+	// A MALFORMED key counts as none for the same reason: it cannot be used, and
+	// refusing to start over it leaves the agent with no gate rather than a local
+	// one.
 	if !strings.HasPrefix(apiKey, "sg_live_") && !strings.HasPrefix(apiKey, "sg_test_") {
-		return ProxyConfig{}, ErrBadKeyFormat
+		apiKey = ""
+	}
+
+	// With no --policy, THIS MACHINE'S FILE — so the proxy and the hook decide
+	// from the same rules. A policy.json in the working directory still wins when
+	// it is there, which is how a project pins its own.
+	if policySource == "" {
+		own := filepath.Join(Dir(), policyFileName)
+		if _, err := os.Stat(policyFileName); err == nil {
+			policySource = policyFileName
+		} else if _, err := os.Stat(own); err == nil {
+			policySource = own
+		}
 	}
 
 	resolvedPolicyPath := ""

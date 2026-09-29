@@ -261,10 +261,15 @@ func (p *Proxy) validateLicenseAndLoadPolicy(ctx context.Context) error {
 	}
 	key := p.config.APIKey
 	if key == "" {
-		// ParseProxyArgs refuses to return a config without a key, so this is
-		// only reachable from an embedder. Nothing cloud-side runs and the
-		// local policy is enforced as-is.
-		return nil
+		// NO SERVICE, so nothing cloud-side runs and the policy is the file this
+		// machine keeps — loaded HERE rather than left to a caller, because a gate
+		// with no policy loaded denies everything, and that is not what "no
+		// service" should mean.
+		//
+		// ParseProxyArgs used to refuse a config without a key, which made this
+		// branch reachable only from an embedder. It is the ordinary path now.
+		p.log("No service configured — enforcing this machine's policy file.")
+		return p.gate.LoadPolicy(p.currentPolicy().Set)
 	}
 
 	if strings.HasPrefix(key, "sg_test_") {

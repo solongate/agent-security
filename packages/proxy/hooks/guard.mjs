@@ -104,10 +104,11 @@ function sweepLegacyFlagDir() {
 
 import { createHash } from 'node:crypto';
 
-// Bump on every guard.mjs change. The cloud serves the newest bundle + version;
-// the installed hook self-updates when the cloud version is higher (see
-// maybeSelfUpdate). This is what makes guard fixes propagate without a manual
-// reinstall — the same trust model as the OPA WASM this hook already runs.
+// Bump on every change to this file. An installed hook is replaced by the
+// INSTALLER, which is the only thing that writes one now: this hook used to fetch
+// replacement hooks from a service and swap its own file, and there is no service
+// to serve them. The number is still how `doctor` and the Settings panel say an
+// installation is behind the package.
 // 92 closes a disarm: this hook's own per-agent state — the policy cache above
 // all — was writable through a path-taking tool, because matchPathGlob does not
 // treat `*` as a wildcard after a `**`. See isProtectedPath.
@@ -118,7 +119,7 @@ import { createHash } from 'node:crypto';
 //
 // An installed hook self-updates on this number, and a disarm nobody picks up is
 // not fixed.
-const HOOK_VERSION = 97;
+const HOOK_VERSION = 98;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -374,38 +375,6 @@ function loadLocalPolicyFile(cwd) {
   return null;
 }
 
-function localLogsOnly(security) {
-  // Nothing to send to: disk is not a preference here, it is the only place the
-  // record can go. Answering "cloud only" for a machine with no credential is
-  // how a denial ended up written nowhere at all.
-  if (!API_KEY) return true;
-  if (security !== undefined) {
-    const l = security && security.localLogs;
-    return !!(l && l.enabled && typeof l.path === 'string' && l.path.trim());
-  }
-  // Genuinely unknown (cold start, unreadable cache): consult the persisted
-  // marker so a DENY is NEVER leaked to the cloud when this device is in
-  // local-only mode. Without this fallback the first call(s) before the policy
-  // cache warms POST the denial to the cloud and fire webhooks/alerts even
-  // though the user chose local-only.
-  try {
-    const m = JSON.parse(readFileSync(join(resolve(homedir(), '.solongate'), '.local-logs-mode.json'), 'utf-8'));
-    return !!(m && m.localOnly);
-  } catch { return false; }
-}
-
-// Persist whether this device is in local-only mode, INDEPENDENT of the policy
-// cache, so localLogsOnly() answers correctly even on a cache-miss call. Written
-// on every policy refresh; switching back to cloud sets localOnly:false so cloud
-// POSTs resume.
-function writeLocalMarker(security) {
-  try {
-    const l = security && security.localLogs;
-    const localOnly = !!(l && l.enabled && typeof l.path === 'string' && l.path.trim());
-    writeFileSync(join(resolve(homedir(), '.solongate'), '.local-logs-mode.json'), JSON.stringify({ localOnly, ts: Date.now() }));
-  } catch {}
-}
-
 // Resolve the FOLDER local logs may be written into. It MUST be absolute on
 // THIS machine. A relative path — e.g. a Windows "C:/Users/…" path evaluated on
 // Linux, where Node treats it as relative — would be created under the agent's
@@ -454,31 +423,6 @@ function accountMark() {
   }
 }
 
-/**
- * Record a denial in the cloud WITHOUT making the agent wait for it.
- *
- * The verdict is the product; the audit line is bookkeeping. Awaiting the POST
- * put a full network round trip between "blocked" and the agent hearing it —
- * measured at 1643ms per denial, against 78ms with the API unreachable. Handing
- * it to a detached child keeps the record and gives the time back.
- */
-function postAuditDetached(entry) {
-  // No credential, no destination. Without this the record went out UNAUTHENTICATED
-  // to whatever API_URL happened to be — by default a hosted service the person
-  // running this does not operate — carrying the command that was just blocked.
-  // On a local machine the audit line belongs on the local disk, and writeLocalLog
-  // is what puts it there.
-  if (!API_KEY) return;
-  try {
-    const payload = Buffer.from(JSON.stringify({
-      url: API_URL + '/api/v1/audit-logs',
-      headers: AUTH_HEADERS,
-      body: entry,
-    }), 'utf-8').toString('base64');
-    spawn(process.execPath, [process.argv[1], '--sg-audit-post', payload], { detached: true, stdio: 'ignore' }).unref();
-  } catch { /* the denial still stands; only the record is at risk */ }
-}
-
 function writeLocalLog(security, entry) {
   try {
     const mark = accountMark();
@@ -489,8 +433,12 @@ function writeLocalLog(security, entry) {
     // or cold policy cache, or a refresh that failed while the key was being
     // rotated) — in which case keep the copy in the per-device default folder
     // rather than dropping it.
-    if (!l || !l.enabled || typeof l.path !== 'string' || !l.path.trim()) {
-      if (!localLogsOnly(security)) return; // local logging is off — cloud only
+    if (!l || typeof l.path !== 'string' || !l.path.trim()) {
+      // No folder named, so the per-device default. RECORDING IS NOT OPTIONAL:
+      // this used to return early when the configuration said local logging was
+      // off, which made sense while there was a service to POST to instead. With
+      // that gone, returning here loses the record entirely — the only thing the
+      // setting can still choose is WHERE.
       const fallbackDir = resolve(homedir(), '.solongate', 'local-logs');
       const fallbackLine = JSON.stringify(entry) + '\n';
       const fallbackPayload = Buffer.from(JSON.stringify({ dir: fallbackDir, line: fallbackLine }), 'utf-8').toString('base64');
@@ -614,58 +562,9 @@ const API_URL_SOURCE = process.env.SOLONGATE_API_URL
   : globalCfg.apiUrl
     ? 'login (~/.solongate)'
     : join(hookCwdEarly, '.' + 'env');
-
-// Record/clear the "the cloud rejected this credential" marker. `solongate
-// doctor` surfaces it, so a 401 stops being invisible.
-function noteAuthResult(ok) {
-  try {
-    const p = join(resolve(homedir(), '.solongate'), '.key-rejected.json');
-    if (ok) { if (existsSync(p)) rmSync(p, { force: true }); return; }
-    writeFileSync(p, JSON.stringify({
-      ts: Date.now(), cwd: hookCwdEarly,
-      keySource: API_KEY_SOURCE, apiUrl: API_URL, apiUrlSource: API_URL_SOURCE,
-    }));
-  } catch { /* best-effort */ }
-}
 // Auth headers attached to every cloud API request. Cloud accepts either the
 // Authorization: Bearer form or X-API-Key; we send both for robustness.
 const AUTH_HEADERS = API_KEY ? { 'Authorization': 'Bearer ' + API_KEY, 'X-API-Key': API_KEY } : {};
-
-// ── Self-update (best-effort, throttled, integrity-checked) ──
-// Once per ~6h the hook asks the cloud for the latest guard bundle. If the cloud
-// version is higher AND the sha256 verifies AND the payload looks like this guard
-// hook, it atomically replaces its own file. Any failure is swallowed so a bad
-// update can never break enforcement — the current code simply keeps running.
-// Fetch one hook bundle from the cloud and atomically replace the installed file
-// if the served version is newer AND the sha256 verifies AND it looks like the
-// right hook. Any failure is swallowed.
-async function fetchAndInstallHook(endpoint, fileName, currentVersion, marker, minLen) {
-  try {
-    const res = await fetch(API_URL + '/api/v1/hooks/' + endpoint, { headers: AUTH_HEADERS, signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data || typeof data.version !== 'number' || data.version <= currentVersion) return;
-    if (typeof data.content !== 'string' || typeof data.sha256 !== 'string') return;
-    const buf = Buffer.from(data.content, 'base64');
-    if (createHash('sha256').update(buf).digest('hex') !== data.sha256) return;
-    const text = buf.toString('utf-8');
-    if (!text.startsWith('#!/usr/bin/env node') || text.length < minLen || !text.includes(marker)) return;
-    const hooksDir = join(resolve(homedir(), '.solongate'), 'hooks');
-    const tmp = join(hooksDir, '.' + fileName + '.tmp');
-    writeFileSync(tmp, text);
-    try { chmodSync(join(hooksDir, fileName), 0o644); } catch { /* may be locked read-only */ }
-    renameSync(tmp, join(hooksDir, fileName)); // atomic swap, takes effect next call
-  } catch { /* never break enforcement on update failure */ }
-}
-
-// Read the HOOK_VERSION baked into an installed sibling hook (0 if absent/old).
-function installedHookVersion(fileName) {
-  try {
-    const f = join(resolve(homedir(), '.solongate'), 'hooks', fileName);
-    const m = (safeReadFileSync(f) || '').match(/HOOK_VERSION\s*=\s*(\d+)/);
-    return m ? parseInt(m[1], 10) : 0;
-  } catch { return 0; }
-}
 
 /**
  * Which clients the guard is REGISTERED for on this machine.
@@ -697,46 +596,6 @@ function registeredClients() {
   return out;
 }
 
-// Latest hook versions the cloud reports on /policies/active (hook_versions).
-// Captured during the policy fetch of THIS run (or its short-lived cache); lets
-// maybeSelfUpdate() know it is behind and bypass the 6h stamp entirely.
-let CLOUD_HOOK_VERSIONS = null;
-
-function hooksBehindCloud() {
-  const v = CLOUD_HOOK_VERSIONS;
-  if (!v || typeof v !== 'object') return false;
-  if (Number(v.guard) > HOOK_VERSION) return true;
-  if (Number(v.audit) > installedHookVersion('audit.mjs')) return true;
-  if (Number(v.shield) > installedHookVersion('shield.mjs')) return true;
-  return false;
-}
-
-// Once per ~6h: update the guard itself AND its sibling hooks (audit, shield).
-// The guard is the only hook that self-updates from the cloud, so it carries the
-// others — that's why a new audit/shield reaches every device with NO re-login:
-// the guard fetches and installs them on its next run.
-//
-// The 6h stamp only rate-limits the BLIND check. When the policy response says
-// the cloud serves a NEWER hook (hook_versions), we update immediately — so a
-// fresh release lands on the next executed command, and a stamp refreshed by an
-// earlier run (e.g. before the release finished deploying) can't delay it.
-async function maybeSelfUpdate() {
-  if (!API_KEY) return;
-  try {
-    const sgDir = resolve(homedir(), '.solongate');
-    const stamp = join(sgDir, '.hook-update-check');
-    if (!hooksBehindCloud()) {
-      const last = parseInt(safeReadFileSync(stamp) || '0', 10);
-      if (Number.isFinite(last) && Date.now() - last < 6 * 3600 * 1000) return;
-    }
-    try { writeFileSync(stamp, String(Date.now())); } catch { /* ignore */ }
-    // Guard compares to its OWN running version; siblings to their installed file.
-    await fetchAndInstallHook('guard', 'guard.mjs', HOOK_VERSION, 'SolonGate Cloud Policy Guard', 50000);
-    await fetchAndInstallHook('audit', 'audit.mjs', installedHookVersion('audit.mjs'), 'SolonGate Audit Hook', 1500);
-    await fetchAndInstallHook('shield', 'shield.mjs', installedHookVersion('shield.mjs'), 'SolonGate Shield', 1500);
-  } catch { /* never break enforcement on update failure */ }
-}
-
 // Two distinct identities, deliberately kept separate:
 //
 //   AGENT_TYPE — the real AI client running this hook (claude-code / codex /
@@ -765,31 +624,6 @@ const AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_
 // lands even if Claude Code kills the parent hook mid-write during a concurrent
 // denial burst. Handled FIRST and exits immediately — the child never loads the
 // heavy guard logic below.
-// Survivable CLOUD writer, same idea. A denial used to `await` its audit POST
-// before telling the agent it was blocked, so the agent sat waiting on a network
-// round trip to be told "no": measured at 1643ms per denial against 78ms with
-// the API unreachable. The record still has to land, so it is handed to a
-// detached child rather than dropped — the verdict goes out at once and the POST
-// finishes on its own.
-{
-  const _ai = process.argv.indexOf('--sg-audit-post');
-  if (_ai !== -1) {
-    try {
-      const _raw = Buffer.from(process.argv[_ai + 1] || '', 'base64').toString('utf-8');
-      const _p = JSON.parse(_raw);
-      if (_p && _p.url && _p.body) {
-        fetch(_p.url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(_p.headers || {}) },
-          body: JSON.stringify(_p.body),
-          signal: AbortSignal.timeout(10000),
-        }).catch(() => {}).finally(() => process.exit(0));
-        setTimeout(() => process.exit(0), 11000).unref();
-      } else process.exit(0);
-    } catch { process.exit(0); }
-  }
-}
-
 {
   const _wi = process.argv.indexOf('--sg-log-write');
   if (_wi !== -1) {
@@ -831,52 +665,6 @@ const AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_
     process.exit(0);
   }
 }
-const REFRESH_MODE = process.argv.includes('--sg-refresh-policy');
-async function refreshPolicyCache() {
-  try {
-    const agentKey = (AGENT_ID || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const cacheFile = join(resolve(homedir(), '.solongate'), '.policy-cache-' + agentKey + '.json');
-    // Preserve existing fields so a failed fetch never erases the last-known-good.
-    let selfProtect = true, security = null, hookVersions = null, policy = null;
-    try {
-      if (existsSync(cacheFile)) {
-        const c = JSON.parse(readFileSync(cacheFile, 'utf-8'));
-        if (c) { policy = c.policy ?? null; if (typeof c.selfProtect === 'boolean') selfProtect = c.selfProtect; if (c.security !== undefined) security = c.security; if (c.hookVersions) hookVersions = c.hookVersions; }
-      }
-    } catch {}
-    try {
-      const res = await fetch(
-        API_URL + '/api/v1/policies/active?agent_id=' + encodeURIComponent(AGENT_ID || '')
-          + '&hv=' + HOOK_VERSION
-          + '&clients=' + encodeURIComponent(registeredClients().join(',')),
-        { headers: AUTH_HEADERS, signal: AbortSignal.timeout(8000) },
-      );
-      if (res.ok) {
-        const body = await res.json();
-        if (typeof body?.self_protection_enabled === 'boolean') selfProtect = body.self_protection_enabled;
-        // A successful answer REPLACES the security block rather than merging
-        // into it. Only overwriting when the field was present meant a config
-        // the API had stopped sending lived on in the cache forever — switch
-        // local logging off in the dashboard and this device kept writing to
-        // disk and kept skipping the cloud, with nothing to show why.
-        security = body?.security !== undefined ? body.security : null;
-        if (body?.hook_versions && typeof body.hook_versions === 'object') hookVersions = body.hook_versions;
-        policy = (body && body.policy) ? body.policy : null;
-        noteAuthResult(true);
-      } else if (res.status === 401 || res.status === 403) {
-        // The credential this hook resolved is not accepted. Enforcement keeps
-        // working (it needs no network) but every audit write silently fails, so
-        // leave a breadcrumb naming the key's SOURCE — usually a stale .env in
-        // whatever folder the agent was started from.
-        noteAuthResult(false);
-      }
-    } catch {}
-    // Always advance _ts (success or failure) so the hot path backs off between refreshes.
-    try { writeFileSync(cacheFile, JSON.stringify({ _ts: Date.now(), policy, selfProtect, security, hookVersions })); } catch {}
-    writeLocalMarker(security);
-  } catch {}
-}
-if (REFRESH_MODE) { try { setTimeout(() => { try { process.exit(process.exitCode || 0); } catch {} }, 8000).unref(); } catch {} refreshPolicyCache().finally(() => { process.exitCode = 0; }); }
 
 // ── Per-tool block/allow output ──
 // Response format depends on the agent:
@@ -2004,24 +1792,16 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
 
 
 
-// ── OPA WASM Evaluation (NIST SP 800-207 PDP) ──
+// ── OPA IS OUT OF THE DECISION PATH ──
 //
-// When the API has compiled this policy to an OPA WASM bundle AND the
-// @open-policy-agent/opa-wasm runtime is resolvable, we evaluate through OPA
-// instead of the hand-written evaluate() above. This is the same decision
-// engine the MCP proxy uses (packages/policy-engine/src/opa).
+// It read a bundle a SERVICE compiled, and there is no service to compile one.
+// What decided when a bundle could not be obtained — which was every cold start,
+// every air-gapped install and now every call — is hooks/policy-eval.mjs, shared
+// with the MCP proxy so a policy cannot mean one thing to a hook and another to
+// the proxy.
 //
-// Graceful degradation is the contract: any missing piece (no bundle, no
-// runtime, fetch/parse/eval error) makes evaluateWithOpa() return `undefined`,
-// and the caller falls back to the legacy JS evaluate() — so air-gapped
-// installs without OPA see ZERO behavior change.
-
-// Cheap, dependency-free djb2 fingerprint to detect policy changes for caching.
-function djb2(str) {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
+// The bundle reader below stays: it is pure, it is tested, and reading a bundle
+// somebody supplies is a smaller step to take later than writing one again.
 
 // Extracts /policy.wasm from an OPA bundle. Mirrors
 // packages/policy-engine/src/opa/opa-evaluator.ts extractWasmFromBundle().
@@ -2059,229 +1839,11 @@ function extractWasmFromBundle(buf) {
 // rules — a rare event — so we keep it long (24h) instead of re-downloading the
 // bundle every 30s on the hot path.
 const OPA_WASM_TTL_MS = 24 * 60 * 60 * 1000;
-async function getOpaWasmBytes(policy) {
-  if (!policy || !policy.id) return null;
-  const fp = djb2(JSON.stringify(policy.rules || []) + '|' + (policy.mode || ''));
-  const agentKey = (AGENT_ID || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const cacheFile = join(resolve(homedir(), '.solongate'), '.opa-wasm-' + agentKey + '.json');
-
-  // Read any cached bundle. A "fresh" hit (same policy fingerprint, within TTL)
-  // is returned immediately; otherwise we keep it as `stale` to fall back on if
-  // the API is momentarily unreachable — so transient downtime never drops OPA.
-  //
-  // ONLY when the fingerprint still matches. A bundle compiled from a DIFFERENT
-  // policy is not "last known good", it is the wrong policy: it enforces rules
-  // the user has deleted and misses the ones they just wrote. That is what a
-  // stale hit did until now, and it is invisible from the outside — the denial
-  // cites a rule id that is no longer in `policy active`, and the user's only
-  // clue is that their own policy does not contain the rule that just fired.
-  //
-  // Dropping it here does not disarm anything. With no bundle the guard falls
-  // through to its deterministic evaluator, which reads the policy it actually
-  // has, so a fingerprint mismatch costs the OPA-only behaviours and keeps the
-  // rules correct. Enforcing a deleted rule is the worse of the two.
-  let stale = null;
-  try {
-    if (existsSync(cacheFile)) {
-      const c = JSON.parse(readFileSync(cacheFile, 'utf-8'));
-      if (c && c.wasm && c.fp === fp) {
-        stale = new Uint8Array(Buffer.from(c.wasm, 'base64'));
-        if (c._ts && Date.now() - c._ts < OPA_WASM_TTL_MS) {
-          return stale;
-        }
-      }
-    }
-  } catch {}
-
-  // Fetch the compiled bundle from the API (route already exists).
-  try {
-    const res = await fetch(
-      API_URL + '/api/v1/policies/' + encodeURIComponent(policy.id) + '/wasm',
-      { headers: AUTH_HEADERS, signal: AbortSignal.timeout(2500) },
-    );
-    if (!res.ok) return stale; // API has no compiled WASM right now → last known good
-    const bundle = Buffer.from(await res.arrayBuffer());
-    const wasm = extractWasmFromBundle(bundle);
-    try {
-      mkdirSync(resolve(homedir(), '.solongate'), { recursive: true, mode: SG_DIR_MODE });
-      writeFileSync(cacheFile, JSON.stringify({ _ts: Date.now(), fp, wasm: Buffer.from(wasm).toString('base64') }));
-    } catch {}
-    return new Uint8Array(wasm);
-  } catch {
-    return stale; // transient network failure → last known good
-  }
-}
 
 // Lazily load the opa-wasm runtime. Returns the loadPolicy fn or null if the
 // package isn't installed in this environment (typical for air-gapped hooks).
 let _loadPolicyFn = null;
 let _loadPolicyTried = false;
-async function getLoadPolicy() {
-  if (_loadPolicyTried) return _loadPolicyFn;
-  _loadPolicyTried = true;
-  try {
-    const mod = await import('@open-policy-agent/opa-wasm');
-    _loadPolicyFn = mod.loadPolicy || (mod.default && mod.default.loadPolicy) || null;
-  } catch {
-    _loadPolicyFn = null;
-  }
-  return _loadPolicyFn;
-}
-
-// Evaluates the policy through OPA WASM. Returns:
-//   - a reason string  → DENY
-//   - null             → ALLOW (OPA decided, no violation)
-//   - undefined        → OPA unavailable, caller must fall back to evaluate()
-async function evaluateWithOpa(policy, args, toolName, cwd) {
-  if (!policy || !policy.rules) return undefined;
-  try {
-    const loadPolicy = await getLoadPolicy();
-    if (!loadPolicy) return undefined;
-    const wasmBytes = await getOpaWasmBytes(policy);
-    if (!wasmBytes) return undefined;
-
-    const opaPolicy = await loadPolicy(wasmBytes, { initial: 5 });
-    // trust_level is fixed to 'TRUSTED' to preserve legacy guard.mjs behavior,
-    // which never evaluated minimumTrustLevel constraints.
-    // If the tool call references files (bash X.sh, source X, etc.), inline
-    // their contents so the SAME deterministic extractors see hidden commands.
-    // The hook reads files itself; OPA gets a flat, expanded view — no LLM
-    // needed for hidden-in-file detection at this layer.
-    // Inline referenced-file CONTENT only for tools that EXECUTE a script
-    // (`bash X.sh` → X.sh would run, so its contents matter). For read/write
-    // tools the file is data, not code — inlining its content there causes false
-    // positives (e.g. reading a file that merely mentions ".env" tripping an
-    // *.env rule, or reading a script that documents `rm -rf`).
-    const isExecTool = /bash|shell|exec|powershell|cmd|run|eval/.test((toolName || '').toLowerCase());
-    const refFiles = (isExecTool && typeof readReferencedFiles === 'function')
-      ? readReferencedFiles(args, cwd || process.cwd())
-      : {};
-    const expandedArgs = { ...((args && typeof args === 'object') ? args : {}) };
-    for (const [, content] of Object.entries(refFiles)) {
-      const lines = String(content).split('\n')
-        .map(l => l.trim())
-        .filter(l => l && !l.startsWith('#'));
-      if (lines.length > 0) {
-        const extra = lines.join('; ');
-        if (typeof expandedArgs.command === 'string') {
-          expandedArgs.command = expandedArgs.command + '; ' + extra;
-        } else {
-          expandedArgs.command = extra;
-        }
-      }
-    }
-    // Matching a filename/URL/path that appears in a tool BODY (content,
-    // new_string, text, …) only makes sense for EXEC tools, where that text would
-    // RUN. For read/write tools the body is data, not access — writing a doc that
-    // merely mentions a secret-file pattern is not accessing one. So strip body
-    // fields before extracting access targets; the command fields (what actually
-    // executes) are always scanned via extractCommands.
-    // (isExecTool already computed above for the referenced-file inlining gate.)
-    // For NON-exec tools, only the explicit path/target fields are an "access" —
-    // arbitrary text fields (a question, a description, a file body) are data, not
-    // access, and must not be matched against filename/path/url rules. So scan an
-    // ALLOWLIST of target fields only. Exec tools scan the full command instead.
-    // Includes network/url-bearing fields (url, uri, …) so non-exec network
-    // tools (Fetch/WebFetch) keep their access target — otherwise the url field
-    // is stripped here, input.urls comes out empty, and urlConstraints DENY
-    // rules never match (a fetch to a blocked host slips through).
-    // Antigravity read/write tools carry the path in camelCase args (absolutePath,
-    // targetFile, filePath → lowercased here). Without them, a non-exec agy read's
-    // access target is stripped, input.paths/filenames come out empty, and
-    // path/filename DENY rules (`*.env`, `*secrets/*`) never match on agy — the
-    // read then falls through to DLP redaction instead of being blocked. Mirror of
-    // TAMPER_PATH_FIELDS's agy names.
-    const ACCESS_FIELDS = new Set(['file_path', 'path', 'target_file', 'notebook_path', 'filename', 'dest', 'destination', 'source', 'src', 'from', 'to', 'directory', 'dir', 'folder', 'url', 'urls', 'uri', 'href', 'link', 'endpoint', 'absolutepath', 'targetfile', 'filepath']);
-    let accessArgs = expandedArgs;
-    if (!isExecTool && expandedArgs && typeof expandedArgs === 'object') {
-      accessArgs = {};
-      for (const [k, v] of Object.entries(expandedArgs)) {
-        if (ACCESS_FIELDS.has(k.toLowerCase())) accessArgs[k] = v;
-      }
-    }
-    const input = {
-      tool_name: toolName || '',
-      permission: guessPermission(toolName),
-      trust_level: 'TRUSTED',
-      arguments: expandedArgs,
-      paths: extractPaths(accessArgs, isExecTool),
-      commands: extractCommands(expandedArgs),
-      urls: extractUrls(accessArgs),
-      filenames: extractFilenames(accessArgs),
-    };
-    // Defeat glob dodges (`cut staging.e*` in place of `staging.env`): resolve any
-    // globbed file token in the command to its real path so filename/path rules
-    // match it. Exec tools only — a non-exec read carries a literal path, not a glob.
-    if (isExecTool) {
-      for (const gp of expandCommandGlobs(expandedArgs, cwd)) {
-        input.paths.push(gp);
-        const bn = gp.split('/').pop();
-        if (bn) input.filenames.push(bn);
-      }
-    }
-    // A grep-style tool is a READ of every file under its root, and its
-    // arguments say none of that: they carry the root and a query, never the
-    // files whose contents come back. So the guard saw a search of a directory
-    // no rule mentions, matched nothing, and allowed it — the rule held against
-    // the read tool and was walked past by the search tool beside it.
-    //
-    // Measured on Antigravity: view_file on a denied path is refused, and
-    // grep_search rooted at the workspace returns the same file's contents.
-    //
-    // Same move as the glob expansion above: resolve what the call will actually
-    // reach so the rules already written can see it. Every bound fails OPEN.
-    for (const sp of expandSearchRoots(toolName, expandedArgs, cwd)) {
-      input.paths.push(sp);
-      const bn = sp.split('/').pop();
-      if (bn) input.filenames.push(bn);
-    }
-    if (process.env.SOLONGATE_DEBUG) {
-    }
-    const results = opaPolicy.evaluate(input);
-    const decision = results && results[0] && results[0].result;
-    if (!decision || !decision.effect) return null;
-
-    // The generated Rego always has `default decision := DENY` (whitelist
-    // semantics). We must re-apply the policy mode here so denylist policies
-    // keep their default-ALLOW behavior, matching legacy evaluate():
-    //   - denylist: default-allow → block ONLY when a DENY rule actually
-    //     matched (matched_rule != null). Default DENY means "no rule matched".
-    //   - whitelist: default-deny → block on any DENY (default or matched).
-    // Routing per policy mode semantics:
-    //
-    //   DENYLIST (default-allow):
-    //     DENY match  → BLACK (block)
-    //     no match    → WHITE (default-allow, skip AI Judge — this IS the
-    //                   semantics of denylist: "block these, allow the rest")
-    //     REVIEW match → GRAY (only this explicit effect calls AI Judge)
-    //
-    //   WHITELIST (default-deny):
-    //     ALLOW match → WHITE (skip AI Judge)
-    //     DENY match  → BLACK
-    //     REVIEW match → GRAY
-    //     no match    → BLACK (default-deny)
-    //
-    // AI Judge runs ONLY when a rule explicitly says "this needs semantic
-    // review" — never as a fallback for "I'm not sure". That keeps token cost
-    // proportional to actual ambiguity and avoids running the model on every
-    // routine call.
-    const mode = policy.mode === 'whitelist' ? 'whitelist' : 'denylist';
-    const matched = decision.matched_rule != null;
-    const eff = decision.effect;
-    if (mode === 'denylist') {
-      if (eff === 'DENY' && matched) return '[SolonGate OPA] ' + (decision.reason || 'Blocked by policy');
-      if (eff === 'REVIEW' && matched) return { white: false, reason: decision.reason, ruleId: decision.matched_rule };
-      return { white: true, ruleId: matched ? decision.matched_rule : null };
-    }
-    // whitelist
-    if (eff === 'DENY' && matched) return '[SolonGate OPA] ' + (decision.reason || 'Blocked by policy');
-    if (eff === 'REVIEW' && matched) return { white: false, reason: decision.reason, ruleId: decision.matched_rule };
-    if (eff === 'ALLOW' && matched) return { white: true, ruleId: decision.matched_rule };
-    return '[SolonGate OPA] ' + (decision.reason || 'Blocked by policy: no ALLOW rule matched');
-  } catch {
-    return undefined; // any failure → fall back to legacy evaluator
-  }
-}
 
 // ── Translator (input side) ──
 // Normalize ANY client's raw hook payload into ONE canonical shape the whole
@@ -2409,16 +1971,13 @@ function readReferencedFiles(args, cwd) {
 // Code treats the DENY as a non-blocking hook failure (so the block never
 // applies). Reading fd 0 to EOF never creates that pipe handle, and the exit
 // below no longer runs inside a stream callback, so the loop tears down cleanly.
-if (!REFRESH_MODE) { input += SG_STDIN; }
+input += SG_STDIN;
 ;(async () => {
  // Safety backstop ONLY: the normal path exits by natural drain (~1ms after work
  // finishes). If the loop somehow fails to drain, force-exit — 8s is well past every
  // fetch timeout (≤3s) so the threadpool is idle and exit() can't hit the abort.
  try { setTimeout(() => { try { process.exit(process.exitCode || 0); } catch {} }, 8000).unref(); } catch {}
  try {
-  // Background-refresh invocation has no tool call to evaluate — it already ran
-  // refreshPolicyCache() at startup; do nothing on the (empty) stdin.
-  if (REFRESH_MODE) return;
   // THERE IS NO CREDENTIAL GATE HERE, and its absence is the point.
   //
   // This used to be `if (!API_KEY) { allowTool(); return; }` — the key was the
@@ -2520,8 +2079,7 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
         };
         try { writeLocalLog(_sec, { ts: new Date().toISOString(), ..._logEntry }); } catch {}
         try {
-          if (!localLogsOnly(_sec)) postAuditDetached(_logEntry);
-        } catch {}
+          } catch {}
         // Not on Codex: its block reason IS the hook's stderr (see the ROUTE
         // write at the end of the slow path for the full rationale).
         if (AGENT_TYPE !== 'codex') process.stderr.write(`[SolonGate ROUTE] BLACK (block)\n`);
@@ -2550,91 +2108,21 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
     // Extra security layers (rate limit, egress, DLP block) delivered by the
     // cloud. Null = none configured. Fail open if unread.
     let securityCfg = null;
-    // Cache keyed by agent_id so different agents in different terminals
-    // don't share a stale cached policy.
+    // agentKey names this agent's own rate-limit counter. It used to name a POLICY
+    // CACHE too — a service's answer kept close at hand with a 10s TTL, a
+    // last-known-good fallback, a detached refresh and a debounce lock in front of
+    // it. Nothing writes that cache now, so every read of it missed and every
+    // branch below it stood in front of the one source there is.
     const agentKey = (AGENT_ID || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const policyCacheFile = join(resolve(homedir(), '.solongate'), '.policy-cache-' + agentKey + '.json');
-    // Serve the cached policy without any network for TTL seconds. This is a HOT
-    // PATH — it runs before every tool call. The original 3s TTL was slow not
-    // because of the number but because it paired an 8s-timeout blocking fetch
-    // with an every-3s cadence (and stacked behind the WASM fetch + a shared
-    // rate limit). With those fixed — 2s timeout, WASM decoupled (24h/fp),
-    // last-known-good stale fallback — a short TTL is cheap again: one small
-    // ~200ms GET on a single call per window, others read the cache with no
-    // network. So keep freshness tight (10s propagation) at negligible cost.
-    const POLICY_TTL_MS = 10_000;
     try {
-      let dashboardPolicy = null;
-      // Last-known-good cache, kept even past the TTL so we can fall back on it
-      // when the API is slow/unreachable instead of blocking or dropping the policy.
-      let staleCache = null;
-      // Whether the TTL has elapsed since our last refresh ATTEMPT. Gating the
-      // fetch on the attempt timestamp (not on "do we already have a policy") is
-      // what makes the back-off actually work when the endpoint is slow: a failed
-      // or timed-out attempt still advances _ts, so we don't re-hit it — and eat
-      // the full 2s timeout — on every single call. Before this, _ts only moved on
-      // a SUCCESSFUL fetch, so a slow /policies/active meant ~2s on EVERY call and
-      // the 10s TTL never engaged (the cache never looked "fresh").
-      let refreshDue = true;
-      try {
-        if (existsSync(policyCacheFile)) {
-          const cached = JSON.parse(readFileSync(policyCacheFile, 'utf-8'));
-          // Kept whenever it parses, NOT only when it carries a policy. The
-          // security layers (DLP, rate limit) are configured separately
-          // from the policy, so gating the last-known-good on a policy existing
-          // meant a project with DLP on and no policy lost DLP entirely the
-          // moment this cache went past its 10s TTL — which is almost always,
-          // since it only refreshes on activity.
-          if (cached) staleCache = cached;
-          if (cached && cached._ts && Date.now() - cached._ts < POLICY_TTL_MS) {
-            refreshDue = false;
-            if (cached.policy) dashboardPolicy = cached.policy;
-            if (typeof cached.selfProtect === 'boolean') selfProtectEnabled = cached.selfProtect;
-            if (cached.security !== undefined) { securityCfg = cached.security; writeLocalMarker(securityCfg); }
-            if (cached.hookVersions) CLOUD_HOOK_VERSIONS = cached.hookVersions;
-          }
-        }
-      } catch {}
-      // Cache stale → DO NOT block the tool on the network. Serve the last-known-good
-      // policy right now (or the local policy.json fallback below if there is none)
-      // and kick off a DETACHED background refresh that rewrites the cache for the
-      // NEXT call. Stale-while-revalidate: tool calls stay instant (~ms), yet a
-      // policy change still lands within ~one call, because the fetch runs in
-      // parallel instead of on the hot path.
-      if (refreshDue) {
-        if (!dashboardPolicy && staleCache) {
-          dashboardPolicy = staleCache.policy;
-          if (typeof staleCache.selfProtect === 'boolean') selfProtectEnabled = staleCache.selfProtect;
-          if (staleCache.security !== undefined) securityCfg = staleCache.security;
-          if (staleCache.hookVersions) CLOUD_HOOK_VERSIONS = staleCache.hookVersions;
-        }
-        // Debounce: at most one background refresh in flight per ~3s, so a burst of
-        // stale calls (or several agents sharing this cache) doesn't spawn a swarm.
-        if (API_KEY) {
-          try {
-            const lock = join(resolve(homedir(), '.solongate'), '.policy-refresh-' + agentKey + '.lock');
-            const due = !existsSync(lock) || (Date.now() - statSync(lock).mtimeMs) > 3000;
-            if (due) {
-              try { writeFileSync(lock, String(Date.now())); } catch {}
-              spawn(process.execPath, [process.argv[1], AGENT_TYPE, AGENT_NAME, '--sg-refresh-policy'], { detached: true, stdio: 'ignore', env: process.env }).unref();
-            }
-          } catch {}
-        }
-      }
-
-      if (process.env.SOLONGATE_DEBUG) {
-      }
-      if (dashboardPolicy) {
-        policy = dashboardPolicy;
-      } else {
+      {
         const local = loadLocalPolicyFile(hookCwd);
         if (local) {
           policy = local.policy;
-          // This is the branch where the service answered with nothing, so the
-          // file supplies the rest of what it would have sent. Only when it says
-          // so: a cache can hold a security block and a selfProtect flag even
-          // with no policy beside them, and the service still outranks the file.
-          if (local.security !== undefined) { securityCfg = local.security; writeLocalMarker(securityCfg); }
+          // The layers and the tamper flag travel with the policy, and this file is
+          // the only thing that carries them now. `undefined` means the file said
+          // nothing, which is not the same as saying off.
+          if (local.security !== undefined) securityCfg = local.security;
           if (local.selfProtect !== undefined) selfProtectEnabled = local.selfProtect;
         }
       }
@@ -2665,46 +2153,24 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
     if (!reason) reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
     if (process.env.SOLONGATE_DEBUG) {
     }
-    // OPA WASM is the SOLE policy engine. With no policy configured for this
-    // agent we skip evaluation entirely (allow). With a policy present,
-    // evaluateWithOpa returns a reason (DENY), null (ALLOW), or undefined when
-    // the WASM bundle could not be obtained at all — in which case we fall back
-    // to the policy mode's default (whitelist → fail closed, denylist → fail
-    // open); see the branch below. (The legacy JS evaluate() below is retained
-    // but no longer on the decision path — OPA decides everything.)
-    // Cloud routing is BINARY — WHITE (allow) / BLACK (block). There is NO AI
-    // Judge in the cloud (that is an air-gap-only feature), so there is no GRAY
-    // "send to the judge" lane: the OPA policy alone decides. Tamper protection
-    // and any DENY (incl. fail-closed) → BLACK; everything else → WHITE. A REVIEW
-    // rule with no judge to escalate to is treated as allow under denylist.
+    // ROUTING IS BINARY — WHITE (allow) / BLACK (block). Nothing is escalated to a
+    // model and there is no judge, so a REVIEW rule reads as allow under denylist.
+    //
+    // The decision is hooks/policy-eval.mjs, shared with the MCP proxy. It used to
+    // be OPA WASM with this as the cold-start fallback — "run the deterministic,
+    // WASM-free JS evaluator so DENY rules and whitelist defaults apply
+    // IMMEDIATELY, from the very first call" — and the bundle came from a service.
+    // With no service there is no bundle, on every call rather than only the first.
     let opaRoute = 'white';
     if (reason) {
       opaRoute = 'black'; // hardcoded tamper protection blocked it
     } else if (policy && policy.rules) {
-      const opaResult = await evaluateWithOpa(policy, args, toolName, hookCwd);
-      if (opaResult === undefined) {
-        // OPA produced no decision (no WASM bundle yet, runtime missing, fetch
-        // error). This happens on COLD START — the first call(s) in a session
-        // before the policy + WASM are cached. Don't leave an enforcement gap:
-        // run the deterministic, WASM-free JS evaluator so DENY rules (e.g.
-        // secret-file protection) and whitelist defaults apply IMMEDIATELY, from
-        // the very first call. evaluate() implements both modes:
-        //   - returns a deny reason  → block (DENY match, or whitelist no-match)
-        //   - returns null           → allow (denylist default / whitelist match)
-        // This closes the "worked, but late" window where a denylist policy used
-        // to fail OPEN until WASM warmed up.
-        const legacy = evaluate(policy, args, toolName);
-        if (typeof legacy === 'string') {
-          reason = legacy;
-          opaRoute = 'black';
-        } else {
-          opaRoute = 'white';
-        }
-      } else if (typeof opaResult === 'string') {
-        reason = opaResult; // explicit DENY
+      const verdict = evaluate(policy, args, toolName);
+      if (typeof verdict === 'string') {
+        reason = verdict;
         opaRoute = 'black';
       } else {
-        opaRoute = 'white'; // allow (rule match, default-allow, or review w/o judge)
+        opaRoute = 'white';
       }
     }
 
@@ -2772,23 +2238,19 @@ if (!REFRESH_MODE) { input += SG_STDIN; }
             evaluation_time_ms: Date.now() - _evalStart,
           };
           writeLocalLog(securityCfg, { ts: new Date().toISOString(), ...logEntry });
-          // PI hook layer removed — piResult fields no longer attached.
-          // Local-only mode: keep the log on the user's machine, skip the cloud.
-          if (!localLogsOnly(securityCfg)) postAuditDetached(logEntry);
         } catch {}
       }
       writeDenyFlag(toolName);
-      // The verdict is emitted BEFORE the hook self-update, never after.
-      // maybeSelfUpdate() fetches three hooks at up to 5s each, and the
-      // whole process carries an 8s backstop that force-exits with
-      // `process.exitCode || 0` — i.e. ALLOW. So a slow network on the update
-      // path turned a decided DENY into a permitted call. Measured: 8043ms,
-      // exit 0, on a call DLP had already refused. Updating is a background
-      // nicety; it still runs on every allow, which is nearly every call.
+      // The verdict used to be emitted before a hook self-update, and the reason
+      // is worth keeping even though the update is gone: that update fetched three
+      // hooks at up to 5s each, and this process carries an 8s backstop that
+      // force-exits with `process.exitCode || 0` — i.e. ALLOW. A slow network on
+      // it turned a decided DENY into a permitted call. Measured at 8043ms, exit
+      // 0, on a call DLP had already refused. Nothing slow may run before a
+      // verdict is out.
       blockTool(reason);
     }
   } catch {}
-  await maybeSelfUpdate();
   allowTool();
  } catch (e) {
   // SG_DONE is the normal terminator (exitCode already set); anything else is an

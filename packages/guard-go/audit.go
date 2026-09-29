@@ -1,18 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/codeyevsky/solongate/sgshared"
 )
@@ -20,35 +15,6 @@ import (
 // Where a decision gets recorded. Local storage and the cloud are EXCLUSIVE:
 // the setting says "keep these on my machines instead of your cloud", so when it
 // is on nothing leaves, and when it is off nothing is written to disk.
-
-// localLogsOnly answers from the SETTING. `nil` security with hasSecurity=true
-// is an answer ("the API sent no security block"), not a gap — only a cache that
-// could not be read at all falls through to the device marker.
-func localLogsOnly(sec *sgshared.Security, hasSecurity bool, apiKey string) bool {
-	// Nothing to send to: disk is not a preference here, it is the only place the
-	// record can go. Answering "cloud only" for a machine with no credential is
-	// how a denial ended up written nowhere at all.
-	if apiKey == "" {
-		return true
-	}
-	if hasSecurity {
-		if sec == nil || sec.LocalLogs == nil {
-			return false
-		}
-		return sec.LocalLogs.Enabled && strings.TrimSpace(sec.LocalLogs.Path) != ""
-	}
-	b, err := os.ReadFile(filepath.Join(sgshared.SGDir(), ".local-logs-mode.json"))
-	if err != nil {
-		return false
-	}
-	var m struct {
-		LocalOnly bool `json:"localOnly"`
-	}
-	if json.Unmarshal(b, &m) != nil {
-		return false
-	}
-	return m.LocalOnly
-}
 
 var trailingSep = regexp.MustCompile(`[\\/]+$`)
 
@@ -76,20 +42,20 @@ func accountMark(apiKey string) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-func writeLocalLog(sec *sgshared.Security, hasSecurity bool, cred sgshared.Credential, entry map[string]interface{}) {
+func writeLocalLog(sec *sgshared.Security, cred sgshared.Credential, entry map[string]interface{}) {
 	if mark := accountMark(cred.APIKey); mark != "" {
 		entry["acct"] = mark
 	}
 	dir := ""
-	if sec != nil && sec.LocalLogs != nil && sec.LocalLogs.Enabled {
+	if sec != nil && sec.LocalLogs != nil {
 		dir = resolveLocalLogDir(sec.LocalLogs.Path)
 	}
 	if dir == "" {
-		// No usable folder in the config, but the marker can still say local is
-		// on — keep the copy in the per-device default rather than dropping it.
-		if !localLogsOnly(sec, hasSecurity, cred.APIKey) {
-			return
-		}
+		// No folder named, so the per-device default. RECORDING IS NOT OPTIONAL:
+		// this used to return when the configuration said local logging was off,
+		// which made sense while there was a service to POST to instead. With that
+		// gone, returning here loses the record entirely — the only thing the
+		// setting can still choose is WHERE.
 		dir = filepath.Join(sgshared.SGDir(), "local-logs")
 	}
 	line, err := json.Marshal(entry)
@@ -113,61 +79,4 @@ func writeLocalLog(sec *sgshared.Security, hasSecurity bool, cred sgshared.Crede
 	// older version wrote 0644 would keep it forever. The Node twin narrows it
 	// the same way, in its detached writer.
 	_ = os.Chmod(logFile, sgshared.FileMode)
-}
-
-// postAuditDetached records a decision in the cloud WITHOUT the caller waiting.
-//
-// The verdict is the product; the audit line is bookkeeping. Awaiting the POST
-// put a network round trip between "blocked" and the agent hearing it — 1643ms
-// per denial against 78ms with the API unreachable — so the record is handed to
-// a detached child instead of being waited on, and instead of being dropped.
-func postAuditDetached(cred sgshared.Credential, entry map[string]interface{}) {
-	if cred.APIKey == "" {
-		return
-	}
-	payload, err := json.Marshal(map[string]interface{}{
-		"url":  cred.APIURL + "/api/v1/audit-logs",
-		"key":  cred.APIKey,
-		"body": entry,
-	})
-	if err != nil {
-		return
-	}
-	self, err := os.Executable()
-	if err != nil {
-		return
-	}
-	cmd := exec.Command(self, "--sg-audit-post", base64.StdEncoding.EncodeToString(payload))
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	detach(cmd)
-	if cmd.Start() == nil {
-		_ = cmd.Process.Release()
-	}
-}
-
-// runAuditPost is the detached child's whole job: deliver one record and exit.
-func runAuditPost(arg string) {
-	raw, err := base64.StdEncoding.DecodeString(arg)
-	if err != nil {
-		return
-	}
-	var p struct {
-		URL  string          `json:"url"`
-		Key  string          `json:"key"`
-		Body json.RawMessage `json:"body"`
-	}
-	if json.Unmarshal(raw, &p) != nil || p.URL == "" {
-		return
-	}
-	req, err := http.NewRequest("POST", p.URL, bytes.NewReader(p.Body))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.Key)
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err == nil {
-		resp.Body.Close()
-	}
 }

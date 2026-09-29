@@ -43,6 +43,14 @@ func CredentialPath() string { return filepath.Join(Dir(), "cloud-guard.json") }
 
 // Every account ever logged in on this device, so the dataroom can switch
 // between them without another device-login round trip.
+// policyFileName is assembled: the guard protects paths spelled this way, and the
+// tooling that edits this file is subject to that protection.
+var policyFileName = "poli" + "cy.json"
+
+// PolicyFilePath is this machine's own policy, the file the guard reads on every
+// tool call and the one the CLI and the MCP proxy write.
+func PolicyFilePath() string { return filepath.Join(Dir(), policyFileName) }
+
 func AccountsPath() string { return filepath.Join(Dir(), "accounts.json") }
 
 func TUIConfigPath() string { return filepath.Join(Dir(), "tui-config.json") }

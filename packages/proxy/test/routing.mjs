@@ -44,7 +44,12 @@ check('the denial is on disk', lines.length >= 1, true);
 if (lines.length) check('  recorded as DENY', JSON.parse(lines[lines.length - 1]).decision, 'DENY');
 check('and NOT sent to the cloud', cloud.received.length, 0);
 
-suite('routing — local storage off sends to the cloud instead');
+// THIS USED TO SAY "local storage off sends to the cloud instead", and there is
+// no cloud to send to: the guard's audit POST is gone with the service. Disk is
+// the only destination, so switching local storage off cannot mean "send it
+// somewhere else" — it can only mean losing the record, which is not something to
+// offer. The DEFAULT FOLDER is what a configuration with no path falls back to.
+suite('routing — no configured path means the default folder, not nothing');
 
 cloud.received.length = 0;
 home = sandbox('off-cloud', {
@@ -54,8 +59,8 @@ home = sandbox('off-cloud', {
 r = await callAsync(home, 'bash', { command: `echo ${AWS_KEY}` });
 check('the call is denied by DLP', r.code, 2);
 await new Promise((res) => setTimeout(res, 1500));
-check('nothing on disk', localLines(home).length, 0);
-check('the denial reached the cloud', cloud.received.length >= 1, true);
+check('the denial is kept in the default folder', localLines(home).length >= 1, true);
+check('and nothing was sent anywhere', cloud.received.length, 0);
 
 suite('routing — a folder from another OS falls back rather than dropping the entry');
 

@@ -16,8 +16,7 @@ export async function launchTui(): Promise<void> {
     );
     return;
   }
-  // No auth gate — an unpaired device opens straight to the Accounts panel so
-  // the user can log in from inside the dataroom.
+  // No auth gate, and nothing to gate on: there is no account and nothing to pair.
   // Alternate screen buffer — the TUI takes over the whole terminal (like
   // htop/vim) and restores the user's scrollback on exit.
   process.stdout.write('\x1b[?1049h\x1b[H');

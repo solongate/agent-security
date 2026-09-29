@@ -110,7 +110,7 @@ func rateLimitCheck(agent string, limits *sgshared.RateLimit) string {
 		}
 		if count > limit {
 			return "Security layer (rate limit): exceeded " + strconv.Itoa(limit) +
-				" calls/" + w.Label + " for this agent. Blocked by SolonGate - check your dashboard to review or adjust the limit."
+				" calls/" + w.Label + " for this agent. Blocked by SolonGate (rate limit). Edit ~/.solongate/policy.json to review or adjust it."
 		}
 	}
 

@@ -53,9 +53,14 @@ jobs:
         working-directory: ${{ matrix.module }}
         run: go vet ./...
 
+      # -count=1 defeats the test cache. A cached PASS is not evidence: a test whose
+      # SUBJECT was deleted elsewhere in the repo — a Dockerfile, a config file, a
+      # policy cache — keeps reporting the last run's result until something in its own
+      # package changes. One did, for a while, and only surfaced when an unrelated edit
+      # invalidated it. CI is the place that should never be reading a cache.
       - name: test
         working-directory: ${{ matrix.module }}
-        run: go test ./...
+        run: go test -count=1 ./...
 
   typescript:
     name: typescript

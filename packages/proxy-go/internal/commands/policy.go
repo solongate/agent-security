@@ -10,7 +10,7 @@ import (
 )
 
 func policyUsage() string {
-	return usageWith("solongate policy", "manage cloud policies", []usageRow{
+	return usageWith("solongate policy", "read and edit this machine's policy", []usageRow{
 		row("policy list", "list all policies"),
 		row("policy create <name>", "create a new empty policy"),
 		row("policy delete <id>", "delete a policy"),

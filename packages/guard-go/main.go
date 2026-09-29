@@ -342,7 +342,8 @@ func main() {
 	if sec != nil && sec.DLPBlock != nil {
 		if hit := dlpScan(argsText, sec.DLPBlock); hit != "" {
 			reason := "Security layer (DLP): blocked - arguments contain a " + hit +
-				". Blocked by SolonGate - check your dashboard for details."
+				// A denial names what a person can change; see hooks/guard.mjs.
+				". Blocked by SolonGate (DLP). Edit ~/.solongate/policy.json to change what is refused."
 			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
@@ -372,7 +373,7 @@ func main() {
 	if sec != nil && sec.RateLimitObserve != nil && !activeClient.ReportsAfter {
 		if reason := rateLimitCheck(agentID, sec.RateLimitObserve); reason != "" {
 			recordObserved(sec, hasSecurity, c, agentType, agentName,
-				strings.Replace(reason, "Blocked by SolonGate - check your dashboard to review or adjust the limit.",
+				strings.Replace(reason, "Blocked by SolonGate (rate limit). Edit ~/.solongate/policy.json to review or adjust it.",
 					"Allowed: the rate limit is in detect mode.", 1),
 				started)
 		}

@@ -1714,14 +1714,19 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
   try {
     if (cfg.dlpBlock) {
       const hit = dlpScan(args, cfg.dlpBlock);
+      // A DENIAL NAMES WHAT A PERSON CAN CHANGE. This said "check your dashboard for
+      // details", which on this build is an instruction to go and look at nothing —
+      // and the agent repeats it to whoever is reading, so the one message that has to
+      // be actionable sent them somewhere that does not exist. The file is the whole
+      // configuration, and it is the same file in every message here.
       if (hit) return 'Security layer (DLP): blocked - arguments contain a ' + hit +
-        '. Blocked by SolonGate - check your dashboard for details.';
+        '. Blocked by SolonGate (DLP). Edit ~/.solongate/policy.json to change what is refused.';
     }
     if (cfg.rateLimit) {
       const hit = rateLimitCheck(agentKey, cfg.rateLimit);
       if (hit) {
         return 'Security layer (rate limit): exceeded ' + hit.limit + ' calls/' + hit.window +
-          ' for this agent. Blocked by SolonGate - check your dashboard to review or adjust the limit.';
+          ' for this agent. Blocked by SolonGate (rate limit). Edit ~/.solongate/policy.json to review or adjust it.';
       }
     }
   } catch { /* fail open */ }

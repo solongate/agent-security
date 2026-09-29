@@ -86,12 +86,16 @@ function printWelcome() {
   console.log('');
   console.log('  Get started with one command:');
   console.log('');
-  console.log(`    ${c.cyan}solongate${c.reset}             ${c.dim}open the dataroom (login, policies, audit, settings)${c.reset}`);
+  console.log(`    ${c.cyan}solongate${c.reset}             ${c.dim}open the dataroom (policies, audit, settings)${c.reset}`);
   console.log(`    ${c.cyan}solongate --help${c.reset}      ${c.dim}list every command${c.reset}`);
   console.log('');
-  console.log(`  ${c.dim}Open the dataroom, log in from the Accounts panel to pair this${c.reset}`);
-  console.log(`  ${c.dim}device, then the guard protects every AI session with your policy.${c.reset}`);
-  console.log(`  ${c.dim}Manage it with ${c.reset}${c.cyan}solongate policy${c.reset}`);
+  // IT TOLD PEOPLE TO LOG IN. "Open the dataroom, log in from the Accounts panel to
+  // pair this device" was the first sentence a new user read, and there is no account
+  // to add and no panel to add it from — so the one instruction on the welcome screen
+  // could not be followed. The Go twin (printWelcome in main.go) already said this;
+  // the two disagreeing about the first thing a user sees is the worst place for it.
+  console.log(`  ${c.dim}Open the dataroom to install the guard and write a policy. The${c.reset}`);
+  console.log(`  ${c.dim}policy is a file on this machine: ${c.reset}${c.cyan}~/.solongate/policy.json${c.reset}`);
   console.log('');
 }
 
@@ -236,13 +240,12 @@ async function main() {
     return;
   }
 
-  // Bare invocation (no subcommand, no upstream). When the device is paired and
-  // we're on an interactive terminal, open the management TUI ("solongate in the
-  // CLI"). Otherwise fall back to the onboarding welcome (unpaired, or piped/CI).
+  // Bare invocation (no subcommand, no upstream): the management TUI on an
+  // interactive terminal, the welcome otherwise. It used to turn on whether the
+  // device was PAIRED, opening the dataroom even when it was not so the user could log
+  // in from inside it — there is nothing to pair, so the only question left is whether
+  // a person is watching.
   if (process.argv.length <= 2) {
-    // On an interactive terminal, open the dataroom — even when unpaired, so the
-    // user can log in from inside it (Accounts panel). Non-TTY / piped / CI keeps
-    // the plain onboarding welcome.
     if (process.stdout.isTTY && process.stdin.isTTY) {
       const { launchTui } = await import('./tui/index.js');
       await launchTui();

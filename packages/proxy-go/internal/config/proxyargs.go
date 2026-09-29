@@ -55,24 +55,25 @@ var (
 	ErrNoUpstream = errors.New("No upstream server command provided.\n\n" +
 		"If you just want to get started, run:\n" +
 		"  solongate\n")
-	ErrBadKeyFormat = errors.New("This machine's stored credential is not valid.\n\n" +
-		"Pair it again:\n\n" +
-		"  solongate\n\n" +
-		"  then add your account from the Accounts panel.\n")
-	ErrProxyNotAuthenticated = errors.New("Not logged in. Run this once to get started:\n\n" +
-		"  solongate\n\n" +
-		"  then add your account from the Accounts panel.\n")
+	// ErrBadKeyFormat and ErrProxyNotAuthenticated stood here, and both told the
+	// reader to "add your account from the Accounts panel" — a panel this build does
+	// not have, for an account it cannot create. Neither is returned any more: a
+	// malformed key counts as none (see below) and no credential is not an error,
+	// because the policy is a file.
 )
 
-// defaultPolicy is what applies until a cloud policy arrives: allow everything.
-// DENY rules added from the dashboard are what restrict it. A default-DENY here
-// would mean every machine is dead in the water for the seconds between install
-// and first sync.
+// defaultPolicy is what applies when NO POLICY FILE IS FOUND: allow everything.
+//
+// A default-DENY here would mean a machine with no policy yet refuses every tool call,
+// which is not a safe default but a broken one — nobody would get as far as writing a
+// rule. The DENY rules that restrict it come from the file; there is nothing else to
+// wait for, which is why this is no longer described as what applies "until a cloud
+// policy arrives".
 func defaultPolicy() core.PolicySet {
 	return core.PolicySet{
 		ID:          "default",
 		Name:        "Default (Allow All)",
-		Description: "Allows all tools by default. Add DENY rules from the dashboard to restrict.",
+		Description: "Allows all tools by default. Add DENY rules to ~/.solongate/policy.json to restrict.",
 		Version:     1,
 		Rules: []core.PolicyRule{{
 			ID:                "_default-allow-all",

@@ -977,44 +977,63 @@ func ruleFromEntry(ctx context.Context, p PoliciesAPI, id, scope, effect string)
 	if found == nil {
 		return RuleMutation{}, fmt.Errorf("no entry %s in this machine's audit log. `solongate audit` lists them.", id)
 	}
-	if found.Tool == "" {
-		return RuleMutation{}, fmt.Errorf("entry %s names no tool, so there is nothing to scope a rule to.", id)
+	spec, err := RuleSpecFor(found.Tool, found.Arguments, scope, effect)
+	if err != nil {
+		return RuleMutation{}, fmt.Errorf("entry %s: %w", id, err)
 	}
+	return p.AddRule(ctx, "local", spec)
+}
 
-	spec := RuleSpec{ToolPattern: found.Tool, Effect: effect}
-	if scope == "exact" {
-		var args map[string]any
-		_ = json.Unmarshal(found.Arguments, &args)
-		// The argument names the guard records, in the order it prefers to match
-		// on: a command is more specific than the file it touched.
-		for _, pick := range []struct {
-			kind string
-			keys []string
-		}{
-			{"command", []string{"command", "cmd", "script"}},
-			{"url", []string{"url", "uri"}},
-			{"path", []string{"file_path", "path", "filePath", "notebook_path"}},
-			{"filename", []string{"filename", "pattern"}},
-		} {
-			for _, k := range pick.keys {
-				if v, ok := args[k].(string); ok && strings.TrimSpace(v) != "" {
-					spec.Kind, spec.Value = pick.kind, v
-					break
-				}
-			}
-			if spec.Kind != "" {
+// RuleSpecFor turns ONE RECORDED CALL into the rule that would have stopped it.
+//
+// Exported, and the only implementation, because the Live panel's `w`/`b` keys ask the
+// same question of an entry they are holding in memory rather than by id. They used to
+// answer it themselves, with a second extractor that differed in two ways that matter:
+// it did not look for a url at all, and for a path it took the BASENAME — so
+// whitelisting the same denial from the stream and from the audit browser produced two
+// different rules. Whichever a person happened to use decided how wide their policy got.
+//
+// scope "exact" narrows to what the call actually did. Anything else covers the tool.
+func RuleSpecFor(tool string, arguments json.RawMessage, scope, effect string) (RuleSpec, error) {
+	if strings.TrimSpace(tool) == "" {
+		return RuleSpec{}, errors.New("names no tool, so there is nothing to scope a rule to")
+	}
+	spec := RuleSpec{ToolPattern: tool, Effect: effect}
+	if scope != "exact" {
+		return spec, nil
+	}
+	var args map[string]any
+	_ = json.Unmarshal(arguments, &args)
+	// The argument names the guard records, in the order it prefers to match on: a
+	// command is more specific than the file it touched.
+	for _, pick := range []struct {
+		kind string
+		keys []string
+	}{
+		{"command", []string{"command", "cmd", "script"}},
+		{"url", []string{"url", "uri"}},
+		{"path", []string{"file_path", "path", "filePath", "notebook_path"}},
+		{"filename", []string{"filename", "pattern"}},
+	} {
+		for _, k := range pick.keys {
+			if v, ok := args[k].(string); ok && strings.TrimSpace(v) != "" {
+				spec.Kind, spec.Value = pick.kind, v
 				break
 			}
 		}
-		if spec.Kind == "" {
-			// Nothing in the entry to narrow on. Widening silently to the whole
-			// tool is exactly the surprise this refuses to be.
-			return RuleMutation{}, fmt.Errorf(
-				"entry %s records no command, path or URL to narrow on. Pass --scope tool to cover the %s tool as a whole.",
-				id, found.Tool)
+		if spec.Kind != "" {
+			break
 		}
 	}
-	return p.AddRule(ctx, "local", spec)
+	if spec.Kind == "" {
+		// Nothing in the entry to narrow on. WIDENING SILENTLY TO THE WHOLE TOOL is
+		// exactly the surprise this refuses to be: `w` on one unremarkable denial
+		// would otherwise allow every call to that tool forever.
+		return RuleSpec{}, fmt.Errorf(
+			"records no command, path or URL to narrow on. Pass --scope tool to cover the %s tool as a whole",
+			tool)
+	}
+	return spec, nil
 }
 
 // Whitelist turns a denial into an ALLOW rule.

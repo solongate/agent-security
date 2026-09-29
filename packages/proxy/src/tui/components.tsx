@@ -54,12 +54,14 @@ export interface StreamRow {
   rule?: string | null;
 }
 
-export function StreamLine({ e, loc, selected, date }: { e: StreamRow; loc: boolean; selected?: boolean; date?: boolean }): JSX.Element {
+// A LOC/CLD column stood in this row, from a `loc` prop. Every entry on every surface is
+// read from this machine's own audit file, so it distinguished nothing — and labelled some
+// of them "cloud". internal/tui/components.go lost the same column.
+export function StreamLine({ e, selected, date }: { e: StreamRow; selected?: boolean; date?: boolean }): JSX.Element {
   return (
     <Text wrap="truncate" backgroundColor={selected ? '#1c2f63' : undefined}>
       <Text color={selected ? theme.accentBright : theme.dim}>{selected ? '▸' : ' '}</Text>
       <Text color={theme.dim}>[{date ? ymd(e.at) + ' ' : ''}{hhmmss(e.at)} </Text>
-      <Text color={loc ? theme.ok : 'white'}>{loc ? 'LOC' : 'CLD'}</Text>
       <Text color={theme.dim}>] </Text>
       <Text color={decisionColor(e.decision)} bold={e.decision !== 'ALLOW'}>
         {e.decision.padEnd(6)}

@@ -77,42 +77,61 @@ type RuleOutcome = {
  * the entry carries. `tool` covers the tool as a whole, which is the wider and
  * more dangerous of the two, so it is never the default.
  */
+/**
+ * WHAT RULE WOULD HAVE STOPPED THIS CALL — the only implementation.
+ *
+ * Exported because the Live panel's `w`/`b` keys ask the same question of an entry they
+ * are already holding, rather than by id. They used to answer it themselves, with a
+ * second extractor over the DISPLAY string that differed in three ways that decided how
+ * wide somebody's policy got:
+ *
+ *   a url      checked LAST, after the path, so a call carrying both scoped to the path
+ *   a path     reduced to its BASENAME, so allowing a read of /etc/hosts allowed every
+ *              file called hosts anywhere
+ *   nothing    `kind: t?.kind ?? 'tool'` — with nothing to narrow on it silently
+ *              allowed every call to that tool forever
+ *
+ * The third is the one that matters. This refuses instead, and `--scope tool` is how
+ * somebody asks for the wide rule on purpose. internal/api RuleSpecFor is the Go twin,
+ * and internal/api holds it to these cases.
+ */
+export function ruleSpecFor(
+  tool: string,
+  argsRaw: unknown,
+  scope: 'exact' | 'tool',
+  effect: 'ALLOW' | 'DENY',
+): policies.RuleSpec {
+  if (!tool.trim()) throw new Error('names no tool, so there is nothing to scope a rule to.');
+  if (scope !== 'exact') return { toolPattern: tool, effect };
+
+  const args = (argsRaw && typeof argsRaw === 'object' ? argsRaw : {}) as Record<string, unknown>;
+  // The argument names are the ones the guard records, in the order it prefers to match
+  // on: a command is more specific than the file it touched.
+  const pick: Array<[policies.RuleSpec['kind'], string[]]> = [
+    ['command', ['command', 'cmd', 'script']],
+    ['url', ['url', 'uri']],
+    ['path', ['file_path', 'path', 'filePath', 'notebook_path']],
+    ['filename', ['filename', 'pattern']],
+  ];
+  for (const [kind, keys] of pick) {
+    const key = keys.find((k) => typeof args[k] === 'string' && (args[k] as string).trim());
+    if (key) return { toolPattern: tool, effect, kind, value: String(args[key]) };
+  }
+  throw new Error(
+    `records no command, path or URL to narrow on. Pass --scope tool to cover the ${tool} tool as a whole.`,
+  );
+}
+
 async function ruleFor(id: string, scope: 'exact' | 'tool', effect: 'ALLOW' | 'DENY'): Promise<RuleOutcome> {
   const entry = store.logLines().find((l) => l.id === id);
   if (!entry) {
     throw new LocalStoreError(`no entry ${id} in this machine's audit log. \`solongate audit\` lists them.`);
   }
-  const tool = entry.tool || '';
-  if (!tool) throw new LocalStoreError(`entry ${id} names no tool, so there is nothing to scope a rule to.`);
-
-  let spec: policies.RuleSpec = { toolPattern: tool, effect };
-  if (scope === 'exact') {
-    const args = (entry.arguments && typeof entry.arguments === 'object'
-      ? entry.arguments
-      : {}) as Record<string, unknown>;
-    // The argument names are the ones the guard records, in the order it prefers
-    // to match on: a command is more specific than the file it touched.
-    const pick: Array<[policies.RuleSpec['kind'], string[]]> = [
-      ['command', ['command', 'cmd', 'script']],
-      ['url', ['url', 'uri']],
-      ['path', ['file_path', 'path', 'filePath', 'notebook_path']],
-      ['filename', ['filename', 'pattern']],
-    ];
-    for (const [kind, keys] of pick) {
-      const key = keys.find((k) => typeof args[k] === 'string' && (args[k] as string).trim());
-      if (key) {
-        spec = { toolPattern: tool, effect, kind, value: String(args[key]) };
-        break;
-      }
-    }
-    if (!spec.kind) {
-      // Nothing in the entry to narrow on. Widening silently to the whole tool is
-      // exactly the surprise this refuses to be.
-      throw new LocalStoreError(
-        `entry ${id} records no command, path or URL to narrow on. `
-        + `Pass --scope tool to cover the ${tool} tool as a whole.`,
-      );
-    }
+  let spec: policies.RuleSpec;
+  try {
+    spec = ruleSpecFor(entry.tool || '', entry.arguments, scope, effect);
+  } catch (e) {
+    throw new LocalStoreError(`entry ${id} ${e instanceof Error ? e.message : String(e)}`);
   }
 
   const res = await policies.addRule('local', spec);

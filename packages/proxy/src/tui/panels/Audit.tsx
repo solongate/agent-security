@@ -7,10 +7,12 @@
  * to top on page change). Filters: f decision · g signal · t tool · n agent ·
  * / search · c clear. enter = full entry.
  *
- *   s toggles the source: cloud (API) ↔ local (the JSONL file the hooks write
- *   on this machine).
+ * There is ONE source: the JSONL file the hooks write on this machine, read through the
+ * api-client store — the same path `solongate audit` reads, so the panel and the command
+ * cannot disagree about what matches a filter. `s` used to toggle between that store and
+ * a second in-memory read of the same file, labelled "cloud" against "local".
  *
- * The strip on top shows totals (cloud API, or computed from the local file).
+ * The strip on top shows the totals, and names the file they came from.
  */
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
@@ -23,13 +25,12 @@ import type { AuditQuery } from '../../api-client/audit.js';
 import type { AuditEntry } from '../../api-client/index.js';
 import { DataView, PaneTitle, StreamLine, type StreamRow } from '../components.js';
 import { useLoader, usePanelSize, usePoll } from '../hooks.js';
-import { localLogFile, parseLocalLines, reasonSignals, tailLines } from '../local-log.js';
+import { localLogFile, reasonSignals } from '../local-log.js';
 import { decisionColor, prettyJson, theme, truncate, wrapLines } from '../theme.js';
 
 const DECISIONS: Array<AuditQuery['filter']> = [undefined, 'DENY', 'ALLOW'];
 const SIGNALS: Array<AuditQuery['signal'] | undefined> = [undefined, 'dlp', 'ratelimit'];
 const PAGE = 500;
-const LOCAL_MAX_BYTES = 16 * 1024 * 1024; // read up to 16MB of local history
 const BG = '#12234f'; // ENTRY chrome — matches the Live inspector
 
 /** LogRow → the shared StreamLine shape (identical rows to the Live console). */
@@ -46,7 +47,6 @@ const toStream = (e: LogRow): StreamRow => ({
   rule: e.rule,
 });
 
-type Source = 'cloud' | 'local';
 type View = 'logs' | 'detail';
 
 /** One log row, unified across cloud entries and local JSONL lines. */
@@ -89,32 +89,10 @@ const cloudRow = (e: AuditEntry): LogRow => {
   };
 };
 
-function loadLocalRows(): LogRow[] {
-  return parseLocalLines(tailLines(localLogFile(), LOCAL_MAX_BYTES))
-    .map((j, i) => {
-      // The local hooks don't write dlp/burst fields — derive them from the
-      // reason so signal filters work on the local source too.
-      const rs = reasonSignals(j.reason);
-      const explicitDlp = j.dlp ? (Array.isArray(j.dlp) ? j.dlp.map(String) : ['dlp']) : [];
-      return {
-        id: 'l:' + j.at + ':' + i,
-        at: j.at,
-        tool: j.tool ?? '?',
-        decision: j.decision ?? 'ALLOW',
-        permission: j.permission ?? '—',
-        trust: j.trust_level ?? '—',
-        agent: j.agent_name ?? null,
-        session: j.session_id ?? null,
-        reason: j.reason ?? null,
-        rule: j.matched_rule_id ?? null,
-        evalMs: j.evaluation_time_ms ?? null,
-        dlp: explicitDlp.length ? explicitDlp : rs.dlp,
-        burst: !!j.rate_limit_burst || rs.burst,
-        args: j.arguments ? JSON.stringify(j.arguments) : null,
-      };
-    })
-    .sort((a, b) => b.at - a.at); // newest first, always date-ordered
-}
+// loadLocalRows lived here: the second read of the audit file, with the dlp and burst
+// signals derived from the reason text because the hooks do not write those fields. The
+// store derives them the same way (see internal/api and api-client/audit.ts), so the
+// signal filters work without a second reader.
 
 /** Full key reference shown by `?` (any Audit view). */
 const AUDIT_HELP: Array<[string, Array<[string, string]>]> = [
@@ -136,7 +114,6 @@ const AUDIT_HELP: Array<[string, Array<[string, string]>]> = [
   [
     'Anywhere in Audit',
     [
-      ['s', 'switch source cloud ↔ local file'],
       ['space', 'copy mode: freeze screen for mouse selection'],
       ['?', 'this help · any key closes'],
       ['esc', 'back to the menu'],
@@ -148,7 +125,6 @@ const AUDIT_HELP: Array<[string, Array<[string, string]>]> = [
 
 export function AuditPanel({ active, focused }: { active: boolean; focused: boolean }): JSX.Element {
   const { cols, rows } = usePanelSize();
-  const [source, setSource] = useState<Source>('cloud');
   const [view, setView] = useState<View>('logs');
 
   // ── logs filters ───────────────────────────────────────────────────────
@@ -174,8 +150,8 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
   const toTop = () => setSel(0); // page/filter change → scroll to top
 
   // ── data: stats strip ───────────────────────────────────────────────────
-  const statsQ = useLoader(() => (source === 'cloud' ? api.stats.get() : Promise.resolve(null)), [source]);
-  usePoll(statsQ.reloadQuiet, 15_000, active && source === 'cloud' && !frozen);
+  const statsQ = useLoader(() => api.stats.get());
+  usePoll(statsQ.reloadQuiet, 15_000, active && !frozen);
 
   // ── data: logs ────────────────────────────────────────────────────────
   const query: AuditQuery = {
@@ -187,55 +163,41 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
     limit: PAGE,
     offset: page * PAGE,
   };
-  const cloudQ = useLoader(
-    () => (source === 'cloud' ? api.audit.list(query) : Promise.resolve(null)),
-    [source, di, gi, tool, agent, search, page],
+  // ONE LOADER. A second stood beside it, reading the same file directly and filtering
+  // it in memory, selected by a `source` toggle — so the panel had two answers to "what
+  // matches these filters" and `s` chose between them. Filtering happens in the store,
+  // against the file, which is the path `solongate audit` reads: the panel and the
+  // command cannot disagree.
+  const logsQ = useLoader(
+    () => api.audit.list(query),
+    [di, gi, tool, agent, search, page],
   );
   // Auto-refresh only page 0 — deeper pages stay put while you read them.
-  usePoll(cloudQ.reloadQuiet, 6000, active && source === 'cloud' && view === 'logs' && !editing && page === 0 && !frozen);
+  usePoll(logsQ.reloadQuiet, 6000, active && view === 'logs' && !editing && page === 0 && !frozen);
 
-  const localQ = useLoader(() => (source === 'local' ? Promise.resolve(loadLocalRows()) : Promise.resolve(null)), [source]);
-  usePoll(localQ.reloadQuiet, 6000, active && source === 'local' && view === 'logs' && !editing && page === 0 && !frozen);
-
-  // Unified, filtered, date-sorted rows + totals for the CURRENT page.
-  const q = search.trim().toLowerCase();
-  const localFiltered = (localQ.data ?? []).filter((r) => {
-    if (DECISIONS[di] && r.decision !== DECISIONS[di]) return false;
-    if (SIGNALS[gi] === 'dlp' && r.dlp.length === 0) return false;
-    if (SIGNALS[gi] === 'ratelimit' && !r.burst) return false;
-    if (tool && !r.tool.toLowerCase().includes(tool.toLowerCase())) return false;
-    if (agent && (r.agent ?? '').toLowerCase() !== agent.toLowerCase()) return false;
-    if (q && !`${r.tool} ${r.agent ?? ''} ${r.reason ?? ''} ${r.args ?? ''}`.toLowerCase().includes(q)) return false;
-    return true;
-  });
-  let pageRows: LogRow[] = [];
-  let total = 0;
-  if (source === 'cloud') {
-    pageRows = (cloudQ.data?.entries ?? []).map(cloudRow).sort((a, b) => b.at - a.at);
-    total = cloudQ.data?.total ?? 0;
-  } else {
-    total = localFiltered.length;
-    pageRows = localFiltered.slice(page * PAGE, page * PAGE + PAGE);
-  }
+  const pageRows: LogRow[] = (logsQ.data?.entries ?? []).map(cloudRow).sort((a, b) => b.at - a.at);
+  const total = logsQ.data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE));
   const current = pageRows[Math.min(sel, Math.max(0, pageRows.length - 1))];
 
   // Visible loading states (also lock the keyboard below so queued keypresses
   // can't double-page or land on the wrong row while data is in flight).
-  const logsLoading = (source === 'cloud' ? cloudQ.loading : localQ.loading) && !editing;
+  const logsLoading = logsQ.loading && !editing;
 
   // e = export the current page · E = export EVERYTHING matching the filters.
   const doExport = (kind: 'page' | 'all') => {
     setMsg({ text: 'exporting…', level: 'ok' });
     const run = async (): Promise<{ n: number; file: string }> => {
       const dir = join(homedir(), '.solongate');
-      const file = join(dir, `audit-export-${source}.jsonl`);
+      // It was `audit-export-${source}.jsonl`, so the two sources could not overwrite
+      // each other's export. There is one.
+      const file = join(dir, 'audit-export.jsonl');
       let rows: LogRow[];
       if (kind === 'page') rows = pageRows;
-      else if (source === 'cloud') {
+      else {
         const r = await api.audit.list({ ...query, limit: 10_000, offset: 0 });
         rows = r.entries.map(cloudRow).sort((a, b) => b.at - a.at);
-      } else rows = localFiltered;
+      }
       mkdirSync(dir, { recursive: true });
       writeFileSync(file, rows.map((x) => JSON.stringify(x)).join('\n') + (rows.length ? '\n' : ''));
       return { n: rows.length, file };
@@ -254,11 +216,10 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
         return;
       }
       if (frozen) return;
-      // ^R — manual refresh: refetch the active source's logs and stats so a
-      // change made elsewhere shows up on demand.
+      // ^R — manual refresh, so an entry written since the last poll shows up on demand.
       if (key.ctrl && input === 'r') {
-        if (source === 'cloud') { cloudQ.reload(); statsQ.reloadQuiet(); }
-        else localQ.reload();
+        logsQ.reload();
+        statsQ.reloadQuiet();
         setMsg({ text: `⟳ refreshed ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`, level: 'ok' });
         return;
       }
@@ -285,13 +246,6 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
       // A leftover message from the last action clears on the next keypress.
       if (msg) {
         setMsg(null);
-      }
-      // shared toggles
-      if (input === 's') {
-        setSource((s) => (s === 'cloud' ? 'local' : 'cloud'));
-        setPage(0);
-        toTop();
-        return;
       }
       // logs view
       if (key.upArrow) setSel((n) => Math.max(0, n - 1));
@@ -339,28 +293,23 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
     { isActive: focused && !editing },
   );
 
-  // ── stats strip (the merged Stats page) ─────────────────────────────────
-  const localAll = localQ.data ?? [];
-  const strip =
-    source === 'cloud' ? (
-      <Text wrap="truncate">
-        <Text bold>{statsQ.data ? statsQ.data.total_calls : '····'}</Text>
-        <Text color={theme.dim}> calls · </Text>
-        <Text color={theme.ok}>{statsQ.data?.allowed ?? '···'} allow</Text>
-        <Text color={theme.dim}> · </Text>
-        <Text color={theme.bad}>{statsQ.data?.denied ?? '··'} deny</Text>
-        <Text color={theme.dim}>{` · ${statsQ.data?.active_policies ?? '·'} policies`}</Text>
-      </Text>
-    ) : (
-      <Text wrap="truncate">
-        <Text bold>{localAll.length}</Text>
-        <Text color={theme.dim}> calls in local file · </Text>
-        <Text color={theme.ok}>{localAll.filter((r) => r.decision === 'ALLOW').length} allow</Text>
-        <Text color={theme.dim}> · </Text>
-        <Text color={theme.bad}>{localAll.filter((r) => r.decision !== 'ALLOW').length} deny</Text>
-        <Text color={theme.dim}> · {localLogFile()}</Text>
-      </Text>
-    );
+  // ── the totals ──────────────────────────────────────────────────────────
+  //
+  // One strip. There was a second, counting the other source's rows in memory; both
+  // counted the same file. The FILE is named, because "12 calls" with no path leaves the
+  // one question somebody opening this panel has — am I looking at the right log? —
+  // unanswered, and the answer moves with `localLogs.path`.
+  const strip = (
+    <Text wrap="truncate">
+      <Text bold>{statsQ.data ? statsQ.data.total_calls : '····'}</Text>
+      <Text color={theme.dim}> calls · </Text>
+      <Text color={theme.ok}>{statsQ.data?.allowed ?? '···'} allow</Text>
+      <Text color={theme.dim}> · </Text>
+      <Text color={theme.bad}>{statsQ.data?.denied ?? '··'} deny</Text>
+      <Text color={theme.dim}>{` · ${statsQ.data?.active_policies ?? '·'} policies`}</Text>
+      <Text color={theme.dim}> · {localLogFile()}</Text>
+    </Text>
+  );
 
   const copyBanner = frozen ? (
     <Text backgroundColor="#123d1f" color="#7bd88f" bold wrap="truncate">
@@ -368,15 +317,8 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
     </Text>
   ) : null;
 
-  const srcChip = (
-    <Text>
-      <Text color={theme.dim}>src:</Text>
-      <Text color={source === 'local' ? theme.ok : '#4f6db8'} bold>
-        {source}
-      </Text>
-      <Text color={theme.dim}> (s) </Text>
-    </Text>
-  );
+  // A `src: cloud (s)` chip stood here. One source, and the file it is is named in the
+  // totals strip above — which is the useful half of what this was telling anybody.
 
   // ── help overlay (`?`) ───────────────────────────────────────────────────
   // Rendered as TWO columns — the flat list is taller than the panel box and
@@ -417,7 +359,6 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
   // ── entry inspector — the COMPLETE entry, scrollable (Live-style) ─────────
   if (view === 'detail' && current) {
     const e = current;
-    const loc = source === 'local';
     const bodyW = Math.max(20, cols - 4);
     const innerW = cols - 2;
     // FULL CONTENT: surface the denial reason (Audit's forensic value) ABOVE the
@@ -444,7 +385,6 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
           <Text color={theme.accent} bold>
             {'  ' + e.tool}
           </Text>
-          <Text color={loc ? theme.ok : 'white'}>{'  ' + (loc ? 'LOC' : 'CLD')}</Text>
           {e.dlp.length ? <Text color={theme.bad}>{'  DLP!'}</Text> : null}
           {e.burst ? <Text color={theme.warn}>{'  BURST'}</Text> : null}
           <Text color={theme.dim}>{'  ← back'}</Text>
@@ -509,12 +449,11 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
   const windowed = pageRows.slice(start, start + listRows);
 
   return (
-    <DataView loading={logsLoading && !frozen} error={source === 'cloud' ? cloudQ.error : localQ.error}>
+    <DataView loading={logsLoading && !frozen} error={logsQ.error}>
       <Box flexDirection="column">
         {strip}
         {copyBanner}
         <Box>
-          {srcChip}
           <Text color={theme.accentBright} bold>
             LOGS
           </Text>
@@ -551,10 +490,10 @@ export function AuditPanel({ active, focused }: { active: boolean; focused: bool
         </Text>
         <Box flexDirection="column" overflow="hidden">
           {windowed.map((e, i) => (
-            <StreamLine key={e.id} e={toStream(e)} loc={source === 'local'} selected={start + i === selClamped && focused} date />
+            <StreamLine key={e.id} e={toStream(e)} selected={start + i === selClamped && focused} date />
           ))}
         </Box>
-        {pageRows.length === 0 ? <Text color={theme.dim}>(no entries{source === 'local' ? ' in the local file' : ''} — c clears filters)</Text> : null}
+        {pageRows.length === 0 ? <Text color={theme.dim}>(no entries — c clears filters)</Text> : null}
       </Box>
     </DataView>
   );

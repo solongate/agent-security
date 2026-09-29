@@ -21,7 +21,8 @@ import { join, resolve } from 'node:path';
 import { localLogsSetting, tailLines, type LocalLogSetting } from '../local-log.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api-client/index.js';
-import type { AuditEntry, Stats } from '../../api-client/index.js';
+import { ruleSpecFor } from '../../api-client/audit.js';
+import type { Stats } from '../../api-client/index.js';
 import { loadConfig } from '../config.js';
 import { desktopNotify } from '../notify.js';
 import { useLoader, usePoll, useTermSize } from '../hooks.js';
@@ -60,48 +61,28 @@ interface StreamItem {
   decision: string;
   permission: string;
   detail: string;
+  /** What the guard RECORDED, for w/b to build a rule from. */
+  args?: unknown;
   dlp: boolean;
   burst: boolean;
-  source: 'local' | 'cloud';
   session?: string;
   agent?: string;
   evalMs?: number;
   rule?: string;
 }
 
-/** Pull a command/path/url target out of a stringified args summary. */
-function extractTarget(detail: string): { kind: 'command' | 'path' | 'url'; value: string } | null {
-  try {
-    const j = JSON.parse(detail) as Record<string, unknown>;
-    const cmd = String(j.command ?? j.cmd ?? '').trim();
-    if (cmd) return { kind: 'command', value: cmd };
-    const fp = String(j.file_path ?? j.path ?? '').trim();
-    if (fp) return { kind: 'path', value: fp.split(/[\\/]/).pop() || fp };
-    const url = String(j.url ?? '').trim();
-    if (url) return { kind: 'url', value: url };
-  } catch {
-    /* not JSON */
-  }
-  return null;
-}
+// extractTarget lived here: a second reader of a call's target, over the DISPLAY string
+// rather than the recorded arguments. It checked a url LAST (so a call carrying both
+// scoped to the path), reduced a path to its BASENAME (so allowing a read of /etc/hosts
+// allowed every file called hosts anywhere), and — with nothing to narrow on — left the
+// rule at TOOL scope, silently allowing every call to that tool forever.
+//
+// api-client/audit.ts ruleSpecFor is the one answer, shared with `solongate audit
+// whitelist`, and internal/api RuleSpecFor is its Go twin.
 
-function cloudItem(e: AuditEntry): StreamItem {
-  return {
-    id: 'c:' + e.id,
-    at: Date.parse(e.created_at),
-    tool: e.tool_name,
-    decision: e.decision,
-    permission: (e.permission ?? '').slice(0, 4),
-    detail: (e.arguments_summary ? JSON.stringify(e.arguments_summary) : e.reason ?? '').replace(/\s+/g, ' '),
-    dlp: !!e.dlp_matches?.length,
-    burst: !!e.rate_limit_burst,
-    source: 'cloud',
-    session: e.session_id ?? undefined,
-    agent: e.agent_name ?? undefined,
-    evalMs: e.evaluation_time_ms ?? undefined,
-    rule: e.matched_rule_id ?? undefined,
-  };
-}
+// cloudItem lived here, turning an audit-API entry into a stream row for the SECOND
+// plane — a second read of the same file this panel already tails. See the note on
+// mergedAll below.
 
 function ColumnChart({ series, hot, height, width, color, hotColor = theme.bad }: { series: number[]; hot?: boolean[]; height: number; width: number; color: string; hotColor?: string }): JSX.Element {
   const pad = Math.max(0, width - series.length);
@@ -164,8 +145,6 @@ interface InsightsBits {
   dlpByPattern?: Array<{ pattern: string; count: number }>;
 }
 
-type Filter = 'all' | 'local' | 'cloud';
-const FILTERS: Filter[] = ['all', 'local', 'cloud'];
 type Mode = 'stream' | 'inspect' | 'layers';
 
 /** Full key reference shown by `?` inside Live (any mode). */
@@ -178,7 +157,6 @@ const LIVE_HELP: Array<[string, Array<[string, string]>]> = [
       ['w', 'whitelist the selected DENY (adds ALLOW rule)'],
       ['b', 'block the selected ALLOW (adds DENY rule)'],
       ['d / x / r', 'filter: denies / dlp hits / rate-limit bursts'],
-      ['f', 'source: all → LOC (this machine\'s local log) → CLD (cloud)'],
       ['/', 'live search (tool, agent, command…) · enter done'],
       ['l', 'layers detail (rate limit · dlp · guard)'],
       ['e', 'export visible rows → ~/.solongate/live-export.jsonl'],
@@ -200,14 +178,17 @@ const LIVE_HELP: Array<[string, Array<[string, string]>]> = [
 
 export function LivePanel({ active }: { active: boolean; focused: boolean }): JSX.Element {
   const [s, setS] = useState<Stats | null>(null);
-  const [lat, setLat] = useState<number[]>([]);
-  const [cloudBuf, setCloudBuf] = useState<StreamItem[]>([]);
+  // WHAT ENFORCEMENT COSTS, in milliseconds per decision, sampled from the
+  // evaluation_time_ms the guard writes into every entry.
+  //
+  // It was `lat`: the round trip of the audit fetch — a read of a file on this machine,
+  // charted under the title "API LATENCY". On any machine the number was 0 or 1.
+  const [evalMs, setEvalMs] = useState<number[]>([]);
   const [localBuf, setLocalBuf] = useState<StreamItem[]>([]);
   const [localOn, setLocalOn] = useState<boolean | null>(null);
   const [localPath, setLocalPath] = useState<LocalLogSetting | null>(null);
   const [ring, setRing] = useState<{ avgMs: number; session: string; count: number } | null>(null);
   const [log, setLog] = useState<LogLine[]>([]);
-  const [filter, setFilter] = useState<Filter>('all');
   // Signal preset: d/x/r narrow the stream to denies / dlp hits / rate bursts.
   const [signal, setSignal] = useState<'none' | 'deny' | 'dlp' | 'ratelimit'>('none');
   // `/` search — live substring filter over the stream and session timelines.
@@ -224,7 +205,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   // Layers detail (l): full rate-limit / dlp / guard configuration.
   const [layersScroll, setLayersScroll] = useState(0);
   const inspectFromRef = useRef<Exclude<Mode, 'inspect'>>('stream');
-  const seenRef = useRef<Set<string>>(new Set());
+  // `seenRef` (audit-entry ids already ingested) stood here, for the second read.
   const lastLocalTs = useRef(0);
   // Monotonic suffix for local StreamItem ids. A rate-limit burst writes many
   // log lines in the SAME millisecond with the SAME tool, so ts+tool alone
@@ -301,9 +282,11 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
           decision: j.decision ?? 'ALLOW',
           permission: (j.permission ?? '').slice(0, 4),
           detail: (j.arguments ? JSON.stringify(j.arguments) : j.reason ?? '').replace(/\s+/g, ' '),
+          // What the guard RECORDED, for w/b to build a rule from. detail is the same
+          // JSON collapsed for display, and it was what the action re-parsed.
+          args: j.arguments,
           dlp: !!j.dlp,
           burst: !!j.rate_limit_burst,
-          source: 'local',
           session: j.session_id,
           agent: j.agent_name,
           evalMs: j.evaluation_time_ms,
@@ -316,6 +299,11 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     if (fresh.length) {
       lastLocalTs.current = fresh[fresh.length - 1]!.at;
       setLocalBuf((prev) => [...prev, ...fresh].slice(-400));
+      // What each decision COST, for the GUARD COST chart. One sample per entry that
+      // carries a measurement; an entry without one is skipped rather than counted as
+      // zero, because a zero would drag the median toward a speed nothing achieved.
+      const costs = fresh.map((f) => f.evalMs).filter((v): v is number => typeof v === 'number');
+      if (costs.length) setEvalMs((prev) => [...prev, ...costs.map((v) => Math.round(v))].slice(-240));
       const denies = fresh.filter((f) => f.decision !== 'ALLOW').length;
       if (fresh.length < 10) pushLog(`local +${fresh.length} calls${denies ? ` · ${denies} DENIED` : ''}`, denies ? 'bad' : 'warn');
     }
@@ -347,27 +335,14 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     return () => clearInterval(t);
   }, [active, pollLocal]);
 
-  // ── the recorded plane: what the hooks wrote ─────────────────────────────
-  const pollFeed = useCallback(async () => {
-    if (paused()) return;
-    const t0 = Date.now();
-    try {
-      const fd = await api.audit.list({ limit: 50 });
-      if (frozenRef.current) return; // dropped: response landed mid copy-mode
-      const ms = Date.now() - t0;
-      setLat((l) => [...l, ms].slice(-240));
-      const fresh = fd.entries.filter((e) => !seenRef.current.has(e.id));
-      const firstLoad = seenRef.current.size === 0 && fresh.length > 1;
-      for (const e of fresh) seenRef.current.add(e.id);
-      if (fresh.length) setCloudBuf((prev) => [...prev, ...fresh.map(cloudItem).sort((a, b) => a.at - b.at)].slice(-400));
-      const denies = fresh.filter((e) => e.decision !== 'ALLOW').length;
-      if (firstLoad) pushLog(`cloud link up · api ${ms}ms · ${fresh.length} calls`);
-      else if (fresh.length) pushLog(`api ${ms}ms · +${fresh.length} cloud${denies ? ` · ${denies} DENIED` : ''}`, denies ? 'bad' : 'warn');
-      else pushLog(`api ${ms}ms · idle`, 'ok');
-    } catch (e) {
-      onApiError(e);
-    }
-  }, [pushLog, onApiError]);
+  // A SECOND PLANE stood here: pollFeed fetched the audit API every 3s, which reads the
+  // same file this panel already tails, and its rows were buffered separately, deduped
+  // against the tailed ones on tool|decision|minute, then labelled LOC or CLD. So a
+  // person saw rows tagged "cloud" for work that never left their machine, and a source
+  // filter that filtered one file from itself. It also timed that read and charted the
+  // result as "API LATENCY".
+  //
+  // One file, one plane. internal/tui/live.go lost the same thing.
 
   const pollMedium = useCallback(async () => {
     if (paused()) return;
@@ -379,20 +354,17 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     }
   }, [onApiError]);
 
-  // Poll budget (~40 req/min): feed 3s, stats 8s, insights 20s.
-  // The 24h timeseries poll was dropped entirely (TRAFFIC is buffer-derived),
-  // which pays for the faster cadence without risking the API's rate limit.
+  // The stream comes from pollLocal above, on its own 2s timer. This one is the
+  // summaries — stats and insights — which a stream row does not carry.
+  //
+  // It used to run pollFeed at 3s too, and the comment above it read "poll budget (~40
+  // req/min) … without risking the API's rate limit". Both of those read a file.
   useEffect(() => {
     if (!active) return;
-    void pollFeed();
     void pollMedium();
-    const t1 = setInterval(() => void pollFeed(), 3000);
-    const t2 = setInterval(() => void pollMedium(), 8000);
-    return () => {
-      clearInterval(t1);
-      clearInterval(t2);
-    };
-  }, [active, pollFeed, pollMedium]);
+    const t = setInterval(() => void pollMedium(), 8000);
+    return () => clearInterval(t);
+  }, [active, pollMedium]);
 
   const insights = useLoader(() => api.stats.securityInsights(7));
   const guard = useLoader(() => api.settings.getGuardStatus());
@@ -492,18 +464,15 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   const spin = SPIN[tick % SPIN.length];
   const nowMs = Date.now();
 
-  // DEDUPE: denies (and some events) are written BOTH to the local file and to
-  // the cloud (with a hashed session id), so the same call would show twice —
-  // and the cloud copy would read CLD even though it happened on this machine.
-  // Drop cloud entries that match a local entry on tool+decision within ±1min;
-  // the richer local copy wins and is tagged LOC.
-  const localKeys = new Set<string>();
-  for (const e of localBuf) {
-    const m = Math.round(e.at / 60_000);
-    for (const d of [-1, 0, 1]) localKeys.add(`${e.tool}|${e.decision}|${m + d}`);
-  }
-  const cloudDeduped = cloudBuf.filter((e) => !localKeys.has(`${e.tool}|${e.decision}|${Math.round(e.at / 60_000)}`));
-  const mergedAll = [...cloudDeduped, ...localBuf].sort((a, b) => a.at - b.at);
+  // ONE PLANE, oldest first. Entries are appended as they are read, and a file written
+  // by several processes is not strictly ordered by timestamp, so the sort stays.
+  //
+  // A dedupe stood here, against the second plane: the same call arrived twice — once
+  // tailed off the log, once fetched through the audit API, which reads that same file —
+  // and cloud rows matching a local row on tool|decision|±1min were dropped. The
+  // heuristic collapses exactly the shape a retrying agent and a rate-limit burst
+  // produce, so losing it is a gain as well as a simplification.
+  const mergedAll = localBuf.slice().sort((a, b) => a.at - b.at);
   mergedRef.current = mergedAll; // feed the security-notify effect
 
   // TRAFFIC: always the LIVE window — 10-second buckets over the last 10
@@ -535,30 +504,26 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
   for (const e of mergedAll) toolCounts.set(e.tool, (toolCounts.get(e.tool) ?? 0) + 1);
   const topTools = [...toolCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
 
-  const latNow = lat[lat.length - 1] ?? 0;
-  const sortedLat = [...lat].sort((a, b) => a - b);
-  const latMed = sortedLat.length ? sortedLat[Math.floor(sortedLat.length / 2)]! : 0;
-  const latHotAt = Math.max(2000, latMed * 2.5);
+  const evalNow = evalMs[evalMs.length - 1] ?? 0;
+  const sortedEval = [...evalMs].sort((a, b) => a - b);
+  const evalMed = sortedEval.length ? sortedEval[Math.floor(sortedEval.length / 2)]! : 0;
+  // Amber above 2.5x the median, with a floor so a quiet machine whose median is 2ms does
+  // not paint every ordinary call hot. The floor was 2000ms for a network round trip; for
+  // a local policy decision 50ms is already slow.
+  const evalHotAt = Math.max(50, evalMed * 2.5);
   const backingOff = Date.now() < pausedUntil.current;
 
-  // LOC means the record is on THIS MACHINE'S DISK. Nothing else.
-  //
-  // It used to mean "happened here", inferred from the session id in the eval
-  // ring, so a call made on this machine read LOC even with local logging off
-  // and the record sitting only in the cloud. That is indefensible: the setting
-  // says local storage is off, so nothing may be labelled local. Storage is the
-  // question the label answers now, and it comes from where the entry was read.
-  const isLoc = (e: StreamItem): boolean => e.source === 'local';
-
-  // Stream filter is by SOURCE (this machine's local log vs the cloud), newest FIRST.
+  // isLoc and a SOURCE filter stood here — all → LOC → CLD, cycled by `f`. Everything
+  // is read from one file, so it filtered that file from itself. The signal and search
+  // filters below are the ones that mean something.
   const q = search.trim().toLowerCase();
   const matches = (e: StreamItem): boolean =>
     !q || `${e.tool} ${e.agent ?? ''} ${e.decision} ${e.permission} ${e.rule ?? ''} ${e.detail}`.toLowerCase().includes(q);
   const signalOk = (e: StreamItem): boolean =>
     signal === 'none' ? true : signal === 'deny' ? e.decision !== 'ALLOW' : signal === 'dlp' ? e.dlp : e.burst;
-  const filtered = (filter === 'all' ? mergedAll : mergedAll.filter((e) => (filter === 'local' ? isLoc(e) : !isLoc(e)))).filter(matches).filter(signalOk);
-  // Show EVERY buffered entry (newest first), scrollable — the count then
-  // matches the loc/cld buffer totals in the status bar.
+  const filtered = mergedAll.filter(matches).filter(signalOk);
+  // Show EVERY buffered entry (newest first), scrollable — the count then matches the
+  // entry total in the status bar.
   const visibleDesc = filtered.slice().reverse();
 
   // ── fixed layout budget ───────────────────────────────────────────────────
@@ -602,22 +567,22 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
     }
     setActionMsg({ text: act === 'whitelist' ? 'whitelisting…' : 'blocking…', level: 'ok', until: Date.now() + 4000 });
     try {
-      // Active-policy gate for BOTH sources (mirrors the API): when no policy
-      // is active, nothing is granted — not allow, not deny. Resolved fresh on
-      // every action so deactivating in the dashboard applies immediately.
+      // Active-policy gate: with no policy active nothing is granted — not allow, not
+      // deny. Resolved fresh on every action, so editing the policy file in another
+      // terminal applies immediately.
       const a = await api.policies.active();
       const pid = a.policy?.id ?? null;
       if (!pid) throw new Error('no active policy — rule NOT added. Activate a policy first (Policies section).');
-      type Res = { deduped?: boolean; policy_id?: string; policy_version?: number };
-      let res: Res;
-      if (e.source === 'cloud') {
-        const realId = e.id.slice(2);
-        res = act === 'whitelist' ? await api.audit.whitelist(realId) : await api.audit.block(realId);
-      } else {
-        const t = extractTarget(e.detail);
-        res = await api.policies.addRule(pid, { toolPattern: e.tool, kind: t?.kind ?? 'tool', value: t?.value, effect: act === 'whitelist' ? 'ALLOW' : 'DENY' });
-      }
       const verb = act === 'whitelist' ? 'ALLOW' : 'DENY';
+      // THE SAME RULE `solongate audit whitelist` WOULD MAKE. This had two branches, one
+      // per source: an entry from the audit API went through api.audit.whitelist, which
+      // builds the rule from the recorded arguments and REFUSES when there is nothing to
+      // narrow on; a tailed entry got a local extractor that checked a url last, took
+      // only the basename of a path, and — finding nothing — left the rule at TOOL scope,
+      // silently allowing every call to that tool forever.
+      //
+      // ruleSpecFor is the one implementation, shared with the CLI.
+      const res = await api.policies.addRule(pid, ruleSpecFor(e.tool, e.args, 'exact', verb));
       setActionMsg({
         text: res.deduped ? `${verb} rule already present` : `${verb} rule added → ${res.policy_id ?? '?'}${res.policy_version ? ' v' + res.policy_version : ''} · reaches agents in ~30s`,
         level: 'ok',
@@ -675,10 +640,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
         setSignal((cur) => (cur === s ? 'none' : s));
         setSel(0);
       };
-      if (input === 'f') {
-        setFilter((f) => FILTERS[(FILTERS.indexOf(f) + 1) % FILTERS.length]!);
-        setSel(0);
-      } else if (key.return) {
+      if (key.return) {
         if (selEntry) {
           inspectFromRef.current = 'stream';
           setInspect(selEntry);
@@ -761,7 +723,9 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
         {' SOLONGATE LIVE '}
       </Text>
       <Text backgroundColor={BG} color="white">
-        {` ${spin} up ${fmtUp(nowMs - startRef.current)} · ${hhmmss(nowMs)} · api ${latNow}ms `}
+        {/* `· api <n>ms` stood here, the round trip of the audit fetch. What is worth a
+            place in the title is what ENFORCEMENT costs — see the GUARD COST pane. */}
+        {` ${spin} up ${fmtUp(nowMs - startRef.current)} · ${hhmmss(nowMs)} · guard ${evalNow}ms `}
       </Text>
       {frozen ? (
         <Text backgroundColor="#123d1f" color="#7bd88f" bold>
@@ -833,7 +797,6 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
           <Text color={theme.accent} bold>
             {'  ' + e.tool}
           </Text>
-          <Text color={isLoc(e) ? theme.ok : 'white'}>{'  ' + (isLoc(e) ? 'LOC' : 'CLD')}</Text>
           {e.dlp ? <Text color={theme.bad}>{'  DLP!'}</Text> : null}
           {e.burst ? <Text color={theme.warn}>{'  BURST'}</Text> : null}
           <Text color={theme.dim}>{'  ← back'}</Text>
@@ -1031,8 +994,8 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
           <ColumnChart series={traffic} hot={trafficHot} height={chartH} width={leftW} color={theme.accent} />
         </Box>
         <Box flexDirection="column" width={rightW} height={1 + chartH} overflow="hidden">
-          <PaneTitle label="API LATENCY" extra={`now ${latNow}ms · med ${latMed}ms · amber >${Math.round(latHotAt)}ms`} width={rightW} />
-          <ColumnChart series={lat} hot={lat.map((v) => v > latHotAt)} height={chartH} width={rightW} color="white" hotColor="#ffb454" />
+          <PaneTitle label="GUARD COST" extra={`ms per decision · now ${evalNow} · med ${evalMed} · amber >${Math.round(evalHotAt)}`} width={rightW} />
+          <ColumnChart series={evalMs} hot={evalMs.map((v) => v > evalHotAt)} height={chartH} width={rightW} color="white" hotColor="#ffb454" />
         </Box>
       </Box>
 
@@ -1091,7 +1054,7 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
 
       <PaneTitle
         label="TOOL STREAM"
-        extra={`${selClamped + 1}/${visibleDesc.length}${signal !== 'none' ? ` · ${signal}` : ''}${q ? ' · search' : ''}${filter !== 'all' ? ` · source:${filter}` : ''} · enter full entry · ? all keys`}
+        extra={`${selClamped + 1}/${visibleDesc.length}${signal !== 'none' ? ` · ${signal}` : ''}${q ? ' · search' : ''} · enter full entry · ? all keys`}
         width={innerW}
       />
       <Box flexDirection="column" height={streamRows} overflow="hidden">
@@ -1114,15 +1077,9 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
             <Text color={theme.dim}>{` — no entries yet · hooks write ${localPath?.file ?? ''}`}</Text>
           </Text>
         ) : null}
-        {windowed.length === 0 ? (
-          // With a source filter on, "awaiting traffic" reads as "nothing is
-          // happening" when the stream is merely filtered — say which it is.
-          filter === 'all'
-            ? <Text color={theme.dim}>{spin} awaiting traffic…</Text>
-            : <Text color={theme.dim}>{`${spin} no ${filter === 'local' ? 'LOC (local log)' : 'CLD (cloud)'} calls in the buffer · f switches source`}</Text>
-        ) : null}
+        {windowed.length === 0 ? <Text color={theme.dim}>{spin} awaiting traffic…</Text> : null}
         {windowed.map((e, i) => (
-          <StreamLine key={e.id} e={e} loc={isLoc(e)} selected={clampedScroll + i === selClamped} />
+          <StreamLine key={e.id} e={e} selected={clampedScroll + i === selClamped} />
         ))}
       </Box>
 
@@ -1130,14 +1087,13 @@ export function LivePanel({ active }: { active: boolean; focused: boolean }): JS
         <Text backgroundColor={BG} color="white" bold>
           {' LIVE '}
         </Text>
-        {/* The source filter (f) was only discoverable through the ? overlay, so
-            the stream looked like it merged local and cloud with no way to
-            separate them. Show the current source inline and advertise the key. */}
+        {/* A source indicator and the `f` key that cycled it stood here. It merged one
+            file with itself. */}
         <Text backgroundColor="#0b1530" color="white">
-          {` local-log ${localOn ? 'on' : 'off'} · ${localBuf.length} loc/${cloudBuf.length} cld · source ${filter === 'all' ? 'all' : filter === 'local' ? 'LOC only' : 'CLD only'} · top ${topTools.map(([t, c]) => `${t}×${c}`).join(' ') || '—'} `}
+          {` local-log ${localOn ? 'on' : 'off'} · ${localBuf.length} entries · top ${topTools.map(([t, c]) => `${t}×${c}`).join(' ') || '—'} `}
         </Text>
         <Text backgroundColor={BG} color="white">
-          {` ↑↓ select · enter full entry · f source · / search · space copy · ? all keys · esc menu · q quit `}
+          {` ↑↓ select · enter full entry · / search · space copy · ? all keys · esc menu · q quit `}
         </Text>
       </Text>
     </Box>

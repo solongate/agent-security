@@ -347,3 +347,74 @@ func writeAuditLog(t *testing.T, lines ...string) {
 		t.Fatal(err)
 	}
 }
+
+// ONE ANSWER TO "WHAT RULE WOULD HAVE STOPPED THIS CALL".
+//
+// Two implementations of this existed: this one, reached by id from the audit browser and
+// the CLI, and a second in the Live panel that read the DISPLAY string of an entry it was
+// already holding. They differed in two ways that decided how wide somebody's policy got:
+//
+//	a url        this one matches on it; the other did not look for one, so whitelisting
+//	             a WebFetch denial scoped the rule to the whole tool
+//	a path       this one uses the path; the other took its BASENAME, so allowing a read
+//	             of /etc/hosts allowed every file called hosts anywhere
+//
+// And the one that mattered most: with nothing to narrow on, this REFUSES, and the other
+// left the rule at tool scope — so one keypress on an unremarkable denial allowed every
+// call to that tool forever. The Live panel calls this now.
+func TestRuleSpecForNarrowsToWhatTheCallDid(t *testing.T) {
+	cases := []struct {
+		name string
+		tool string
+		args string
+		kind string
+		val  string
+	}{
+		{"a command", "Bash", `{"command":"git push --force"}`, "command", "git push --force"},
+		{"cmd is the same thing", "Bash", `{"cmd":"rm -rf /"}`, "command", "rm -rf /"},
+		{"a url", "WebFetch", `{"url":"https://evil.example.com/x"}`, "url", "https://evil.example.com/x"},
+		// THE WHOLE PATH, not its basename: a rule about /etc/hosts is not a rule about
+		// every file called hosts.
+		{"a path", "Read", `{"file_path":"/etc/hosts"}`, "path", "/etc/hosts"},
+		{"a filename pattern", "Glob", `{"pattern":"**/*.env"}`, "filename", "**/*.env"},
+		// A command outranks a path: it is the more specific description of what ran.
+		{"command beats path", "Bash", `{"command":"cat /etc/passwd","file_path":"/etc/passwd"}`,
+			"command", "cat /etc/passwd"},
+	}
+	for _, c := range cases {
+		spec, err := RuleSpecFor(c.tool, []byte(c.args), "exact", "ALLOW")
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
+		if spec.Kind != c.kind || spec.Value != c.val {
+			t.Errorf("%s: kind=%q value=%q, want %q / %q", c.name, spec.Kind, spec.Value, c.kind, c.val)
+		}
+		if spec.ToolPattern != c.tool {
+			t.Errorf("%s: tool = %q, want %q", c.name, spec.ToolPattern, c.tool)
+		}
+	}
+
+	// NOTHING TO NARROW ON IS A REFUSAL. This is the property the Live panel was
+	// missing: it widened to the tool instead, silently.
+	for _, args := range []string{`{}`, `null`, `{"thinking":"nothing to match on"}`, ``} {
+		if _, err := RuleSpecFor("Bash", []byte(args), "exact", "ALLOW"); err == nil {
+			t.Errorf("args %q produced a rule; it must refuse rather than widen to the tool", args)
+		}
+	}
+
+	// An empty tool is a refusal too: a rule with no tool pattern matches everything.
+	if _, err := RuleSpecFor("", []byte(`{"command":"ls"}`), "exact", "ALLOW"); err == nil {
+		t.Error("an entry naming no tool produced a rule")
+	}
+
+	// `--scope tool` is how somebody asks for the wide rule ON PURPOSE, and then it is
+	// given without an argument to narrow on.
+	spec, err := RuleSpecFor("Bash", []byte(`{}`), "tool", "DENY")
+	if err != nil {
+		t.Fatalf("explicit tool scope: %v", err)
+	}
+	if spec.Kind != "" || spec.ToolPattern != "Bash" || spec.Effect != "DENY" {
+		t.Errorf("tool scope = %+v, want the whole Bash tool", spec)
+	}
+}

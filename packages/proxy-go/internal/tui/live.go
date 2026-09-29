@@ -40,19 +40,23 @@ var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"
 // streamItem is one row of the merged live buffer. The json tags are the export
 // format (`e`), so they are the TypeScript field names rather than Go ones.
 type streamItem struct {
-	ID         string   `json:"id"`
-	At         int64    `json:"at"`
-	Tool       string   `json:"tool"`
-	Decision   string   `json:"decision"`
-	Permission string   `json:"permission"`
-	Detail     string   `json:"detail"`
-	DLP        bool     `json:"dlp"`
-	Burst      bool     `json:"burst"`
-	Source     string   `json:"source"` // "local" | "cloud"
-	Session    string   `json:"session,omitempty"`
-	Agent      string   `json:"agent,omitempty"`
-	EvalMs     *float64 `json:"evalMs,omitempty"`
-	Rule       string   `json:"rule,omitempty"`
+	ID         string `json:"id"`
+	At         int64  `json:"at"`
+	Tool       string `json:"tool"`
+	Decision   string `json:"decision"`
+	Permission string `json:"permission"`
+	Detail     string `json:"detail"`
+	// Args is what the guard RECORDED, verbatim, for the w/b keys to build a rule
+	// from. Detail is the same JSON collapsed onto one line for display, and it was
+	// what the action re-parsed — a display string standing in for data.
+	Args    json.RawMessage `json:"-"`
+	DLP     bool            `json:"dlp"`
+	Burst   bool            `json:"burst"`
+	Source  string          `json:"source"` // "local" | "cloud"
+	Session string          `json:"session,omitempty"`
+	Agent   string          `json:"agent,omitempty"`
+	EvalMs  *float64        `json:"evalMs,omitempty"`
+	Rule    string          `json:"rule,omitempty"`
 }
 
 func (e streamItem) row() StreamRow {
@@ -584,6 +588,7 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 		fresh = append(fresh, streamItem{
 			ID: id, At: j.At, Tool: tool, Decision: decision,
 			Permission: truncate4(j.Permission), Detail: collapseSpace(detail),
+			Args:  j.Arguments,
 			DLP:   len(j.DLP) > 0 && string(j.DLP) != "null" && string(j.DLP) != "false",
 			Burst: j.RateLimitBurst, Source: "local", Session: j.SessionID,
 			Agent: j.AgentName, EvalMs: j.EvaluationTimeMs, Rule: j.MatchedRuleID,
@@ -1063,21 +1068,21 @@ func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 			return liveActionResult{gen: gen, level: "bad",
 				text: "✗ no active policy — rule NOT added. Activate a policy first (Policies section)."}
 		}
-		var res api.RuleMutation
-		if e.Source == "cloud" {
-			realID := strings.TrimPrefix(e.ID, "c:")
-			if act == "whitelist" {
-				res, err = client.Audit.Whitelist(ctx, realID, "")
-			} else {
-				res, err = client.Audit.Block(ctx, realID, "")
-			}
-		} else {
-			spec := api.RuleSpec{ToolPattern: e.Tool, Kind: "tool", Effect: verb}
-			if kind, value, ok := extractTarget(e.Detail); ok {
-				spec.Kind, spec.Value = kind, value
-			}
-			res, err = client.Policies.AddRule(ctx, active.Policy.ID, spec)
+		// THE SAME RULE THE AUDIT BROWSER WOULD MAKE. This had two branches: an entry
+		// from the store went through Audit.Whitelist/Block, which builds the rule from
+		// the recorded arguments and REFUSES when there is nothing to narrow on; an
+		// entry read off the log got a local extractor that looked for no url and took
+		// only the BASENAME of a path — and, when it found nothing, left Kind "tool"
+		// and silently allowed every call to that tool forever.
+		//
+		// The store branch went dead when the second read did, so every `w` was taking
+		// the widening path. api.RuleSpecFor is now the one implementation of "what rule
+		// would have stopped this call", and it refuses rather than widens.
+		spec, specErr := api.RuleSpecFor(e.Tool, e.Args, "exact", verb)
+		if specErr != nil {
+			return liveActionResult{gen: gen, level: "bad", text: "✗ " + specErr.Error()}
 		}
+		res, err := client.Policies.AddRule(ctx, active.Policy.ID, spec)
 		if err != nil {
 			return fail(err)
 		}
@@ -1101,41 +1106,11 @@ func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 	}
 }
 
-// extractTarget pulls a command, path or url out of a stringified arguments
-// summary, so a rule added from a local row is about the thing that was run
-// rather than about the tool as a whole.
-func extractTarget(detail string) (kind, value string, ok bool) {
-	var j map[string]any
-	if json.Unmarshal([]byte(detail), &j) != nil {
-		return "", "", false
-	}
-	str := func(keys ...string) string {
-		for _, k := range keys {
-			if v, found := j[k]; found {
-				if s, isStr := v.(string); isStr {
-					if s = strings.TrimSpace(s); s != "" {
-						return s
-					}
-				}
-			}
-		}
-		return ""
-	}
-	if cmd := str("command", "cmd"); cmd != "" {
-		return "command", cmd, true
-	}
-	if fp := str("file_path", "path"); fp != "" {
-		base := fp
-		if i := strings.LastIndexAny(fp, `/\`); i >= 0 && i+1 < len(fp) {
-			base = fp[i+1:]
-		}
-		return "path", base, true
-	}
-	if url := str("url"); url != "" {
-		return "url", url, true
-	}
-	return "", "", false
-}
+// extractTarget lived here: a second reader of a call's target, over the DISPLAY string
+// rather than the recorded arguments. It differed from the store's in two ways that
+// decided how wide a policy got — no url, and the basename of a path instead of the path
+// — so whitelisting one denial from the stream and from the audit browser produced two
+// different rules. api.RuleSpecFor is the one answer now.
 
 func (p *Live) export(visible []streamItem, now int64) {
 	dir := config.Dir()

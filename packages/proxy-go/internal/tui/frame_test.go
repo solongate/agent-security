@@ -57,8 +57,8 @@ func sampleLive(now time.Time) *Live {
 			Agent: "claude-code", EvalMs: &eval, Rule: "rule-42",
 		})
 	}
-	p.lat = []int{40, 55, 61, 900, 42}
-	p.events = []logLine{{ts: now.UnixMilli(), msg: "api 41ms · idle", level: "ok"}}
+	p.eval = []int{4, 6, 5, 61, 4}
+	p.events = []logLine{{ts: now.UnixMilli(), msg: "+3 entries", level: "ok"}}
 	p.rebuildMerged(now.UnixMilli())
 	return p
 }
@@ -180,22 +180,31 @@ func TestAFreshMachineReachesEverySection(t *testing.T) {
 	}
 }
 
-// LOC means the record is on this machine's disk and CLD means it is in the
-// cloud. The labels were changed to mean "where it happened" once and changed
-// back, so they are pinned here.
-func TestStreamLineOriginLabels(t *testing.T) {
+// THERE IS NO ORIGIN TO LABEL.
+//
+// This was TestStreamLineOriginLabels, and it pinned a real distinction: LOC meant the
+// record was on this machine's disk and CLD meant it was in the cloud, and the labels
+// had been changed once to mean "where it HAPPENED" and changed back. Both meanings are
+// gone with the second source — every row on every surface is read from this machine's
+// own audit file, and a "cloud" label on a call that never left the machine is worse
+// than no label.
+//
+// What is asserted instead is that no row claims otherwise, on the surface a person
+// actually reads. A future second source would have to reintroduce a label, and this
+// fails the moment one appears without being thought about.
+func TestNoRowClaimsToBeFromSomewhereElse(t *testing.T) {
 	row := StreamRow{At: time.Now().UnixMilli(), Tool: "Bash", Decision: "ALLOW", Permission: "EXEC"}
-	local := streamLine(row, true, false, false, 200)
-	cloud := streamLine(row, false, false, false, 200)
-	if !strings.Contains(local, "LOC") || strings.Contains(local, "CLD") {
-		t.Fatalf("a local record must read LOC: %q", local)
+	line := streamLine(row, false, false, 200)
+	for _, gone := range []string{"CLD", "LOC"} {
+		if strings.Contains(line, gone) {
+			t.Errorf("a row still carries the origin label %q: %q", gone, line)
+		}
 	}
-	if !strings.Contains(cloud, "CLD") || strings.Contains(cloud, "LOC") {
-		t.Fatalf("a cloud record must read CLD: %q", cloud)
-	}
-	// The source of a row is where it was READ, never where it ran.
-	if (streamItem{Source: "local"}).isLoc() != true || (streamItem{Source: "cloud"}).isLoc() != false {
-		t.Fatal("isLoc must follow the source of the record")
+	// The row still says the things that ARE true of it.
+	for _, want := range []string{"ALLOW", "Bash"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the row lost %q: %q", want, line)
+		}
 	}
 }
 
@@ -212,7 +221,7 @@ func TestStreamLineColumnsAreFixedWidth(t *testing.T) {
 		// detail at all. The permission arrives already cut to four characters,
 		// the way every caller passes it.
 		row.Permission = truncate4(row.Permission)
-		return lipgloss.Width(stripANSI(streamLine(row, true, false, false, 0)))
+		return lipgloss.Width(stripANSI(streamLine(row, false, false, 0)))
 	}
 	if a, b := prefix(long), prefix(short); a != b {
 		t.Fatalf("row prefixes differ: %d vs %d", a, b)
@@ -279,24 +288,33 @@ func TestParseMillis(t *testing.T) {
 	}
 }
 
-// A cloud row and a local row of the same call within a minute are ONE call.
-// The local copy is richer and is the one that survives, tagged LOC.
-func TestMergedBufferDedupesTheSameCall(t *testing.T) {
-	now := time.Now()
+// THERE IS NOTHING TO DEDUPE, AND EVERY ENTRY MUST SURVIVE.
+//
+// This was TestMergedBufferDedupesTheSameCall. The panel read the audit file twice —
+// once tailed, once through the audit API — so each call arrived as two rows, and
+// rebuildMerged dropped the second when it matched an existing one on tool, decision
+// and minute. That heuristic is gone with the second read, and its absence is what this
+// now checks: two genuine calls to the same tool in the same minute are TWO calls, and
+// the old dedupe would have shown one.
+//
+// Which is not a hypothetical loss. A retrying agent and a rate-limit burst both produce
+// exactly that shape.
+func TestTwoIdenticalCallsAreTwoRows(t *testing.T) {
 	p := newLive(Deps{API: api.New(), Cfg: config.TUIConfig{}})
-	at := now.UnixMilli()
-	p.local = []streamItem{{ID: "l:1", At: at, Tool: "Bash", Decision: "DENY", Source: "local"}}
-	p.cloud = []streamItem{
-		{ID: "c:1", At: at + 200, Tool: "Bash", Decision: "DENY", Source: "cloud"},
-		{ID: "c:2", At: at + 300, Tool: "Read", Decision: "ALLOW", Source: "cloud"},
+	at := time.Now().UnixMilli()
+	p.local = []streamItem{
+		{ID: "l:1", At: at, Tool: "Bash", Decision: "DENY", Source: "local"},
+		{ID: "l:2", At: at + 200, Tool: "Bash", Decision: "DENY", Source: "local"},
+		{ID: "l:3", At: at + 300, Tool: "Read", Decision: "ALLOW", Source: "local"},
 	}
 	p.rebuildMerged(at)
-	if len(p.merged) != 2 {
-		t.Fatalf("expected the duplicated DENY to collapse, got %d rows", len(p.merged))
+	if len(p.merged) != 3 {
+		t.Fatalf("rows = %d, want all 3 — two identical calls are two calls", len(p.merged))
 	}
-	for _, e := range p.merged {
-		if e.Tool == "Bash" && !e.isLoc() {
-			t.Fatal("the local copy of a duplicated call must be the one kept")
+	// And they come out oldest first, whatever order they were appended in.
+	for i := 1; i < len(p.merged); i++ {
+		if p.merged[i-1].At > p.merged[i].At {
+			t.Fatalf("row %d is older than the one before it", i)
 		}
 	}
 }
@@ -305,7 +323,7 @@ func TestMergedBufferDedupesTheSameCall(t *testing.T) {
 // screen moves under a mouse selection.
 func TestCopyModeStopsEveryPoll(t *testing.T) {
 	p := sampleLive(time.Now())
-	all := []int{tickFeed, tickStats, tickSess, tickInsights, tickGuard, tickLocal}
+	all := []int{tickStats, tickSess, tickInsights, tickGuard, tickLocal}
 	for _, kind := range all {
 		if !p.shouldPoll(kind) {
 			t.Fatalf("tick %d should poll on an idle console", kind)
@@ -318,10 +336,11 @@ func TestCopyModeStopsEveryPoll(t *testing.T) {
 		}
 	}
 	// A rate-limit back-off holds the API off but must not stop reading this
-	// machine's own log file.
+	// machine's own log file. (tickFeed was in this list: the second read of that same
+	// file, through the audit API, which is gone.)
 	p.frozen = false
 	p.pausedUntil = time.Now().UnixMilli() + 30_000
-	for _, kind := range []int{tickFeed, tickStats, tickSess, tickInsights, tickGuard} {
+	for _, kind := range []int{tickStats, tickSess, tickInsights, tickGuard} {
 		if p.shouldPoll(kind) {
 			t.Fatalf("tick %d hit the API while backing off", kind)
 		}

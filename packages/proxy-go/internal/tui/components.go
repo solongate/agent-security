@@ -77,7 +77,7 @@ type StreamRow struct {
 //
 // The columns are fixed-width and never conditional, so scrolling cannot
 // reshuffle a line and glitch the frame.
-func streamLine(e StreamRow, loc, selected, date bool, width int) string {
+func streamLine(e StreamRow, selected, date bool, width int) string {
 	cursor, cursorColor := " ", theme.Dim
 	if selected {
 		cursor, cursorColor = "▸", theme.AccentBright
@@ -86,10 +86,9 @@ func streamLine(e StreamRow, loc, selected, date bool, width int) string {
 	if date {
 		stamp = "[" + ymd(e.At) + " " + hhmmss(e.At) + " "
 	}
-	locLabel, locColor := "CLD", theme.White
-	if loc {
-		locLabel, locColor = "LOC", theme.OK
-	}
+	// A LOC/CLD column stood here, from a `loc bool` parameter. Every entry on every
+	// surface comes from this machine's own audit file, so the column distinguished
+	// nothing — and labelled some of them "cloud".
 	evalText, evalColor := "—", theme.Dim
 	if e.EvalMs != nil {
 		evalText = num(*e.EvalMs) + "ms"
@@ -115,7 +114,6 @@ func streamLine(e StreamRow, loc, selected, date bool, width int) string {
 	segs := []seg{
 		sg(cursor, cursorColor),
 		sg(stamp, theme.Dim),
-		sg(locLabel, locColor),
 		sg("] ", theme.Dim),
 		seg{text: padEnd(e.Decision, 6), fg: decisionColor(e.Decision), bold: e.Decision != "ALLOW"},
 		sg(padEnd(truncate(e.Tool, 12), 13), theme.Accent),

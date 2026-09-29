@@ -70,7 +70,8 @@ func (e streamItem) row() StreamRow {
 // the record sitting only in the cloud. That is indefensible: the setting says
 // local storage is off, so nothing may be labelled local. Storage is the
 // question the label answers, and it is answered by where the entry was read.
-func (e streamItem) isLoc() bool { return e.Source == "local" }
+// isLoc() lived here: `e.Source == "local"`, which decided whether a row was labelled
+// LOC or CLD. There is one source.
 
 type logLine struct {
 	ts    int64
@@ -166,9 +167,11 @@ type Live struct {
 	// tok identifies THIS mount of the panel; see nextPanelToken.
 	tok int
 
-	stats  *api.Stats
-	lat    []int
-	cloud  []streamItem
+	stats *api.Stats
+	// eval is the guard's own decision time, in milliseconds, one sample per entry
+	// read. It was `lat`: the round trip of the audit fetch, which read a file on this
+	// machine — see evalNow.
+	eval   []int
 	local  []streamItem
 	merged []streamItem
 
@@ -177,7 +180,8 @@ type Live struct {
 	ring         *ringStat
 
 	events []logLine
-	filter string // all | local | cloud
+	// `filter` (all | local | cloud) stood here, cycled by `f`. Everything is read from
+	// one file, so it filtered that file from itself.
 	signal string // none | deny | dlp | ratelimit
 
 	search        string
@@ -192,7 +196,8 @@ type Live struct {
 	inspectScroll int
 	layersScroll  int
 
-	seen        map[string]bool
+	// `seen` (audit-entry ids already ingested) stood here, for the second read of the
+	// audit file. Fresh local lines are tracked by lastLocalTS instead.
 	notified    map[string]bool
 	openedAt    int64
 	lastLocalTS int64
@@ -228,11 +233,9 @@ func newLive(d Deps) *Live {
 	return &Live{
 		deps:       d,
 		tok:        nextPanelToken(),
-		filter:     "all",
 		signal:     "none",
 		mode:       "stream",
 		input:      in,
-		seen:       map[string]bool{},
 		notified:   map[string]bool{},
 		toastQueue: map[string]*toastItem{},
 	}
@@ -243,7 +246,6 @@ func newLive(d Deps) *Live {
 const (
 	tickAnim = iota
 	tickLocal
-	tickFeed
 	tickStats
 	tickSess
 	tickInsights
@@ -273,14 +275,17 @@ type liveLocalResult struct {
 
 func (m liveLocalResult) Generation() int { return m.gen }
 
-type liveFeedResult struct {
-	gen  int
-	list api.AuditList
-	ms   int
-	err  error
-}
-
-func (m liveFeedResult) Generation() int { return m.gen }
+// liveFeedResult, pollFeed, onFeed and cloudItem lived here, and they were the SECOND
+// read of the same audit file.
+//
+// The panel had two planes: `local`, tailed straight off the log, and `cloud`, fetched
+// through the audit API — which on this build reads that same file. So every call was
+// ingested twice, rebuildMerged deduped the copies on tool|decision|minute, and the
+// survivors were tagged LOC or CLD. A person watching saw rows labelled "cloud" for
+// work that had never left their machine, a source filter that filtered one file from
+// itself, and a log line saying "cloud link up · api 3ms".
+//
+// One file, one plane.
 
 type liveStatsResult struct {
 	gen   int
@@ -325,10 +330,9 @@ func (p *Live) Init(ctx PanelContext) tea.Cmd {
 	// TRAFFIC is derived from the buffer — which is what pays for this cadence
 	// without risking the API's own rate limit.
 	return tea.Batch(
-		p.pollLocal(), p.pollFeed(), p.pollStats(), p.pollInsights(), p.pollGuard(),
+		p.pollLocal(), p.pollStats(), p.pollInsights(), p.pollGuard(),
 		p.tickCmd(tickAnim, 500*time.Millisecond),
 		p.tickCmd(tickLocal, 2*time.Second),
-		p.tickCmd(tickFeed, 3*time.Second),
 		p.tickCmd(tickStats, 8*time.Second),
 		p.tickCmd(tickInsights, 20*time.Second),
 		p.tickCmd(tickGuard, 60*time.Second),
@@ -401,18 +405,6 @@ func (p *Live) pollLocal() tea.Cmd {
 		return res
 	}
 }
-
-func (p *Live) pollFeed() tea.Cmd {
-	gen, client := p.gen, p.deps.API
-	return func() tea.Msg {
-		t0 := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		list, err := client.Audit.List(ctx, api.AuditQuery{Limit: 50})
-		return liveFeedResult{gen: gen, list: list, ms: int(time.Since(t0).Milliseconds()), err: err}
-	}
-}
-
 func (p *Live) pollStats() tea.Cmd {
 	gen, client := p.gen, p.deps.API
 	return func() tea.Msg {
@@ -445,35 +437,6 @@ func (p *Live) pollGuard() tea.Cmd {
 		s, err := client.Settings.GetGuardStatus(ctx)
 		return liveGuardResult{gen: gen, status: s, err: err}
 	}
-}
-
-// fetchSessionHistory pulls a picked session's full cloud history once, when
-// the detail view opens.
-// cloudItem converts an audit entry into a stream row.
-func cloudItem(e api.AuditEntry) streamItem {
-	at, _ := parseMillis(e.CreatedAt)
-	detail := ""
-	if len(e.ArgumentsSummary) > 0 && string(e.ArgumentsSummary) != "null" {
-		detail = string(e.ArgumentsSummary)
-	} else if e.Reason != nil {
-		detail = *e.Reason
-	}
-	item := streamItem{
-		ID: "c:" + e.ID, At: at, Tool: e.ToolName, Decision: e.Decision,
-		Permission: truncate4(e.Permission), Detail: collapseSpace(detail),
-		DLP: len(e.DLPMatches) > 0, Burst: e.RateLimitBurst, Source: "cloud",
-		EvalMs: e.EvaluationTimeMs,
-	}
-	if e.SessionID != nil {
-		item.Session = *e.SessionID
-	}
-	if e.AgentName != nil {
-		item.Agent = *e.AgentName
-	}
-	if e.MatchedRuleID != nil {
-		item.Rule = *e.MatchedRuleID
-	}
-	return item
 }
 
 func truncate4(s string) string {
@@ -515,9 +478,6 @@ func (p *Live) Update(msg tea.Msg, ctx PanelContext) (Panel, tea.Cmd) {
 			p.ingestLocal(m.lines)
 		}
 		return p, p.afterBuffers(ctx)
-
-	case liveFeedResult:
-		return p, p.onFeed(m, ctx)
 
 	case liveStatsResult:
 		if m.err != nil {
@@ -573,8 +533,6 @@ func (p *Live) onTick(m liveTick, ctx PanelContext) tea.Cmd {
 		return p.tickCmd(tickAnim, 500*time.Millisecond)
 	case tickLocal:
 		return p.cadence(tickLocal, 2*time.Second, p.pollLocal)
-	case tickFeed:
-		return p.cadence(tickFeed, 3*time.Second, p.pollFeed)
 	case tickStats:
 		return p.cadence(tickStats, 8*time.Second, p.pollStats)
 	case tickInsights:
@@ -639,6 +597,17 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 	if len(p.local) > 400 {
 		p.local = p.local[len(p.local)-400:]
 	}
+	// WHAT EACH DECISION COST, for the GUARD COST chart. One sample per entry that
+	// carries a measurement; an entry without one is skipped rather than counted as
+	// zero, because a zero would drag the median toward a speed nothing achieved.
+	for _, f := range fresh {
+		if f.EvalMs != nil {
+			p.eval = append(p.eval, int(*f.EvalMs+0.5))
+		}
+	}
+	if len(p.eval) > 240 {
+		p.eval = p.eval[len(p.eval)-240:]
+	}
 	denies := 0
 	for _, f := range fresh {
 		if f.Decision != "ALLOW" {
@@ -654,61 +623,6 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 		}
 		p.pushLog(msg, level, time.Now().UnixMilli())
 	}
-}
-
-func (p *Live) onFeed(m liveFeedResult, ctx PanelContext) tea.Cmd {
-	now := ctx.Now.UnixMilli()
-	if m.err != nil {
-		return p.apiError(m.err, now)
-	}
-	if p.frozen {
-		return nil // dropped: the response landed mid copy-mode
-	}
-	if p.netFails >= 3 {
-		p.pushLog("network recovered", "ok", now)
-	}
-	p.netFails = 0
-	p.lat = append(p.lat, m.ms)
-	if len(p.lat) > 240 {
-		p.lat = p.lat[len(p.lat)-240:]
-	}
-	var fresh []streamItem
-	denies := 0
-	for _, e := range m.list.Entries {
-		if p.seen[e.ID] {
-			continue
-		}
-		fresh = append(fresh, cloudItem(e))
-		if e.Decision != "ALLOW" {
-			denies++
-		}
-	}
-	firstLoad := len(p.seen) == 0 && len(fresh) > 1
-	for _, e := range m.list.Entries {
-		p.seen[e.ID] = true
-	}
-	if len(fresh) > 0 {
-		sort.SliceStable(fresh, func(i, j int) bool { return fresh[i].At < fresh[j].At })
-		p.cloud = append(p.cloud, fresh...)
-		if len(p.cloud) > 400 {
-			p.cloud = p.cloud[len(p.cloud)-400:]
-		}
-	}
-	switch {
-	case firstLoad:
-		p.pushLog("cloud link up · api "+strconv.Itoa(m.ms)+"ms · "+strconv.Itoa(len(fresh))+" calls", "ok", now)
-	case len(fresh) > 0:
-		msg := "api " + strconv.Itoa(m.ms) + "ms · +" + strconv.Itoa(len(fresh)) + " cloud"
-		level := "warn"
-		if denies > 0 {
-			msg += " · " + strconv.Itoa(denies) + " DENIED"
-			level = "bad"
-		}
-		p.pushLog(msg, level, now)
-	default:
-		p.pushLog("api "+strconv.Itoa(m.ms)+"ms · idle", "ok", now)
-	}
-	return p.afterBuffers(ctx)
 }
 
 // afterBuffers rebuilds the merged view and raises alerts for anything notable
@@ -752,30 +666,18 @@ func (p *Live) pushLog(msg, level string, now int64) {
 	}
 }
 
-// rebuildMerged dedupes and orders the two planes.
+// rebuildMerged orders the stream.
 //
-// Denials (and some events) are written BOTH to the local file and to the cloud
-// with a hashed session id, so the same call would show twice — and the cloud
-// copy would read CLD even though it happened on this machine. Cloud entries
-// matching a local entry on tool and decision within a minute are dropped; the
-// richer local copy wins and is tagged LOC.
+// It used to MERGE, and the name is what is left of that: two planes, deduped against
+// each other on tool|decision|minute because the same call arrived twice — once tailed
+// off the log and once fetched through the audit API, which reads the same file. The
+// heuristic was load-bearing and approximate, which is the kind of thing that quietly
+// hides a real second call. There is one plane, so there is nothing to reconcile.
+//
+// The sort stays: entries are appended as they are read, and a file that was written by
+// several processes is not strictly ordered by timestamp.
 func (p *Live) rebuildMerged(now int64) {
-	localKeys := map[string]bool{}
-	for _, e := range p.local {
-		m := int64(float64(e.At)/60_000 + 0.5)
-		for _, d := range []int64{-1, 0, 1} {
-			localKeys[e.Tool+"|"+e.Decision+"|"+strconv.FormatInt(m+d, 10)] = true
-		}
-	}
-	merged := make([]streamItem, 0, len(p.cloud)+len(p.local))
-	for _, e := range p.cloud {
-		m := int64(float64(e.At)/60_000 + 0.5)
-		if localKeys[e.Tool+"|"+e.Decision+"|"+strconv.FormatInt(m, 10)] {
-			continue
-		}
-		merged = append(merged, e)
-	}
-	merged = append(merged, p.local...)
+	merged := append(make([]streamItem, 0, len(p.local)), p.local...)
 	sort.SliceStable(merged, func(i, j int) bool { return merged[i].At < merged[j].At })
 	p.merged = merged
 }
@@ -940,21 +842,12 @@ func (p *Live) signalOK(e streamItem) bool {
 	return true
 }
 
-// filtered is the stream after the source, signal and search filters, oldest
-// first.
+// filtered is the stream after the signal and search filters, oldest first.
 func (p *Live) filtered() []streamItem {
 	out := make([]streamItem, 0, len(p.merged))
 	for _, e := range p.merged {
-		switch p.filter {
-		case "local":
-			if !e.isLoc() {
-				continue
-			}
-		case "cloud":
-			if e.isLoc() {
-				continue
-			}
-		}
+		// A source filter stood here — all → local → cloud. Everything is from one
+		// file, so it filtered that file from itself.
 		if !p.matches(e) || !p.signalOK(e) {
 			continue
 		}
@@ -963,8 +856,8 @@ func (p *Live) filtered() []streamItem {
 	return out
 }
 
-// visibleDesc is every buffered entry that passes the filters, newest first, so
-// the row count matches the loc/cld buffer totals in the status bar.
+// visibleDesc is every buffered entry that passes the filters, newest first, so the
+// row count matches the entry total in the status bar.
 func (p *Live) visibleDesc() []streamItem {
 	f := p.filtered()
 	out := make([]streamItem, len(f))
@@ -1057,16 +950,6 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 		p.sel = 0
 	}
 	switch {
-	case str == "f":
-		switch p.filter {
-		case "all":
-			p.filter = "local"
-		case "local":
-			p.filter = "cloud"
-		default:
-			p.filter = "all"
-		}
-		p.sel = 0
 	case k.Type == tea.KeyEnter:
 		if e, ok := p.selected(visible); ok {
 			p.inspect = &e
@@ -1384,8 +1267,11 @@ func (p *Live) View(ctx PanelContext) string {
 func (p *Live) titleBar(ctx PanelContext, width int, now int64, spin string) string {
 	segs := []seg{
 		{text: " SOLONGATE LIVE ", fg: lipgloss.Color("15"), bg: lipgloss.Color(hexTitleBG), bold: true},
+		// `· api <n>ms` stood here, the round trip of the audit fetch. What is worth a
+		// place in the title is what ENFORCEMENT costs, which is measured per call and
+		// recorded in every entry — see the GUARD COST pane.
 		{text: " " + spin + " up " + fmtUp(now-p.start.UnixMilli()) + " · " + hhmmss(now) +
-			" · api " + strconv.Itoa(p.latNow()) + "ms ", fg: theme.White, bg: lipgloss.Color(hexPanelBG)},
+			" · guard " + strconv.Itoa(p.evalNow()) + "ms ", fg: theme.White, bg: lipgloss.Color(hexPanelBG)},
 	}
 	lastDeny := p.lastDeny()
 	switch {
@@ -1404,18 +1290,28 @@ func (p *Live) titleBar(ctx PanelContext, width int, now int64, spin string) str
 	return renderRow(width, segs...)
 }
 
-func (p *Live) latNow() int {
-	if len(p.lat) == 0 {
+// WHAT ENFORCEMENT COSTS, in milliseconds per decision.
+//
+// These were latNow and latMedian over p.lat, which held the round-trip time of the
+// audit fetch — a read of a file on this machine, so the number was a measure of the
+// local disk and was labelled "API LATENCY". It charted nothing anybody could act on.
+//
+// The guard measures its own decision time and writes it into every entry, which is the
+// number a person tuning a policy actually wants: a rule set that costs 40ms per tool
+// call is a different thing to live with than one that costs 4ms. Same charts, same
+// shape, a real subject.
+func (p *Live) evalNow() int {
+	if len(p.eval) == 0 {
 		return 0
 	}
-	return p.lat[len(p.lat)-1]
+	return p.eval[len(p.eval)-1]
 }
 
-func (p *Live) latMedian() int {
-	if len(p.lat) == 0 {
+func (p *Live) evalMedian() int {
+	if len(p.eval) == 0 {
 		return 0
 	}
-	s := append([]int(nil), p.lat...)
+	s := append([]int(nil), p.eval...)
 	sort.Ints(s)
 	return s[len(s)/2]
 }
@@ -1457,7 +1353,6 @@ var liveHelp = []helpGroup{
 		{"w", "whitelist the selected DENY (adds ALLOW rule)"},
 		{"b", "block the selected ALLOW (adds DENY rule)"},
 		{"d / x / r", "filter: denies / dlp hits / rate-limit bursts"},
-		{"f", "source: all → LOC (this machine's local log) → CLD (cloud)"},
 		{"/", "live search (tool, agent, command…) · enter done"},
 		{"s", "session picker"},
 		{"l", "layers detail (rate limit · dlp · guard)"},
@@ -1497,15 +1392,12 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 	maxScroll := maxInt(0, len(content)-bodyRows)
 	off := minInt(p.inspectScroll, maxScroll)
 
-	locLabel, locColor := "CLD", theme.White
-	if e.isLoc() {
-		locLabel, locColor = "LOC", theme.OK
-	}
+	// A LOC/CLD segment sat at the end of this header. Every entry is from this
+	// machine's own log, so the label distinguished nothing.
 	head := []seg{
 		{text: " ENTRY ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
 		sgb("  "+e.Decision, decisionColor(e.Decision)),
 		sgb("  "+e.Tool, theme.Accent),
-		sg("  "+locLabel, locColor),
 	}
 	if e.DLP {
 		head = append(head, sg("  DLP!", theme.Bad))
@@ -1894,18 +1786,21 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			}
 		}
 	}
-	latHotAt := maxFloat(2000, float64(p.latMedian())*2.5)
-	latHot := make([]bool, len(p.lat))
-	for i, v := range p.lat {
-		latHot[i] = float64(v) > latHotAt
+	// Amber above 2.5x the median, with a floor so a quiet machine whose median is 2ms
+	// does not paint every ordinary call hot. The floor was 2000ms for a network round
+	// trip; for a local policy decision 50ms is already slow.
+	evalHotAt := maxFloat(50, float64(p.evalMedian())*2.5)
+	evalHot := make([]bool, len(p.eval))
+	for i, v := range p.eval {
+		evalHot[i] = float64(v) > evalHotAt
 	}
 	left := append([]string{paneTitle("TRAFFIC",
 		"calls/10s · last 10m · live · peak "+strconv.Itoa(peak)+" · red = denials", leftW)},
 		columnChart(traffic, trafficHot, chartH, leftW, theme.Accent, theme.Bad)...)
-	right := append([]string{paneTitle("API LATENCY",
-		"now "+strconv.Itoa(p.latNow())+"ms · med "+strconv.Itoa(p.latMedian())+
-			"ms · amber >"+strconv.Itoa(int(latHotAt+0.5))+"ms", rightW)},
-		columnChart(p.lat, latHot, chartH, rightW, theme.White, lipgloss.Color(hexWarnFG))...)
+	right := append([]string{paneTitle("GUARD COST",
+		"ms per decision · now "+strconv.Itoa(p.evalNow())+" · med "+strconv.Itoa(p.evalMedian())+
+			" · amber >"+strconv.Itoa(int(evalHotAt+0.5)), rightW)},
+		columnChart(p.eval, evalHot, chartH, rightW, theme.White, lipgloss.Color(hexWarnFG))...)
 	lines = append(lines, joinColumns([][]string{left, right}, []int{leftW, rightW}, 1+chartH)...)
 
 	// LAYERS · SESSIONS · EVENT LOG
@@ -1993,9 +1888,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	if strings.TrimSpace(p.search) != "" {
 		extra += " · search"
 	}
-	if p.filter != "all" {
-		extra += " · source:" + p.filter
-	}
 	extra += " · enter full entry · ? all keys"
 	lines = append(lines, paneTitle("TOOL STREAM", extra, width))
 
@@ -2018,22 +1910,15 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			sg(" — no entries yet · hooks write "+p.localSetting.File, theme.Dim)))
 	}
 	if len(visible) == 0 {
-		// With a source filter on, "awaiting traffic" reads as "nothing is
-		// happening" when the stream is merely filtered — say which it is.
-		if p.filter == "all" {
-			body = append(body, renderRow(width, sg(spin+" awaiting traffic…", theme.Dim)))
-		} else {
-			which := "CLD (cloud)"
-			if p.filter == "local" {
-				which = "LOC (local log)"
-			}
-			body = append(body, renderRow(width,
-				sg(spin+" no "+which+" calls in the buffer · f switches source", theme.Dim)))
-		}
+		// A source filter used to make this ambiguous — "awaiting traffic" reads as
+		// "nothing is happening" when the stream is merely filtered — so it said which
+		// source was selected. There is one source. The signal and search filters can
+		// still empty the view, and they are visible in the status bar.
+		body = append(body, renderRow(width, sg(spin+" awaiting traffic…", theme.Dim)))
 	}
 	for i := 0; i < streamBody && scroll+i < len(visible); i++ {
 		e := visible[scroll+i]
-		body = append(body, streamLine(e.row(), e.isLoc(), scroll+i == sel, false, width))
+		body = append(body, streamLine(e.row(), scroll+i == sel, false, width))
 	}
 	for i := 0; i < streamRows; i++ {
 		if i < len(body) {
@@ -2043,16 +1928,10 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		}
 	}
 
-	// The source filter (f) was only discoverable through the ? overlay, so the
-	// stream looked like it merged local and cloud with no way to separate them.
-	// The current source is inline and the key is advertised.
-	source := "all"
-	switch p.filter {
-	case "local":
-		source = "LOC only"
-	case "cloud":
-		source = "CLD only"
-	}
+	// A source indicator stood here, with the `f` key that cycled it, because the
+	// filter was otherwise discoverable only through the ? overlay — the stream looked
+	// like it merged local and cloud with no way to separate them. It merged one file
+	// with itself.
 	localState := "off"
 	if p.localOn != nil && *p.localOn {
 		localState = "on"
@@ -2071,10 +1950,10 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	}
 	return append(lines, renderRow(width,
 		seg{text: " LIVE ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
-		seg{text: " local-log " + localState + " · " + strconv.Itoa(len(p.local)) + " loc/" +
-			strconv.Itoa(len(p.cloud)) + " cld · source " + source + " · top " + top + " ",
+		seg{text: " local-log " + localState + " · " + strconv.Itoa(len(p.local)) +
+			" entries · top " + top + " ",
 			fg: theme.White, bg: lipgloss.Color(hexFooterBG)},
-		seg{text: " ↑↓ select · enter full entry · f source · / search · space copy · ? all keys · esc menu · q quit ",
+		seg{text: " ↑↓ select · enter full entry · / search · space copy · ? all keys · esc menu · q quit ",
 			fg: theme.White, bg: lipgloss.Color(hexPanelBG)}))
 }
 

@@ -1108,7 +1108,7 @@ func (p *Audit) viewLogs(ctx PanelContext) []string {
 	body = append(body, renderRow(width, sg(counts, theme.Dim)))
 
 	for i := start; i < end; i++ {
-		body = append(body, streamLine(rows[i].stream(), p.source == "local",
+		body = append(body, streamLine(rows[i].stream(),
 			i == sel && ctx.Focused, true, width))
 	}
 	if len(rows) == 0 {

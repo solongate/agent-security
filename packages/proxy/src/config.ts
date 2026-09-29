@@ -1,6 +1,5 @@
 import type { PolicySet } from './core/index.js';
-import { readFileSync, existsSync } from 'node:fs';
-import { appendFile } from 'node:fs/promises';
+import { readFileSync, existsSync, mkdirSync, appendFileSync, chmodSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -80,74 +79,6 @@ export const DEFAULT_API_URL = 'http://127.0.0.1:3002';
  * Fetch policy from SolonGate Cloud API.
  * TODO: extract cloud policy parsing to shared module with packages/sdk-ts/src/solongate.ts
  */
-export async function fetchCloudPolicy(apiKey: string, apiUrl: string, policyId?: string): Promise<PolicySet> {
-  // If no policyId given, list all policies and pick the first one
-  let resolvedId = policyId;
-  if (!resolvedId) {
-    const listRes = await fetch(`${apiUrl}/api/v1/policies`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!listRes.ok) {
-      const body = await listRes.text().catch(() => '');
-      throw new Error(`Failed to list policies from cloud (${listRes.status}): ${body}`);
-    }
-    const listData = await listRes.json() as { policies?: { id: string }[] };
-    const policies = listData.policies ?? [];
-    if (policies.length === 0) {
-      throw new Error('No policies found in cloud. Create one in the dashboard first.');
-    }
-    resolvedId = policies[0]!.id;
-  }
-
-  const url = `${apiUrl}/api/v1/policies/${resolvedId}`;
-  const res = await fetch(url, {
-    headers: { 'Authorization': `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Failed to fetch policy from cloud (${res.status}): ${body}`);
-  }
-  const data = await res.json() as Record<string, unknown>;
-  return {
-    id: String(data.id ?? 'cloud'),
-    name: String(data.name ?? 'Cloud Policy'),
-    description: String(data.description ?? ''),
-    version: Number(data._version ?? 1),
-    rules: (data.rules as PolicySet['rules']) ?? [],
-    createdAt: String(data._created_at ?? ''),
-    updatedAt: '',
-  };
-}
-
-/**
- * Fetch a policy's compiled OPA WASM bundle from the cloud. The cloud API
- * compiles every policy version to WASM on save; the proxy evaluates with it
- * (OPA is the sole evaluator — same engine as the airgap product).
- * Returns the WASM bundle bytes, or null if none is available yet.
- */
-export async function fetchCloudPolicyWasm(apiKey: string, apiUrl: string, policyId: string): Promise<Uint8Array | null> {
-  try {
-    const res = await fetch(`${apiUrl}/api/v1/policies/${policyId}/wasm`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
-    return new Uint8Array(await res.arrayBuffer());
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Send audit log entry to SolonGate Cloud API.
- * Retries up to 3 times with exponential backoff.
- * Falls back to local file backup if all retries fail.
- */
-const AUDIT_MAX_RETRIES = 3;
-const AUDIT_LOG_BACKUP_PATH = resolve('.solongate-audit-backup.jsonl');
-
 export interface AuditLogEntry {
   tool: string;
   arguments: Record<string, unknown>;
@@ -164,67 +95,39 @@ export interface AuditLogEntry {
   sub_agent_name?: string;
 }
 
-export async function sendAuditLog(
-  apiKey: string,
-  apiUrl: string,
-  entry: AuditLogEntry,
-): Promise<void> {
-  const url = `${apiUrl}/api/v1/audit-logs`;
-  const body = JSON.stringify({
-    ...entry,
-    agent_id: entry.agent_id,
-    agent_name: entry.agent_name,
-  });
-
-  for (let attempt = 0; attempt < AUDIT_MAX_RETRIES; attempt++) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body,
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (res.ok) return; // success
-      if (res.status >= 400 && res.status < 500) {
-        // Client error — don't retry, just log
-        const resBody = await res.text().catch(() => '');
-        process.stderr.write(`[SolonGate] Audit log rejected (${res.status}): ${resBody}\n`);
-        return;
-      }
-      // Server error — retry
-    } catch {
-      // Network error — retry
-    }
-
-    // Exponential backoff: 500ms, 1500ms, 3500ms
-    if (attempt < AUDIT_MAX_RETRIES - 1) {
-      await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
-    }
-  }
-
-  // All retries failed — save to local backup file
-  process.stderr.write(`[SolonGate] Audit log failed after ${AUDIT_MAX_RETRIES} retries, saving to local backup.\n`);
+/**
+ * Append one decision to THIS MACHINE's audit trail.
+ *
+ * The same file the guard and the hooks append to, so a machine has one log rather
+ * than two. This used to POST the entry, retry a 5xx, and refuse to retry a 4xx
+ * because "a 4xx is an answer" — all of which was true of a service, and there is
+ * none. Two other calls went with it: the policy fetched from /policies, and the
+ * compiled OPA WASM bundle whose absence used to mean the proxy denied everything.
+ *
+ * Owner-only, because the line records the tool, its arguments and the reason: a log
+ * of what somebody was working on.
+ */
+export function writeAuditEntry(entry: AuditLogEntry): void {
   try {
-    const line = JSON.stringify({ ...entry, timestamp: new Date().toISOString() }) + '\n';
-    appendFile(AUDIT_LOG_BACKUP_PATH, line, 'utf-8').catch((err) => {
-      process.stderr.write(`[SolonGate] Audit backup write error: ${err instanceof Error ? err.message : String(err)}\n`);
-    });
-  } catch (err) {
-    process.stderr.write(`[SolonGate] Audit backup write error: ${err instanceof Error ? err.message : String(err)}\n`);
+    const dir = resolve(homedir(), '.solongate', 'local-logs');
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = join(dir, 'solongate-audit.jsonl');
+    appendFileSync(file, JSON.stringify({ ...entry, ts: new Date().toISOString() }) + '\n', { mode: 0o600 });
+    // The mode on append applies only when it CREATES the file, so a log an older
+    // version wrote 0644 would keep it. The hooks narrow it the same way.
+    try { chmodSync(file, 0o600); } catch { /* ignore */ }
+  } catch (e) {
+    process.stderr.write(`[SolonGate] could not record a decision: ${e instanceof Error ? e.message : String(e)}\n`);
   }
 }
 
-/**
- * Default policy — allows everything until cloud policy is fetched.
- * Users add DENY rules from the dashboard to restrict specific tools.
- */
+// What loadPolicy answers when there is no file to read: allow everything, and let
+// DENY rules be what restricts it. A default-DENY here would mean a machine with no
+// policy yet has a dead agent.
 const DEFAULT_POLICY: PolicySet = {
   id: 'default',
   name: 'Default (Allow All)',
-  description: 'Allows all tools by default. Add DENY rules from the dashboard to restrict.',
+  description: 'Allows all tools by default. Add DENY rules to restrict.',
   version: 1,
   rules: [
     {
@@ -245,9 +148,10 @@ const DEFAULT_POLICY: PolicySet = {
 
 /**
  * Ensures a policy has a catch-all ALLOW rule at the end.
- * Without this, any tool call not matching a DENY rule falls through
- * to default-deny, blocking everything — even safe operations.
- * The catch-all ALLOW at priority 9999 lets non-denied calls through.
+ *
+ * Without it, any tool call not matching a DENY rule falls through to
+ * default-deny, blocking everything — even safe operations. The catch-all ALLOW at
+ * priority 9999 lets non-denied calls through.
  */
 function ensureCatchAllAllow(policy: PolicySet): PolicySet {
   const hasCatchAllAllow = policy.rules.some(

@@ -2,13 +2,19 @@ package api
 
 import "context"
 
-// AuthAPI is the one namespace here that still speaks to a service, and it has
-// one caller: the MCP proxy checking a configured key before it forwards
-// anything (internal/proxy/cloud.go). Everything else in this package reads and
-// writes this machine.
+// AuthAPI answered "who does this key belong to".
+//
+// It was the last namespace here that spoke to a service, and its one caller was the
+// MCP proxy checking a configured key before it forwarded anything — a licence check
+// against /auth/me, refusing to start on a 401 or a 403. What it licensed is deleted.
+//
+// It stays as a stub rather than being removed because the dataroom's own account
+// header was the other consumer, and something a person could reasonably re-add — a
+// machine identity that is not a service's — would land here. Answering nothing is
+// the honest version of that until then.
 type AuthAPI struct{ c *Client }
 
-// Me is who the key in use belongs to: the project it selects and the owner.
+// Me is who the machine belongs to, which nothing on it knows.
 type Me struct {
 	User *struct {
 		Email string `json:"email"`
@@ -22,6 +28,6 @@ type Me struct {
 }
 
 func (a AuthAPI) Me(ctx context.Context) (Me, error) {
-	var out Me
-	return out, a.c.get(ctx, "/auth/me", nil, &out)
+	_ = ctx
+	return Me{}, nil
 }

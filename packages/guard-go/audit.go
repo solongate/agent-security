@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -34,18 +32,11 @@ func resolveLocalLogDir(raw string) string {
 	return dir
 }
 
-func accountMark(apiKey string) string {
-	if apiKey == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(apiKey))
-	return hex.EncodeToString(sum[:])[:16]
-}
+// accountMark hashed the key into the 16 characters stamped on each line as `acct`,
+// so a machine paired to two accounts could tell whose calls were whose. Nothing
+// pairs, and nothing ever read the stamp — see config.go.
 
-func writeLocalLog(sec *sgshared.Security, cred sgshared.Credential, entry map[string]interface{}) {
-	if mark := accountMark(cred.APIKey); mark != "" {
-		entry["acct"] = mark
-	}
+func writeLocalLog(sec *sgshared.Security, entry map[string]interface{}) {
 	dir := ""
 	if sec != nil && sec.LocalLogs != nil {
 		dir = resolveLocalLogDir(sec.LocalLogs.Path)

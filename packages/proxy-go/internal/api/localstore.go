@@ -121,16 +121,26 @@ func readStore() (stored, error) {
 
 	out := stored{SelfProtect: probe.Self}
 	body := b
-	if len(probe.Policy) > 0 && string(probe.Policy) != "null" {
+	// The PRESENCE of a `policy` key makes it the envelope, even when its value is
+	// null: an absent key decodes to a nil RawMessage and a null one to the four
+	// bytes "null". A file carrying layers and NO RULES is a real configuration —
+	// DLP on, nothing forbidden — and treating it as a bare policy read the whole
+	// envelope AS the policy, which gave a nameless empty one instead of none.
+	//
+	// The guard's own loader draws the same line (guard-go/config.go). Two readers of
+	// one file disagreeing about it is the shape of bug this repository keeps finding.
+	if len(probe.Policy) > 0 {
 		out.envelope = true
 		body = probe.Policy
 	}
 
-	var ps PolicySet
-	if err := json.Unmarshal(body, &ps); err != nil {
-		return stored{}, fmt.Errorf("%s does not hold a policy: %w", PolicyPath(), err)
+	if string(body) != "null" {
+		var ps PolicySet
+		if err := json.Unmarshal(body, &ps); err != nil {
+			return stored{}, fmt.Errorf("%s does not hold a policy: %w", PolicyPath(), err)
+		}
+		out.Policy = &ps
 	}
-	out.Policy = &ps
 
 	// The envelope's block wins; a block INSIDE the policy document is how a
 	// service stores one, so it is the shape a policy exported from one arrives

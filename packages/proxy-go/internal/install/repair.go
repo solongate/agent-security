@@ -57,7 +57,9 @@ func Repair() Report {
 
 	before := []ReportLine{
 		reportLine("guard hook file", Exists(p.GuardPath()), "present", "MISSING"),
-		reportLine("cloud credential", Exists(p.ConfigPath), "present", "MISSING"),
+		// There was a `cloud credential` row here. It reported MISSING on every
+		// machine — nothing writes one — which is a red line on a healthy install,
+		// and a report with a permanent red line in it stops being read.
 		runtime(),
 		reportLine("Claude hooks", ClaudeGuardInstalled(), "guard registered", "guard NOT registered"),
 		reportLine("Antigravity hooks", Exists(p.AntigravityHooksPath), "guard registered", "guard NOT registered"),

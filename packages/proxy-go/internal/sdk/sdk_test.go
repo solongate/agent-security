@@ -312,9 +312,22 @@ func TestSignedRequestRejectsAStaleTimestamp(t *testing.T) {
 
 // ── configuration ──────────────────────────────────────────────────────────
 
-func TestNewRejectsAKeyOfTheWrongShape(t *testing.T) {
-	for _, key := range []string{"", "nope", "SG_LIVE_x"} {
-		if _, err := New(Options{Name: "t", APIKey: key}); err == nil {
+// NO KEY IS FINE; a MALFORMED one is not.
+//
+// The empty string used to be rejected here too, and that was a licence check: "A
+// valid SolonGate API key is required". What it licensed is deleted, and the MCP
+// proxy builds its gate through New — so that refusal was the last thing between a
+// machine with no service and a working proxy.
+//
+// A malformed key still fails at startup, where somebody is watching. Nobody types
+// one of these, so a wrong one is a configuration mistake worth stopping for rather
+// than quietly ignoring.
+func TestNewTakesNoKeyButRefusesABadOne(t *testing.T) {
+	if _, err := New(Options{Name: "t", APIKey: "", PolicyEvaluator: &allowAll{}}); err != nil {
+		t.Errorf("no key was refused: %v", err)
+	}
+	for _, key := range []string{"nope", "SG_LIVE_x", "sglive_x"} {
+		if _, err := New(Options{Name: "t", APIKey: key, PolicyEvaluator: &allowAll{}}); err == nil {
 			t.Errorf("key %q was accepted", key)
 		}
 	}

@@ -27,7 +27,7 @@ import { resolve, join, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { BEAT_DIR, LAUNCHER_NAME, launcherScript } from './hook-launcher.js';
 // Re-exported so the conformance suite can reach them: tsup bundles
 // hook-launcher.ts into this entry rather than emitting it separately, so
@@ -110,7 +110,6 @@ function protectedTargets(): string[] {
     // point every hook at /bin/true and disarm the guard without touching a
     // single file that used to be locked.
     join(p.hooksDir, LAUNCHER_NAME),
-    p.configPath,
     p.settingsPath,
     p.antigravityHooksPath,
     p.codexHooksPath,
@@ -208,6 +207,12 @@ export function globalPaths() {
     home, sgDir, hooksDir, binDir, claudeDir, antigravityDir, codexDir, opencodeDir,
     settingsPath: join(claudeDir, 'settings.json'),
     backupPath: join(claudeDir, 'settings.solongate.bak'),
+    // Read by the hooks, written by NOBODY. It held { apiKey, apiUrl }: the
+    // credential install used to put here for the guard to enforce with. Install
+    // writes no credential now, so on a fresh machine this file does not exist,
+    // and everything works — which is the test that the credential was not doing
+    // anything. Kept in the paths because `doctor` still reports whether it is
+    // there, for a machine upgraded from a build that had one.
     configPath: join(sgDir, 'cloud-guard.json'),
     // Antigravity reads global hooks from ~/.gemini/config/hooks.json. Only the
     // guard is registered there (PreToolUse); Antigravity's ALLOW-path audit is
@@ -248,25 +253,6 @@ export function clearGuardUpdateCheck(): boolean {
 
 function readHook(filename: string): string {
   return readFileSync(join(HOOKS_DIR, filename), 'utf-8');
-}
-
-// The device's logged-in accounts live in ~/.solongate/accounts.json (written by
-// the dataroom's device login). cloud-guard.json holds only the ACTIVE key the
-// guard hooks read — and a fresh device login populates accounts.json but sets
-// only the runtime VIEW credential, NOT the active-key file. So cloud-guard.json
-// can be empty while the user is fully logged in. When that happens we fall back
-// to the first saved account here; the install then persists this key to
-// cloud-guard.json, activating it. Without this a logged-in user got a spurious
-// "no login on this device" and could never install the guard.
-function firstAccountCredential(): { apiKey?: string; apiUrl?: string } {
-  try {
-    const raw = JSON.parse(readFileSync(join(homedir(), '.solongate', 'accounts.json'), 'utf-8'));
-    if (Array.isArray(raw)) {
-      const acc = raw.find((a) => a && typeof a.apiKey === 'string' && a.apiKey);
-      if (acc) return { apiKey: acc.apiKey as string, apiUrl: typeof acc.apiUrl === 'string' ? acc.apiUrl : undefined };
-    }
-  } catch { /* no accounts file */ }
-  return {};
 }
 
 // Prefer the pre-bundled guard (opa-wasm inlined) so the lone installed file
@@ -599,35 +585,6 @@ function removeOpencodeGuard(p: ReturnType<typeof globalPaths>): void {
   } catch { /* already gone */ }
 }
 
-/**
- * Fetch each client's policy into its cache, now, at install time.
- *
- * The guard serves policy stale-while-revalidate: a cold cache has nothing to
- * serve, so it allows and refreshes in the background for the NEXT call. The
- * cache is keyed per agent, which means a newly registered client's FIRST tool
- * call runs with no policy at all. Measured on a fresh `opencode` id: the first
- * call to a command the active policy denies was allowed, and the identical
- * call was blocked once the cache existed.
- *
- * The guard already knows how to do this (`--sg-refresh-policy`), so warming is
- * just running it once per client rather than a second copy of the fetch here.
- * Detached and best-effort: an offline install still succeeds, it simply leaves
- * the first call in the old state.
- */
-function warmPolicyCache(hooksDir: string, agents: string[]): void {
-  for (const agent of agents) {
-    try {
-      const child = spawn(process.execPath, [join(hooksDir, 'guard.mjs'), agent, '--sg-refresh-policy'], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      child.on('error', () => {});
-      child.unref();
-    } catch { /* best-effort */ }
-  }
-}
-
 export function isOpencodeGuardInstalled(): boolean {
   try {
     return readFileSync(globalPaths().opencodePluginPath, 'utf-8').includes('tool.execute.before');
@@ -775,7 +732,6 @@ export function repairQuiet(): RepairReport {
 
   const before: RepairLine[] = [
     line('guard hook file', has(guardFile), 'present', 'MISSING'),
-    line('cloud credential', has(p.configPath), 'present', 'MISSING'),
     runtime(),
     line('Claude hooks', isGuardInstalled(), 'guard registered', 'guard NOT registered'),
     line('Antigravity hooks', has(p.antigravityHooksPath), 'guard registered', 'guard NOT registered'),
@@ -861,20 +817,17 @@ export async function runRepair(): Promise<number> {
 export function installGlobalQuiet(): { ok: boolean; message: string } {
   try {
     const p = globalPaths();
-    let apiKey = process.env['SOLONGATE_API_KEY'] || '';
-    let apiUrl = process.env['SOLONGATE_API_URL'] || 'http://127.0.0.1:3002';
-    try {
-      const cfg = JSON.parse(readFileSync(p.configPath, 'utf-8')) as { apiKey?: string; apiUrl?: string };
-      if (cfg && typeof cfg.apiKey === 'string') apiKey = apiKey || cfg.apiKey;
-      if (cfg && typeof cfg.apiUrl === 'string') apiUrl = cfg.apiUrl;
-    } catch { /* no stored credential */ }
-    // cloud-guard.json empty but an account is logged in? Activate that account.
-    if (!apiKey) {
-      const acc = firstAccountCredential();
-      if (acc.apiKey) { apiKey = acc.apiKey; if (acc.apiUrl) apiUrl = acc.apiUrl; }
-    }
-    if (!apiKey) return { ok: false, message: 'no login on this device — add an account first (Accounts → + add)' };
-
+    // NOTHING IS RESOLVED BEFORE INSTALLING, and this is the fix for a hard
+    // blocker rather than a tidy-up. This function began by looking for a
+    // credential in three places and returning
+    //
+    //   { ok: false, message: 'no login on this device — add an account first' }
+    //
+    // when it found none. On this build it finds none on every machine: there is
+    // nothing that writes one, and the Accounts panel it sent people to is
+    // deleted. So `solongate repair` — which is this function — COULD NOT INSTALL
+    // THE GUARD AT ALL. It reported a missing login and stopped, on a product
+    // whose whole configuration is a file.
     mkdirSync(p.hooksDir, { recursive: true });
     mkdirSync(p.claudeDir, { recursive: true });
     unlockProtected(); // clear any prior OS lock so this (re)install can overwrite
@@ -886,10 +839,7 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     writeFileSync(join(p.hooksDir, 'stop.mjs'), readHook('stop.mjs'));
     writeFileSync(join(p.hooksDir, 'shield.mjs'), readHook('shield.mjs'));
     writeFileSync(join(p.hooksDir, 'tokens.mjs'), readHook('tokens.mjs'));
-  writeLauncher(p.hooksDir);
     writeLauncher(p.hooksDir);
-    writeFileSync(p.configPath, JSON.stringify({ apiKey, apiUrl }, null, 2) + '\n', { mode: OWNER_ONLY });
-    narrowToOwner(p.configPath);
 
     let existing: Record<string, unknown> = {};
     if (existsSync(p.settingsPath)) {
@@ -918,14 +868,12 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     try { installAntigravityGuard(p, join(p.hooksDir, 'guard.mjs').replace(/\\/g, '/')); } catch { /* best-effort */ }
     try { installCodexGuard(p, p.hooksDir); } catch { /* best-effort */ }
     try { installOpencodeGuard(p); } catch { /* best-effort */ }
-    // Every client that was just registered gets its policy pulled down now, so
-    // its first tool call is judged rather than waved through.
-    warmPolicyCache(p.hooksDir, ['claude-code', 'codex', 'antigravity', 'opencode']);
-    // NOTE: do NOT clear the policy cache here. The guard already re-fetches it
-    // every 10s (POLICY_TTL_MS), and even a stale cache keeps `securityCfg` set —
-    // whereas DELETING it forces a cold start where the first tool call has NO
-    // cached security config yet (the refresh is a detached background spawn), so
-    // DLP-block / rate-limit silently don't apply on that one call.
+    // There was a cache to warm here: four detached `guard.mjs --sg-refresh-policy`
+    // spawns, so the first tool call after an install was judged against a policy
+    // that had already been fetched instead of waving it through while the fetch
+    // ran. There is no fetch and no cache — the guard reads the file, and a file is
+    // warm. Leaving the spawns in place would start four processes per install to
+    // accomplish nothing.
     // Part of self-protection: OS-level lock so a program can't silently rewrite
     // or delete the guard/settings/hook files to disarm the guard. Applied on
     // every install across all three OSes without sudo/admin (dev opt-out:
@@ -1126,140 +1074,12 @@ export function installClaudeShim(shieldPath: string): void {
 export function removeClaudeShim(): void {
   for (const file of shimTargets()) { try { writeShimBlock(file, null); } catch { /* best-effort */ } }
 }
-
-// Installs the global hook. `apiKey` may be omitted, in which case the stored
-// credential is used. `apiUrl` defaults to the loopback API (or SOLONGATE_API_URL).
-export async function runGlobalInstall(opts: { apiKey?: string; apiUrl?: string } = {}): Promise<void> {
-  const p = globalPaths();
-
-  let apiKey = opts.apiKey || process.env['SOLONGATE_API_KEY'] || '';
-  // Already logged in? Reuse the stored credential so re-running `init --global`
-  // (e.g. to pick up updated hooks) needs no re-login.
-  if (!apiKey || apiKey === 'sg_live_your_key_here') {
-    try {
-      const cfg = JSON.parse(readFileSync(p.configPath, 'utf-8'));
-      if (cfg && typeof cfg.apiKey === 'string') apiKey = cfg.apiKey;
-    } catch { /* no stored credential */ }
-  }
-  // Still nothing but an account is logged in (dataroom device login populates
-  // accounts.json, not cloud-guard.json)? Reuse it instead of prompting.
-  if (!apiKey || apiKey === 'sg_live_your_key_here') {
-    const acc = firstAccountCredential();
-    if (acc.apiKey) apiKey = acc.apiKey;
-  }
-  // NOBODY TYPES A CREDENTIAL. It used to prompt for one here, which asked the
-  // person to find and paste a string they have no reason to have ever seen: the
-  // credential is written by pairing, and every source above is a place pairing
-  // already put it. With none of them holding one, the machine is simply not
-  // paired, and saying so is the only useful thing to say.
-  if (!apiKey || apiKey === 'sg_live_your_key_here') {
-    console.log('');
-    console.log('  This machine is not paired yet. Run `solongate` and add your');
-    console.log('  account from the Accounts panel, then run this again.');
-    console.log('');
-    process.exit(1);
-  }
-  if (!apiKey.startsWith('sg_live_') && !apiKey.startsWith('sg_test_')) {
-    console.log('  The stored credential is not valid. Pair this machine again with `solongate`.');
-    process.exit(1);
-  }
-  const apiUrl = opts.apiUrl || process.env['SOLONGATE_API_URL'] || 'http://127.0.0.1:3002';
-
-  mkdirSync(p.hooksDir, { recursive: true });
-  mkdirSync(p.claudeDir, { recursive: true });
-
-  // Clear any prior OS lock so this (re)install can overwrite the files.
-  unlockProtected();
-
-  writeFileSync(join(p.hooksDir, 'guard.mjs'), readGuard());
-  writeFileSync(join(p.hooksDir, 'audit.mjs'), readHook('audit.mjs'));
-  writeFileSync(join(p.hooksDir, 'stop.mjs'), readHook('stop.mjs'));
-  writeFileSync(join(p.hooksDir, 'shield.mjs'), readHook('shield.mjs'));
-  writeFileSync(join(p.hooksDir, 'tokens.mjs'), readHook('tokens.mjs'));
-  console.log(`  Installed hooks → ${p.hooksDir}`);
-
-  // Auto-shield: wrap every terminal `claude` via a shell-profile shim so the
-  // LLM-path redaction runs with NO extra command. The shield masks secrets in the
-  // request body — INCLUDING your typed prompt and any file/tool text in context —
-  // before it reaches the model, which the PreToolUse/PostToolUse hooks alone can't
-  // do (hooks only see tool calls, never the prompt). Hooks still cover tool I/O;
-  // the shim adds the prompt/request surface on top.
-  installClaudeShim(join(p.hooksDir, 'shield.mjs'));
-
-  writeFileSync(p.configPath, JSON.stringify({ apiKey, apiUrl }, null, 2) + '\n', { mode: OWNER_ONLY });
-    narrowToOwner(p.configPath);
-  console.log(`  Wrote ${p.configPath}`);
-
-  let existing: Record<string, unknown> = {};
-  if (existsSync(p.settingsPath)) {
-    const raw = readFileSync(p.settingsPath, 'utf-8');
-    if (!existsSync(p.backupPath)) {
-      writeFileSync(p.backupPath, raw);
-      console.log(`  Backed up existing settings → ${p.backupPath}`);
-    }
-    try { existing = JSON.parse(raw); } catch { existing = {}; }
-  }
-
-  const guardAbs = join(p.hooksDir, 'guard.mjs').replace(/\\/g, '/');
-  const hookCmd = (script: string) => hookCommandFor(p.hooksDir, script);
-  const merged = {
-    ...existing,
-    hooks: {
-      PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: hookCmd('guard.mjs') }] }],
-      PostToolUse: [{ matcher: '', hooks: [{ type: 'command', command: hookCmd('audit.mjs') }] }],
-      Stop: [
-        { matcher: '', hooks: [{ type: 'command', command: hookCmd('stop.mjs') }] },
-        { matcher: '', hooks: [{ type: 'command', command: hookCmd('tokens.mjs') }] },
-      ],
-    },
-  };
-  writeFileSync(p.settingsPath, JSON.stringify(merged, null, 2) + '\n');
-  console.log(`  Registered global hooks → ${p.settingsPath}`);
-
-  // Register the same guard for Antigravity CLI (PreToolUse event). Best-effort:
-  // an Antigravity-side failure must never abort the Claude install.
-  try {
-    installAntigravityGuard(p, guardAbs);
-    console.log(`  Registered Antigravity CLI guard → ${p.antigravityHooksPath}`);
-  } catch { /* best-effort */ }
-
-  // Codex CLI: same guard on PreToolUse, plus the audit/stop hooks (Codex runs
-  // PostToolUse and Stop, which Antigravity does not). Best-effort as above.
-  try {
-    installCodexGuard(p, p.hooksDir);
-    console.log(`  Registered Codex CLI hooks → ${p.codexHooksPath}`);
-    const cx = codexHooksStatus();
-    if (!cx.trusted) {
-      console.log('  Codex: run `/hooks` inside Codex once and trust the SolonGate hooks');
-      console.log('         (Codex skips any hook it has not been told to trust). Asked once —');
-      console.log('         later guard updates keep the same registration, so trust sticks.');
-    }
-    if (cx.disabled) {
-      console.log('  Codex: hooks are disabled in ~/.codex/config.toml ([features] hooks = false)');
-      console.log('         — remove that line or the guard cannot run in Codex.');
-    }
-  } catch { /* best-effort */ }
-
-  // OpenCode: a plugin module rather than a hook registration. Dropping the file
-  // in the scanned folder IS the install; nothing else to configure.
-  try {
-    installOpencodeGuard(p);
-    console.log(`  Installed OpenCode plugin → ${p.opencodePluginPath}`);
-    console.log('  OpenCode: `opencode --pure` runs without external plugins and');
-    console.log('            therefore without the guard. That is its own escape hatch.');
-  } catch { /* best-effort */ }
-
-  // Part of self-protection: OS-level lock (all three OSes, no sudo/admin) so a
-  // program can't silently rewrite or delete these files to disarm the guard.
-  // Dev opt-out: SOLONGATE_NO_OS_LOCK=1.
-  if (process.env['SOLONGATE_NO_OS_LOCK'] !== '1') {
-    lockProtected();
-    console.log('  Locked protection files (OS-level read-only/immutable).');
-  }
-}
-
-// Convenience for the pairing flow: write config + install in one go, given a
-// credential already obtained by device pairing.
-export async function installGlobalWithKey(apiKey: string, apiUrl?: string): Promise<void> {
-  await runGlobalInstall({ apiKey, apiUrl });
-}
+// `runGlobalInstall` and `installGlobalWithKey` lived here: the interactive
+// install, and the one-call version the pairing flow used once it had a key.
+//
+// Nothing called either. `init --global` is the Go install now
+// (proxy-go/internal/install), the pairing flow is gone with the service, and what
+// remains on this side is installGlobalQuiet, which `repair` uses. They are deleted
+// rather than left as dead exports because the first thing runGlobalInstall did was
+// `process.exit(1)` on a machine with no credential — the exact failure this build
+// has to stop having.

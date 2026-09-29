@@ -37,38 +37,18 @@ function projectFlagDir() {
 }
 
 
-// Bump on every audit hook change. The cloud serves the newest version; the guard
-// hook installs it on its next run (no re-login needed). See guard.mjs
-// fetchAndInstallHook / maybeSelfUpdate.
+// Bump on every audit hook change. Nothing serves it — the version is how the
+// installed copy on a machine can be compared with the one in a checkout.
 // 29 collapses a run of `*` in a custom DLP glob before compiling it. That is a
 // HANG fix, so an installed hook must pick it up: see dlpGlobToRe.
 const HOOK_VERSION = 32;
 
-function loadEnvKey(dir) {
-  try {
-    const envPath = resolve(dir, '.env');
-    if (!existsSync(envPath)) return {};
-    const lines = readFileSync(envPath, 'utf-8').split('\n');
-    const env = {};
-    for (const line of lines) {
-      const m = line.match(/^([A-Z_]+)=(.*)$/);
-      if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
-    }
-    return env;
-  } catch { return {}; }
-}
-
-// Global cloud config written by `init --global` (~/.solongate/cloud-guard.json).
-// A system-wide PostToolUse hook runs from any cwd, so a project .env can't be
-// relied on for the key — read the absolute global config too.
-function loadGlobalCloudConfig() {
-  try {
-    const p = resolve(homedir(), '.solongate', 'cloud-guard.json');
-    if (!existsSync(p)) return {};
-    const cfg = JSON.parse(readFileSync(p, 'utf-8'));
-    return (cfg && typeof cfg === 'object') ? cfg : {};
-  } catch { return {}; }
-}
+// loadEnvKey and loadGlobalCloudConfig lived here, and between them they resolved an
+// API key from a project .env and from ~/.solongate/cloud-guard.json. Both are gone: the
+// key authenticated an audit POST, that POST is gone, and a hook that runs after every
+// tool call should not stat and read two files to learn something it will not use.
+//
+// The guard hook dropped the identical pair (hooks/guard.mjs), and so did the Go twin.
 
 // The guard (PreToolUse) measures the policy-eval time and drops it in a flag
 // file; this hook logs the ALLOW path but can't time the guard itself, so it
@@ -117,11 +97,12 @@ function readLastEvalMs(toolName, sessionId) {
 
 // ── DLP output redaction (PostToolUse) ──
 // Masks secret VALUES inside the tool OUTPUT the model sees (file reads, stdout,
-// fetched pages). Active whenever DLP is on (detect OR block) — the server
-// delivers the enabled pattern set as `security.dlpRedact` in the policy cache.
-// Patterns mirror guard.mjs / apps/api/src/lib/security-layers.ts (global flag
-// so every occurrence is replaced). Scanning RAW output text (not JSON) means
-// the quote handling is exact — no escaping artifacts.
+// fetched pages). Active whenever DLP is on (detect OR block); the enabled pattern
+// set is `security.dlpRedact` in this machine's policy file. Patterns mirror
+// guard.mjs, shield.mjs and guard-go/dlpredact.go — four lists held name-for-name by
+// test/dlp-parity.mjs, with the global flag on every one so EVERY occurrence is
+// replaced rather than the first. Scanning RAW output text (not JSON) means the quote
+// handling is exact — no escaping artifacts.
 const DLP_PATTERNS = [
   { name: 'AWS access key', re: /AKIA[0-9A-Z]{16}/g },
   { name: 'Private key block', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
@@ -212,13 +193,12 @@ const SG_FILE_MODE = 0o600;
 
 // ── Where the security block comes from ──────────────────────────────────────
 //
-// The policy cache when a service filled it, and THIS MACHINE'S OWN FILE when
-// nothing did. That second half is what a machine with no service has, and
-// without it this hook read an empty cache and concluded there was no DLP
-// configuration at all — which is not a small miss. On a client that can rewrite
-// a tool's result (Claude Code, Codex) the GUARD deliberately leaves read-DLP to
-// this hook and allows the call; no configuration here meant no masking
-// anywhere, and nothing said so.
+// THIS MACHINE'S OWN FILE, and nothing else. It used to be a cache a service filled,
+// with the file as a second look — and without that second look this hook read an
+// empty cache and concluded there was no DLP configuration at all, which is not a
+// small miss: on a client that can rewrite a tool's result (Claude Code, Codex) the
+// GUARD deliberately leaves read-DLP to this hook and allows the call, so no
+// configuration here meant no masking anywhere, and nothing said so.
 //
 // The file is read in the two spellings the guard accepts: the envelope a
 // service answers with, and a policy document carrying `security` inside it.
@@ -234,18 +214,19 @@ function localSecurity() {
   } catch { return null; }
 }
 
+// THE FILE IS THE ONLY ANSWER, and a stale cache may not override it.
+//
+// This used to read the per-agent policy cache first, and a cache carrying the
+// `security` key AT ALL won — `null` included, because a service answering null meant
+// "this project has no layers configured" and that outranked a local file. Nothing
+// writes that cache now, which made what remained a hazard rather than dead weight:
+// a cache left behind by an older install still outranked the file, so a machine that
+// upgraded could have the DLP its policy configures SWITCHED OFF by a stale reply —
+// silently, since the file would look correct to whoever wrote it.
+//
+// The guard stopped consulting it for the same reason. Two readers of one machine's
+// configuration have to agree about where that configuration is.
 function loadSecurity() {
-  try {
-    const sel = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const f = resolve(homedir(), '.solongate', '.policy-cache-' + sel + '.json');
-    if (existsSync(f)) {
-      const c = JSON.parse(readFileSync(f, 'utf-8'));
-      // A cache carrying the key AT ALL has an answer, `null` included — that is
-      // a service saying "this project has none", and it outranks the file. Same
-      // precedence the guard applies.
-      if (c && 'security' in c) return c.security || null;
-    }
-  } catch { /* unreadable cache: the file is the next answer, not "none" */ }
   return localSecurity();
 }
 
@@ -336,11 +317,9 @@ function rateLimitObserveBurst(agentKey, limits) {
   } catch { return false; }
 }
 
-// Local log storage: the user can opt to keep a full copy of every audit entry
-// in a file of their choosing (set from the dashboard survey / Settings, then
-// delivered to us via the same policy cache the guard writes). We append one
-// JSON object per line (JSONL) to that path. Fully local, best-effort, and
-// never blocks the tool call or the cloud audit POST.
+// Local log storage: a full copy of every audit entry, in a folder of the user's
+// choosing — `security.localLogs.path` in the policy file. One JSON object per line
+// (JSONL). Best-effort, and it never blocks the tool call.
 function loadLocalLogs() {
   // WHERE, never WHETHER. This used to answer null for "send it to the service
   // instead", and there is no service: a null here now would lose the entry.
@@ -366,8 +345,8 @@ function resolveLocalLogDir(rawPath) {
   if (isAbsolute(dir)) return dir;
   const fallback = resolve(homedir(), '.solongate', 'local-logs');
   try {
-    // Owner-only: this directory holds the credential and the policy cache, and
-    // every program that creates it has to agree on the mode — mkdirSync applies
+    // Owner-only: this directory holds the policy and the audit trail, and every
+    // program that creates it has to agree on the mode — mkdirSync applies
     // one only when it CREATES, so the first one to run decides for all of them.
     // Same number as SG_DIR_MODE in the guard and sgshared.DirMode in Go.
     mkdirSync(resolve(homedir(), '.solongate'), { recursive: true, mode: 0o700 });
@@ -504,29 +483,15 @@ function guessPermission(toolName) {
   return 'READ';
 }
 
-const dotenv = loadEnvKey(process.cwd());
-const globalCfg = loadGlobalCloudConfig();
-// The LOGIN outranks a project-local env file (mirrors guard.mjs): a stale key
-// left in the folder an agent starts in must never shadow the paired credential
-// and silence this hook's audit POST. The env file still applies when there is
-// no login at all.
-let API_KEY = process.env.SOLONGATE_API_KEY || globalCfg.apiKey || dotenv.SOLONGATE_API_KEY || '';
-const API_URL = process.env.SOLONGATE_API_URL || globalCfg.apiUrl || dotenv.SOLONGATE_API_URL || 'http://127.0.0.1:3002';
-
 // Agent identity from CLI args: node audit.mjs <agent_id> <agent_name>
 const AGENT_ID = process.argv[2] || 'claude-code';
 const AGENT_NAME = process.argv[3] || 'Claude Code';
 
-// A MALFORMED key counts as none, deliberately: a key this hook cannot use would
-// otherwise have it POST to a service that refuses every request, and the entry
-// is lost either way. None means local, and local works.
-if (API_KEY && !(API_KEY.startsWith('sg_live_') || API_KEY.startsWith('sg_test_'))) API_KEY = '';
-
 // THERE IS NO CREDENTIAL GATE HERE, and its absence is the point.
 //
-// The line above used to end `|| process.exit(0)`, so on a machine with no
-// service this hook did nothing whatsoever. Two things were lost that way, and
-// only one of them is bookkeeping:
+// A key was resolved above this line, and the line after it used to end
+// `|| process.exit(0)`: on a machine with no service this hook did nothing
+// whatsoever. Two things were lost that way, and only one of them is bookkeeping:
 //
 //   Every ALLOW went unrecorded. The guard records denials and this records the
 //   rest, so a local audit log held refusals and nothing else.
@@ -535,6 +500,9 @@ if (API_KEY && !(API_KEY.startsWith('sg_live_') || API_KEY.startsWith('sg_test_'
 //   result, the guard leaves read-DLP to this hook BY DESIGN and allows the call.
 //   With the hook gone the secret reached the model — so a `dlpBlock` in a local
 //   policy protected an argument while doing nothing at all for a file read.
+//
+// The key itself is gone now too, along with the malformed-key check that made an
+// unusable one count as none.
 
 let input = '';
 // Read stdin SYNCHRONOUSLY (fd 0). Calling process.exit() from inside the
@@ -697,17 +665,18 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
     // Flush the model-visible replacement to stdout, THEN exit. On Windows a
     // bare process.exit() can truncate an un-drained pipe write, so Claude Code
     // receives malformed hook JSON, prints "PostToolUse hook warning", and
-    // DISCARDS the replacement — leaving the unredacted output visible. Gate the exit
-    // on the write's flush callback (and on the fire-and-forget audit POST).
+    // DISCARDS the replacement — leaving the unredacted output visible. So the exit
+    // is gated on the write's flush callback.
+    //
+    // It used to be gated on a second thing as well: `fetchDone`, the fire-and-forget
+    // audit POST. That is gone, and with it the reason this could not simply call
+    // process.exit() — on Windows + Node 24, exiting in the same tick a fetch settled
+    // aborted with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`, because a
+    // threadpool DNS worker was still mid-uv_async_send. Nothing is in flight now, but
+    // the drain is kept as it is: it is correct, it is what the Go twin does, and the
+    // hook has nothing to gain from exiting a millisecond sooner.
     let flushed = (typeof EMITTED_PAYLOAD !== 'string');
-    let fetchDone = false;
-    // Set the exit code and let the event loop drain naturally — do NOT call
-    // process.exit(). On Windows + Node 24, process.exit() in the same tick the
-    // audit-log fetch settled aborts with `Assertion failed: !(handle->flags &
-    // UV_HANDLE_CLOSING), file src\win\async.c` (a threadpool DNS worker is still
-    // mid-uv_async_send when exit() force-closes the loop's async handle). undici
-    // unrefs idle sockets, so Node exits on its own ~1ms after the fetch settles.
-    const maybeExit = () => { if (flushed && fetchDone) { process.exitCode = 0; } };
+    const maybeExit = () => { if (flushed) { process.exitCode = 0; } };
     if (typeof EMITTED_PAYLOAD === 'string') {
       try { process.stdout.write(EMITTED_PAYLOAD, () => { flushed = true; maybeExit(); }); }
       catch { flushed = true; }
@@ -742,7 +711,6 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
       ...(dlpMatches.length ? { dlp: dlpMatches } : {}),
       ...(rateLimitBurst ? { rate_limit_burst: true } : {}),
     });
-    fetchDone = true;
     maybeExit();
     // Safety backstop ONLY, unref'd: the normal path exits by natural drain. This
     // fires only if the loop somehow fails to drain.

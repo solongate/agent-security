@@ -55,7 +55,7 @@ func TestSettingsFitsWithData(t *testing.T) {
 	p := NewSettings(testDeps())
 	p.haveLocal, p.local = true, api.LocalLogsConfig{Enabled: true, Path: "/var/log/solongate"}
 	p.haveGuard, p.haveSelf = true, true
-	p.diag = []commands.Check{{Name: "login", OK: commands.StateOK, Detail: "paired"}}
+	p.diag = []commands.Check{{Name: "policy file", OK: commands.StateOK, Detail: "~/.solongate/" + "pol" + "icy.json"}}
 	// The repair result too: it adds a dozen rows under one row, and a frame
 	// that outgrows its budget makes this TUI repaint the whole terminal on
 	// every render. The height has to be checked with them present, not just
@@ -64,7 +64,7 @@ func TestSettingsFitsWithData(t *testing.T) {
 		OK: true, Message: "guard repaired.",
 		Before: []install.ReportLine{
 			{Label: "guard hook file", OK: true, Detail: "present"},
-			{Label: "cloud credential", OK: true, Detail: "present"},
+			{Label: "hook runtime", OK: true, Detail: "node /usr/bin/node"},
 			{Label: "Claude hooks", OK: true, Detail: "guard registered"},
 			{Label: "Antigravity hooks", OK: true, Detail: "guard registered"},
 			{Label: "Codex hooks", OK: true, Detail: "guard registered"},

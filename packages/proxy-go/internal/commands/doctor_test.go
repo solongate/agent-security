@@ -25,29 +25,27 @@ func findCheck(t *testing.T, checks []Check, name string) Check {
 	return Check{}
 }
 
-func doctorStub(t *testing.T, active string) http.Handler {
+func doctorStub(t *testing.T, c *api.Client, active string) *api.Client {
 	t.Helper()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/policies/active", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(active))
-	})
-	mux.HandleFunc("/api/v1/settings/guard-status", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"latest":30,"installed":30,"up_to_date":true,"device_count":2,"outdated_count":0}`))
-	})
-	return mux
+	// The two routes this used to stub — /policies/active and
+	// /settings/guard-status — are read from this machine now, so what a test sets
+	// up is the FILE. It has to be written AFTER stubClient redirects HOME, which is
+	// why this takes the client rather than being passed to it: as an argument it
+	// was evaluated first and wrote into the developer's own home directory.
+	seedPolicy(t, active)
+	return c
 }
 
 // A project in DETECT mode carries its limits in rateLimitObserve and nothing at
 // all in rateLimit. Reading only the first reported it as off — the guard was
 // flagging bursts and the health check said no rate limit was configured.
 func TestDoctorReportsDetectModeRateLimit(t *testing.T) {
-	c := stubClient(t, doctorStub(t, `{
+	c := stubClient(t, http.NewServeMux())
+	seedPolicy(t, `{
 		"policy":{"id":"pol-1","name":"Default","mode":"whitelist","rules":[]},
-		"version":7,"matched_by":"project",
-		"self_protection_enabled":true,
-		"security":{"rateLimit":null,"rateLimitObserve":{"perMinute":60,"perHour":0,"perDay":0},
-		            "dlpBlock":null,"dlpRedact":{"patterns":["AWS access key","JWT"],"custom":[]}}
-	}`))
+		"security":{"rateLimitObserve":{"perMinute":60,"perHour":0,"perDay":0},
+		            "dlpRedact":{"patterns":["AWS access key","JWT"],"custom":[]}}
+	}`)
 
 	checks := CollectChecks(context.Background(), c)
 
@@ -67,18 +65,18 @@ func TestDoctorReportsDetectModeRateLimit(t *testing.T) {
 	}
 
 	pol := findCheck(t, checks, "active policy")
-	if pol.Detail != "Default v7 · whitelist · matched by project" {
+	if pol.Detail != "Default v1 · whitelist · matched by pinned" {
 		t.Fatalf("wording changed: %q", pol.Detail)
 	}
 }
 
 func TestDoctorReportsBlockingLayers(t *testing.T) {
-	c := stubClient(t, doctorStub(t, `{
+	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{
 		"policy":{"id":"pol-1","name":"Locked","rules":[]},
-		"version":2,"matched_by":"default","self_protection_enabled":false,
+		"version":2,"matched_by":"default","selfProtect":false,
 		"security":{"rateLimit":{"perMinute":10,"perHour":200,"perDay":0},
 		            "dlpBlock":{"patterns":["JWT"],"custom":[]},"dlpRedact":null}
-	}`))
+	}`)
 	checks := CollectChecks(context.Background(), c)
 
 	if got := findCheck(t, checks, "rate limit").Detail; got != "block · 10/min · 200/hr" {
@@ -97,8 +95,11 @@ func TestDoctorReportsBlockingLayers(t *testing.T) {
 	}
 }
 
+// A file that configures LAYERS AND NO RULES is a real configuration: DLP on,
+// nothing forbidden. It has to read as "no policy resolves" rather than as an error,
+// and the layers still have to be reported.
 func TestDoctorSaysWhenNoPolicyResolves(t *testing.T) {
-	c := stubClient(t, doctorStub(t, `{"policy":null,"security":null,"self_protection_enabled":false}`))
+	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null,"selfProtect":false}`)
 	checks := CollectChecks(context.Background(), c)
 
 	pol := findCheck(t, checks, "active policy")
@@ -115,18 +116,18 @@ func TestDoctorSaysWhenNoPolicyResolves(t *testing.T) {
 	}
 }
 
-// An unreachable API must not cost the rows about this machine. Those are the
-// ones worth having when the network is the problem.
-func TestDoctorStillReportsLocalStateWhenTheAPIIsDown(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/policies/active", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"error":{"code":"SERVER_ERROR","message":"nope"}}`, 500)
-	})
-	c := stubClient(t, mux)
+// AN UNREADABLE POLICY FILE MUST NOT COST THE ROWS ABOUT THIS MACHINE.
+//
+// This used to stub a 500 on /policies/active and require an "api unreachable" row,
+// because the rows worth having when the network is the problem are the local ones.
+// There is no network; the equivalent failure is a file the guard cannot parse — and
+// the guard answers that the same way, by enforcing nothing.
+func TestDoctorStillReportsLocalStateWhenThePolicyIsUnreadable(t *testing.T) {
+	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{ "rules": [ }`)
 
 	checks := CollectChecks(context.Background(), c)
-	if got := findCheck(t, checks, "api"); got.OK != StateFail || !strings.HasPrefix(got.Detail, "unreachable: ") {
-		t.Fatalf("api row: %+v", got)
+	if got := findCheck(t, checks, "policy"); got.OK != StateFail {
+		t.Fatalf("an unparseable policy is a failed check: %+v", got)
 	}
 	claude := findCheck(t, checks, "Claude hooks")
 	if claude.OK != StateFail || claude.Detail != "guard NOT registered - run `solongate repair`" {
@@ -136,7 +137,7 @@ func TestDoctorStillReportsLocalStateWhenTheAPIIsDown(t *testing.T) {
 }
 
 func TestDoctorReportsAClientOnlyWhenItIsInstalled(t *testing.T) {
-	c := stubClient(t, doctorStub(t, `{"policy":null,"security":null}`))
+	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null}`)
 	home := os.Getenv("HOME")
 
 	checks := CollectChecks(context.Background(), c)
@@ -179,7 +180,7 @@ func TestDoctorReportsAClientOnlyWhenItIsInstalled(t *testing.T) {
 // The top-level shape is what some installs have on disk; a reader that only
 // looked under "hooks" would send someone to repair an already-guarded machine.
 func TestCodexGuardFoundInEitherFileShape(t *testing.T) {
-	c := stubClient(t, doctorStub(t, `{"policy":null,"security":null}`))
+	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null}`)
 	_ = c
 	home := os.Getenv("HOME")
 	codex := filepath.Join(home, ".codex")
@@ -196,11 +197,11 @@ func TestCodexGuardFoundInEitherFileShape(t *testing.T) {
 }
 
 func TestDoctorJSONKeepsTheThreeStateVerdict(t *testing.T) {
-	c := stubClient(t, doctorStub(t, `{
+	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{
 		"policy":{"id":"p","name":"N","rules":[]},"version":1,"matched_by":"default",
-		"self_protection_enabled":true,
+		"selfProtect":true,
 		"security":{"rateLimit":{"perMinute":5,"perHour":0,"perDay":0},"dlpBlock":{"patterns":[],"custom":[]}}
-	}`))
+	}`)
 
 	o, e := capture(t, func() {
 		code, err := runDoctor(context.Background(), c, parse([]string{"--json"}))
@@ -230,8 +231,8 @@ func TestDoctorJSONKeepsTheThreeStateVerdict(t *testing.T) {
 		seen[r.Name] = string(r.OK)
 	}
 	// true / false / "warn" is the shape scripts already read.
-	if seen["login"] != "true" {
-		t.Fatalf("ok for a passing check must be true, got %s", seen["login"])
+	if seen["policy file"] != "true" {
+		t.Fatalf("ok for a passing check must be true, got %s", seen["policy file"])
 	}
 	if seen["Claude hooks"] != "false" {
 		t.Fatalf("ok for a failing check must be false, got %s", seen["Claude hooks"])
@@ -242,7 +243,7 @@ func TestDoctorJSONKeepsTheThreeStateVerdict(t *testing.T) {
 }
 
 func TestDoctorSummaryLines(t *testing.T) {
-	c := stubClient(t, doctorStub(t, `{"policy":null,"security":null}`))
+	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null}`)
 	_, e := capture(t, func() {
 		if _, err := runDoctor(context.Background(), c, parse(nil)); err != nil {
 			t.Fatal(err)
@@ -258,7 +259,7 @@ func TestDoctorSummaryLines(t *testing.T) {
 }
 
 func TestGuardHookRowPrefersTheVersionOnDisk(t *testing.T) {
-	c := stubClient(t, doctorStub(t, `{"policy":null,"security":null}`))
+	c := doctorStub(t, stubClient(t, http.NewServeMux()), `{"policy":null,"security":null}`)
 	home := os.Getenv("HOME")
 	hooks := filepath.Join(home, ".solongate", "hooks")
 	if err := os.MkdirAll(hooks, 0o755); err != nil {

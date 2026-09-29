@@ -196,7 +196,7 @@ func allow() { emit(decision{Type: "allow"}) }
 //
 // TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
 // cannot drift without the build saying so.
-const hookVersion = 98
+const hookVersion = 99
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.
@@ -247,8 +247,7 @@ func main() {
 
 	input, _ := io.ReadAll(os.Stdin)
 
-	cred := loadCredential(fleet.Managed)
-	// THERE IS NO CREDENTIAL GATE HERE, and its absence is the point.
+	// THERE IS NO CREDENTIAL HERE AT ALL, and its absence is the point.
 	//
 	// This used to be `if cred.APIKey == "" { allow() }` — the key was the whole
 	// test, on the reasoning that the key selects the project and therefore the
@@ -263,8 +262,9 @@ func main() {
 	// guard, so a machine with no credential could not protect its own state —
 	// and a local policy is kept in exactly that state.
 	//
-	// sgshared.IsRealKey still matters: it is what keeps a malformed key from
-	// being mistaken for a real one and pointing this at a service it cannot use.
+	// The credential itself is gone too, not just the gate. It was read on every
+	// call and used for one thing: a hash of it stamped each local log line, for
+	// telling two accounts' calls apart. See config.go.
 
 	// Translator, input side: every client's payload becomes ONE shape here.
 	// Claude's flat {tool_name, tool_input, …} and Antigravity's nested
@@ -310,7 +310,7 @@ func main() {
 	}
 	if selfProtect {
 		if reason := tamperCheck(c.Tool, c.Args); reason != "" {
-			record(cred, sec, hasSecurity, c, agentType, agentName, reason, started)
+			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
 	}
@@ -325,7 +325,7 @@ func main() {
 	// being read out of a file, which is the redaction plan's job further down.
 	if sec != nil {
 		if reason := egressSecretCheck(c.Args, sec, c.Cwd); reason != "" {
-			record(cred, sec, hasSecurity, c, agentType, agentName, reason, started)
+			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
 	}
@@ -343,7 +343,7 @@ func main() {
 		if hit := dlpScan(argsText, sec.DLPBlock); hit != "" {
 			reason := "Security layer (DLP): blocked - arguments contain a " + hit +
 				". Blocked by SolonGate - check your dashboard for details."
-			record(cred, sec, hasSecurity, c, agentType, agentName, reason, started)
+			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
 	} else if sec != nil && sec.DLPRedact != nil {
@@ -356,7 +356,7 @@ func main() {
 		// it looked like it was working, and an argument carrying a secret went
 		// out with no record anywhere that it had.
 		if hit := dlpScan(argsText, sec.DLPRedact); hit != "" {
-			recordObserved(cred, sec, hasSecurity, c, agentType, agentName,
+			recordObserved(sec, hasSecurity, c, agentType, agentName,
 				"Security layer (DLP): detected - arguments contain a "+hit+". Allowed: DLP is in detect mode.",
 				started)
 		}
@@ -371,7 +371,7 @@ func main() {
 	// and the ordering makes that impossible to get wrong later.
 	if sec != nil && sec.RateLimitObserve != nil && !activeClient.ReportsAfter {
 		if reason := rateLimitCheck(agentID, sec.RateLimitObserve); reason != "" {
-			recordObserved(cred, sec, hasSecurity, c, agentType, agentName,
+			recordObserved(sec, hasSecurity, c, agentType, agentName,
 				strings.Replace(reason, "Blocked by SolonGate - check your dashboard to review or adjust the limit.",
 					"Allowed: the rate limit is in detect mode.", 1),
 				started)
@@ -380,7 +380,7 @@ func main() {
 
 	if sec != nil && sec.RateLimit != nil {
 		if reason := rateLimitCheck(agentID, sec.RateLimit); reason != "" {
-			record(cred, sec, hasSecurity, c, agentType, agentName, reason, started)
+			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
 	}
@@ -433,7 +433,7 @@ func main() {
 	sweepLegacyScratch()
 
 	if policyReason != "" {
-		record(cred, sec, hasSecurity, c, agentType, agentName, policyReason, started)
+		record(sec, hasSecurity, c, agentType, agentName, policyReason, started)
 		deny(policyReason)
 	}
 
@@ -456,7 +456,7 @@ func main() {
 			if plan := dlpRedactReadPlan(c.Tool, c.Args, dlpCfg, c.Cwd); plan != nil {
 				if plan.Block {
 					reason := "Security layer (DLP): reading a file that contains a secret is blocked. Blocked by SolonGate."
-					record(cred, sec, hasSecurity, c, agentType, agentName, reason, started)
+					record(sec, hasSecurity, c, agentType, agentName, reason, started)
 					deny(reason)
 				}
 				if len(plan.Rewrite) > 0 {
@@ -533,8 +533,8 @@ func elapsedMs(started time.Time) float64 {
 // record writes the denial where the settings say it goes: to this machine, or
 // to the cloud, never both. The cloud write is detached so the agent is not kept
 // waiting on a network round trip for a decision already made.
-func record(cred sgshared.Credential, sec *sgshared.Security, hasSecurity bool, c call, agentType, agentName, reason string, started time.Time) {
-	recordDecision(cred, sec, hasSecurity, c, agentType, agentName, reason, "DENY", started)
+func record(sec *sgshared.Security, hasSecurity bool, c call, agentType, agentName, reason string, started time.Time) {
+	recordDecision(sec, hasSecurity, c, agentType, agentName, reason, "DENY", started)
 }
 
 // recordObserved files a row for a call that was ALLOWED but carried a signal
@@ -544,14 +544,14 @@ func record(cred sgshared.Credential, sec *sgshared.Security, hasSecurity bool, 
 // the allow row and this would be a duplicate; on Antigravity nothing else ever
 // runs, so a detect-mode hit that is not written here is not written at all, and
 // a mode whose whole job is to observe would observe nothing.
-func recordObserved(cred sgshared.Credential, sec *sgshared.Security, hasSecurity bool, c call, agentType, agentName, reason string, started time.Time) {
+func recordObserved(sec *sgshared.Security, hasSecurity bool, c call, agentType, agentName, reason string, started time.Time) {
 	if activeClient.ReportsAfter {
 		return
 	}
-	recordDecision(cred, sec, hasSecurity, c, agentType, agentName, reason, "ALLOW", started)
+	recordDecision(sec, hasSecurity, c, agentType, agentName, reason, "ALLOW", started)
 }
 
-func recordDecision(cred sgshared.Credential, sec *sgshared.Security, hasSecurity bool, c call, agentType, agentName, reason, decisionVal string, started time.Time) {
+func recordDecision(sec *sgshared.Security, hasSecurity bool, c call, agentType, agentName, reason, decisionVal string, started time.Time) {
 	entry := map[string]interface{}{
 		"tool":               c.Tool,
 		"arguments":          c.Args,
@@ -571,5 +571,5 @@ func recordDecision(cred sgshared.Credential, sec *sgshared.Security, hasSecurit
 	// The FILE is where a record goes. There used to be a POST here for the case
 	// where local logging was switched off, and with the service gone that branch
 	// could only ever lose the entry.
-	writeLocalLog(sec, cred, local)
+	writeLocalLog(sec, local)
 }

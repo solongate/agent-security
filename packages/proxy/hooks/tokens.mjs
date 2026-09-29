@@ -17,15 +17,23 @@
  * hands it over in process. That file is read ONLY for its usage numbers; no
  * prose is read out of it and none is sent.
  *
- * WHAT IS SENT, AND WHEN NOTHING IS. No credential -> nothing, the same rule
- * every hook here follows. The server keys on the turn id and ignores a repeat,
- * so a re-send costs bytes and nothing else.
+ * WHERE IT GOES. ~/.solongate/local-logs/token-usage-<date>.jsonl, one JSON object
+ * per turn, beside the audit trail the other hooks write. NOTHING LEAVES THE MACHINE:
+ * this used to POST each turn to /api/v1/token-usage — what a session cost and which
+ * model ran it — and the send is gone with the service that received it.
+ *
+ * For a while after that it collected the numbers and DROPPED them, which is worse
+ * than either: the readers below are the substantial half of this hook and they ran
+ * on every turn to produce a value nothing kept.
+ *
+ * The turn id is on every line, so a reader can drop a repeat the way the service
+ * did.
  *
  * Fire-and-forget, and every failure is silent. This hook must never delay a
  * turn and must never be the reason one fails: it records something ABOUT the
  * work, and the work matters more.
  */
-import { readFileSync, existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, openSync, readSync, closeSync, statSync, mkdirSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -34,21 +42,16 @@ const require = createRequire(import.meta.url);
 
 // Bump on every change to this file, alongside the other hooks.
 //
-// 5 drops the transcript half. The number carries on from the file this was
-// carved out of rather than restarting at 1, so a machine holding the old hook
-// sees a newer version and replaces it.
-const HOOK_VERSION = 5;
+// 5 dropped the transcript half. 6 makes the spend LAND somewhere: it was being
+// collected and discarded, so a machine on 5 reads every transcript and keeps nothing.
+// The number carries on from the file this was carved out of rather than restarting at
+// 1, so a machine holding the old hook sees a newer version and replaces it.
+const HOOK_VERSION = 6;
 
 const AGENT_ID = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
 
-function loadGlobalCloudConfig() {
-  try {
-    const p = resolve(homedir(), '.solongate', 'cloud-guard.json');
-    if (!existsSync(p)) return {};
-    const cfg = JSON.parse(readFileSync(p, 'utf-8'));
-    return (cfg && typeof cfg === 'object') ? cfg : {};
-  } catch { return {}; }
-}
+// loadGlobalCloudConfig read ~/.solongate/cloud-guard.json for the key and URL that
+// authenticated the POST. There is no POST; every hook here dropped the same reader.
 
 function readStdin() {
   try { return readFileSync(0, 'utf-8'); } catch { return ''; }
@@ -134,6 +137,11 @@ function readClaudeCode(transcriptPath) {
 
     out.push({
       turn_key: key,
+      // WHICH MODEL RAN IT. The counts alone do not say what a turn cost, because
+      // the price per token is per model — a record of tokens with no model named
+      // cannot be turned into money later, which is most of why anybody keeps one.
+      // Only Claude Code reports it; the others leave it empty rather than guessing.
+      model: (r.message && typeof r.message.model === 'string') ? r.message.model : '',
       input, output, cache_read: cacheRead, cache_write: cacheWrite,
       reasoning: num(u.output_tokens_details && u.output_tokens_details.thinking_tokens),
       // The three prompt buckets are DISJOINT — proven on real data, where
@@ -351,45 +359,69 @@ function collectTokens(data, source) {
 }
 
 /**
- * sendTokens posts a batch. One request per Stop whatever the count.
+ * writeTokenUsage appends one line per turn to this machine's own record.
  *
- * Silent on every failure, including a missing credential: a machine that is
- * not logged in has nowhere to report and nothing to say about it.
+ * It was sendTokens, and it POSTed the batch to /api/v1/token-usage — one request per
+ * Stop whatever the count, silent on every failure including a missing credential.
+ * Then it became an empty function, and the hook spent every turn reading a transcript
+ * to produce numbers that went nowhere. Collecting a figure and discarding it is worse
+ * than either sending it or not collecting it.
+ *
+ * ~/.solongate/local-logs/, beside the audit trail, because one machine should have
+ * one place to look. One file per day so the thing stays greppable and a person can
+ * delete last month without parsing anything. Owner-only: what a session cost is not
+ * as sensitive as what it said, but it is nobody else's business either.
+ *
+ * Every failure is silent, and nothing is awaited on the turn's behalf: this records
+ * something ABOUT the work, and the work matters more.
  */
-async function sendTokens() {
-  // NOTHING IS SENT. This used to POST the per-turn token counts to
-  // /api/v1/token-usage — what a session cost, and which model ran it. There is no
-  // service to receive them; the counts are still read and still available to
-  // whatever reads this machine, but they do not leave it.
-  //
-  // Kept as a function rather than deleted at every call site: the readers above
-  // are the tested half (test/token-usage.mjs), and the shape of this hook is one
-  // collector feeding one sender.
+function writeTokenUsage({ sessionId, agentId, agentName, source, turns }) {
+  try {
+    if (!Array.isArray(turns) || !turns.length) return;
+    const dir = resolve(homedir(), '.solongate', 'local-logs');
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const now = new Date();
+    const day = now.toISOString().slice(0, 10);
+    const lines = turns.map((t) => JSON.stringify({
+      ts: now.toISOString(),
+      // The turn id, so a reader can drop a repeat the way the service did — a Stop
+      // that fires twice for one exchange must not double somebody's count.
+      turn_key: t.turn_key || '',
+      session_id: sessionId || '',
+      agent_id: agentId || '',
+      agent_name: agentName || '',
+      source: source || '',
+      input: t.input || 0,
+      output: t.output || 0,
+      cache_read: t.cache_read || 0,
+      cache_write: t.cache_write || 0,
+      reasoning: t.reasoning || 0,
+      total: t.total || 0,
+      model: t.model || '',
+      at: t.at || 0,
+    })).join('\n') + '\n';
+    appendFileSync(resolve(dir, 'token-usage-' + day + '.jsonl'), lines, { mode: 0o600 });
+  } catch { /* silent: spend is a note about the work, not the work */ }
 }
 
-// reportTokens sends what the turn cost, beside the record of what was said.
+// reportTokens records what the turn cost.
 //
-// It rides on THIS hook rather than on one of its own because the events are
-// the same events: a turn ends once, and registering a second hook for the same
-// moment is a second thing to install, a second thing to keep current, and a
-// second thing that can be missing on a machine where the first is fine.
+// It rides on THIS hook rather than on one of its own because the events are the same
+// events: a turn ends once, and registering a second hook for the same moment is a
+// second thing to install, a second thing to keep current, and a second thing that can
+// be missing on a machine where the first is fine.
 //
-// Everything it needs is already on the payload. It is awaited so a short-lived
-// hook process does not exit before the request goes out, and it can only
-// fail silently — see tokens.mjs.
-async function reportTokens(data, source, sessionId, agentName) {
+// No longer async, and no longer awaited. It was both so a short-lived hook process
+// would not exit before the request went out; the write is synchronous, so there is
+// nothing to wait for.
+function reportTokens(data, source, sessionId, agentName) {
   try {
-    const turns = collectTokens(data, source);
-    if (!turns.length) return;
-    const cfg = loadGlobalCloudConfig();
-    await sendTokens({
-      apiUrl: cfg.apiUrl || 'http://127.0.0.1:3002',
-      apiKey: cfg.apiKey || '',
+    writeTokenUsage({
       sessionId,
       agentId: AGENT_ID,
       agentName: agentName || '',
       source,
-      turns,
+      turns: collectTokens(data, source),
     });
   } catch { /* silent: spend is a note about the work, not the work */ }
 }
@@ -419,10 +451,7 @@ function tokenSourceOf(data) {
   // the way the other three are.
   if (data.opencode === true) {
     if (data.tokens !== true) return;
-    const cfg = loadGlobalCloudConfig();
-    await sendTokens({
-      apiUrl: cfg.apiUrl || 'http://127.0.0.1:3002',
-      apiKey: cfg.apiKey || '',
+    writeTokenUsage({
       sessionId: data.session_id || '',
       agentId: AGENT_ID,
       agentName: 'OpenCode',
@@ -453,7 +482,7 @@ function tokenSourceOf(data) {
     // generations are already on disk, so reading them on every one would be
     // the same rows read many times for nothing.
     if (agStop) {
-      await reportTokens(data, 'antigravity',
+      reportTokens(data, 'antigravity',
         agCommon.conversationId || agCommon.conversation_id || '',
         agCommon.agentName || agCommon.agent_name || 'Antigravity');
     }
@@ -466,5 +495,5 @@ function tokenSourceOf(data) {
   if (event !== 'Stop' && event !== 'SubagentStop') return;
   const sessionId = data.session_id || data.sessionId || data.conversation_id || '';
   if (!sessionId) return;
-  await reportTokens(data, tokenSourceOf(data), sessionId, data.agent_name || '');
+  reportTokens(data, tokenSourceOf(data), sessionId, data.agent_name || '');
 })();

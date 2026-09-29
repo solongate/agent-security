@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
 	"github.com/codeyevsky/solongate/proxy/internal/config"
 	"github.com/codeyevsky/solongate/proxy/internal/core"
 	"github.com/codeyevsky/solongate/proxy/internal/mcp"
@@ -108,7 +106,6 @@ type subAgent struct {
 type Proxy struct {
 	config config.ProxyConfig
 	gate   *sdk.SolonGate
-	cloud  *api.Client
 
 	client *mcp.Client
 	server *mcp.Server
@@ -181,7 +178,6 @@ func New(opts Options) (*Proxy, error) {
 		p.log("WARNING: " + w)
 	}
 
-	p.cloud = newCloudClient(opts.Config.APIKey, opts.Config.APIURL)
 	return p, nil
 }
 
@@ -206,7 +202,7 @@ func (p *Proxy) setPolicy(doc PolicyDoc) {
 func (p *Proxy) Start(ctx context.Context) error {
 	p.log("Starting SolonGate Proxy...")
 
-	if err := p.validateLicenseAndLoadPolicy(ctx); err != nil {
+	if err := p.loadPolicy(ctx); err != nil {
 		return err
 	}
 
@@ -239,8 +235,6 @@ func (p *Proxy) Start(ctx context.Context) error {
 		return err
 	}
 
-	p.registerToolsToCloud(ctx)
-	p.registerServerToCloud(ctx)
 	p.startPolicySync()
 	defer func() {
 		if p.syncManager != nil {
@@ -254,76 +248,22 @@ func (p *Proxy) Start(ctx context.Context) error {
 
 // ── step 0: licence and policy ─────────────────────────────────────────────
 
-func (p *Proxy) validateLicenseAndLoadPolicy(ctx context.Context) error {
-	apiURL := p.config.APIURL
-	if apiURL == "" {
-		apiURL = config.DefaultAPIURL
-	}
-	key := p.config.APIKey
-	if key == "" {
-		// NO SERVICE, so nothing cloud-side runs and the policy is the file this
-		// machine keeps — loaded HERE rather than left to a caller, because a gate
-		// with no policy loaded denies everything, and that is not what "no
-		// service" should mean.
-		//
-		// ParseProxyArgs used to refuse a config without a key, which made this
-		// branch reachable only from an embedder. It is the ordinary path now.
-		p.log("No service configured — enforcing this machine's policy file.")
-		return p.gate.LoadPolicy(p.currentPolicy().Set)
-	}
-
-	if strings.HasPrefix(key, "sg_test_") {
-		// A test key in production is a configuration mistake that is otherwise
-		// invisible: everything works, and nobody finds out until the audit
-		// trail turns out to be empty.
-		if os.Getenv("NODE_ENV") == "production" {
-			p.log("ERROR: Test API keys (sg_test_) cannot be used in production. Use a sg_live_ key.")
-			return errReported
-		}
-		p.log("Using test API key — skipping online validation (non-production mode).")
-		return p.gate.LoadPolicy(p.currentPolicy().Set)
-	}
-
-	p.log("Checking the API key with " + apiURL + "...")
-	result, err := checkLicense(ctx, p.cloud)
-	switch result {
-	case licenseInvalid:
-		p.log("ERROR: Invalid or expired API key.")
-		return errReported
-	case licenseInactive:
-		// 403 is the service refusing this key for its own reasons. Passed on
-		// rather than interpreted: whoever runs it knows why.
-		p.log("ERROR: The service refused this API key (403). Check it with whoever runs it.")
-		return errReported
-	case licenseUnreachable:
-		// FAIL CLOSED. The proxy has forwarded nothing yet, so refusing to
-		// start leaves the agent with no MCP server rather than with an
-		// unguarded one.
-		// The service is the one the operator runs, so this is not an internet
-		// problem to report as one — it is usually the wrong address or a
-		// service that is down.
-		p.log("ERROR: cannot reach " + apiURL + ". Check SOLONGATE_API_URL, or that the service is running.")
-		if err != nil {
-			p.log("Details: " + err.Error())
-		}
-		return errReported
-	}
-	p.log("License validated.")
-
-	// FAIL OPEN, ONTO THE LOCAL POLICY. This is not the same trade as the
-	// licence check above: there is already a policy loaded, and it is the one
-	// the user configured. Refusing to start because the newest version could
-	// not be fetched would take a working machine offline over a network blip.
-	fetchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	doc, err := fetchCloudPolicy(fetchCtx, p.cloud, p.config.PolicyID)
-	cancel()
-	if err != nil {
-		p.log("Cloud policy fetch failed, using local policy: " + err.Error())
+// loadPolicy puts this machine's policy into the gate.
+//
+// It was validateLicenseAndLoadPolicy, and most of it was the licence: a call to
+// /auth/me that refused to start on a 401, a 403, or an unreachable service, and
+// then a policy fetched from that service with the local file as the fallback.
+// There is no service, so the file is not a fallback — it is the policy.
+//
+// Loaded HERE rather than left to a caller, because a gate with no policy loaded
+// denies everything, and an empty machine should not mean a dead agent.
+func (p *Proxy) loadPolicy(ctx context.Context) error {
+	_ = ctx
+	if p.config.PolicyPath != "" {
+		p.log("Enforcing " + p.config.PolicyPath + ".")
 	} else {
-		p.setPolicy(doc)
-		p.log("Loaded cloud policy: " + doc.Set.Name + " (" + strconv.Itoa(len(doc.Set.Rules)) + " rules)")
+		p.log("No policy file found — nothing is forbidden until one is written.")
 	}
-
 	if err := p.gate.LoadPolicy(p.currentPolicy().Set); err != nil {
 		return err
 	}
@@ -412,118 +352,21 @@ func (p *Proxy) discoverTools(ctx context.Context) error {
 
 // ── step 3: registration ───────────────────────────────────────────────────
 
-// registerToolsToCloud makes the upstream's tools visible on the dashboard.
-// Fire and forget: a dashboard that does not know about a tool still has it
-// governed by policy, so nothing here is allowed to delay serving.
-func (p *Proxy) registerToolsToCloud(ctx context.Context) {
-	if !isLiveKey(p.config.APIKey) {
-		return
-	}
-	tools := p.upstreamTools
-	p.log("Registering " + strconv.Itoa(len(tools)) + " tools to dashboard...")
-
-	go func() {
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-		var failures []string
-
-		for _, tool := range tools {
-			wg.Add(1)
-			go func(tool mcp.Tool) {
-				defer wg.Done()
-				reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-				defer cancel()
-				err := registerTool(reqCtx, p.cloud, toolRegistration{
-					Name:        tool.Name,
-					Description: tool.Description,
-					InputSchema: tool.InputSchema,
-					Permissions: []string{string(core.GuessPermission(tool.Name))},
-					Enabled:     true,
-				})
-				if err != nil {
-					mu.Lock()
-					failures = append(failures, tool.Name+": "+err.Error())
-					mu.Unlock()
-				}
-			}(tool)
-		}
-		wg.Wait()
-
-		succeeded := len(tools) - len(failures)
-		if len(failures) == 0 {
-			p.log("Tool registration: " + strconv.Itoa(succeeded) + "/" + strconv.Itoa(len(tools)) + " succeeded.")
-			return
-		}
-		for _, f := range failures {
-			p.log("Tool registration failed: " + f)
-		}
-		p.log("Tool registration: " + strconv.Itoa(succeeded) + "/" + strconv.Itoa(len(tools)) +
-			" succeeded, " + strconv.Itoa(len(failures)) + " failed.")
-	}()
-}
-
-// registerServerToCloud records the upstream on the dashboard's MCP Servers
-// page.
-func (p *Proxy) registerServerToCloud(ctx context.Context) {
-	if !isLiveKey(p.config.APIKey) {
-		return
-	}
-
-	transport := p.config.Upstream.Transport
-	if transport == "" {
-		transport = "stdio"
-	}
-	serverName := orDefault(p.config.Name, "solongate-proxy")
-	var serverURL, command, args string
-
-	if transport == "stdio" {
-		command = p.config.Upstream.Command
-		args = strings.Join(p.config.Upstream.Args, " ")
-		serverURL = "stdio://" + command
-		// The command reads better in the dashboard than "solongate-proxy"
-		// repeated once per server.
-		if command != "" {
-			serverName = command
-		}
-	} else {
-		serverURL = p.config.Upstream.URL
-		if u, err := url.Parse(serverURL); err == nil && u.Hostname() != "" {
-			serverName = u.Hostname()
-		}
-	}
-
-	go func() {
-		reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		status, err := registerServer(reqCtx, p.cloud, serverRegistration{
-			Name: serverName, URL: serverURL, Command: command, Args: args,
-		})
-		switch {
-		case err == nil:
-			p.log(`Registered MCP server "` + serverName + `" to dashboard.`)
-		case status == 409:
-			p.log(`MCP server "` + serverName + `" already registered.`)
-		case status > 0:
-			p.log("MCP server registration failed (" + strconv.Itoa(status) + "): " + err.Error())
-		default:
-			p.log("MCP server registration error: " + err.Error())
-		}
-	}()
-}
-
 // ── step 3c: policy sync ───────────────────────────────────────────────────
 
+// startPolicySync watches the policy FILE and reloads the gate when it changes.
+//
+// It used to poll a service for a newer policy and push a local edit back to one,
+// which is where its name comes from. What is left is the half about this machine,
+// and it matters more than it did: the file is the only source, so somebody editing
+// it expects the proxy to follow without a restart.
 func (p *Proxy) startPolicySync() {
-	if p.config.APIKey == "" {
+	if p.config.PolicyPath == "" {
 		return
 	}
 	p.syncManager = NewSyncManager(SyncOptions{
-		LocalPath:    p.config.PolicyPath,
-		APIKey:       p.config.APIKey,
-		Client:       p.cloud,
-		PollInterval: 60 * time.Second,
-		PolicyID:     p.config.PolicyID,
-		Initial:      p.currentPolicy(),
+		LocalPath: p.config.PolicyPath,
+		Initial:   p.currentPolicy(),
 		OnPolicyUpdate: func(doc PolicyDoc) {
 			p.setPolicy(doc)
 			if err := p.gate.LoadPolicy(doc.Set); err != nil {
@@ -536,7 +379,7 @@ func (p *Proxy) startPolicySync() {
 		Log: func(line string) { p.logFn("[Sync] " + line) },
 	})
 	p.syncManager.Start()
-	p.log("Bidirectional policy sync started.")
+	p.log("Watching " + p.config.PolicyPath + " for changes.")
 }
 
 // ── step 4: the downstream server ──────────────────────────────────────────
@@ -709,26 +552,20 @@ func (p *Proxy) handleCallTool(ctx context.Context, req *mcp.Request) (any, erro
 	return toCallToolResult(result), nil
 }
 
-// recordAudit forwards one decision to the cloud WITHOUT the call waiting for
-// it.
+// recordAudit writes one decision to this machine's audit trail.
 //
-// The verdict is the product and the audit line is bookkeeping. Awaiting the
-// POST puts a network round trip between "blocked" and the agent hearing it —
-// measured at 1643ms per denial against the real API.
+// IT IS NOT GATED ON A CREDENTIAL ANY MORE, and that was a real hole rather than
+// tidying. The body was `if !isLiveKey(p.config.APIKey) { log("Skipping audit log");
+// return }` — correct while the record was a POST, since there was nothing to POST
+// to. But the destination is a file on this machine, and a proxy with no key is the
+// ordinary case here, so the gate meant the common configuration kept NO RECORD OF
+// ANY TOOL CALL: every denial enforced and none of them written down.
+//
+// It still does not block the call. The verdict is the product and the audit line is
+// bookkeeping; a write that stalls must not sit between "blocked" and the agent
+// hearing it.
 func (p *Proxy) recordAudit(ctx context.Context, tool string, arguments map[string]any,
 	result core.McpCallToolResult, decision string, elapsed time.Duration, agent *subAgent) {
-
-	if !isLiveKey(p.config.APIKey) {
-		if p.config.APIKey == "" {
-			p.log("Skipping audit log (apiKey: not set)")
-		} else {
-			p.log("Skipping audit log (apiKey: test key)")
-		}
-		return
-	}
-
-	p.log("Sending audit log: " + tool + " → " + decision +
-		" (key: " + keyPrefix(p.config.APIKey) + "...)")
 
 	reason, matchedRule := "allowed", ""
 	if result.IsError {
@@ -755,14 +592,11 @@ func (p *Proxy) recordAudit(ctx context.Context, tool string, arguments map[stri
 		entry.SubAgentName = agent.Name
 	}
 
-	go func() {
-		// Detached from the request context on purpose: a client that
-		// disconnects the moment it is denied must not cancel the record of
-		// having been denied.
-		sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		sendAuditLog(sendCtx, p.cloud, entry, p.log)
-	}()
+	// Written to the same file the guard and the hooks write, so one machine has one
+	// audit trail. This used to POST the entry and, when every attempt failed, drop
+	// it into .solongate-audit-backup.jsonl in whatever directory the proxy started
+	// in — a second log, in a place nothing else reads.
+	writeAuditEntry(entry, p.log)
 }
 
 // matchedRulePattern reads the rule id out of a denial reason of the form

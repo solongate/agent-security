@@ -9,13 +9,24 @@ export default defineConfig({
     'src/cli-launch.ts',
     'src/index.ts',
     'src/lib.ts',
-    'src/inject.ts',
-    'src/create.ts',
-    'src/pull-push.ts',
-    'src/login.ts',
-    'src/shield.ts',
     'src/global-install.ts',
     'src/audit/index.ts',
+    // FIVE MORE ENTRIES USED TO BE LISTED HERE — inject, create, pull-push, login
+    // and shield — and every one of those files is deleted. tsup skips a missing
+    // entry WITHOUT failing, so the build stayed green while the config described a
+    // package that no longer existed. Left alone, the next person reads this list to
+    // find out what ships.
+    //
+    // The store the CLI reads and writes. It is bundled into the entries that use it
+    // as well, so this is not how the product loads it — it is here because it is a
+    // module in its own right with its own contract (test/local-cli.mjs holds the
+    // built artifact to it), and a surface worth testing is a surface worth emitting.
+    'src/api-client/index.ts',
+    // The evaluator the MCP proxy uses, for the same reason: test/proxy-parity.mjs
+    // feeds one policy to this and to the guard hook and requires the same verdict
+    // from both, which is the check that a policy cannot mean two things on one
+    // machine. It can only do that if this is a file it can import.
+    'src/policy-engine/engine.ts',
     // Management CLI: scriptable commands + interactive Ink TUI. Both are only
     // reached via dynamic import() from src/index.ts, so the proxy runtime never
     // pulls in the API-client / React / Ink code.

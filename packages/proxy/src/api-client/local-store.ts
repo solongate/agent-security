@@ -119,10 +119,17 @@ export function read(): Stored {
   if (!obj || typeof obj !== 'object') throw new LocalStoreError(`${p} does not hold a JSON object`);
   const o = obj as Record<string, unknown>;
 
-  if (o['policy'] && typeof o['policy'] === 'object') {
-    const inner = o['policy'] as Record<string, unknown>;
+  // The PRESENCE of a `policy` key makes it the envelope, even when its value is
+  // null. A file carrying layers and NO RULES is a real configuration — DLP on,
+  // nothing forbidden — and treating it as a bare policy read the whole envelope AS
+  // the policy, which gave a nameless empty one instead of none.
+  //
+  // The guard's loader and the Go store draw the same line. Three readers of one
+  // file disagreeing about it is the shape of bug this repository keeps finding.
+  if ('policy' in o) {
+    const inner = (o['policy'] ?? {}) as Record<string, unknown>;
     return {
-      policy: inner as unknown as PolicySet,
+      policy: o['policy'] ? (inner as unknown as PolicySet) : null,
       security: (o['security'] ?? inner['security'] ?? null) as GuardSecurity | null,
       selfProtect: typeof o['selfProtect'] === 'boolean' ? o['selfProtect'] : null,
       envelope: true,

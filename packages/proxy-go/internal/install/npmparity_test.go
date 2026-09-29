@@ -2,7 +2,6 @@ package install
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,13 +38,12 @@ func TestRegistrationsMatchTheNpmPackage(t *testing.T) {
 	seedClientConfigs(t, tsHome)
 	seedClientConfigs(t, goHome)
 
-	// A URL nothing answers on: both installers warm the policy cache by spawning
-	// the guard, and neither test run should reach the real API to do it.
-	env := []string{
-		"SOLONGATE_API_KEY=sg_live_0123456789abcdef",
-		"SOLONGATE_API_URL=http://127.0.0.1:1",
-		"SOLONGATE_NO_OS_LOCK=1",
-	}
+	// This used to set a key and a URL nothing answers on, because both installers
+	// spawned the guard to warm a policy cache and neither test run should reach a
+	// real API to do it. Neither installer resolves a credential or warms anything;
+	// what is left is the lock, which a test must not take on the developer's own
+	// machine.
+	env := []string{"SOLONGATE_NO_OS_LOCK=1"}
 
 	cmd := exec.Command(node, "--input-type=module", "-e",
 		"const m = await import('file://"+dist+"'); const r = m.installGlobalQuiet(); if (!r.ok) { console.error(r.message); process.exit(1); }")
@@ -106,14 +104,15 @@ func TestRegistrationsMatchTheNpmPackage(t *testing.T) {
 		}
 	}
 
-	// cloud-guard.json is compared by VALUE, not by bytes: this side writes it
-	// through config.SetActiveAccount, which merges into the existing file rather
-	// than replacing it, so a key written by a newer version is not dropped by an
-	// install. Both must name the same account and the same API.
-	tsCred := readCredential(t, filepath.Join(tsHome, ".solongate", "cloud-guard.json"))
-	goCred := readCredential(t, filepath.Join(goHome, ".solongate", "cloud-guard.json"))
-	if tsCred["apiKey"] != goCred["apiKey"] || tsCred["apiUrl"] != goCred["apiUrl"] {
-		t.Errorf("credential differs: npm %v, go %v", tsCred, goCred)
+	// The credential file was compared here, by value rather than by bytes, because
+	// the Go side merged into an existing one and the npm side replaced it. NEITHER
+	// WRITES IT NOW, so what parity means for it is that both leave it absent — which
+	// is worth asserting, since one implementation quietly writing an account file
+	// the other does not is exactly the divergence this test exists to catch.
+	for _, home := range []string{tsHome, goHome} {
+		if p := filepath.Join(home, ".solongate", "cloud-guard.json"); Exists(p) {
+			t.Errorf("an installer wrote a credential: %s", p)
+		}
 	}
 }
 
@@ -180,19 +179,6 @@ func npmGlobalInstall(t *testing.T) string {
 		dir = parent
 	}
 	return ""
-}
-
-func readCredential(t *testing.T, path string) map[string]any {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("no credential at %s: %v", path, err)
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		t.Fatalf("credential at %s is not JSON: %v", path, err)
-	}
-	return m
 }
 
 func splitEnv(kv string) (string, string, bool) {

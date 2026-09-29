@@ -2,14 +2,14 @@ package proxy
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/codeyevsky/solongate/proxy/internal/config"
 )
 
 // ── the document ───────────────────────────────────────────────────────────
@@ -136,7 +136,6 @@ func TestALocalEditIsPickedUp(t *testing.T) {
 	updates := make(chan PolicyDoc, 4)
 	m := NewSyncManager(SyncOptions{
 		LocalPath:      path,
-		APIKey:         "sg_test_local_only",
 		WatchInterval:  20 * time.Millisecond,
 		Initial:        initial,
 		OnPolicyUpdate: func(doc PolicyDoc) { updates <- doc },
@@ -144,29 +143,54 @@ func TestALocalEditIsPickedUp(t *testing.T) {
 	m.Start()
 	defer m.Stop()
 
-	// The watcher's own-write guard is a full second, so the edit has to land
-	// clear of the manager's startup.
-	time.Sleep(1100 * time.Millisecond)
-	writePolicyFile(t, path, `{"name":"P","version":1,"rules":[{"id":"r1","effect":"DENY","toolPattern":"shell*","enabled":true}]}`)
+	// Long enough for the watcher to take its baseline stat, which it does on its own
+	// goroutine after Start returns. An edit that lands first IS the baseline, and
+	// nothing has changed by the time the first tick looks. This used to be 1100ms,
+	// covering the second-long window in which the sync ignored writes it could not
+	// tell from its own — with nothing of ours to ignore, one tick is enough.
+	time.Sleep(100 * time.Millisecond)
+
+	edited := `{"name":"P","version":1,"rules":[{"id":"r1","effect":"DENY","toolPattern":"shell*","enabled":true}]}`
+	writePolicyFile(t, path, edited)
 
 	select {
 	case doc := <-updates:
 		if len(doc.Set.Rules) != 1 {
 			t.Fatalf("update carried %d rules", len(doc.Set.Rules))
 		}
-		// The edit did not move the version, so the sync has to, or the cloud
-		// will never accept it as newer.
-		if doc.Set.Version <= 1 {
-			t.Fatalf("version = %d, want it auto-incremented past 1", doc.Set.Version)
+		// AN EDIT THAT LEAVES THE VERSION ALONE IS STILL IN FORCE. This used to
+		// require the opposite — `version = %d, want it auto-incremented past 1` —
+		// because the cloud would not accept an edit as newer without a higher
+		// version, so the sync bumped it and REWROTE THE FILE. Nothing has to accept
+		// it now. The rules are enforced because they parsed.
+		if doc.Set.Version != 1 {
+			t.Fatalf("version = %d, want the 1 the file says", doc.Set.Version)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a local edit was never noticed")
 	}
+
+	// AND THE FILE IS BYTE-FOR-BYTE WHAT WAS WRITTEN. A person editing a policy has
+	// an editor holding that buffer; rewriting it under them to change a number only
+	// a status line reads is the sort of help nobody asked for.
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != edited {
+		t.Fatalf("the sync rewrote the user's file:\n have %s\n want %s", after, edited)
+	}
 }
 
-func TestTheSyncDoesNotReactToItsOwnWrite(t *testing.T) {
-	// The auto-increment rewrites the file. Without the own-write guard that
-	// rewrite reads as a fresh edit and the two ends bounce versions forever.
+// ONE EDIT IS ONE UPDATE.
+//
+// This was TestTheSyncDoesNotReactToItsOwnWrite, and it guarded a real hazard: the
+// version bump rewrote the file, the watcher saw the ModTime move, and without a
+// window in which our own write did not count, the two ends bounced versions at each
+// other forever. The sync writes nothing now, so the hazard is gone — but "one edit,
+// one reload" is the property that mattered, and a reload is not free: it recompiles
+// the policy for every call in flight.
+func TestOneEditIsOneUpdate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "policy.json")
 	writePolicyFile(t, path, `{"name":"P","version":1,"rules":[]}`)
@@ -177,7 +201,6 @@ func TestTheSyncDoesNotReactToItsOwnWrite(t *testing.T) {
 	var count int
 	m := NewSyncManager(SyncOptions{
 		LocalPath:     path,
-		APIKey:        "sg_test_local_only",
 		WatchInterval: 20 * time.Millisecond,
 		Initial:       initial,
 		OnPolicyUpdate: func(PolicyDoc) {
@@ -189,9 +212,10 @@ func TestTheSyncDoesNotReactToItsOwnWrite(t *testing.T) {
 	m.Start()
 	defer m.Stop()
 
-	time.Sleep(1100 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	writePolicyFile(t, path, `{"name":"P","version":1,"rules":[{"id":"r1","effect":"DENY","toolPattern":"shell*","enabled":true}]}`)
-	time.Sleep(2500 * time.Millisecond)
+	// Several watch intervals, so a second reload would have happened by now.
+	time.Sleep(1500 * time.Millisecond)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -213,7 +237,6 @@ func TestADeletedPolicyFileKeepsTheLoadedPolicy(t *testing.T) {
 	var lines []string
 	m := NewSyncManager(SyncOptions{
 		LocalPath:      path,
-		APIKey:         "sg_test_local_only",
 		WatchInterval:  20 * time.Millisecond,
 		Initial:        initial,
 		OnPolicyUpdate: func(PolicyDoc) { t.Error("a deleted file produced a policy update") },
@@ -245,131 +268,65 @@ func TestADeletedPolicyFileKeepsTheLoadedPolicy(t *testing.T) {
 
 // ── pushing up ─────────────────────────────────────────────────────────────
 
-func TestPushCreatesThePolicyWhenThePutIs404(t *testing.T) {
-	var methods []string
-	var mu sync.Mutex
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		methods = append(methods, r.Method+" "+r.URL.Path)
-		mu.Unlock()
-		if r.Method == http.MethodPut {
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":{"code":"NOT_FOUND","message":"no such policy"}}`))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"pol_1","_version":9}`))
-	}))
-	defer server.Close()
-
-	client := newCloudClient("sg_live_test_key", server.URL)
-	doc, _ := DecodePolicyDoc([]byte(`{"name":"P","version":1,"rules":[]}`))
-
-	version, err := pushPolicy(t.Context(), client, "pol_1", doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if version != 9 {
-		t.Fatalf("version = %d, want the 9 the API answered with", version)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(methods) != 2 || !strings.HasPrefix(methods[0], "PUT") || !strings.HasPrefix(methods[1], "POST") {
-		t.Fatalf("calls = %v, want a PUT then a POST", methods)
-	}
-}
-
-func TestFetchCloudPolicyReadsTheUnderscoreVersion(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if strings.HasSuffix(r.URL.Path, "/policies") {
-			_, _ = w.Write([]byte(`{"policies":[{"id":"pol_first"}]}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"id":"pol_first","name":"Cloud","_version":4,"rules":[]}`))
-	}))
-	defer server.Close()
-
-	client := newCloudClient("sg_live_test_key", server.URL)
-	doc, err := fetchCloudPolicy(t.Context(), client, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.Set.Version != 4 {
-		t.Fatalf("version = %d, want 4", doc.Set.Version)
-	}
-	if doc.Set.ID != "pol_first" {
-		t.Fatalf("id = %q", doc.Set.ID)
-	}
-}
-
 // ── the audit backup ───────────────────────────────────────────────────────
 
-func TestAuditEntriesLandInTheBackupWhenEveryAttemptFails(t *testing.T) {
-	// An audit trail with a hole in it is worse than one that is late.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
+// The audit record lands in THIS MACHINE's trail — the same file the guard and the
+// hooks append to, so a machine has one log rather than two.
+//
+// Four tests here used to cover a service instead: a policy pushed up and created
+// on a 404, a version read out of `_version`, a client error not being retried, and
+// an entry falling back to `.solongate-audit-backup.jsonl` when every attempt
+// failed. That backup is the shape worth not repeating — a second log, in whatever
+// directory the proxy started in, holding exactly the entries somebody would most
+// want to find.
+func TestTheProxyRecordIsWrittenWhereEverythingElseReadsIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
-	dir := t.TempDir()
-	restore, err := os.Getwd()
+	var logged []string
+	writeAuditEntry(auditEntry{
+		Tool:      "Bash",
+		Arguments: map[string]any{"command": "rm -rf /tmp/x"},
+		Decision:  "DENY",
+		Reason:    "Blocked by policy",
+		Timestamp: "2026-01-01T00:00:00.000Z",
+	}, func(line string) { logged = append(logged, line) })
+
+	if len(logged) != 0 {
+		t.Fatalf("writing the record reported a problem: %v", logged)
+	}
+	path := filepath.Join(config.LocalLogsDir(), "solongate-audit.jsonl")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("the record was not written to %s: %v", path, err)
+	}
+
+	var back map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(raw))), &back); err != nil {
+		t.Fatalf("the line is not one JSON object: %v\n%s", err, raw)
+	}
+	if back["decision"] != "DENY" || back["tool"] != "Bash" {
+		t.Errorf("the entry does not say what happened: %v", back)
+	}
+	// The timestamp used to be omitted for anything going to a service, which
+	// stamped its own. The file is the record now and the readers sort on it.
+	if back["timestamp"] != "2026-01-01T00:00:00.000Z" {
+		t.Errorf("timestamp = %v, want the one that was written", back["timestamp"])
+	}
+
+	// A log of what somebody was working on: owner-only, in an owner-only folder.
+	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("mode = %04o, want 0600", mode)
 	}
-	defer os.Chdir(restore)
-
-	client := newCloudClient("sg_live_test_key", server.URL)
-	sendAuditLog(t.Context(), client, auditEntry{
-		Tool: "shell_exec", Decision: "DENY", Reason: "blocked",
-		Arguments: map[string]any{"cmd": "rm -rf /"},
-	}, func(string) {})
-
-	body, err := os.ReadFile(filepath.Join(dir, ".solongate-audit-backup.jsonl"))
+	dir, err := os.Stat(config.LocalLogsDir())
 	if err != nil {
-		t.Fatalf("no backup file: %v", err)
-	}
-	var entry map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(string(body))), &entry); err != nil {
 		t.Fatal(err)
 	}
-	if entry["tool"] != "shell_exec" || entry["decision"] != "DENY" {
-		t.Fatalf("entry = %v", entry)
-	}
-	if entry["timestamp"] == nil {
-		t.Fatal("the backup entry has no timestamp")
-	}
-}
-
-func TestAClientErrorIsNotRetried(t *testing.T) {
-	// A 4xx is an answer. Sending it again produces the same answer while
-	// delaying the next entry.
-	var attempts int
-	var mu sync.Mutex
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		mu.Lock()
-		attempts++
-		mu.Unlock()
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":{"code":"BAD","message":"malformed"}}`))
-	}))
-	defer server.Close()
-
-	dir := t.TempDir()
-	restore, _ := os.Getwd()
-	_ = os.Chdir(dir)
-	defer os.Chdir(restore)
-
-	client := newCloudClient("sg_live_test_key", server.URL)
-	sendAuditLog(t.Context(), client, auditEntry{Tool: "t", Decision: "ALLOW"}, func(string) {})
-
-	mu.Lock()
-	defer mu.Unlock()
-	if attempts != 1 {
-		t.Fatalf("attempts = %d, want 1", attempts)
+	if mode := dir.Mode().Perm(); mode != 0o700 {
+		t.Errorf("folder mode = %04o, want 0700", mode)
 	}
 }

@@ -231,9 +231,13 @@ type DLPSettings struct {
 // not send.
 type ActivePolicySecurity struct {
 	RateLimit *RateLimitSettings `json:"rateLimit"`
-	DLPBlock  *DLPSettings       `json:"dlpBlock"`
-	DLPRedact *DLPSettings       `json:"dlpRedact"`
-	LocalLogs json.RawMessage    `json:"localLogs"`
+	// RateLimitObserve carries the same numbers in DETECT mode, where a burst is
+	// flagged and never blocked. Exactly one of the two is ever set, and reading
+	// only the first reported a project in detect as having no rate limit at all.
+	RateLimitObserve *RateLimitSettings `json:"rateLimitObserve"`
+	DLPBlock         *DLPSettings       `json:"dlpBlock"`
+	DLPRedact        *DLPSettings       `json:"dlpRedact"`
+	LocalLogs        json.RawMessage    `json:"localLogs"`
 }
 
 type ActivePolicy struct {

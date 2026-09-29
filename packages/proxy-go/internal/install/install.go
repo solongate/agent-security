@@ -3,7 +3,6 @@ package install
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 
@@ -22,9 +21,15 @@ type Result struct {
 	Notes []string
 }
 
-// ErrNoLogin is the one failure that is not a fault: nothing is wrong with the
-// machine, it just has no credential to arm the guard with.
-var ErrNoLogin = errors.New("no login on this device — add an account first (Accounts → + add)")
+// ErrNoLogin was returned when the machine had no credential to arm the guard
+// with. It is kept, unreturned, because the TUI and the repair report still
+// recognise it when deciding whether a failure is the user's to fix — and because
+// deleting it would silently turn "you need to log in" into an unrecognised error
+// string rather than into what it actually is now: nothing at all.
+//
+// NOTHING RETURNS IT. A machine with no credential is fully installable, which is
+// the point: there is no account to have.
+var ErrNoLogin = errors.New("no login on this device")
 
 // Install lays the hooks down and registers them in every supported client.
 //
@@ -40,11 +45,12 @@ var ErrNoLogin = errors.New("no login on this device — add an account first (A
 func Install() Result {
 	p := GlobalPaths()
 
-	cred, err := resolveInstallCredential()
-	if err != nil {
-		return Result{Message: err.Error()}
-	}
-
+	// THE CREDENTIAL USED TO BE THE FIRST THING RESOLVED, and a machine without one
+	// got `no login on this device — add an account first (Accounts → + add)` and no
+	// install. On this build every machine is without one: nothing writes a
+	// credential, and the Accounts panel that message names is deleted. So the one
+	// command that arms the guard refused to run, on a product whose entire
+	// configuration is a file. It is not resolved, not required, and not written.
 	node, err := resolveNode(p)
 	if err != nil {
 		return Result{Message: err.Error()}
@@ -121,12 +127,6 @@ func Install() Result {
 	// gobinaries.go for why a platform without one is a valid install.
 	goBins := InstallGoBinaries()
 
-	// The credential the hooks enforce with, written through the same writer the
-	// rest of the CLI uses so a locked file is handled once and in one place.
-	if !config.SetActiveAccount(cred) {
-		return fail("could not write " + p.ConfigPath)
-	}
-
 	if err := claude.commit(); err != nil {
 		return fail(err.Error())
 	}
@@ -144,17 +144,6 @@ func Install() Result {
 	if st.plugin != nil {
 		_ = installOpencodePlugin(p, st.plugin)
 	}
-
-	// Every client that was just registered gets its policy pulled down now, so
-	// its first tool call is judged rather than waved through.
-	warmPolicyCache(p, node, []string{"claude-code", "codex", "antigravity", "opencode"})
-
-	// NOTE: the policy CACHE is deliberately not cleared here. The guard
-	// re-fetches it on its own schedule, and even a stale cache keeps the
-	// security config set — whereas deleting it forces a cold start where the
-	// first tool call has no cached config at all (the refresh is a detached
-	// background spawn), so DLP-block and rate limits silently do not
-	// apply on that one call.
 
 	if !locksDisabled() {
 		LockProtected()
@@ -205,49 +194,10 @@ func Uninstall() Result {
 	return Result{OK: true, Message: "guard removed (open a new session)"}
 }
 
-// resolveInstallCredential finds the key the installed hooks will enforce with.
-//
-// The order is the TypeScript's, including the part that looks odd: the stored
-// apiUrl wins over the environment. That is deliberate there — the URL belongs
-// to the account that was paired, and an exported SOLONGATE_API_URL from an
-// unrelated experiment must not silently re-point a device's guard.
-//
-// The last source is the account list. A fresh device login populates
-// accounts.json and the runtime view credential but NOT the active-key file, so
-// cloud-guard.json can be empty while the user is fully logged in; without this
-// step a logged-in user got "no login on this device" and could never install.
-func resolveInstallCredential() (config.Credential, error) {
-	apiKey := os.Getenv("SOLONGATE_API_KEY")
-	apiURL := os.Getenv("SOLONGATE_API_URL")
-	if apiURL == "" {
-		apiURL = config.DefaultAPIURL
-	}
-
-	stored := config.LoadCredentialFile()
-	if apiKey == "" {
-		apiKey = stored.APIKey
-	}
-	if stored.APIURL != "" {
-		apiURL = stored.APIURL
-	}
-
-	if apiKey == "" {
-		for _, acc := range config.ListAccounts() {
-			if acc.APIKey == "" {
-				continue
-			}
-			apiKey = acc.APIKey
-			if acc.APIURL != "" {
-				apiURL = acc.APIURL
-			}
-			break
-		}
-	}
-	if apiKey == "" {
-		return config.Credential{}, ErrNoLogin
-	}
-	return config.Credential{APIKey: apiKey, APIURL: apiURL}, nil
-}
+// resolveInstallCredential lived here. It looked in the environment, then the
+// active-key file, then the account list, and failed with ErrNoLogin when all three
+// were empty — which is every machine now. Deleted with the accounts it resolved
+// from: see Install for why nothing takes its place.
 
 // writeFileAtomic writes through a temporary file in the same directory and
 // renames it into place, so nothing ever reads a half-written hook.
@@ -285,40 +235,16 @@ func writeFileAtomic(path string, data []byte) error {
 	return os.Rename(tmp, path)
 }
 
-// warmPolicyCache fetches each client's policy into its cache, now, at install
-// time.
+// warmPolicyCache lived here: one detached `guard.mjs <agent> --sg-refresh-policy`
+// per registered client, so the first tool call after an install was judged against
+// a policy already fetched rather than waved through while the fetch ran. That was a
+// measured bug — on a fresh `opencode` id the first denied command was allowed, and
+// the identical call blocked once the cache existed.
 //
-// The guard serves policy stale-while-revalidate: a cold cache has nothing to
-// serve, so it allows and refreshes in the background for the NEXT call. The
-// cache is keyed per agent, so a newly registered client's FIRST tool call runs
-// with no policy at all. Measured on a fresh `opencode` id: the first call to a
-// command the active policy denies was allowed, and the identical call was
-// blocked once the cache existed.
-//
-// The guard already knows how to do this, so warming is running it once per
-// client rather than a second copy of the fetch. Detached and best-effort: an
-// offline install still succeeds, it simply leaves the first call in the old
-// state.
-func warmPolicyCache(p Paths, node string, agents []string) {
-	guard := p.GuardPath()
-	if !Exists(guard) || node == "" {
-		return
-	}
-	for _, agent := range agents {
-		cmd := exec.Command(node, guard, agent, "--sg-refresh-policy")
-		cmd.Stdin = nil
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		detach(cmd)
-		if cmd.Start() != nil {
-			continue
-		}
-		// Release rather than Wait: this process must not sit waiting for a
-		// refresh, and a child left unwaited-for is exactly the zombie the
-		// detached spawn was meant to avoid.
-		_ = cmd.Process.Release()
-	}
-}
+// There is no fetch and no cache. The guard reads a file, and a file needs no
+// warming; the first call after an install is judged exactly like the thousandth.
+// Four processes per install to accomplish nothing is worse than nothing, so they
+// are gone, and so is the flag they passed.
 
 // ClearUpdateCheckStamp deletes the stamp the installed guard reads to skip its
 // ~6h check for a newer bundle.

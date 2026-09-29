@@ -9,10 +9,11 @@
  * here because getting it wrong produces a PLAUSIBLE number rather than an
  * error, which is the worst failure this feature has.
  */
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { suite, check, note, done } from './harness.mjs';
 
 const HOOK = new URL('../hooks/tokens.mjs', import.meta.url);
@@ -199,6 +200,95 @@ suite('token usage — reporting nothing');
   check('no conversation id reports nothing',
     collectTokens({ common: {} }, 'antigravity').length, 0);
   note('zero is a measurement; absent is not, and the surfaces tell them apart');
+}
+
+suite('token usage — the figure lands on this machine');
+
+// COLLECTING A NUMBER AND DROPPING IT is the failure this block exists for.
+//
+// The hook POSTed each turn to a service. When the send was removed, the readers above
+// kept running on every Stop and the result went nowhere: the expensive half of the
+// hook ran and produced nothing. Every check here fails against that version, and the
+// first one is the whole point — a file that does not exist.
+//
+// This runs the hook as a PROGRAM, with a payload on stdin, so what is tested is what
+// a client actually invokes.
+{
+  const home = tmp();
+  const transcript = join(tmp(), 'conv.jsonl');
+  writeFileSync(transcript, [
+    JSON.stringify({
+      type: 'assistant', uuid: 'u1', sessionId: 's1',
+      message: {
+        id: 'msg_1', model: 'claude-opus-4',
+        usage: { input_tokens: 120, output_tokens: 34, cache_read_input_tokens: 8, cache_creation_input_tokens: 2 },
+      },
+    }),
+  ].join('\n') + '\n');
+
+  const r = spawnSync(process.execPath, [fileURLToPath(HOOK), 'claude-code', 'Claude Code'], {
+    input: JSON.stringify({ hook_event_name: 'Stop', session_id: 's1', transcript_path: transcript }),
+    env: { ...process.env, HOME: home },
+    encoding: 'utf-8',
+    timeout: 20000,
+  });
+  check('the hook exits cleanly', r.status, 0);
+
+  const dir = join(home, '.solongate', 'local-logs');
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.startsWith('token-usage-')) : [];
+  check('a usage file was written', files.length, 1);
+
+  const lines = files.length
+    ? readFileSync(join(dir, files[0]), 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    : [];
+  check('one line for one turn', lines.length, 1);
+  if (lines.length) {
+    check('the input count is the transcript\'s', lines[0].input, 120);
+    check('and the output count', lines[0].output, 34);
+    check('the model is named', lines[0].model, 'claude-opus-4');
+    check('the session is named', lines[0].session_id, 's1');
+    // The turn id is what lets a reader drop a repeat. A Stop that fires twice for one
+    // exchange must not double somebody's count, and without this there is no way to
+    // tell a duplicate from a second turn that happened to cost the same.
+    check('and the turn carries an id', typeof lines[0].turn_key === 'string' && lines[0].turn_key.length > 0, true);
+  }
+
+  // OWNER-ONLY. What a session cost is not as sensitive as what it said, but it is
+  // nobody else's business either, and the audit trail beside it holds the same mode.
+  if (files.length) {
+    const mode = statSync(join(dir, files[0])).mode & 0o777;
+    check('the file is owner-only', mode.toString(8), '600');
+  }
+
+  // A SECOND TURN APPENDS rather than replacing. One file per day, one line per turn.
+  const second = join(tmp(), 'conv2.jsonl');
+  writeFileSync(second, JSON.stringify({
+    type: 'assistant', uuid: 'u2', sessionId: 's1',
+    message: { id: 'msg_2', model: 'claude-opus-4', usage: { input_tokens: 7, output_tokens: 3 } },
+  }) + '\n');
+  spawnSync(process.execPath, [fileURLToPath(HOOK), 'claude-code', 'Claude Code'], {
+    input: JSON.stringify({ hook_event_name: 'Stop', session_id: 's1', transcript_path: second }),
+    env: { ...process.env, HOME: home },
+    encoding: 'utf-8',
+    timeout: 20000,
+  });
+  const after = readFileSync(join(dir, files[0]), 'utf-8').trim().split('\n').filter(Boolean);
+  check('a second turn appends', after.length, 2);
+}
+
+// A turn with nothing to report writes NOTHING — not a line of zeros. A zero is a
+// measurement, and a file full of them would make an average meaningless.
+{
+  const home = tmp();
+  spawnSync(process.execPath, [fileURLToPath(HOOK), 'claude-code', 'Claude Code'], {
+    input: JSON.stringify({ hook_event_name: 'Stop', session_id: 's1', transcript_path: '/nonexistent/nope.jsonl' }),
+    env: { ...process.env, HOME: home },
+    encoding: 'utf-8',
+    timeout: 20000,
+  });
+  const dir = join(home, '.solongate', 'local-logs');
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.startsWith('token-usage-')) : [];
+  check('nothing to report writes no file', files.length, 0);
 }
 
 process.exit(done());

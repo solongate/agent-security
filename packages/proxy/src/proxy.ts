@@ -25,7 +25,7 @@ import {
   RESPONSE_WARNING_MARKER,
 } from './core/index.js';
 import type { ProxyConfig } from './config.js';
-import { fetchCloudPolicy, fetchCloudPolicyWasm, sendAuditLog, DEFAULT_API_URL } from './config.js';
+import { writeAuditEntry } from './config.js';
 import { PolicySyncManager } from './sync.js';
 
 const log = (...args: unknown[]) => process.stderr.write(`[SolonGate] ${args.map(String).join(' ')}\n`);
@@ -183,75 +183,18 @@ export class SolonGateProxy {
   async start(): Promise<void> {
     log('Starting SolonGate Proxy...');
 
-    // Step 0: a service, IF one is configured. With no key nothing here runs and
-    // the policy is the file this machine keeps — the same one the guard reads.
-    const apiUrl = this.config.apiUrl ?? DEFAULT_API_URL;
-    if (this.config.apiKey) {
-      // sg_test_ keys only accepted in test/development environments
-      if (this.config.apiKey.startsWith('sg_test_')) {
-        const nodeEnv = process.env.NODE_ENV ?? '';
-        if (nodeEnv === 'production') {
-          log('ERROR: Test API keys (sg_test_) cannot be used in production. Use a sg_live_ key.');
-          process.exit(1);
-        }
-        log('Using test API key — skipping online validation (non-production mode).');
-      } else {
-        log(`Checking the API key with ${apiUrl}...`);
-        try {
-          const res = await fetch(`${apiUrl}/api/v1/auth/me`, {
-            headers: {
-              'X-API-Key': this.config.apiKey,
-              'Authorization': `Bearer ${this.config.apiKey}`,
-            },
-            signal: AbortSignal.timeout(10_000),
-          });
-          if (res.status === 401) {
-            log('ERROR: Invalid or expired API key.');
-            process.exit(1);
-          }
-          if (res.status === 403) {
-            log('ERROR: The service refused this API key (403). Check it with whoever runs it.');
-            process.exit(1);
-          }
-          log('API key accepted.');
-        } catch (err) {
-          // The service is the one the operator runs, so this is not an internet
-          // problem to report as one. Refusing to start is still right: the proxy
-          // has forwarded nothing yet, and coming up against a service it cannot
-          // read a policy from is worse than not coming up.
-          log(`ERROR: cannot reach ${apiUrl}. Check --api-url, or that the service is running.`);
-          log(`Details: ${err instanceof Error ? err.message : String(err)}`);
-          process.exit(1);
-        }
-      }
-
-      // Try fetching cloud policy (skip for test keys)
-      if (!this.config.apiKey.startsWith('sg_test_')) {
-        try {
-          const cloudPolicy = await fetchCloudPolicy(this.config.apiKey, apiUrl, this.config.policyId);
-          this.config.policy = cloudPolicy;
-          log(`Loaded cloud policy: ${cloudPolicy.name} (${cloudPolicy.rules.length} rules)`);
-        } catch (err) {
-          log(`Cloud policy fetch failed, using local policy: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-    }
-
+    // Step 0: THE POLICY IS THIS MACHINE'S FILE.
+    //
+    // There was a licence check here — /auth/me, refusing to start on a 401, a 403
+    // or an unreachable service — and then a policy fetched from that service with
+    // the file as a fallback. Both are gone with the service, so the file is not a
+    // fallback: it is the policy, and parseArgs has already resolved which one.
     // Reload policy into SolonGate engine after cloud fetch
     this.gate.loadPolicy(this.config.policy);
 
-    // An OPA WASM bundle is an UPGRADE, not a requirement. A service compiles one
-    // per policy version and serving it makes this a NIST SP 800-207 PDP; without
-    // one the engine decides with the guard's own evaluator, which is the same code
-    // the hook runs. It used to fail closed here and deny every call instead, which
-    // on a machine with no service is not fail-safe — it is not working.
-    if (this.config.apiKey && !this.config.apiKey.startsWith('sg_test_')) {
-      const wasm = await fetchCloudPolicyWasm(this.config.apiKey, apiUrl, this.config.policy.id);
-      if (wasm) {
-        await this.gate.loadWasmBundle(wasm as Uint8Array<ArrayBuffer>);
-        log(`OPA WASM policy loaded (${wasm.byteLength} bytes)`);
-      }
-    }
+    // NO OPA WASM. A bundle made this a NIST SP 800-207 PDP, and a service was what
+    // compiled one per policy version; with none to fetch, the engine decides with
+    // the guard's own evaluator — which is what decided on every cold start anyway.
     log(`Deciding with the ${this.gate.getEvaluatorMode()} evaluator.`);
 
     log(`Policy: ${this.config.policy.name} (${this.config.policy.rules.length} rules)`);
@@ -268,13 +211,7 @@ export class SolonGateProxy {
     // Step 2: Discover upstream tools
     await this.discoverTools();
 
-    // Step 3: Register tools to dashboard (fire-and-forget)
-    this.registerToolsToCloud();
-
-    // Step 3b: Register upstream MCP server to dashboard (fire-and-forget)
-    this.registerServerToCloud();
-
-    // Step 3c: Start bidirectional policy sync (local file ↔ cloud dashboard)
+    // Step 3: watch the policy file
     this.startPolicySync();
 
     // Step 4: Create downstream server and wire up handlers
@@ -462,11 +399,11 @@ export class SolonGateProxy {
         const evaluationTimeMs = Date.now() - startTime;
         log(`Result: ${decision} (${evaluationTimeMs}ms)`);
 
-        // Forward audit log to cloud if live API key is set
-        if (this.config.apiKey && !this.config.apiKey.startsWith('sg_test_')) {
-          const apiUrl = this.config.apiUrl ?? DEFAULT_API_URL;
-          log(`Sending audit log: ${name} → ${decision} (key: ${this.config.apiKey.slice(0, 16)}...)`);
-
+        // The record goes to THIS MACHINE's audit trail — the same file the guard and
+        // the hooks append to, so a machine has one log rather than two. It used to
+        // be POSTed, and only when a live key was configured, which meant a machine
+        // without one recorded nothing at all.
+        {
           // Extract clean reason and matched rule from result
           let reason = 'allowed';
           let matchedRule: string | undefined;
@@ -483,7 +420,7 @@ export class SolonGateProxy {
             }
           }
 
-          sendAuditLog(this.config.apiKey, apiUrl, {
+          writeAuditEntry({
             tool: name,
             arguments: (args ?? {}) as Record<string, unknown>,
             decision,
@@ -496,8 +433,6 @@ export class SolonGateProxy {
             sub_agent_id: subAgent?.subAgentId,
             sub_agent_name: subAgent?.subAgentName,
           });
-        } else {
-          log(`Skipping audit log (apiKey: ${this.config.apiKey ? 'test key' : 'not set'})`);
         }
 
         // Return the result (either upstream response or SolonGate denial)
@@ -601,118 +536,6 @@ export class SolonGateProxy {
   }
 
   /**
-   * Register discovered tools to the SolonGate Cloud API.
-   * This makes tools visible on the Dashboard (/tools page).
-   */
-  private registerToolsToCloud(): void {
-    if (!this.config.apiKey || this.config.apiKey.startsWith('sg_test_')) return;
-    const apiUrl = this.config.apiUrl ?? DEFAULT_API_URL;
-
-    const total = this.upstreamTools.length;
-    log(`Registering ${total} tools to dashboard...`);
-
-    const promises = this.upstreamTools.map((tool) =>
-      fetch(`${apiUrl}/api/v1/tools`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.config.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: tool.name,
-          description: tool.description ?? '',
-          input_schema: tool.inputSchema,
-          permissions: this.guessPermissions(tool.name),
-          enabled: true,
-        }),
-      }).then(async (res) => {
-        if (!res.ok && res.status !== 409) {
-          const body = await res.text().catch(() => '');
-          throw new Error(`${tool.name} (${res.status}): ${body}`);
-        }
-      }),
-    );
-
-    Promise.allSettled(promises).then((results) => {
-      const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
-      const rejected = results.filter((r) => r.status === 'rejected');
-      if (rejected.length > 0) {
-        for (const r of rejected) {
-          log(`Tool registration failed: ${(r as PromiseRejectedResult).reason}`);
-        }
-        log(`Tool registration: ${fulfilled}/${total} succeeded, ${rejected.length} failed.`);
-      } else {
-        log(`Tool registration: ${fulfilled}/${total} succeeded.`);
-      }
-    });
-  }
-
-  /**
-   * Guess tool permissions from tool name.
-   */
-  private guessPermissions(toolName: string): string[] {
-    return [guessPermission(toolName)];
-  }
-
-  /**
-   * Register the upstream MCP server to the SolonGate Cloud API.
-   * This makes it visible on the Dashboard MCP Servers page.
-   */
-  private registerServerToCloud(): void {
-    if (!this.config.apiKey || this.config.apiKey.startsWith('sg_test_')) return;
-    const apiUrl = this.config.apiUrl ?? DEFAULT_API_URL;
-
-    const transport = this.config.upstream.transport ?? 'stdio';
-    let serverName = this.config.name ?? 'solongate-proxy';
-    let serverUrl: string;
-    let command: string | undefined;
-    let args: string | undefined;
-
-    if (transport === 'stdio') {
-      command = this.config.upstream.command;
-      args = (this.config.upstream.args ?? []).join(' ');
-      serverUrl = `stdio://${command}`;
-      // Use the upstream command as the server name for clarity
-      serverName = command || serverName;
-    } else {
-      serverUrl = this.config.upstream.url || '';
-      // Use the URL hostname as part of the name
-      try {
-        const u = new URL(serverUrl);
-        serverName = u.hostname || serverName;
-      } catch {
-        // keep default name
-      }
-    }
-
-    fetch(`${apiUrl}/api/v1/mcp-servers`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: serverName,
-        url: serverUrl,
-        command: command || undefined,
-        args: args || undefined,
-      }),
-    }).then(async (res) => {
-      if (res.ok) {
-        log(`Registered MCP server "${serverName}" to dashboard.`);
-      } else if (res.status === 409) {
-        // Server already registered — update status to active
-        log(`MCP server "${serverName}" already registered.`);
-      } else {
-        const body = await res.text().catch(() => '');
-        log(`MCP server registration failed (${res.status}): ${body}`);
-      }
-    }).catch((err) => {
-      log(`MCP server registration error: ${err instanceof Error ? err.message : String(err)}`);
-    });
-  }
-
-  /**
    * Start bidirectional policy sync between local JSON file and cloud dashboard.
    *
    * - Watches local policy.json for changes → pushes to cloud API
@@ -723,33 +546,29 @@ export class SolonGateProxy {
   /**
    * Extract protected filenames from policy DENY rules (filenameConstraints.denied).
    */
+  /**
+   * Watch the policy file and reload the gate when it changes.
+   *
+   * It used to poll a service for a newer policy and push a local edit back to one,
+   * and re-fetch a recompiled WASM bundle on every reload. What is left is the half
+   * about this machine, and it matters more than it did: the file is the only
+   * source, so somebody editing it expects the proxy to follow without a restart.
+   */
   private startPolicySync(): void {
-    const apiKey = this.config.apiKey;
-    if (!apiKey) return;
-
-    const apiUrl = this.config.apiUrl ?? DEFAULT_API_URL;
+    if (!this.config.policyPath) return;
 
     this.syncManager = new PolicySyncManager({
-      localPath: this.config.policyPath ?? null,
-      apiKey,
-      apiUrl,
-      pollIntervalMs: 60_000,
+      localPath: this.config.policyPath,
       initialPolicy: this.config.policy,
-      policyId: this.config.policyId,
-      onPolicyUpdate: async (policy) => {
+      onPolicyUpdate: (policy) => {
         this.config.policy = policy;
         this.gate.loadPolicy(policy);
-        // Reload the recompiled OPA WASM bundle for the new version (fail-closed).
-        if (!this.config.apiKey!.startsWith('sg_test_')) {
-          const wasm = await fetchCloudPolicyWasm(this.config.apiKey!, apiUrl, policy.id);
-          if (wasm) await this.gate.loadWasmBundle(wasm as Uint8Array<ArrayBuffer>);
-        }
-        log(`Policy hot-reloaded: ${policy.name} v${policy.version} (${policy.rules.length} rules)`);
+        log(`Policy reloaded: ${policy.name} v${policy.version} (${policy.rules.length} rules)`);
       },
     });
 
     this.syncManager.start();
-    log('Bidirectional policy sync started.');
+    log(`Watching ${this.config.policyPath} for changes.`);
   }
 
   /**

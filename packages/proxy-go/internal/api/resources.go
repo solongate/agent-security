@@ -325,8 +325,12 @@ func (p PoliciesAPI) Active(ctx context.Context, agentID string) (ActivePolicy, 
 	if s.Policy != nil {
 		out.Hash = hashOf(s.Policy)
 	}
-	if l.RateLimit.Mode == LayerBlock {
-		out.Security.RateLimit = &RateLimitSettings{PerMinute: l.RateLimit.PerMinute, PerHour: l.RateLimit.PerHour, PerDay: l.RateLimit.PerDay}
+	nums := &RateLimitSettings{PerMinute: l.RateLimit.PerMinute, PerHour: l.RateLimit.PerHour, PerDay: l.RateLimit.PerDay}
+	switch l.RateLimit.Mode {
+	case LayerBlock:
+		out.Security.RateLimit = nums
+	case LayerDetect:
+		out.Security.RateLimitObserve = nums
 	}
 	custom := make([]json.RawMessage, 0, len(l.DLP.Custom))
 	for _, c := range l.DLP.Custom {

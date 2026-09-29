@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"math"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,18 +66,13 @@ func CollectChecks(ctx context.Context, c *api.Client) []Check {
 		checks = append(checks, Check{Name: name, OK: ok, Detail: detail})
 	}
 
-	if !c.Authenticated() {
-		add("login", StateFail, "not logged in - run `solongate`, add your account in the Accounts panel")
-	} else {
-		creds, err := c.Credentials()
-		if err != nil {
-			add("login", StateFail, "not logged in - run `solongate`, add your account in the Accounts panel")
-		} else {
-			add("login", StateOK, "paired · "+creds.APIURL)
-			checks = append(checks, policyChecks(ctx, c)...)
-			checks = append(checks, guardHookCheck(ctx, c)...)
-		}
-	}
+	// The first check used to be `login`, and it failed with "not logged in — add
+	// your account in the Accounts panel". Everything below it was skipped on that
+	// failure, so a machine with no service reported nothing about itself at all.
+	// The first check is the file everything else comes from.
+	add("policy file", StateOK, api.PolicyPath())
+	checks = append(checks, policyChecks(ctx, c)...)
+	checks = append(checks, guardHookCheck(ctx, c)...)
 
 	checks = append(checks, nativeGuardCheck()...)
 	checks = append(checks, clientChecks()...)
@@ -99,14 +93,20 @@ type activeWithObserve struct {
 	rateLimitObserve *api.RateLimitSettings
 }
 
+// fetchActive reads what the guard would enforce, from the file the guard reads.
+//
+// It used to go through c.Do for the raw body, because rateLimitObserve is not on
+// ActivePolicy and re-asking for it typed would have lost it. Reading the file
+// answers both in one pass: a detect-mode limit is `rateLimitObserve` there.
 func fetchActive(ctx context.Context, c *api.Client) (activeWithObserve, error) {
-	var raw json.RawMessage
-	if err := c.Do(ctx, http.MethodGet, "/policies/active", api.RequestOptions{}, &raw); err != nil {
+	active, err := c.Policies.Active(ctx, "")
+	if err != nil {
 		return activeWithObserve{}, err
 	}
-	var out activeWithObserve
-	if err := json.Unmarshal(raw, &out.ActivePolicy); err != nil {
-		return activeWithObserve{}, err
+	out := activeWithObserve{ActivePolicy: active}
+	raw, err := json.Marshal(active)
+	if err != nil {
+		return out, nil
 	}
 	var extra struct {
 		Security *struct {
@@ -122,7 +122,10 @@ func fetchActive(ctx context.Context, c *api.Client) (activeWithObserve, error) 
 func policyChecks(ctx context.Context, c *api.Client) []Check {
 	active, err := fetchActive(ctx, c)
 	if err != nil {
-		return []Check{{Name: "api", OK: StateFail, Detail: "unreachable: " + err.Error()}}
+		// The guard reads this file too, and answers the same way: an unparseable
+		// policy is no policy, so nothing is enforced. A failed check, not an
+		// "api unreachable".
+		return []Check{{Name: "policy", OK: StateFail, Detail: err.Error()}}
 	}
 
 	var checks []Check
@@ -356,7 +359,7 @@ func localLogCheck() []Check {
 	st, err := os.Stat(file)
 	if err != nil {
 		return []Check{{Name: "local logs", OK: StateWarn,
-			Detail: "off (logs go to cloud) - enable in dashboard → Settings"}}
+			Detail: "nothing recorded yet · " + file}}
 	}
 	ageMin := float64(time.Since(st.ModTime())) / float64(time.Minute)
 	when := strconv.FormatInt(roundHalfUp(ageMin), 10) + "m ago"

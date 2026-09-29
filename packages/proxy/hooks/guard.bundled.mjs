@@ -140,6 +140,23 @@ function extractUrls(args) {
   }
   return [...urls];
 }
+function extractPipelines(args) {
+  args = normalizeArgs(args);
+  const out = [];
+  const fields = ["command", "cmd", "function", "script", "shell"];
+  if (typeof args === "object" && args) {
+    for (const [k, v] of Object.entries(args)) {
+      if (fields.includes(k.toLowerCase()) && typeof v === "string") {
+        for (const part of v.split(/\s*(?:&&|\|\||;)\s*/)) {
+          const trimmed = part.trim();
+          if (trimmed)
+            out.push(trimmed);
+        }
+      }
+    }
+  }
+  return out;
+}
 function extractCommands(args) {
   args = normalizeArgs(args);
   const cmds = [];
@@ -322,11 +339,10 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 98;
+var HOOK_VERSION = 99;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
-var SG_REFRESH_ARG = process.argv.includes("--sg-refresh-policy");
-var SG_STDIN = SG_REFRESH_ARG ? "" : (() => {
+var SG_STDIN = (() => {
   try {
     return readFileSync(0, "utf-8");
   } catch {
@@ -415,7 +431,7 @@ function sgTryGoGuard() {
     process.exit(status);
   }
 }
-if (!SG_REFRESH_ARG && process.env.SOLONGATE_NO_GO_GUARD !== "1") {
+if (process.env.SOLONGATE_NO_GO_GUARD !== "1") {
   try {
     sgTryGoGuard();
   } catch {
@@ -453,18 +469,8 @@ function loadLocalPolicyFile(cwd) {
   }
   return null;
 }
-function accountMark() {
-  try {
-    return API_KEY ? createHash("sha256").update(API_KEY).digest("hex").slice(0, 16) : "";
-  } catch {
-    return "";
-  }
-}
 function writeLocalLog(security, entry) {
   try {
-    const mark = accountMark();
-    if (mark)
-      entry = { ...entry, acct: mark };
     const l = security && security.localLogs;
     if (!l || typeof l.path !== "string" || !l.path.trim()) {
       const fallbackDir = resolve(homedir(), ".solongate", "local-logs");
@@ -485,53 +491,6 @@ function writeLocalLog(security, entry) {
   }
 }
 var MAX_FILE_READ = 1024 * 1024;
-function loadEnvKey(dir) {
-  try {
-    const envPath = resolve(dir, ".env");
-    if (!existsSync(envPath))
-      return {};
-    const lines = readFileSync(envPath, "utf-8").split("\n");
-    const env = {};
-    for (const line of lines) {
-      const m = line.match(/^([A-Z_]+)=(.*)$/);
-      if (m)
-        env[m[1]] = m[2].replace(/^["']|["']$/g, "").trim();
-    }
-    return env;
-  } catch {
-    return {};
-  }
-}
-function loadGlobalCloudConfig() {
-  try {
-    const p = resolve(homedir(), ".solongate", "cloud-guard.json");
-    if (!existsSync(p))
-      return {};
-    const cfg = JSON.parse(readFileSync(p, "utf-8"));
-    return cfg && typeof cfg === "object" ? cfg : {};
-  } catch {
-    return {};
-  }
-}
-function isRealKey(k) {
-  if (typeof k !== "string")
-    return false;
-  const v = k.trim();
-  if (!/^sg_(live|test)_/.test(v))
-    return false;
-  const body = v.replace(/^sg_(live|test)_/, "");
-  if (/your_key_here|placeholder|example|^x+$/i.test(body))
-    return false;
-  return /^[a-f0-9]{16,}$/i.test(body);
-}
-var hookCwdEarly = process.cwd();
-var dotenv = loadEnvKey(hookCwdEarly);
-var globalCfg = loadGlobalCloudConfig();
-var API_URL = process.env.SOLONGATE_API_URL || globalCfg.apiUrl || dotenv.SOLONGATE_API_URL || "http://127.0.0.1:3002";
-var API_KEY = [process.env.SOLONGATE_API_KEY, globalCfg.apiKey, dotenv.SOLONGATE_API_KEY].find(isRealKey) || "";
-var API_KEY_SOURCE = process.env.SOLONGATE_API_KEY && isRealKey(process.env.SOLONGATE_API_KEY) ? "environment variable SOLONGATE_API_KEY" : isRealKey(globalCfg.apiKey) ? "login (~/.solongate)" : join(hookCwdEarly, ".env");
-var API_URL_SOURCE = process.env.SOLONGATE_API_URL ? "environment variable SOLONGATE_API_URL" : globalCfg.apiUrl ? "login (~/.solongate)" : join(hookCwdEarly, ".env");
-var AUTH_HEADERS = API_KEY ? { "Authorization": "Bearer " + API_KEY, "X-API-Key": API_KEY } : {};
 var AGENT_TYPE = process.argv[2] || "claude-code";
 var POLICY_SELECTOR = process.env.SOLONGATE_AGENT_ID || "";
 var AGENT_ID = POLICY_SELECTOR || AGENT_TYPE;
@@ -1102,7 +1061,7 @@ function egressSecretCheck(args, sec, cwd) {
     if (!dlp)
       return null;
     const base = cwd || process.cwd();
-    for (const cmd of extractCommands(args)) {
+    for (const cmd of extractPipelines(args)) {
       const c = String(cmd || "");
       const lc = c.toLowerCase();
       if (!/\b(curl|wget|scp|rsync|sftp|ftp|nc|netcat)\b/.test(lc))
@@ -1121,6 +1080,17 @@ function egressSecretCheck(args, sec, cwd) {
           const f = m[1];
           if (f && f !== "-" && !/^https?:\/\//.test(f) && !/^[@{[]/.test(f))
             files.add(f);
+        }
+      }
+      if (/\b(scp|rsync|sftp)\b/.test(lc)) {
+        for (const tok of c.split(/\s+/).slice(1)) {
+          if (!tok || tok.startsWith("-"))
+            continue;
+          if (/^[\w.-]*@?[\w.-]+:/.test(tok))
+            continue;
+          if (/^https?:\/\//.test(tok))
+            continue;
+          files.add(tok.replace(/^@/, ""));
         }
       }
       for (let f of files) {
@@ -1448,52 +1418,6 @@ input += SG_STDIN;
         } catch {
         }
       }
-      try {
-        const _ak = (AGENT_ID || "default").replace(/[^a-zA-Z0-9_-]/g, "_");
-        const _cf = join(resolve(homedir(), ".solongate"), ".policy-cache-" + _ak + ".json");
-        let _selfProt = true, _sec = null, _cacheOk = false;
-        try {
-          const _c = JSON.parse(readFileSync(_cf, "utf-8"));
-          _cacheOk = true;
-          if (_c && typeof _c.selfProtect === "boolean")
-            _selfProt = _c.selfProtect;
-          if (_c && _c.security !== void 0)
-            _sec = _c.security;
-        } catch {
-        }
-        const _tr = _cacheOk && _selfProt ? tamperCheck(toolName, args) : null;
-        const _er = !_tr && _cacheOk ? egressSecretCheck(args, _sec, call.cwd) : null;
-        const _deny = _tr || _er;
-        if (_deny) {
-          const _logEntry = {
-            tool: toolName,
-            arguments: args,
-            decision: "DENY",
-            reason: _deny,
-            permission: guessPermission(toolName),
-            source: `${AGENT_TYPE}-guard`,
-            agent_id: AGENT_TYPE,
-            agent_name: AGENT_NAME,
-            session_id: call.sessionId,
-            evaluation_time_ms: Date.now() - _evalStart
-          };
-          try {
-            writeLocalLog(_sec, { ts: (/* @__PURE__ */ new Date()).toISOString(), ..._logEntry });
-          } catch {
-          }
-          try {
-          } catch {
-          }
-          if (AGENT_TYPE !== "codex")
-            process.stderr.write(`[SolonGate ROUTE] BLACK (block)
-`);
-          writeDenyFlag(toolName);
-          blockTool(_deny);
-        }
-      } catch (_e) {
-        if (_e === SG_DONE)
-          throw _e;
-      }
       const hookCwd = call.cwd || process.cwd();
       let policy;
       let selfProtectEnabled = true;
@@ -1524,6 +1448,8 @@ input += SG_STDIN;
       if (process.env.SOLONGATE_DEBUG) {
       }
       let reason = selfProtectEnabled ? tamperCheck(toolName, args) : null;
+      if (!reason)
+        reason = egressSecretCheck(args, securityCfg, call.cwd);
       if (!reason)
         reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
       if (process.env.SOLONGATE_DEBUG) {

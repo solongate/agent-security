@@ -12,12 +12,14 @@
  * that `login` adds to the shell so every terminal session is masked automatically:
  *   node ~/.solongate/hooks/shield.mjs -- "<real claude>" <args...>
  *
- * Logic mirrors src/shield.ts — keep the two in sync.
+ * There is no second implementation of this one: the Go guard covers the tool path,
+ * and the LLM path is this file alone. (It used to say "logic mirrors src/shield.ts";
+ * that file is gone.)
  */
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { spawn } from 'node:child_process';
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -110,42 +112,44 @@ const DLP_PATTERNS = [
   { name: 'PostHog key', re: /ph[cs]_[0-9A-Za-z]{40,}/g },
 ];
 
-// Find the policy cache to read. The guard writes one per agent
-// (.policy-cache-<agent>.json) - the shield wraps `claude` and doesn't know the
-// agent id, so unless SOLONGATE_AGENT_ID is set it picks the MOST RECENTLY
-// written cache (the active session's). A fixed 'default' missed the guard's
-// real cache, so custom patterns never reached the shield.
-function findCacheFile() {
-  const dir = resolve(homedir(), '.solongate');
-  const envSel = process.env.SOLONGATE_AGENT_ID;
-  if (envSel) {
-    const f = resolve(dir, '.policy-cache-' + envSel.replace(/[^a-zA-Z0-9_-]/g, '_') + '.json');
-    if (existsSync(f)) return f;
-  }
-  let best = null, bestTs = -1;
-  try {
-    for (const name of readdirSync(dir)) {
-      if (name.startsWith('.policy-cache-') && name.endsWith('.json')) {
-        const full = resolve(dir, name);
-        const ts = statSync(full).mtimeMs;
-        if (ts > bestTs) { bestTs = ts; best = full; }
-      }
-    }
-  } catch { /* dir missing */ }
-  return best;
-}
-
+// ── What to redact comes from the policy file ────────────────────────────────
+//
+// This used to hunt for a policy CACHE: `.policy-cache-<agent>.json`, and because the
+// shield wraps `claude` and does not know the agent id, it picked the most recently
+// written one of them unless SOLONGATE_AGENT_ID named one. Nothing writes that cache
+// any more, and the fallback when it found none was
+//
+//     return { patterns: DLP_PATTERNS.map((p) => p.name), custom: [] };
+//
+// — every built-in pattern and NO CUSTOM ONES. So a custom pattern in somebody's
+// policy was enforced by the guard, enforced by the audit hook, and silently ignored
+// on the one surface that sees the prompt itself. A custom pattern is what somebody
+// adds for a secret shaped like their own company's tokens, which is exactly the
+// thing the built-in list cannot know about.
+//
+// The file is read in both spellings the guard accepts, and `dlpBlock` counts as
+// redaction: a file written by hand usually carries only `dlpBlock`, which reads as
+// "refuse secrets", and taking `dlpRedact` alone gave that file no masking here.
+//
+// The fallback is unchanged and deliberate: WITH NO POLICY AT ALL, every built-in
+// pattern is masked. The shield is the LLM path — there is no call to allow or deny,
+// only text on its way to a model — so the safe default is to mask, and a machine
+// that has not configured anything still does not leak its keys into a prompt.
 function loadCfg() {
+  const defaults = () => ({ patterns: DLP_PATTERNS.map((p) => p.name), custom: [] });
   try {
-    const f = findCacheFile();
-    if (f && existsSync(f)) {
-      const c = JSON.parse(readFileSync(f, 'utf-8'));
-      const d = c && c.security && c.security.dlpRedact;
-      if (d && Array.isArray(d.patterns)) return { patterns: d.patterns, custom: Array.isArray(d.custom) ? d.custom : [] };
-      return { patterns: DLP_PATTERNS.map((p) => p.name), custom: [] };
-    }
-  } catch { /* default below */ }
-  return { patterns: DLP_PATTERNS.map((p) => p.name), custom: [] };
+    const p = resolve(homedir(), '.solongate', 'policy.json');
+    if (!existsSync(p)) return defaults();
+    const obj = JSON.parse(readFileSync(p, 'utf-8'));
+    if (!obj || typeof obj !== 'object') return defaults();
+    const sec = (obj.security && typeof obj.security === 'object') ? obj.security
+      : (obj.policy && obj.policy.security && typeof obj.policy.security === 'object') ? obj.policy.security
+        : null;
+    if (!sec) return defaults();
+    const d = sec.dlpRedact || sec.dlpBlock;
+    if (!d || !Array.isArray(d.patterns)) return defaults();
+    return { patterns: d.patterns, custom: Array.isArray(d.custom) ? d.custom : [] };
+  } catch { return defaults(); }
 }
 
 // Custom patterns are GLOBs: `*` = any run of non-whitespace, same as the policy layer.
@@ -201,10 +205,10 @@ function pickUpstream() {
 function startProxy(upstream) {
   const forward = upstream.protocol === 'https:' ? httpsRequest : httpRequest;
   const server = createServer((req, res) => {
-    // Re-read the DLP config on every request (cheap: a small JSON) so changing
-    // DLP mode / patterns in the dashboard takes effect WITHOUT restarting claude —
-    // the guard rewrites this cache within ~one call, matching how the audit hook
-    // already re-reads per call. Loading once at startup left the shield stale.
+    // Re-read the DLP config on every request (cheap: a small JSON) so editing the
+    // policy file takes effect WITHOUT restarting claude — the audit hook re-reads per
+    // call for the same reason. Loading once at startup left the shield stale for the
+    // life of a session, which can be a whole day.
     const cfg = loadCfg();
     const chunks = [];
     req.on('data', (c) => chunks.push(c));

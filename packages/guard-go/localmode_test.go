@@ -182,7 +182,7 @@ func TestTheRecordIsWrittenWhateverTheSettingSays(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
-			writeLocalLog(c.sec, sgshared.Credential{}, map[string]interface{}{
+			writeLocalLog(c.sec, map[string]interface{}{
 				"tool": "Bash", "decision": "DENY",
 			})
 			f := filepath.Join(home, ".solongate", "local-logs", "solongate-audit.jsonl")
@@ -198,7 +198,7 @@ func TestTheRecordIsWrittenWhateverTheSettingSays(t *testing.T) {
 		t.Setenv("HOME", home)
 		dir := filepath.Join(home, "elsewhere")
 		writeLocalLog(&sgshared.Security{LocalLogs: &sgshared.LocalLogs{Enabled: true, Path: dir}},
-			sgshared.Credential{}, map[string]interface{}{"tool": "Bash", "decision": "DENY"})
+			map[string]interface{}{"tool": "Bash", "decision": "DENY"})
 		if _, err := os.Stat(filepath.Join(dir, "solongate-audit.jsonl")); err != nil {
 			t.Fatalf("the configured folder was not used: %v", err)
 		}

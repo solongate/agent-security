@@ -43,6 +43,8 @@ export function normalizeArgs(args: unknown): unknown;
 export function extractFilenames(args: unknown): string[];
 export function extractUrls(args: unknown): string[];
 export function extractCommands(args: unknown): string[];
+/** Like extractCommands, but a pipeline stays one string — see the .mjs. */
+export function extractPipelines(args: unknown): string[];
 export function extractPaths(args: unknown, isExec: boolean): string[];
 export function patternsOf(constraint: unknown): string[] | null;
 export function permissionApplies(rule: unknown, toolName: string): boolean;

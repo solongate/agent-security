@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"strconv"
 	"strings"
 
@@ -158,23 +157,19 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		if id == "" {
 			return usageErr("Usage: policy delete <id>")
 		}
-		// Raw, because the typed Remove discards the body and the confirmation
-		// line echoes the id the API says it deleted rather than the one asked
-		// for — the difference matters when the API resolves an alias.
-		var raw json.RawMessage
-		if err := c.Do(ctx, http.MethodDelete, "/policies/"+esc(id), api.RequestOptions{}, &raw); err != nil {
+		// This used to go through c.Do for the response BODY, because the
+		// confirmation echoed the id the service said it had deleted rather than
+		// the one asked for — "the difference matters when the API resolves an
+		// alias". There is no alias to resolve: one machine, one file.
+		if err := c.Policies.Remove(ctx, id); err != nil {
 			return 1, err
 		}
-		if jsonOut {
-			printJSON(raw)
-			return 0, nil
-		}
-		var res struct {
+		res := struct {
 			PolicyID string `json:"policy_id"`
-		}
-		_ = json.Unmarshal(raw, &res)
-		if res.PolicyID == "" {
-			res.PolicyID = id
+		}{PolicyID: id}
+		if jsonOut {
+			printJSON(mustJSON(map[string]any{"deleted": true, "policy_id": id}))
+			return 0, nil
 		}
 		okf("Deleted %s", res.PolicyID)
 		return 0, nil
@@ -370,12 +365,15 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 			}
 			body["policyId"] = id
 		}
-		var raw json.RawMessage
-		if err := c.Do(ctx, http.MethodPost, "/policies/active", api.RequestOptions{Body: body}, &raw); err != nil {
+		id := ""
+		if v, ok := body["policyId"].(string); ok {
+			id = v
+		}
+		if err := c.Policies.SetActive(ctx, id); err != nil {
 			return 1, err
 		}
 		if jsonOut {
-			printJSON(raw)
+			printJSON(mustJSON(map[string]any{"ok": true, "active": id}))
 			return 0, nil
 		}
 		if off {
@@ -383,15 +381,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 			errln(dim("    Pin one again with: solongate policy activate <id>"))
 			return 0, nil
 		}
-		var res struct {
-			Active *string `json:"active"`
-		}
-		_ = json.Unmarshal(raw, &res)
-		active := body["policyId"].(string)
-		if res.Active != nil {
-			active = *res.Active
-		}
-		okf("Pinned active policy → %s", active)
+		okf("Enforcing %s — it is this machine's policy file.", id)
 		return 0, nil
 
 	}
@@ -469,4 +459,14 @@ func setRuleEnabled(pol api.PolicySet, ruleID string, enabled bool) (api.PolicyS
 	}
 	pol.Rules = api.Rules{Raw: raw, Items: pol.Rules.Items}
 	return pol, true
+}
+
+// mustJSON builds a small object for --json output. The shapes here are this CLI's
+// own, not a service's response echoed back.
+func mustJSON(v any) json.RawMessage {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return b
 }

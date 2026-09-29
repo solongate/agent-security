@@ -130,20 +130,37 @@ func TestAFailedInstallChangesNothing(t *testing.T) {
 	}
 }
 
-// No credential is not a fault, and it must not half-arm the machine either.
-func TestInstallWithoutALoginChangesNothing(t *testing.T) {
+// A MACHINE WITH NO CREDENTIAL INSTALLS, and that is the ordinary machine.
+//
+// This test used to require the opposite, and it was right to: while the policy came
+// from a service, a guard with no key could enforce nothing, and half-arming the
+// machine would have been worse than refusing. It read
+//
+//	r := Install()
+//	if r.OK || r.Message != ErrNoLogin.Error() { t.Fatalf(...) }
+//
+// and it passed. Which means that on a build where nothing writes a credential, the
+// install refused on every machine — the test was green and the product was
+// uninstallable. Nothing about enforcing a file needs an account.
+func TestInstallWithoutACredentialStillInstalls(t *testing.T) {
 	home := sandbox(t)
 	haveHookSources(t)
 
 	r := Install()
-	if r.OK || r.Message != ErrNoLogin.Error() {
-		t.Fatalf("expected the no-login refusal, got %+v", r)
+	if !r.OK {
+		t.Fatalf("install refused on a machine with no credential: %+v", r)
 	}
-	if Exists(filepath.Join(home, ".claude", "settings.json")) {
-		t.Error("a settings file was written for a device with no account")
+	if !Exists(filepath.Join(home, ".claude", "settings.json")) {
+		t.Error("no settings file: the guard is not registered with Claude Code")
 	}
-	if Exists(filepath.Join(home, ".solongate", "hooks", GuardHookName)) {
-		t.Error("a guard was installed for a device with no account")
+	if !Exists(filepath.Join(home, ".solongate", "hooks", GuardHookName)) {
+		t.Error("no guard hook on disk")
+	}
+	// AND NO CREDENTIAL WAS INVENTED. The install used to write one here — the key
+	// it had just resolved, into the file the hooks read. It has none to write, and
+	// writing an empty one would leave a file that looks like a configuration.
+	if Exists(GlobalPaths().ConfigPath) {
+		t.Errorf("the install wrote %s on a machine that has no account", GlobalPaths().ConfigPath)
 	}
 }
 
@@ -246,13 +263,14 @@ func TestUninstallTakesOnlyOurRegistrations(t *testing.T) {
 	if Exists(GlobalPaths().OpencodePluginPath) {
 		t.Error("the OpenCode plugin survived the uninstall — the file IS the registration")
 	}
-	// The hooks and the credential stay. Removing the guard from the clients is
-	// not the same request as logging the device out.
+	// The hooks stay. Removing the guard from the clients is not a request to
+	// delete the programs, and a reinstall then needs nothing fetched.
+	//
+	// There used to be a second file to check here — the account credential, which
+	// an uninstall had no business touching. Nothing writes one, so there is nothing
+	// left to leave alone.
 	if !Exists(GlobalPaths().GuardPath()) {
 		t.Error("the uninstall deleted the hook files")
-	}
-	if !Exists(GlobalPaths().ConfigPath) {
-		t.Error("the uninstall deleted the account credential")
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 
 	"github.com/codeyevsky/solongate/proxy/internal/api"
 	"github.com/codeyevsky/solongate/proxy/internal/commands"
-	"github.com/codeyevsky/solongate/proxy/internal/config"
 	"github.com/codeyevsky/solongate/proxy/internal/install"
 	"github.com/codeyevsky/solongate/proxy/internal/tui"
 )
@@ -46,21 +45,14 @@ func TestRateLimitFitsWithData(t *testing.T) {
 	}
 }
 
-// Settings is the panel that grows: every account and workspace is a row, and
-// the doctor result adds unselectable lines under one of them. It still has to
-// fit, and the selected row still has to be inside the window.
+// Settings is the panel that grows: the doctor and repair results add
+// unselectable lines under the row that produced them. It still has to fit, and
+// the selected row still has to be inside the window.
+//
+// It used to grow further, with a row per account and per workspace. Those are
+// gone with the service they described.
 func TestSettingsFitsWithData(t *testing.T) {
 	p := NewSettings(testDeps())
-	p.accounts = []config.SavedAccount{
-		{APIKey: "sg_live_" + strings.Repeat("a", 32), Email: "someone@example.com", Project: "prod"},
-		{APIKey: "sg_live_" + strings.Repeat("b", 32), Email: "other@example.com", Project: "staging"},
-	}
-	// The workspaces this account owns are rows too, and they are the newest
-	// thing on the panel: a frame that outgrows its budget makes this TUI
-	// repaint the whole terminal on every render.
-	p.haveSpace = true
-	p.spaces = []api.Workspace{{ID: "p1", Name: "prod"}, {ID: "p2", Name: "staging"}}
-	p.spaceNow = "p1"
 	p.haveLocal, p.local = true, api.LocalLogsConfig{Enabled: true, Path: "/var/log/solongate"}
 	p.haveGuard, p.haveSelf = true, true
 	p.diag = []commands.Check{{Name: "login", OK: commands.StateOK, Detail: "paired"}}
@@ -478,17 +470,6 @@ func TestToggleStringKeepsOrder(t *testing.T) {
 	}
 }
 
-// The rows a locked (unpaired) device shows: the accounts section and nothing
-// else. Every cloud row would need a key that does not exist.
-func TestLockedDeviceOnlyShowsAccounts(t *testing.T) {
-	p := NewSettings(testDeps())
-	p.accounts = nil
-	rows := p.allRows()
-	if len(rows) != 1 || rows[0].kind != "acct-add" {
-		t.Fatalf("locked rows = %+v", rows)
-	}
-}
-
 // ── kit ────────────────────────────────────────────────────────────────────
 
 func TestWindowKeepsCursorInView(t *testing.T) {
@@ -547,9 +528,6 @@ func TestTruncateNeverExceeds(t *testing.T) {
 func TestRepairShowsWhatItDid(t *testing.T) {
 	p := NewSettings(testDeps())
 	p.haveGuard, p.haveSelf = true, true
-	p.accounts = []config.SavedAccount{
-		{APIKey: "sg_live_" + strings.Repeat("a", 32), Email: "someone@example.com", Project: "prod"},
-	}
 	p.repairReport = &install.Report{
 		OK:      true,
 		Message: "guard repaired.",
@@ -588,58 +566,5 @@ func TestANewRepairClearsTheOldResult(t *testing.T) {
 	p.activate(setRow{kind: "repair"})
 	if p.repairReport != nil {
 		t.Error("starting a repair left the previous run's result on screen")
-	}
-}
-
-// A CLI THAT KNOWS WHAT A WORKSPACE IS.
-//
-// A machine pairs once and is handed a key for one project, so every screen in
-// this dataroom belonged to whichever workspace the pairing landed on. Somebody
-// with two of them had to remove the account and add it again to see the second
-// - which also moved what the guard on that machine enforces, whether they
-// meant it or not.
-func TestTheSettingsPanelListsTheAccountsWorkspaces(t *testing.T) {
-	p := NewSettings(testDeps())
-	p.accounts = []config.SavedAccount{
-		{APIKey: "sg_live_" + strings.Repeat("a", 32), Email: "ada@example.com", Project: "prod"},
-	}
-	p.haveGuard, p.haveSelf = true, true
-
-	// ONE WORKSPACE IS NOT A SECTION. A list of the only project this account
-	// has answers a question nobody asked and puts a row under the cursor that
-	// cannot do anything.
-	p.haveSpace, p.spaces = true, []api.Workspace{{ID: "p1", Name: "prod"}}
-	for _, r := range p.allRows() {
-		if r.kind == "ws" {
-			t.Fatal("a single workspace is drawn as a section to choose from")
-		}
-	}
-
-	p.spaces = []api.Workspace{{ID: "p1", Name: "prod"}, {ID: "p2", Name: "staging"}}
-	var listed []string
-	for _, r := range p.allRows() {
-		if r.kind == "ws" {
-			listed = append(listed, r.ws.ID)
-			if sectionOf(r) != "WORKSPACES" {
-				t.Errorf("a workspace row is filed under %q", sectionOf(r))
-			}
-		}
-	}
-	if strings.Join(listed, ",") != "p1,p2" {
-		t.Fatalf("the workspaces read %v", listed)
-	}
-
-	// Which one this machine is in comes from the account row's project name,
-	// because that is the only thing the pairing wrote down.
-	p.spaceNow = ""
-	p.Update(setSpacesMsg{data: p.spaces}, ctxOf(80, 24))
-	if p.spaceNow != "p1" {
-		t.Errorf("this machine is shown in %q, want the workspace its key is for", p.spaceNow)
-	}
-
-	// The one it is already in is not a move: doing the round trip anyway would
-	// revoke and re-mint a working key to arrive where it started.
-	if cmd := p.activate(setRow{kind: "ws", ws: api.Workspace{ID: "p1", Name: "prod"}}); cmd != nil {
-		t.Error("selecting the workspace this machine is in asks the cloud for a key")
 	}
 }

@@ -132,8 +132,6 @@ func TestShellFrameNeverReachesTerminalHeight(t *testing.T) {
 		for _, cols := range []int{70, 81, 82, 120, 200} {
 			for _, takeover := range []bool{false, true} {
 				app := New(Deps{API: api.New(), Cfg: config.TUIConfig{}})
-				app.accounts = []config.SavedAccount{{APIKey: "sg_live_" + strings.Repeat("a", 32), Email: "a@example.com"}}
-				app.viewKey = app.accounts[0].APIKey
 				app.section = SectionLive
 				app.mount()
 				app.Update(tea.WindowSizeMsg{Width: cols, Height: rows})
@@ -154,20 +152,31 @@ func TestShellFrameNeverReachesTerminalHeight(t *testing.T) {
 	}
 }
 
-// With no account on file only Settings is reachable, and the frame still fits.
-func TestShellLockedOpensOnSettings(t *testing.T) {
+// A FRESH MACHINE REACHES EVERY SECTION. This used to assert the opposite — with
+// no account on file only Settings was reachable and the shell opened there — and
+// that was the mistake: on a machine whose policy is a file, "not paired" locked
+// people out of their own policy, their own audit log and their own settings.
+func TestAFreshMachineReachesEverySection(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	app := New(Deps{API: api.New(), Cfg: config.TUIConfig{}})
-	if !app.locked() {
-		t.Fatal("no accounts on disk, expected the shell to be locked")
+	if app.effectiveSection() != 0 {
+		t.Fatalf("a fresh shell opened on section %d, want the first", app.effectiveSection())
 	}
-	if app.effectiveSection() != SectionSettings {
-		t.Fatalf("locked shell opened on section %d, want Settings", app.effectiveSection())
+	for i := range sectionLabels {
+		app.section = i
+		if app.effectiveSection() != i {
+			t.Fatalf("section %d (%s) is not reachable", i, sectionLabels[i])
+		}
 	}
+	app.section = 0
 	app.mount()
 	app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	if n := lineCount(app.View()); n > 29 {
-		t.Fatalf("locked shell rendered %d lines, must be <= 29", n)
+		t.Fatalf("the shell rendered %d lines, must be <= 29", n)
+	}
+	// And nothing is struck through: the ⊘ marked a section the lock made inert.
+	if strings.Contains(app.View(), "⊘") {
+		t.Error("a section is still rendered as unreachable")
 	}
 }
 

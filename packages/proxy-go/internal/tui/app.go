@@ -118,19 +118,6 @@ type GenMsg interface{ Generation() int }
 // SectionRequestMsg asks the shell to open another section, by its nav label.
 type SectionRequestMsg struct{ Label string }
 
-// ViewAccountMsg points the dataroom at another account already logged in on
-// this device. It changes what is READ; the guard hooks keep enforcing with the
-// device's active key.
-type ViewAccountMsg struct {
-	APIKey string
-	APIURL string
-}
-
-// AccountsChangedMsg says accounts.json changed underneath the shell (Settings
-// removing or signing out of one). The header, the lock state and the panels
-// are all re-derived from disk.
-type AccountsChangedMsg struct{}
-
 // UpdateStatusMsg is the self-update flow reporting in. The shell only renders
 // it; nothing here installs anything.
 type UpdateStatusMsg struct {
@@ -231,12 +218,13 @@ const (
 type App struct {
 	deps Deps
 
-	// Accounts logged in on this device. viewKey is the one the dataroom reads
-	// from; gen is bumped on every switch so panels are rebuilt and any answer
-	// still in flight for the previous account is dropped.
-	accounts []config.SavedAccount
-	viewKey  string
-	gen      int
+	// gen is bumped whenever a panel has to be rebuilt, so an answer still in
+	// flight for the previous mount is dropped rather than rendered.
+	gen int
+
+	// policyLabel is what is being enforced, read from the policy file. It used
+	// to be which account the dataroom was viewing.
+	policyLabel string
 
 	section int
 	focus   focusTarget
@@ -250,29 +238,48 @@ type App struct {
 	panelIdx int
 }
 
-// New builds the shell. With no account on file it opens on Settings, because
-// logging in happens from inside the dataroom and every other section has
-// nothing to show without a key.
+// New builds the shell. Every section is reachable from the first frame: they all
+// read this machine, and there is nothing to be paired with.
 func New(deps Deps) *App {
-	accounts := config.ListAccounts()
 	a := &App{
-		deps:     deps,
-		accounts: accounts,
-		cols:     100,
-		rows:     30,
-		panelIdx: -1,
-	}
-	if len(accounts) > 0 {
-		a.viewKey = accounts[0].APIKey
-	} else {
-		a.section = SectionSettings
+		deps:        deps,
+		cols:        100,
+		rows:        30,
+		panelIdx:    -1,
+		policyLabel: "reading…",
 	}
 	return a
 }
 
 func (a *App) Init() tea.Cmd {
-	cmds := []tea.Cmd{a.mount(), a.reconcileLocalLogOwner(), a.backfillIdentity()}
-	return tea.Batch(cmds...)
+	return tea.Batch(a.mount(), a.reconcileLocalLogOwner(), a.readPolicyLabel())
+}
+
+// policyLabelMsg carries the header line back to the shell.
+type policyLabelMsg struct{ text string }
+
+// readPolicyLabel fills the header line from the policy file. An unreadable file
+// is worth saying out loud there: the guard reads the same one and enforces
+// nothing when it cannot parse it.
+func (a *App) readPolicyLabel() tea.Cmd {
+	client := a.deps.API
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		list, err := client.Policies.List(ctx)
+		switch {
+		case err != nil:
+			return policyLabelMsg{text: err.Error()}
+		case len(list) == 0:
+			return policyLabelMsg{text: "none yet"}
+		default:
+			word := " rules"
+			if len(list[0].Rules.Items) == 1 {
+				word = " rule"
+			}
+			return policyLabelMsg{text: list[0].Name + " · " + strconv.Itoa(len(list[0].Rules.Items)) + word}
+		}
+	}
 }
 
 // mount builds the panel for the current section and runs its Init. It is the
@@ -293,17 +300,10 @@ func (a *App) remount() tea.Cmd {
 	return a.mount()
 }
 
-func (a *App) locked() bool { return len(a.accounts) == 0 }
-
-// effectiveSection is the section actually shown. Until a device is paired only
-// Settings is reachable; every other section is inert because there is no key
-// to read anything with.
-func (a *App) effectiveSection() int {
-	if a.locked() {
-		return SectionSettings
-	}
-	return a.section
-}
+// effectiveSection is the section actually shown. There is no longer anything
+// that makes one unreachable: `locked()` used to answer "no account on file", and
+// every section but Settings was inert behind it.
+func (a *App) effectiveSection() int { return a.section }
 
 func (a *App) ctx() PanelContext {
 	cols, rows := a.panelBudget()
@@ -311,13 +311,12 @@ func (a *App) ctx() PanelContext {
 		cols, rows = a.cols, a.rows-1
 	}
 	return PanelContext{
-		Deps:       a.deps,
-		Cols:       cols,
-		Rows:       rows,
-		Focused:    a.focus == focusPanel,
-		ViewAPIKey: a.viewKey,
-		Gen:        a.gen,
-		Now:        time.Now(),
+		Deps:    a.deps,
+		Cols:    cols,
+		Rows:    rows,
+		Focused: a.focus == focusPanel,
+		Gen:     a.gen,
+		Now:     time.Now(),
 	}
 }
 
@@ -358,9 +357,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SectionRequestMsg:
 		for i, label := range sectionLabels {
 			if label == m.Label {
-				if a.locked() {
-					return a, nil
-				}
 				a.section = i
 				a.focus = focusPanel
 				return a, a.mount()
@@ -368,17 +364,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case ViewAccountMsg:
-		a.deps.API.SetViewCredentials(&config.Credential{APIKey: m.APIKey, APIURL: m.APIURL})
-		a.accounts = config.ListAccounts()
-		a.viewKey = m.APIKey
-		return a, tea.Batch(a.remount(), a.reconcileLocalLogOwner(), a.backfillIdentity())
-
-	case AccountsChangedMsg:
-		return a, a.syncAccounts()
-
 	case UpdateStatusMsg:
 		a.update = m
+		return a, nil
+
+	case policyLabelMsg:
+		a.policyLabel = m.text
 		return a, nil
 	}
 
@@ -386,33 +377,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil // a previous mount's answer, arriving after the switch
 	}
 	return a, a.toPanel(msg)
-}
-
-// syncAccounts re-derives everything from disk after Settings mutated the
-// account set. Falling back to a surviving account, or clearing the view
-// entirely when the last one was removed, keeps the header, the account count
-// and the locked state in lockstep.
-func (a *App) syncAccounts() tea.Cmd {
-	list := config.ListAccounts()
-	a.accounts = list
-	var next *config.SavedAccount
-	for i := range list {
-		if list[i].APIKey == a.viewKey {
-			next = &list[i]
-			break
-		}
-	}
-	if next == nil && len(list) > 0 {
-		next = &list[0]
-	}
-	if next != nil {
-		a.deps.API.SetViewCredentials(&config.Credential{APIKey: next.APIKey, APIURL: next.APIURL})
-		a.viewKey = next.APIKey
-	} else {
-		a.deps.API.SetViewCredentials(nil)
-		a.viewKey = ""
-	}
-	return tea.Batch(a.remount(), a.reconcileLocalLogOwner())
 }
 
 func (a *App) toPanel(msg tea.Msg) tea.Cmd {
@@ -450,22 +414,6 @@ func (a *App) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	if a.locked() {
-		// Only entering the Settings panel (and quitting) is allowed.
-		switch {
-		case key == tea.KeyRight || key == tea.KeyEnter || key == tea.KeyTab:
-			a.focus = focusPanel
-		case key == tea.KeyEsc:
-			a.focus = focusNav
-		case (str == "q" || str == "Q") && a.focus == focusNav:
-			return a, tea.Quit
-		}
-		if a.focus == focusPanel {
-			return a, a.toPanel(k)
-		}
-		return a, nil
-	}
-
 	if a.focus == focusNav {
 		switch {
 		case key == tea.KeyUp:
@@ -478,7 +426,6 @@ func (a *App) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.focus = focusPanel
 			return a, nil
 		case str == "a" || str == "A":
-			return a, a.switchAccount()
 		case str == "q" || str == "Q":
 			return a, tea.Quit
 		}
@@ -495,72 +442,6 @@ func (a *App) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 	}
 	return a, cmd
-}
-
-// switchAccount cycles which account the dataroom VIEWS. Data only: the guard
-// hooks keep using the device's active key, so looking at another project
-// cannot disarm this machine.
-func (a *App) switchAccount() tea.Cmd {
-	if len(a.accounts) < 2 {
-		return nil
-	}
-	next := a.accounts[(a.accountIndex()+1)%len(a.accounts)]
-	return func() tea.Msg { return ViewAccountMsg{APIKey: next.APIKey, APIURL: next.APIURL} }
-}
-
-func (a *App) accountIndex() int {
-	for i, acc := range a.accounts {
-		if acc.APIKey == a.viewKey {
-			return i
-		}
-	}
-	return 0
-}
-
-func (a *App) current() *config.SavedAccount {
-	if len(a.accounts) == 0 {
-		return nil
-	}
-	i := a.accountIndex()
-	return &a.accounts[i]
-}
-
-// backfillIdentity fills in who an account belongs to, once.
-//
-// The label is the PERSON, not the project: e-mail first, then user name, then
-// project name. Never the API key. Offline the current label simply stays.
-func (a *App) backfillIdentity() tea.Cmd {
-	cur := a.current()
-	if cur == nil || cur.Email != "" {
-		return nil
-	}
-	acc := *cur
-	client := a.deps.API
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		me, err := client.Auth.Me(ctx)
-		if err != nil {
-			return nil
-		}
-		next := acc
-		if me.Project != nil && me.Project.Name != "" {
-			next.Project = me.Project.Name
-		}
-		if me.User != nil {
-			if me.User.Name != "" {
-				next.User = me.User.Name
-			}
-			if me.User.Email != "" {
-				next.Email = me.User.Email
-			}
-		}
-		if next == acc {
-			return nil
-		}
-		config.SaveAccount(next)
-		return AccountsChangedMsg{}
-	}
 }
 
 // reconcileLocalLogOwner makes sure the machine-local log belongs to the
@@ -597,7 +478,7 @@ func (a *App) boxedView() string {
 	}
 	lines := []string{""} // paddingTop = 1
 	lines = append(lines, a.bannerLines(inner)...)
-	lines = append(lines, a.accountLine(inner))
+	lines = append(lines, a.policyLine(inner))
 	lines = append(lines, "") // marginTop = 1 on the nav+panel row
 	lines = append(lines, a.navAndPanel(inner)...)
 	lines = append(lines, a.hintsLine(inner))
@@ -623,45 +504,10 @@ func (a *App) bannerLines(width int) []string {
 	return out
 }
 
-// accountLine names WHO is logged in, and says so in the account's own terms.
-//
-// A saved row is not the same as a working session: when the key behind it is
-// gone (signed out elsewhere, revoked, a pairing that never finished) the
-// header used to keep naming the account while every panel said the opposite,
-// which reads as a bug rather than as "you need to sign in".
-func (a *App) accountLine(width int) string {
-	cur := a.current()
-	label := "not logged in"
-	if cur != nil {
-		switch {
-		case cur.Email != "":
-			label = cur.Email
-		case cur.User != "":
-			label = cur.User
-		case cur.Project != "":
-			label = cur.Project
-		default:
-			tail := cur.APIKey
-			if len(tail) > 4 {
-				tail = tail[len(tail)-4:]
-			}
-			label = "account …" + tail
-		}
-	}
-	labelColor := theme.AccentBright
-	if a.locked() {
-		labelColor = theme.Warn
-	}
-	segs := []seg{sg("account: ", theme.Dim), sgb(label, labelColor)}
-	switch {
-	case a.locked():
-		segs = append(segs, sg("  · log in from Settings to unlock the dataroom", theme.Dim))
-	case len(a.accounts) > 1:
-		segs = append(segs, sg("  ("+strconv.Itoa(a.accountIndex()+1)+"/"+strconv.Itoa(len(a.accounts))+
-			" · a switch · Settings to manage)", theme.Dim))
-	default:
-		segs = append(segs, sg("  · Settings to add another", theme.Dim))
-	}
+// policyLine names what is being ENFORCED. It used to name who was logged in.
+func (a *App) policyLine(width int) string {
+	segs := []seg{sg("policy: ", theme.Dim), sgb(a.policyLabel, theme.AccentBright)}
+	segs = append(segs, sg("  · this machine, nothing leaves it", theme.Dim))
 	switch a.update.Kind {
 	case "updating":
 		segs = append(segs, sg("  ↑ updating to v"+a.update.Version+"…", theme.Warn))
@@ -689,13 +535,9 @@ func (a *App) navAndPanel(width int) []string {
 	navLines := make([]string, 0, sectionCount)
 	for i, label := range sectionLabels {
 		isCur := i == a.effectiveSection()
-		disabled := a.locked() && i != SectionSettings
 		prefix, color := "  ", lipgloss.TerminalColor(nil)
-		switch {
-		case isCur:
+		if isCur {
 			prefix, color = "▸ ", theme.AccentBright
-		case disabled:
-			prefix, color = "⊘ ", theme.Dim
 		}
 		navLines = append(navLines, renderRow(12, seg{text: prefix + label, fg: color, bold: isCur}))
 	}
@@ -734,15 +576,9 @@ func (a *App) panelBody() string {
 
 func (a *App) hintsLine(width int) string {
 	switch {
-	case a.locked():
-		return keyHints([][2]string{{"→/enter", "open Settings"}, {"n", "log in"}, {"q", "quit"}}, width)
 	case a.focus == focusNav:
-		hints := [][2]string{{"↑↓", "section"}, {"→/enter", "open"}}
-		if len(a.accounts) > 1 {
-			hints = append(hints, [2]string{"a", "account"})
-		}
-		hints = append(hints, [2]string{"?", "help"}, [2]string{"q", "quit"})
-		return keyHints(hints, width)
+		return keyHints([][2]string{{"↑↓", "section"}, {"→/enter", "open"},
+			{"?", "help"}, {"q", "quit"}}, width)
 	default:
 		return keyHints([][2]string{{"←/esc", "back"}, {"↑↓", "in-panel"}, {"space/s", "act"}}, width)
 	}

@@ -1,9 +1,14 @@
 name: ci
 
 # Every job here corresponds to something that was found by running it rather
-# than by reading the code: the schema job exists because applying the DDL to a
-# real PostgreSQL is what caught three conversion bugs, and the conformance job
-# exists because it is the contract the guard is judged against.
+# than by reading the code. The conformance suite is the clearest: it is the
+# contract the guard is judged against, and it runs TWICE — once against the Node
+# hook and once against the Go binary — because which of the two decides a call
+# depends only on whether a machine has the binary.
+#
+# Three jobs used to live here and do not any more: the schema applied to a real
+# PostgreSQL and a real SQLite, and a real Keycloak signed a device in end to end.
+# Each of them caught something real. They went with the server they tested.
 on:
   push:
     branches: [main]
@@ -21,12 +26,10 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - apps/system
           - packages/proxy-go
           - packages/guard-go
           - packages/sgpolicy
           - packages/sgshared
-          - packages/aicatalog
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -53,14 +56,6 @@ jobs:
       - name: test
         working-directory: ${{ matrix.module }}
         run: go test ./...
-
-      # The store's PostgreSQL tests are behind a build tag and need a database,
-      # so they do not run here — but they must still COMPILE, or the tag becomes
-      # a place broken code hides. This is how one of them was found broken.
-      - name: postgres-tagged tests compile
-        if: matrix.module == 'apps/system'
-        working-directory: ${{ matrix.module }}
-        run: go vet -tags postgres ./internal/store/
 
   typescript:
     name: typescript
@@ -138,186 +133,6 @@ jobs:
         env:
           SG_HOOK: ${{ github.workspace }}/packages/guard-go/solongate-guard
         run: node packages/proxy/test/run-all.mjs
-
-  schema:
-    name: schema applies to postgres and sqlite
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: solongate
-          POSTGRES_PASSWORD: solongate
-          POSTGRES_DB: solongate
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U solongate"
-          --health-interval 5s --health-timeout 5s --health-retries 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-          cache-dependency-path: apps/system/go.sum
-
-      # The checked-in files are generated. If they have drifted from the
-      # generator, the file a DBA would apply is not the one the product means.
-      - name: the checked-in schema matches the generator
-        working-directory: apps/system
-        run: go test ./internal/store/ -run TestCheckedInSchema
-
-      # THE SQLITE FILE IS APPLIED TOO, and this step is here because its absence
-      # let a real break ship. The runtime DDL carries four ADD COLUMN statements
-      # for columns baseschema.sql already declares; postgres renders them with
-      # IF NOT EXISTS and shrugs, sqlite has no such form and errored on all four.
-      # Under -bail the file then abandoned the rest of itself and produced a
-      # database missing a table and six indexes — while printing a
-      # duplicate-column error that pointed nowhere near it.
-      #
-      # -bail, for the same reason postgres gets ON_ERROR_STOP: a schema that
-      # half-applies is the worst of the three outcomes, and the point of this job
-      # is to fail on it rather than to discover it on somebody's server.
-      - name: apply tools/schema/sqlite.sql
-        run: |
-          rm -f /tmp/schema-check.sqlite
-          sqlite3 -bail /tmp/schema-check.sqlite < tools/schema/sqlite.sql
-          # Count what landed. A file that applies cleanly and creates nothing
-          # would pass the command above, so the shape is asserted as well.
-          tables=$(sqlite3 /tmp/schema-check.sqlite \
-            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-          test "$tables" -ge 13 || {
-            echo "::error::sqlite schema has $tables tables, expected at least 13"
-            exit 1
-          }
-
-      # And the file actually applies. ON_ERROR_STOP with a single transaction,
-      # because a schema that half-applies is the worst outcome of the three.
-      - name: apply tools/schema/postgres.sql
-        env:
-          PGPASSWORD: solongate
-        run: |
-          psql -h 127.0.0.1 -U solongate -d solongate \
-               -v ON_ERROR_STOP=1 --single-transaction \
-               -f tools/schema/postgres.sql
-
-      # Then the product's own EnsureRuntimeTables over the top: it has to find
-      # everything already there and change nothing, which is the claim a
-      # hardened installation without CREATE rights depends on.
-      - name: the API starts against it
-        working-directory: apps/system
-        env:
-          DATABASE_URL: postgres://solongate:solongate@127.0.0.1:5432/solongate?sslmode=disable
-          PORT: '3002'
-        run: |
-          go build -o /tmp/api .
-          /tmp/api > /tmp/api.log 2>&1 &
-          for i in $(seq 1 30); do
-            curl -fsS -o /dev/null "http://127.0.0.1:3002/api/v1/policies" && break
-            curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:3002/api/v1/policies" | grep -q 401 && break
-            sleep 1
-          done
-          cat /tmp/api.log
-          if grep -q "runtime tables not ready" /tmp/api.log; then
-            echo "::error::EnsureRuntimeTables could not apply over the checked-in schema"
-            exit 1
-          fi
-          code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:3002/api/v1/policies")
-          test "$code" = "401" || { echo "::error::unauthenticated read answered $code, want 401"; exit 1; }
-
-  device-grant:
-    name: device grant against a real provider
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.25'
-          # BOTH modules. This job builds the system as well as the client, and
-          # naming only one leaves the other downloading OPA from cold — which
-          # is minutes, and which used to happen inside a sixty-second wait loop
-          # that then reported the system as never having come up.
-          cache-dependency-path: |
-            packages/proxy-go/go.sum
-            apps/system/go.sum
-
-      # 22, not the runner's default. tools/local-db.mjs seeds through
-      # node:sqlite, which arrived in 22.5 — on an older one it fails with
-      # ERR_UNKNOWN_BUILTIN_MODULE, which reads as a broken script.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      # docker run, NOT a services: block. The Keycloak image needs `start-dev`
-      # as its command — without one it prints its help and exits 0 — and a
-      # services: block has no way to pass an argument. It would come up dead
-      # and this job would fail on a connection refused rather than on anything
-      # about the product.
-      - name: start keycloak
-        run: |
-          docker run -d --name kc -p 8080:8080 \
-            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
-            quay.io/keycloak/keycloak:26.0 start-dev
-          for i in $(seq 1 60); do
-            curl -sf http://127.0.0.1:8080/realms/master/.well-known/openid-configuration >/dev/null && exit 0
-            sleep 2
-          done
-          docker logs kc; echo "::error::keycloak did not come up"; exit 1
-
-      # A realm, a PUBLIC client with the device grant enabled, and a person.
-      # This is the whole configuration an operator does once, so scripting it
-      # is also a check that the instructions in the README are complete.
-      - name: configure the provider
-        run: |
-          KC=http://127.0.0.1:8080
-          TOKEN=$(curl -s -d client_id=admin-cli -d username=admin -d password=admin \
-                    -d grant_type=password "$KC/realms/master/protocol/openid-connect/token" \
-                  | python3 -c "import json,sys;print(json.load(sys.stdin)['access_token'])")
-          A="Authorization: Bearer $TOKEN"
-          curl -sf -X POST -H "$A" -H 'Content-Type: application/json' "$KC/admin/realms" \
-            -d '{"realm":"solongate","enabled":true}'
-          curl -sf -X POST -H "$A" -H 'Content-Type: application/json' "$KC/admin/realms/solongate/clients" \
-            -d '{"clientId":"solongate-cli","publicClient":true,"standardFlowEnabled":false,
-                 "attributes":{"oauth2.device.authorization.grant.enabled":"true"}}'
-          curl -sf -X POST -H "$A" -H 'Content-Type: application/json' "$KC/admin/realms/solongate/users" \
-            -d '{"username":"ada","email":"ada@example.com","firstName":"Ada","lastName":"L",
-                 "emailVerified":true,"enabled":true,
-                 "credentials":[{"type":"password","value":"hunter2","temporary":false}]}'
-
-      # Built in its OWN step, not inside the wait loop. A compile failure here
-      # is a compile failure; inside the loop it was sixty seconds of silence
-      # followed by "the system did not come up".
-      - name: build the system
-        working-directory: apps/system
-        run: go build -o /tmp/system .
-
-      - name: seed a database and start the system
-        env:
-          SG_OIDC_ISSUER: http://127.0.0.1:8080/realms/solongate
-          SG_OIDC_CLIENT_ID: solongate-cli
-          PORT: '3002'
-        run: |
-          node tools/local-db.mjs > /dev/null
-          DATABASE_URL="file:$GITHUB_WORKSPACE/.local-db/solongate.sqlite" \
-            /tmp/system > /tmp/system.log 2>&1 &
-          for i in $(seq 1 30); do
-            curl -sf -o /dev/null "http://127.0.0.1:3002/api/v1/auth/config" && exit 0
-            sleep 1
-          done
-          cat /tmp/system.log; echo "::error::the system did not come up"; exit 1
-
-      # The whole path: a code, a person signing in at the provider, the token
-      # it issues, and the credential this system mints from the token's claims.
-      # This is what found the /auth/session gate reading an address out of a
-      # request body — no stub would have.
-      - name: sign in end to end
-        working-directory: packages/proxy-go
-        env:
-          SG_TEST_SYSTEM: http://127.0.0.1:3002
-        run: go test ./internal/api/ -run TestDeviceGrantAgainstRealKeycloak -v -timeout 180s
-
-      - name: the system's log, if anything failed
-        if: failure()
-        run: cat /tmp/system.log || true
 
   secrets:
     name: secret scan

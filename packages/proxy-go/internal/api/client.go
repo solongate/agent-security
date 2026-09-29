@@ -64,8 +64,6 @@ type Client struct {
 	Settings SettingsAPI
 	Stats    StatsAPI
 	Audit    AuditAPI
-	Device   DeviceAPI
-	Projects ProjectsAPI
 }
 
 // New builds a client. The sub-APIs are fields rather than free functions so a
@@ -84,8 +82,6 @@ func New() *Client {
 	c.Settings = SettingsAPI{c}
 	c.Stats = StatsAPI{c}
 	c.Audit = AuditAPI{c}
-	c.Device = DeviceAPI{c}
-	c.Projects = ProjectsAPI{c}
 	return c
 }
 

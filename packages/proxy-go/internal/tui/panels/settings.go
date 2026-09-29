@@ -51,29 +51,9 @@ var doctorSteps = []string{"login", "active policy", "guard hook", "agent hooks"
 
 type setRow struct {
 	kind string
-	acc  config.SavedAccount
-	ws   api.Workspace
 }
 
-func (r setRow) key() string {
-	switch r.kind {
-	case "acct":
-		return "acct:" + r.acc.APIKey
-	case "ws":
-		return "ws:" + r.ws.ID
-	}
-	return r.kind
-}
-
-type loginPhase string
-
-const (
-	loginNone     loginPhase = ""
-	loginStarting loginPhase = "starting"
-	loginWaiting  loginPhase = "waiting"
-	loginDone     loginPhase = "done"
-	loginError    loginPhase = "error"
-)
+func (r setRow) key() string { return r.kind }
 
 type setMessage struct {
 	text string
@@ -85,17 +65,6 @@ type (
 		genTag
 		data api.LocalLogsConfig
 		err  error
-	}
-	setSpacesMsg struct {
-		genTag
-		data []api.Workspace
-		err  error
-	}
-	setSwitchedMsg struct {
-		genTag
-		key string
-		ws  api.Workspace
-		err error
 	}
 	setGuardMsg struct {
 		genTag
@@ -123,21 +92,6 @@ type (
 	setDoctorMsg struct {
 		genTag
 		checks []commands.Check
-	}
-	setLoginStartMsg struct {
-		genTag
-		token int
-		start api.DeviceStart
-		err   error
-	}
-	setLoginPollMsg struct {
-		genTag
-		token int
-		res   api.DevicePoll
-	}
-	setLoginTickMsg struct {
-		genTag
-		token int
 	}
 	setSpinMsg struct{ genTag }
 	setDiskMsg struct{ genTag }
@@ -174,25 +128,6 @@ type Settings struct {
 	cols, rows int
 	focused    bool
 	gen, tok   int
-	viewKey    string
-
-	accounts []config.SavedAccount
-
-	// The workspaces this account owns, and which one this machine is in.
-	//
-	// A CLI SAW ONE WORKSPACE AND HAD NO WORD FOR THE REST. A machine pairs
-	// once and every screen here belongs to whichever project the pairing landed
-	// on; somebody with two of them had to remove the account and add it again
-	// to see the second, which also moved what the guard on this machine
-	// enforces. The list is read from the cloud because the key is what knows
-	// who the owner is - nothing on disk does.
-	spaces    []api.Workspace
-	haveSpace bool
-	spaceErr  error
-	// spaceNow is the id of the workspace the viewing key is for, which the API
-	// does not label in the list: it is the one this machine's own project row
-	// matches by name, and after a switch it is the one that was switched to.
-	spaceNow string
 
 	local     api.LocalLogsConfig
 	haveLocal bool
@@ -233,48 +168,36 @@ type Settings struct {
 	diagBusy bool
 	diagStep int
 
-	login      loginPhase
-	loginURL   string
-	loginMsg   string
-	loginToken int
-	loginStart api.DeviceStart
-	spin       int
+	spin int
 }
 
 func NewSettings(d tui.Deps) *Settings {
 	ti := textinput.New()
 	ti.Prompt = ""
 	return &Settings{
-		deps:     d,
-		cols:     60,
-		rows:     12,
-		hidden:   map[string]bool{},
-		input:    ti,
-		tok:      nextToken(),
-		accounts: config.ListAccounts(),
+		deps:   d,
+		cols:   60,
+		rows:   12,
+		hidden: map[string]bool{},
+		input:  ti,
+		tok:    nextToken(),
 	}
 }
 
 var _ tui.Panel = (*Settings)(nil)
 
-// CapturingKeys covers both the text prompts and the pairing overlay: during a
-// device login the only key that means anything is esc, and the shell must not
-// read `q` as quit while a browser round trip is in flight.
-func (p *Settings) CapturingKeys() bool { return p.editing != "" || p.loginActive() }
+// CapturingKeys covers the text prompts. It used to cover a pairing overlay too,
+// during which the only key that meant anything was esc.
+func (p *Settings) CapturingKeys() bool { return p.editing != "" }
 
 func (p *Settings) apply(ctx tui.PanelContext) {
-	p.cols, p.rows, p.focused, p.gen, p.viewKey = ctx.Cols, ctx.Rows, ctx.Focused, ctx.Gen, ctx.ViewAPIKey
+	p.cols, p.rows, p.focused, p.gen = ctx.Cols, ctx.Rows, ctx.Focused, ctx.Gen
 }
 
 func (p *Settings) tag() genTag { return genTag{gen: p.gen, tok: p.tok} }
 
-func (p *Settings) loginActive() bool { return p.login == loginStarting || p.login == loginWaiting }
-
-func (p *Settings) locked() bool { return len(p.accounts) == 0 }
-
 func (p *Settings) Init(ctx tui.PanelContext) tea.Cmd {
 	p.apply(ctx)
-	p.accounts = config.ListAccounts()
 	p.readDisk()
 	t := p.tag()
 	return tea.Batch(p.reloadAll(),
@@ -288,57 +211,11 @@ func (p *Settings) readDisk() {
 	p.llSetting = config.LocalLogsSetting()
 }
 
+// All three read this machine's own files. They used to be skipped while
+// unpaired, because each was an HTTP call that needed a key; there is nothing
+// left to skip.
 func (p *Settings) reloadAll() tea.Cmd {
-	p.accounts = config.ListAccounts()
-	if p.locked() {
-		// No key, nothing to ask the cloud with. Every cloud row is inert while
-		// unpaired and the panel still renders, because logging in happens here.
-		return nil
-	}
-	return tea.Batch(p.loadLocal(), p.loadGuard(), p.loadSelf(), p.loadSpaces())
-}
-
-// viewingAccount is the account this panel's cloud rows belong to: the one the
-// shell is viewing, or the first on the device when nothing has been chosen -
-// the same rule the account row's ● uses, so the two cannot disagree about
-// whose workspaces are being listed.
-func (p *Settings) viewingAccount() config.SavedAccount {
-	if p.viewKey != "" {
-		for _, a := range p.accounts {
-			if a.APIKey == p.viewKey {
-				return a
-			}
-		}
-	}
-	if len(p.accounts) > 0 {
-		return p.accounts[0]
-	}
-	return config.SavedAccount{}
-}
-
-func (p *Settings) loadSpaces() tea.Cmd {
-	t := p.tag()
-	return func() tea.Msg {
-		w, err := p.deps.API.Projects.List(bg())
-		return setSpacesMsg{genTag: t, data: w, err: err}
-	}
-}
-
-// switchSpace mints a key for another workspace and stores it against this
-// account.
-//
-// THE GUARD FOLLOWS, and that is the point rather than a side effect: a machine
-// is IN a workspace, and enforcing one project's policy while the dataroom shows
-// another's would be two answers to one question. It is the same
-// revoke-then-mint pairing does, so nothing is left live in the workspace being
-// left.
-func (p *Settings) switchSpace(id string) tea.Cmd {
-	t := p.tag()
-	p.busy = true
-	return func() tea.Msg {
-		key, ws, err := p.deps.API.Projects.Switch(bg(), id)
-		return setSwitchedMsg{genTag: t, key: key, ws: ws, err: err}
-	}
+	return tea.Batch(p.loadLocal(), p.loadGuard(), p.loadSelf())
 }
 
 func (p *Settings) loadLocal() tea.Cmd {
@@ -408,52 +285,6 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 		if m.err == nil {
 			p.local, p.haveLocal = m.data, true
 		}
-	case setSpacesMsg:
-		p.spaceErr = m.err
-		if m.err == nil {
-			p.spaces, p.haveSpace = m.data, true
-			// Which one this machine is in, when nothing has been switched yet:
-			// the account row records the workspace NAME the pairing wrote, and
-			// that is all there is to match on.
-			if p.spaceNow == "" {
-				for _, ws := range m.data {
-					if ws.Name != "" && ws.Name == p.viewingAccount().Project {
-						p.spaceNow = ws.ID
-					}
-				}
-			}
-		}
-	case setSwitchedMsg:
-		p.busy = false
-		if m.err != nil {
-			p.msg = &setMessage{text: "✗ " + errText(m.err), bad: true}
-			return p, nil
-		}
-		p.spaceNow = m.ws.ID
-		acc := p.viewingAccount()
-		next := config.SavedAccount{
-			APIKey: m.key, APIURL: acc.APIURL, Project: m.ws.Name,
-			User: acc.User, Email: acc.Email,
-		}
-		if next.APIURL == "" {
-			next.APIURL = config.DefaultAPIURL
-		}
-		// The account this machine had for the workspace it just left is gone:
-		// its key was revoked by the mint, so keeping the row would leave a
-		// dead credential in the list somebody could make active.
-		config.RemoveAccount(acc.APIKey)
-		config.SaveAccount(next)
-		if config.IsActiveAccount(acc.APIKey) {
-			// The guard was enforcing with the old key, which no longer
-			// authenticates. Moving it is what keeps this machine in ONE
-			// workspace rather than reading one and enforcing another.
-			config.SetActiveAccount(config.Credential{APIKey: next.APIKey, APIURL: next.APIURL})
-		}
-		p.msg = &setMessage{text: "✓ now in " + m.ws.Name}
-		return p, tea.Batch(
-			p.reloadAll(),
-			func() tea.Msg { return tui.ViewAccountMsg{APIKey: next.APIKey, APIURL: next.APIURL} },
-		)
 	case setGuardMsg:
 		p.guardErr = m.err
 		if m.err == nil {
@@ -482,7 +313,6 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 			return p, nil // a previous mount's clock: let the chain end here
 		}
 		p.readDisk()
-		p.accounts = config.ListAccounts()
 		t := p.tag()
 		return p, tea.Tick(3*time.Second, func(time.Time) tea.Msg { return setDiskMsg{t} })
 
@@ -499,7 +329,7 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 				p.diagStep = min(p.diagStep+1, len(doctorSteps)-1)
 			}
 		}
-		if p.loginActive() || p.busy || p.diagBusy {
+		if p.busy || p.diagBusy {
 			t := p.tag()
 			return p, tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return setSpinMsg{t} })
 		}
@@ -549,48 +379,6 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 		}
 		return p, nil
 
-	case setLoginStartMsg:
-		if m.tok != p.tok || m.token != p.loginToken {
-			return p, nil
-		}
-		if m.err != nil {
-			p.login = loginError
-			p.loginMsg = "could not reach SolonGate: " + errText(m.err)
-			return p, nil
-		}
-		p.login = loginWaiting
-		p.loginStart = m.start
-		p.loginURL = m.start.VerifyURL
-		api.OpenBrowser(m.start.VerifyURL)
-		t, token := p.tag(), m.token
-		return p, tea.Tick(m.start.Interval, func(time.Time) tea.Msg {
-			return setLoginTickMsg{genTag: t, token: token}
-		})
-
-	case setLoginTickMsg:
-		if m.tok != p.tok || m.token != p.loginToken || p.login != loginWaiting {
-			return p, nil
-		}
-		if time.Now().After(p.loginStart.ExpiresAt) {
-			p.login = loginError
-			p.loginMsg = "timed out — press n to retry"
-			return p, nil
-		}
-		// The whole flight, not just a code: Poll talks to the identity
-		// provider's token endpoint, and DeviceStart is what knows where that
-		// is. See internal/api/device.go.
-		start := p.loginStart
-		t := p.tag()
-		return p, func() tea.Msg {
-			return setLoginPollMsg{genTag: t, token: m.token, res: p.deps.API.Device.Poll(bg(), config.DefaultAPIURL, start)}
-		}
-
-	case setLoginPollMsg:
-		if m.tok != p.tok || m.token != p.loginToken || p.login != loginWaiting {
-			return p, nil
-		}
-		return p, p.onLoginPoll(m)
-
 	case tea.KeyMsg:
 		if !p.focused {
 			return p, nil
@@ -600,75 +388,10 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 	return p, nil
 }
 
-func (p *Settings) onLoginPoll(m setLoginPollMsg) tea.Cmd {
-	switch m.res.Status {
-	case api.DeviceApproved:
-		acc := config.SavedAccount{
-			APIKey: m.res.APIKey, APIURL: config.DefaultAPIURL,
-			Project: m.res.Project, User: m.res.User, Email: m.res.Email,
-		}
-		config.SaveAccount(acc)
-		p.login = loginDone
-		label := m.res.Email
-		if label == "" {
-			label = m.res.User
-		}
-		if label == "" {
-			label = m.res.Project
-		}
-		if label == "" {
-			label = "account"
-		}
-		p.loginMsg = "✓ added " + label
-		// The dataroom starts VIEWING the account that was just added; the shell
-		// re-points the client and remounts. The active (enforcing) key is a
-		// separate decision, made with `m`.
-		return tea.Batch(
-			p.reloadAll(),
-			func() tea.Msg { return tui.ViewAccountMsg{APIKey: acc.APIKey, APIURL: acc.APIURL} },
-		)
-
-	case api.DeviceExpired:
-		p.login = loginError
-		p.loginMsg = "the code expired — press n to retry"
-		return nil
-
-	// The provider, or this service, said no. It carries a reason and the
-	// reason is the useful half: "refused at the identity provider" and "minted
-	// for a different audience" are the same screen otherwise.
-	case api.DeviceDenied:
-		p.login = loginError
-		p.loginMsg = m.res.Message
-		if p.loginMsg == "" {
-			p.loginMsg = "the sign-in was refused — press n to retry"
-		}
-		return nil
-	}
-	t, token := p.tag(), p.loginToken
-	return tea.Tick(p.loginStart.Interval, func(time.Time) tea.Msg {
-		return setLoginTickMsg{genTag: t, token: token}
-	})
-}
-
 // ── rows ───────────────────────────────────────────────────────────────────
 
 func (p *Settings) allRows() []setRow {
-	var rows []setRow
-	for _, a := range p.accounts {
-		rows = append(rows, setRow{kind: "acct", acc: a})
-	}
-	rows = append(rows, setRow{kind: "acct-add"})
-	if p.locked() {
-		return rows
-	}
-	// Only when there is more than one. A section listing the single workspace
-	// this account has answers a question nobody asked and puts a control under
-	// the cursor that cannot do anything.
-	if len(p.spaces) > 1 {
-		for _, ws := range p.spaces {
-			rows = append(rows, setRow{kind: "ws", ws: ws})
-		}
-	}
+	rows := make([]setRow, 0, 6)
 	for _, k := range []string{"guard", "self", "doctor", "repair", "ll-enabled", "ll-path"} {
 		rows = append(rows, setRow{kind: k})
 	}
@@ -677,9 +400,6 @@ func (p *Settings) allRows() []setRow {
 
 func (p *Settings) current() setRow {
 	rows := p.allRows()
-	if len(rows) == 0 {
-		return setRow{kind: "acct-add"}
-	}
 	return rows[min(p.sel, len(rows)-1)]
 }
 
@@ -687,16 +407,6 @@ func (p *Settings) current() setRow {
 
 func (p *Settings) key(k tea.KeyMsg) tea.Cmd {
 	s := k.String()
-
-	// While pairing, only esc is live: it cancels.
-	if p.loginActive() {
-		if s == "esc" {
-			p.loginToken++
-			p.login = loginNone
-			p.loginMsg = ""
-		}
-		return nil
-	}
 
 	if p.editing != "" {
 		// esc abandons the prompt without writing. It is not in the Ink version,
@@ -729,14 +439,10 @@ func (p *Settings) key(k tea.KeyMsg) tea.Cmd {
 		p.confirmDel = ""
 	case s == "enter" || s == " ":
 		return p.activate(cur)
-	case s == "m":
-		return p.makeActive(cur)
-	case s == "x" && cur.kind == "acct":
-		return p.removeAccount(cur.acc)
+	case s == "m" && (cur.kind == "self" || cur.kind == "ll-enabled"):
+		return p.activate(cur)
 	case s == "e" && cur.kind == "ll-path":
 		return p.activate(cur)
-	case s == "n":
-		return p.beginLogin()
 	case s == "d" && cur.kind == "guard":
 		if p.installBusy {
 			return nil
@@ -767,24 +473,6 @@ func (p *Settings) beginInput(value string) {
 // activate is what enter does to the row under the cursor.
 func (p *Settings) activate(r setRow) tea.Cmd {
 	switch r.kind {
-	case "acct":
-		acc := r.acc
-		p.msg = &setMessage{text: "viewing " + acctLabel(acc)}
-		return func() tea.Msg { return tui.ViewAccountMsg{APIKey: acc.APIKey, APIURL: acc.APIURL} }
-
-	case "acct-add":
-		return p.beginLogin()
-
-	case "ws":
-		// The workspace this machine is already in is not a move, and doing the
-		// round trip anyway would revoke and re-mint a working key to arrive
-		// exactly where it started.
-		if r.ws.ID == p.spaceNow || p.busy {
-			return nil
-		}
-		p.msg = &setMessage{text: "moving to " + r.ws.Name + "…"}
-		return p.switchSpace(r.ws.ID)
-
 	case "guard":
 		if p.installBusy {
 			return nil
@@ -872,102 +560,6 @@ func (p *Settings) activate(r setRow) tea.Cmd {
 	return nil
 }
 
-// makeActive is `m`: on an account it changes which key the GUARD enforces
-// with; on a toggle row it is another way to press enter.
-func (p *Settings) makeActive(r setRow) tea.Cmd {
-	switch r.kind {
-	case "acct":
-		ok := config.SetActiveAccount(config.Credential{APIKey: r.acc.APIKey, APIURL: r.acc.APIURL})
-		if ok {
-			// The machine-local log is one file per device and carries no
-			// account, so what is already in it belongs to whoever was active
-			// before. Re-owning it separates the history instead of showing
-			// another account's calls under this one.
-			config.EnsureLocalLogOwner(r.acc.APIKey)
-			p.deps.API.Invalidate()
-			p.msg = &setMessage{text: "✓ " + acctLabel(r.acc) + " is now the ACTIVE key (guard + logging)"}
-		} else {
-			p.msg = &setMessage{text: "✗ could not set active", bad: true}
-		}
-		p.accounts = config.ListAccounts()
-		return nil
-
-	case "self", "ll-enabled":
-		return p.activate(r)
-	}
-	return nil
-}
-
-// removeAccount is `x`: forget an account on THIS device. The cloud account is
-// untouched — revoking a key is a dashboard action, and conflating the two
-// would mean tidying a laptop locked out every other machine.
-func (p *Settings) removeAccount(target config.SavedAccount) tea.Cmd {
-	key := "acct:" + target.APIKey
-	wasActive := config.IsActiveAccount(target.APIKey)
-	var others []config.SavedAccount
-	for _, a := range p.accounts {
-		if a.APIKey != target.APIKey {
-			others = append(others, a)
-		}
-	}
-
-	if p.confirmDel != key {
-		p.confirmDel = key
-		note := " (the cloud account is untouched)"
-		if wasActive {
-			if len(others) > 0 {
-				note = " — the ACTIVE guard key; " + acctLabel(others[0]) + " takes over"
-			} else {
-				note = " — your ONLY account & the active guard key; this signs the device out (guard has no key until you log in again)"
-			}
-		}
-		p.msg = &setMessage{text: "press x again to remove " + acctLabel(target) + " from this device" + note, bad: true}
-		return nil
-	}
-	p.confirmDel = ""
-
-	// Remove from accounts.json, then repair the ACTIVE key so it is not
-	// re-seeded as a placeholder by ListAccounts: promote another account, or clear
-	// the credential entirely when this was the last one.
-	config.RemoveAccount(target.APIKey)
-	extra := " from this device"
-	if wasActive {
-		if len(others) > 0 {
-			config.SetActiveAccount(config.Credential{APIKey: others[0].APIKey, APIURL: others[0].APIURL})
-			extra = " · " + acctLabel(others[0]) + " is now the active key"
-		} else {
-			config.ClearActiveCredential()
-			extra = " · signed out of this device"
-		}
-	}
-	config.EnsureLocalLogOwner(config.EnforcingKey())
-	p.deps.API.Invalidate()
-	p.msg = &setMessage{text: "✓ removed " + acctLabel(target) + extra}
-	p.accounts = config.ListAccounts()
-	// The shell re-derives the header, the viewed account and the locked state
-	// from disk: they have to move together or the header names an account that
-	// is no longer there.
-	return func() tea.Msg { return tui.AccountsChangedMsg{} }
-}
-
-func (p *Settings) beginLogin() tea.Cmd {
-	if p.loginActive() {
-		return nil
-	}
-	p.loginToken++
-	token := p.loginToken
-	p.login = loginStarting
-	p.loginMsg = ""
-	t := p.tag()
-	return tea.Batch(
-		tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return setSpinMsg{t} }),
-		func() tea.Msg {
-			st, err := p.deps.API.Device.Start(bg(), config.DefaultAPIURL)
-			return setLoginStartMsg{genTag: t, token: token, start: st, err: err}
-		},
-	)
-}
-
 func (p *Settings) submitInput() tea.Cmd {
 	v := strings.TrimSpace(p.input.Value())
 	which := p.editing
@@ -995,20 +587,6 @@ func (p *Settings) submitInput() tea.Cmd {
 
 // ── render ─────────────────────────────────────────────────────────────────
 
-func acctLabel(a config.SavedAccount) string {
-	if a.Email != "" {
-		return a.Email
-	}
-	if a.User != "" {
-		return a.User
-	}
-	tail := a.APIKey
-	if len(tail) > 4 {
-		tail = tail[len(tail)-4:]
-	}
-	return "account …" + tail
-}
-
 func onOff(on bool) (string, lipgloss.Style) {
 	if on {
 		return "on ", stOK
@@ -1018,53 +596,10 @@ func onOff(on bool) (string, lipgloss.Style) {
 
 func (p *Settings) View(ctx tui.PanelContext) string {
 	p.apply(ctx)
-	if p.loginActive() {
-		return clip(p.viewLogin(), p.cols, p.rows)
-	}
 	return clip(p.viewList(), p.cols, p.rows)
 }
 
-// viewLogin is the device grant, on screen.
-//
-// THE CODE IS THE POINT AND IT IS SHOWN. A provider may or may not honour
-// verification_uri_complete, the browser may not open at all, and the whole
-// reason this grant exists is that the person can finish on a DIFFERENT device —
-// a phone, with the laptop headless. So the code is rendered large and plainly,
-// beside the address without it in, and the convenience URL is the third line
-// rather than the only one.
-func (p *Settings) viewLogin() string {
-	spin := spinFrames[p.spin%len(spinFrames)]
-	var out []string
-	out = append(out, stAccentB.Render("Add an account"))
-	if p.login == loginStarting {
-		out = append(out, stDim.Render(spin+" asking your identity provider…"))
-		return joinLines(out)
-	}
-
-	out = append(out, "")
-	out = append(out, stDim.Render("Sign in with your organisation's identity provider."))
-	out = append(out, "")
-	out = append(out, stDim.Render("  Enter this code:"))
-	out = append(out, "  "+stAccentB.Render(p.loginStart.UserCode))
-	out = append(out, "")
-
-	where := p.loginStart.VerifyURLPlain
-	if where == "" {
-		where = p.loginURL
-	}
-	out = append(out, stDim.Render("  at:"))
-	out = append(out, "  "+stAccentB.Render(truncate(where, p.cols-2)))
-	out = append(out, "")
-	out = append(out, stDim.Render("Your browser should have opened there. It works from a phone too."))
-	out = append(out, "")
-	out = append(out, stWarn.Render(spin+" waiting for you to finish… ")+stDim.Render("esc to cancel"))
-	return joinLines(out)
-}
-
 func (p *Settings) firstError() error {
-	if p.locked() {
-		return nil
-	}
 	for _, e := range []error{p.localErr, p.guardErr, p.selfErr} {
 		if e != nil {
 			return e
@@ -1076,7 +611,7 @@ func (p *Settings) firstError() error {
 var authErrorShape = regexp.MustCompile(`(?i)invalid api key|authentication|401|unauthor|not logged in`)
 
 func (p *Settings) viewList() string {
-	loading := !p.locked() && !p.haveLocal && !p.haveGuard && !p.haveSelf && p.firstError() == nil
+	loading := !p.haveLocal && !p.haveGuard && !p.haveSelf && p.firstError() == nil
 	raw := p.firstError()
 
 	// An AUTH failure must never take the panel over. Every cloud loader here
@@ -1249,12 +784,6 @@ func (p *Settings) viewList() string {
 			st = stBad
 		}
 		out = append(out, st.Render(truncate(p.msg.text, p.cols)))
-	case p.loginMsg != "":
-		st := stOK
-		if p.login == loginError {
-			st = stBad
-		}
-		out = append(out, st.Render(truncate(p.loginMsg, p.cols)))
 	default:
 		out = append(out, " ")
 	}
@@ -1265,10 +794,6 @@ func (p *Settings) viewList() string {
 
 func sectionOf(r setRow) string {
 	switch r.kind {
-	case "acct", "acct-add":
-		return "ACCOUNTS"
-	case "ws":
-		return "WORKSPACES"
 	case "guard", "self", "doctor", "repair":
 		return "PROTECTION"
 	}
@@ -1277,10 +802,6 @@ func sectionOf(r setRow) string {
 
 func (p *Settings) sectionDesc(sec string) string {
 	switch sec {
-	case "ACCOUNTS":
-		return "on this device (" + itoa(len(p.accounts)) + ") · ● viewing · ACTIVE = guard key · x removes"
-	case "WORKSPACES":
-		return "this account's projects (" + itoa(len(p.spaces)) + ") · enter moves this machine · the guard follows"
 	case "PROTECTION":
 		return "guard hook, self-protection, doctor and repair"
 	}
@@ -1298,44 +819,6 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 	_ = spin
 
 	switch r.kind {
-	case "acct":
-		viewKey := p.viewKey
-		isView := false
-		if viewKey != "" {
-			isView = r.acc.APIKey == viewKey
-		} else if len(p.accounts) > 0 {
-			isView = p.accounts[0].APIKey == r.acc.APIKey
-		}
-		l.put(pad(truncate(acctLabel(r.acc), 30), 31), stAccent)
-		if isView {
-			l.put("● viewing ", stOK)
-		} else {
-			l.put("          ", stDim)
-		}
-		if config.IsActiveAccount(r.acc.APIKey) {
-			l.put("ACTIVE ", stWarn)
-		} else {
-			l.put("       ", stDim)
-		}
-		if r.acc.Project != "" {
-			l.put(truncate(r.acc.Project, 20), stDim)
-		}
-
-	case "acct-add":
-		l.put("+ add account (enter — device login in the browser)", stDim)
-
-	case "ws":
-		name := r.ws.Name
-		if name == "" {
-			name = r.ws.ID
-		}
-		l.put(pad(truncate(name, 30), 31), stAccent)
-		if r.ws.ID == p.spaceNow {
-			l.put("● this machine", stOK)
-		} else {
-			l.put("enter to move here", stDim)
-		}
-
 	case "guard":
 		l.put(pad("guard", 11), stDim)
 		if !p.haveGuard {

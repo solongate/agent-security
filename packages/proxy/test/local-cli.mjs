@@ -263,4 +263,41 @@ suite('local cli — the store is this machine');
   check('broken JSON is reported', /not valid JSON/.test(r.value ?? ''), true);
 }
 
+// ── the CLI reads the folder the POLICY names ────────────────────────────────
+//
+// `localLogs.path` moves the audit trail, and the hooks honour it. The store read the
+// DEFAULT folder unconditionally — so on a machine that had configured one, `solongate
+// audit` and `solongate stats` showed nothing while every entry landed correctly
+// somewhere else. Nothing said so: an empty audit log looks exactly like a quiet day.
+//
+// Both of these fail against that version. The Go store had the identical bug, and
+// internal/api holds it there.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'sg-logdir-'));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'solongate-audit.jsonl'),
+    JSON.stringify({
+      ts: '2026-01-01T00:00:00.000Z', tool: 'Bash', decision: 'DENY',
+      reason: 'Blocked by policy', arguments: { command: 'rm -rf /' },
+    }) + '\n');
+
+  const m = inMachine(
+    JSON.stringify({
+      policy: { id: 'p1', name: 'P', mode: 'denylist', rules: [] },
+      security: { localLogs: { enabled: true, path: dir } },
+    }),
+    async (api) => {
+      const list = await api.audit.list({ limit: 50 });
+      const stats = await api.stats.get();
+      return { rows: list.entries.length, tool: list.entries[0]?.tool_name ?? null, total: stats.total_calls ?? null };
+    },
+  );
+
+  check('the audit reader finds the configured folder', m.value?.rows, 1, m.stderr);
+  check('and reads the entry in it', m.value?.tool, 'Bash');
+  // stats reads through the same path, so it was blind in the same way.
+  check('stats counts it too', typeof m.value?.total === 'number' && m.value.total > 0, true,
+    JSON.stringify(m.value));
+}
+
 process.exit(done());

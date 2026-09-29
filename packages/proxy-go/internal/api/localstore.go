@@ -47,8 +47,21 @@ var policyFile = "poli" + "cy.json"
 // PolicyPath is the file this machine's policy lives in.
 func PolicyPath() string { return filepath.Join(config.Dir(), policyFile) }
 
-func historyPath() string  { return filepath.Join(config.Dir(), "rate-limit-history.json") }
-func localLogFile() string { return filepath.Join(config.LocalLogsDir(), "solongate-audit.jsonl") }
+func historyPath() string { return filepath.Join(config.Dir(), "rate-limit-history.json") }
+
+// localLogFile is WHERE THE HOOKS ACTUALLY WRITE, which is not always the default
+// folder.
+//
+// This returned config.LocalLogsDir() + the filename unconditionally — the default —
+// while the hooks honour `security.localLogs.path` from the policy. So on a machine
+// that configured a folder, everything reading through this store read an empty file:
+// `solongate audit`, `solongate stats`, the audit panel's paged view and the Live
+// panel's counters all showed nothing while entries landed correctly somewhere else.
+//
+// config.LocalLogsSetting() resolves it the way the hooks do, including the fallbacks
+// (a folder from another OS, a folder that is not a location on this machine), so there
+// is one answer to "where is the audit trail" on this machine.
+func localLogFile() string { return config.LocalLogFile() }
 
 // DefaultLogDir is where the hooks write when nobody named another folder.
 func DefaultLogDir() string { return config.LocalLogsDir() }

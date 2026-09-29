@@ -27,7 +27,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { DLP_PATTERN_NAMES } from '../dlp-patterns.js';
 import type {
   AuditEntry,
@@ -46,7 +46,48 @@ const FILE_MODE = 0o600;
 export const sgDir = (): string => resolve(homedir(), '.solongate');
 export const policyPath = (): string => join(sgDir(), 'poli' + 'cy.json');
 const historyPath = (): string => join(sgDir(), 'rate-limit-history.json');
-const localLogPath = (): string => join(sgDir(), 'local-logs', 'solongate-audit.jsonl');
+/** Where the hooks write when the policy names no folder, and the fallback they use
+ *  for one that is not a location on this machine. */
+export const DEFAULT_LOG_FILE = (): string => join(sgDir(), 'local-logs', 'solongate-audit.jsonl');
+
+/**
+ * WHERE THE AUDIT TRAIL IS, resolved the way the HOOKS resolve it.
+ *
+ * This used to be the default folder, unconditionally — while the hooks honour
+ * `security.localLogs.path` from the policy. So on a machine that configured a folder,
+ * everything reading through this store read an empty file: `solongate audit`,
+ * `solongate stats`, and the audit panel's paged view all showed nothing while entries
+ * landed correctly somewhere else. internal/api/localstore.go had the same bug, and
+ * config.LocalLogsSetting is its answer.
+ *
+ * It lives HERE rather than in the TUI because the store is the lower layer and the
+ * question is not a display question. src/tui/local-log.ts delegates to it, so there is
+ * one resolution on this side and one on the Go side.
+ *
+ * A fallback returns the default file rather than nothing: the hooks fall back the same
+ * way, so a viewer that gave up would look in the wrong place at exactly the moment
+ * somebody is debugging a policy they have just broken.
+ */
+export function localLogFile(): string {
+  try {
+    const raw = readFileSync(policyPath(), 'utf-8');
+    const obj = JSON.parse(raw) as {
+      security?: { localLogs?: { path?: string } };
+      policy?: { security?: { localLogs?: { path?: string } } };
+    };
+    // Both spellings, as everywhere else: the envelope, and a policy document carrying
+    // `security` inside it.
+    const l = obj?.security?.localLogs ?? obj?.policy?.security?.localLogs;
+    const dir = (typeof l?.path === 'string' ? l.path.trim() : '').replace(/[\\/]+$/, '');
+    if (!dir || !isAbsolute(dir)) return DEFAULT_LOG_FILE();
+    const file = join(dir, 'solongate-audit.jsonl');
+    return existsSync(file) || existsSync(dir) ? file : DEFAULT_LOG_FILE();
+  } catch {
+    return DEFAULT_LOG_FILE();
+  }
+}
+
+const localLogPath = (): string => localLogFile();
 
 /** The folder the hooks write to when nobody named another. */
 export const defaultLogDir = (): string => join(sgDir(), 'local-logs');

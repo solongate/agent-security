@@ -232,3 +232,46 @@ func TestPolicyPathIsTheFileTheGuardReads(t *testing.T) {
 		t.Errorf("PolicyPath() = %q, want it to end in %q", got, want)
 	}
 }
+
+// THE AUDIT READER FINDS THE FOLDER THE POLICY NAMES.
+//
+// `security.localLogs.path` moves the audit trail, and the hooks honour it. This store
+// read the DEFAULT folder unconditionally — so on a machine that had configured one,
+// `solongate audit`, `solongate stats` and the audit panel's paged view showed nothing
+// while every entry landed correctly somewhere else. Nothing said so: an empty audit log
+// looks exactly like a quiet day.
+//
+// src/api-client/local-store.ts had the identical bug and test/local-cli.mjs holds it
+// there. Both fail against the version that joined the default folder.
+func TestTheAuditReaderFindsTheConfiguredFolder(t *testing.T) {
+	c := newTestClient(t)
+
+	dir := t.TempDir()
+	line := `{"ts":"2026-01-01T00:00:00.000Z","tool":"Bash","decision":"DENY",` +
+		`"reason":"Blocked by policy","arguments":{"command":"rm -rf /"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "solongate-audit.jsonl"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writePolicyFile(t, `{"policy":{"id":"p1","name":"P","mode":"denylist","rules":[]},`+
+		`"security":{"localLogs":{"enabled":true,"path":"`+dir+`"}}}`)
+
+	list, err := c.Audit.List(context.Background(), AuditQuery{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Entries) != 1 {
+		t.Fatalf("entries = %d, want the one in the configured folder", len(list.Entries))
+	}
+	if list.Entries[0].ToolName != "Bash" {
+		t.Errorf("tool = %q, want Bash", list.Entries[0].ToolName)
+	}
+
+	// Stats reads through the same path, so it was blind in the same way.
+	s, err := c.Stats.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.TotalCalls < 1 {
+		t.Errorf("stats counted %d calls, want at least the one on disk", s.TotalCalls)
+	}
+}

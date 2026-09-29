@@ -1,32 +1,37 @@
 /** Shared access to the machine-local audit log written by the hooks. */
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
-
-/** Where the hooks write when local logging is on but NO custom folder is set
- *  (also the fallback they use for a path that isn't absolute on this device). */
-export const DEFAULT_LOCAL_LOG = join(homedir(), '.solongate', 'local-logs', 'solongate-audit.jsonl');
+import { DEFAULT_LOG_FILE, localLogFile, policyPath } from '../api-client/local-store.js';
 
 /**
- * The local log file THIS device is actually writing to.
+ * WHERE THIS MACHINE'S AUDIT TRAIL IS — one resolution, in the store.
  *
- * Local logging takes a FOLDER from the dashboard, and the hooks append
- * `solongate-audit.jsonl` inside it — so a user who set, say, `/home/me/` gets
- * `/home/me/solongate-audit.jsonl`. Every viewer here used to read the DEFAULT
- * folder unconditionally, so with a custom folder configured the dataroom,
- * `watch` and `doctor` all showed an empty (or stale) log while entries were
- * landing correctly somewhere else — "local logs stopped working".
+ * It used to be resolved here, twice: once in localLogsSetting and once in a copy inside
+ * localLogFile that had drifted from it. Both read the policy CACHES, newest first,
+ * because that is where a service's answer was kept — and nothing has written one since
+ * the refresh was removed, so both returned "off, default folder" on every machine. That
+ * is not cosmetic: the Live panel SKIPS READING THE LOG when it is told off, so the guard
+ * wrote entries and no viewer showed them.
  *
- * The folder lives in the policy cache the hooks themselves read
- * (~/.solongate/.policy-cache-<agent>.json → security.localLogs), so we resolve
- * it the same way they do, preferring the most recently refreshed cache. Falls
- * back to the default path when nothing is configured or readable.
+ * The answer now comes from the api-client store, which is the lower layer and the same
+ * one `solongate audit` and `solongate stats` read through — so a custom folder cannot be
+ * honoured by one surface and ignored by another. internal/config/locallogs.go is the Go
+ * side of the same question.
  */
+export const DEFAULT_LOCAL_LOG = DEFAULT_LOG_FILE();
+
 /** What local logging is set to on this device, and where it can actually go. */
 export interface LocalLogSetting {
-  /** The project setting, as the hooks read it. */
+  /**
+   * ALWAYS TRUE, and the field stays because the panels read it.
+   *
+   * It used to mean what it says. While there was a service the choice was real —
+   * entries went there OR to a file, never both — so `false` meant "do not write
+   * locally". With nowhere to send them, both writers ignore the flag and record
+   * unconditionally; the setting chooses only the folder. A viewer honouring a `false`
+   * would refuse to read a file that is being written.
+   */
   enabled: boolean;
-  /** The folder the project asked for, verbatim (null when nothing is set). */
+  /** The folder the policy asked for, verbatim (null when it names none). */
   configuredPath: string | null;
   /** False when that folder cannot be used HERE — e.g. a Windows path on Linux. */
   usableHere: boolean;
@@ -35,73 +40,30 @@ export interface LocalLogSetting {
 }
 
 /**
- * WHERE this machine's audit trail is, resolved the way the HOOKS resolve it.
- *
- * Local logging takes a FOLDER and the hooks append solongate-audit.jsonl inside it,
- * so a policy naming /home/me gets /home/me/solongate-audit.jsonl. Every viewer used
- * to read the DEFAULT folder unconditionally, so with a custom folder configured the
- * dataroom, `watch` and `doctor` all showed an empty log while entries were landing
- * somewhere else.
- *
- * IT READS THE POLICY FILE. Both of these functions used to read the policy CACHES,
- * newest first — a service's answer, kept per agent — and nothing has written one since
- * the refresh was removed. So localLogsSetting returned `off` on every machine, and off
- * is not cosmetic: the Live panel SKIPS READING THE LOG when it is told off. The guard
- * wrote entries and no viewer showed them.
- *
- * `enabled` is reported TRUE always, and that is the honest answer rather than a
- * simplification. While there was a service the choice was real — entries went there OR
- * to a file, never both — so `false` meant "do not write locally". With nowhere to send
- * them, both writers ignore the flag and record unconditionally; the setting chooses
- * only the folder. A viewer honouring a `false` would refuse to read a file that is
- * being written. internal/config/locallogs.go says the same in Go.
+ * The setting, for the surfaces that show the user what is configured and whether it
+ * can be honoured here. The FILE comes from the store; this adds only the two things a
+ * display needs that a reader does not: what was asked for, and whether it worked.
  */
 export function localLogsSetting(): LocalLogSetting {
-  const def: LocalLogSetting = {
-    enabled: true, configuredPath: null, usableHere: true, file: DEFAULT_LOCAL_LOG,
-  };
+  const file = localLogFile();
+  let configuredPath: string | null = null;
   try {
-    const p = join(homedir(), '.solongate', 'pol' + 'icy.json');
-    if (!existsSync(p)) return def;
-    const obj = JSON.parse(readFileSync(p, 'utf-8')) as {
-      security?: { localLogs?: { enabled?: boolean; path?: string } };
-      policy?: { security?: { localLogs?: { enabled?: boolean; path?: string } } };
+    const obj = JSON.parse(readFileSync(policyPath(), 'utf-8')) as {
+      security?: { localLogs?: { path?: string } };
+      policy?: { security?: { localLogs?: { path?: string } } };
     };
-    // Both spellings: the envelope, and a policy document carrying `security` inside
-    // it. Every other reader on this machine accepts both, and one that did not would
-    // look in a different folder than the hooks write to.
-    const l = obj?.security?.localLogs ?? obj?.policy?.security?.localLogs;
-    if (!l) return def;
+    const raw = (obj?.security?.localLogs ?? obj?.policy?.security?.localLogs)?.path;
+    if (typeof raw === 'string' && raw.trim()) configuredPath = raw;
+  } catch { /* no policy, or half a policy: nothing was asked for */ }
 
-    const raw = typeof l.path === 'string' ? l.path.trim() : '';
-    const dir = raw.replace(/[\\/]+$/, '');
-    if (!dir) return def;
-    // Not absolute HERE means the hooks cannot use it and fall back — the usual cause
-    // is a folder set from another OS (a "C:/..." on Linux, which Node would treat as
-    // relative and create inside whatever repository the agent happened to run in).
-    if (!isAbsolute(dir)) return { enabled: true, configuredPath: raw, usableHere: false, file: DEFAULT_LOCAL_LOG };
-    const file = join(dir, 'solongate-audit.jsonl');
-    const usable = existsSync(file) || existsSync(dir);
-    return { enabled: true, configuredPath: raw, usableHere: usable, file: usable ? file : DEFAULT_LOCAL_LOG };
-  } catch {
-    return def;
-  }
+  // Usable HERE means the hooks could use it: the store falls back to the default file
+  // for a folder that is not a location on this machine (a "C:/logs" on Linux, or one
+  // that does not exist), so a configured path that did not survive is the signal.
+  const usableHere = configuredPath === null || file !== DEFAULT_LOG_FILE();
+  return { enabled: true, configuredPath, usableHere, file };
 }
 
-/**
- * The file this machine is actually writing to.
- *
- * Long-lived views should call this rather than caching the answer: the folder can
- * change under them when somebody edits the policy mid-session.
- *
- * It used to walk the caches itself, with a copy of the resolution above that had
- * drifted from it in one respect — it returned the default when the folder did not
- * exist, where the setting reported `usableHere: false` and the default. One
- * resolution, one answer.
- */
-export function localLogFile(): string {
-  return localLogsSetting().file;
-}
+export { localLogFile };
 
 /** Resolved once per process for callers that want a plain path (the folder can
  *  only change via a dashboard edit, which needs a new session anyway). Prefer

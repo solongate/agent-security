@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/codeyevsky/solongate/sgshared"
 	"regexp"
 	"strings"
 	"testing"
@@ -54,11 +55,11 @@ func TestPrivateKeyRedactionCoversTheWholeBlock(t *testing.T) {
 
 func patternNamed(t *testing.T, name string) *regexp.Regexp {
 	t.Helper()
-	for i := range dlpPatterns {
-		if dlpPatterns[i].Name == name {
-			return dlpPatterns[i].Re
-		}
+	// The table lives in sgshared now, so the MCP proxy can scan with the same one.
+	if i := sgshared.DLPPatternIndex(name); i >= 0 {
+		_, re := sgshared.DLPPatternAt(i)
+		return re
 	}
-	t.Fatalf("the %q pattern is gone; the cloud sends this name and nothing here would match it", name)
+	t.Fatalf("the %q pattern is gone; a policy naming it would enforce nothing", name)
 	return nil
 }

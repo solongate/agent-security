@@ -25,7 +25,6 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -101,138 +100,9 @@ var (
 	dlpReadCheckCmd = regexp.MustCompile(`\b(cat|less|more|head|tail|bat|nl|od|xxd|strings|grep|egrep|rg|awk|sed)\b`)
 )
 
-// ── Views ─────────────────────────────────────────────────────────────────────
-
-// dlpViews returns de-obfuscated VIEWS of the scanned text, so an agent cannot
-// smuggle a secret past the literal patterns by SPLITTING it
-// (printf "AKIA""3XZ9…") or ENCODING it (echo <base64> | base64 -d). Every view
-// is scanned. Not exhaustive — pattern DLP can never be — but it closes the two
-// obvious bypasses.
-func dlpViews(text string) []string {
-	views := []string{text}
-	// 1) Drop shell quotes + backslashes so a split secret collapses back to a
-	//    contiguous run: "AKIA""3XZ9…" / 'AKIA'\''…' / AKIA\3XZ9 → AKIA3XZ9…
-	dequoted := reShellQuoteChars.ReplaceAllString(text, "")
-	if dequoted != text {
-		views = append(views, dequoted)
-	}
-	// 2) Decode base64-looking tokens (from both the raw and the dequoted view —
-	//    the payload itself may be split too) and scan the decoded bytes.
-	src := text
-	if dequoted != text {
-		src = text + "\n" + dequoted
-	}
-	var decoded strings.Builder
-	// Bounded to 60 tokens: a megabyte of base64-shaped noise must not turn a
-	// per-call scan into a CPU sink.
-	for _, t := range reB64Token.FindAllString(src, 60) {
-		d := dlpB64Decode(t)
-		// Keep printable decodes only — random bytes are not a smuggled secret.
-		if len(d) > 0 && hasPrintableRun(d, 8) {
-			decoded.Write(d)
-			decoded.WriteByte('\n')
-		}
-	}
-	if decoded.Len() > 0 {
-		views = append(views, decoded.String())
-	}
-	return views
-}
-
-// dlpB64Decode mirrors Node's Buffer.from(t, 'base64'), which is lenient where
-// Go's decoder is strict: it accepts a token whose length is not a multiple of
-// four and decodes as much as it can. Refusing those outright would mean a
-// secret encoded without padding decodes to nothing and the whole view is lost.
-//
-// The decoded bytes are kept RAW rather than widened to UTF-8 the way Node's
-// 'latin1' would. Every built-in pattern is ASCII, so no match can differ.
-func dlpB64Decode(tok string) []byte {
-	s := strings.TrimRight(tok, "=")
-	// A trailing group of one character carries no whole byte; Node ignores it.
-	if len(s)%4 == 1 {
-		s = s[:len(s)-1]
-	}
-	b, err := base64.RawStdEncoding.DecodeString(s)
-	if err != nil {
-		return nil // not base64 after all
-	}
-	return b
-}
-
-// hasPrintableRun reports whether b holds `n` consecutive printable ASCII bytes,
-// which is JavaScript's /[ -~]{8,}/ test. Done over bytes rather than by regexp
-// because a decode is arbitrary binary and must not be re-interpreted as UTF-8
-// first.
-func hasPrintableRun(b []byte, n int) bool {
-	run := 0
-	for _, c := range b {
-		if c >= 0x20 && c <= 0x7e {
-			run++
-			if run >= n {
-				return true
-			}
-			continue
-		}
-		run = 0
-	}
-	return false
-}
-
-// dlpScanViews is dlp.go's dlpScan applied to every view.
-//
-// The split exists because the Go dlpScan takes one text; the Node hook folded
-// the views into the scan itself, so every caller there — egress, read
-// redaction, read block — got them for free. This layer's callers scan FILE
-// CONTENT, where a split or base64-wrapped secret is exactly what a file
-// planted to defeat the scanner looks like, so they go through here.
-//
-// The reported NAME is chosen pattern-first, not view-first: the original tests
-// one pattern against all views before moving on, so with two different
-// patterns hitting in two different views it names the earlier pattern. Which
-// one is named ends up in the block message a human reads.
-func dlpScanViews(text string, cfg *sgshared.DLPConfig) string {
-	if cfg == nil || text == "" {
-		return ""
-	}
-	// Strip already-redacted markers BEFORE the views are cut, not only inside
-	// dlpScan: a marker sitting between two base64-shaped runs would otherwise
-	// split a token that the Node hook saw as one.
-	text = redactedMarker.ReplaceAllString(text, "")
-	best, bestRank := "", -1
-	for _, v := range dlpViews(text) {
-		hit := dlpScan(v, cfg)
-		if hit == "" {
-			continue
-		}
-		if r := dlpHitRank(hit, cfg); bestRank < 0 || r < bestRank {
-			best, bestRank = hit, r
-		}
-	}
-	return best
-}
-
-// dlpHitRank places a hit in the order the Node hook tests patterns: built-ins
-// in list order first, then custom patterns in config order.
-func dlpHitRank(name string, cfg *sgshared.DLPConfig) int {
-	for i, p := range dlpPatterns {
-		if p.Name == name {
-			return i
-		}
-	}
-	if cfg == nil {
-		return len(dlpPatterns)
-	}
-	for i, c := range cfg.Custom {
-		n := c.Name
-		if n == "" {
-			n = "custom pattern"
-		}
-		if n == name {
-			return len(dlpPatterns) + i
-		}
-	}
-	return len(dlpPatterns) + len(cfg.Custom) // a name from neither list still ranks last
-}
+// dlpHitRank moved with them — DLPScanViews cannot rank without it, and two
+// implementations of "which of two hits is the one to report" is a pair that can disagree
+// about what a person reads in a masked file.
 
 // ── Egress ────────────────────────────────────────────────────────────────────
 
@@ -343,7 +213,7 @@ func egressSecretCheck(args map[string]interface{}, sec *sgshared.Security, cwd 
 			if err != nil || len(content) == 0 {
 				continue
 			}
-			if hit := dlpScanViews(string(content), dlp); hit != "" {
+			if hit := sgshared.DLPScanViews(string(content), dlp); hit != "" {
 				return `DLP: outbound transfer of "` + f + `" is blocked - it contains a ` + hit + ` (egress protection)`
 			}
 		}
@@ -367,17 +237,22 @@ func dlpRedactText(text string, cfg *sgshared.DLPConfig) string {
 	out := text
 	// Built-ins then customs, each in list order: the replacement text carries the
 	// pattern NAME, so the order decides what a human reads in the masked file.
-	for _, p := range dlpPatterns {
-		if !enabled[p.Name] {
+	for i := 0; i < sgshared.DLPPatternCount(); i++ {
+		name, re := sgshared.DLPPatternAt(i)
+		if !enabled[name] {
 			continue
 		}
+		p := struct {
+			Name string
+			Re   *regexp.Regexp
+		}{name, re}
 		// Literal replacement, not ReplaceAllString: a pattern name containing `$1`
 		// would otherwise be expanded as a capture-group reference and the marker
 		// would come out mangled — or empty, which reads as "nothing was redacted".
 		out = p.Re.ReplaceAllLiteralString(out, "[REDACTED:"+p.Name+"]")
 	}
 	for _, c := range cfg.Custom {
-		re, err := globToRegexp(c.Re)
+		re, err := sgshared.GlobToRegexp(c.Re)
 		if err != nil {
 			continue // one bad custom pattern must not stop the rest being masked
 		}
@@ -525,7 +400,7 @@ func dlpRedactCopy(abs string, dlp *sgshared.DLPConfig) string {
 	if err != nil {
 		return redactSkip
 	}
-	if dlpScanViews(string(content), dlp) == "" {
+	if sgshared.DLPScanViews(string(content), dlp) == "" {
 		return redactClean
 	}
 	// 0700, matching the 0600 on the copy itself and the mode of the parent. A

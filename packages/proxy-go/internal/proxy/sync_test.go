@@ -440,29 +440,46 @@ func TestTheProxySaysWhichLayersItEnforces(t *testing.T) {
 		t.Errorf("the flag did not win: %v", lines)
 	}
 
-	// DLP AND EGRESS ARE NAMED WHEN CONFIGURED, because that is the only case that can
-	// mislead anybody.
+	// DLP IS ENFORCED HERE NOW, with the scanner the guard uses, so it is REPORTED rather
+	// than warned about. This check used to require the warning, and it was right to: the
+	// path scanned nothing.
 	lines = layerReport(withSecurity(`{"dlpBlock":{"patterns":["AWS access key"]}}`), config.ProxyConfig{})
-	if !has(lines, "does not scan for secrets") {
-		t.Errorf("a configured DLP block was not warned about: %v", lines)
+	if !has(lines, "DLP on") {
+		t.Errorf("a configured DLP block was not reported as enforced: %v", lines)
 	}
-	if !has(lines, "does not read the files a transfer command would upload") {
-		t.Errorf("a configured dlpBlock implies egress, and it was not warned about: %v", lines)
+	if has(lines, "does not scan for secrets") {
+		t.Errorf("the old not-enforced warning survived: %v", lines)
 	}
 
-	// dlpRedact alone is masking without refusing, which this path also cannot do.
+	// EGRESS IS STILL NOT, and it is NOTED rather than warned: the check reads files
+	// resolved against the AGENT's working directory, and a proxy in front of a tool
+	// server has none — reading them here would read the wrong machine's files. A
+	// decision, so it reads as one.
+	if !has(lines, "no agent working directory") {
+		t.Errorf("a configured egress layer was not explained: %v", lines)
+	}
+
+	// dlpRedact alone is masking without refusing. The argument scan applies either way,
+	// so it reports as on; what this path cannot do is rewrite a RESULT, which is the
+	// post-tool hook's job and not a layer this report claims.
 	lines = layerReport(withSecurity(`{"dlpRedact":{"patterns":["AWS access key"]}}`), config.ProxyConfig{})
-	if !has(lines, "does not scan for secrets") {
-		t.Errorf("dlpRedact was not warned about: %v", lines)
+	if !has(lines, "DLP on") {
+		t.Errorf("dlpRedact was not reported: %v", lines)
+	}
+	if has(lines, "no agent working directory") {
+		t.Errorf("dlpRedact alone does not configure egress, and egress was explained anyway: %v", lines)
 	}
 
-	// AND NOTHING IS INVENTED. A policy that configures no layers has nothing to warn
-	// about, and a warning nobody needs is how people learn to skim past warnings.
+	// AND NOTHING IS INVENTED. A policy that configures no layers says so plainly, and
+	// raises nothing — a warning nobody needs is how people learn to skim past warnings.
 	lines = layerReport(withSecurity(`{}`), config.ProxyConfig{})
-	for _, unwanted := range []string{"WARNING", "does not"} {
+	for _, unwanted := range []string{"WARNING", "NOTE", "does not"} {
 		if has(lines, unwanted) {
 			t.Errorf("a policy with no layers produced a warning: %v", lines)
 		}
+	}
+	if !has(lines, "DLP off") {
+		t.Errorf("the absent DLP was not reported: %v", lines)
 	}
 	if !has(lines, "rate limit off") {
 		t.Errorf("the absent rate limit was not reported: %v", lines)

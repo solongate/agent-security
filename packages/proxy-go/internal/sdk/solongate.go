@@ -160,6 +160,7 @@ func (g *SolonGate) ExecuteToolCall(ctx context.Context, params core.McpCallTool
 		RateLimitPerTool:         g.config.RateLimitPerTool,
 		GlobalRateLimitPerMinute: g.config.GlobalRateLimitPerMinute,
 		ExfiltrationTracker:      g.exfilTracker,
+		DLPBlock:                 g.config.DLPBlock,
 		ResponseScanConfig:       g.config.ResponseScanning,
 		BlockUnsafeResponses:     g.config.BlockUnsafeResponses,
 	})

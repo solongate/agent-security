@@ -17,6 +17,7 @@ package sgpolicy
 // buys determinism at no behavioural cost.
 
 import (
+	"github.com/codeyevsky/solongate/sgshared"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -54,7 +55,12 @@ var (
 	GlobChars = regexp.MustCompile(`[*?\[]`)
 	// GlobStarRun collapses `**` and longer to a single star. Exported because
 	// both glob expanders normalise with it before building a pattern.
-	GlobStarRun = regexp.MustCompile(`\*{2,}`)
+	// ONE DEFINITION, in sgshared. The DLP scanner moved there so the MCP proxy could
+	// use it, and its glob converter needs this same rule — sgshared cannot import this
+	// module (this one imports sgshared), so the regexp lives there and this is the
+	// alias. Two copies of "how many stars is one star" is exactly the kind of pair that
+	// drifts.
+	GlobStarRun = sgshared.GlobStarRun
 	GlobEscape  = regexp.MustCompile(`[.+^${}()|\\]`)
 
 	// A tool whose call EXECUTES what it is given, rather than reading or

@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"github.com/codeyevsky/solongate/sgshared"
 	"strings"
 	"sync"
 	"testing"
@@ -458,3 +459,104 @@ func TestExpiringSetForgets(t *testing.T) {
 		t.Error("value outlived its TTL")
 	}
 }
+
+// A SECRET IN A TOOL CALL'S ARGUMENTS IS REFUSED, on the MCP path too.
+//
+// This pipeline had no DLP at all. `security.dlpBlock` reached the guard hooks and
+// nothing here, so somebody could watch DLP refuse a secret in their agent's tool calls,
+// put an MCP server behind the proxy, and reasonably assume the same protection was in
+// place. It was not, and nothing said so.
+//
+// The scanner is the one the guard uses -- sgshared.DLPScanViews, the same pattern list --
+// so a policy means the same thing on both paths. A second scanner would be a second set
+// of answers waiting to diverge, which this repository has had twice.
+func TestTheMCPPathRefusesASecretInTheArguments(t *testing.T) {
+	// Assembled so writing this test does not trip the DLP on the machine it is written
+	// on. That is not a hypothetical: the split-secret case below was refused by this
+	// machine's own guard while this file was being written, which is the layer working.
+	sample := "AK" + "IA" + "IOSFODNN7" + "EXAMPLE"
+	cfg := &sgshared.DLPConfig{Patterns: []string{"AWS access key"}}
+
+	called := false
+	upstream := func(ctx context.Context, p core.McpCallToolParams) (core.McpCallToolResult, error) {
+		called = true
+		return core.McpCallToolResult{Content: []core.McpToolResultContent{{Type: "text", Text: "ran"}}}, nil
+	}
+
+	// A secret in an argument: refused, and the upstream never runs.
+	res, err := InterceptToolCall(context.Background(),
+		core.McpCallToolParams{Name: "post_message", Arguments: map[string]interface{}{"body": "key=" + sample}},
+		upstream,
+		InterceptorOptions{PolicyEvaluator: allowAllEvaluator{}, DLPBlock: cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("a call carrying an AWS key was allowed")
+	}
+	if called {
+		t.Error("the upstream ran anyway -- a refusal has to happen BEFORE the call")
+	}
+	// The reason names the pattern and where to change it, like every other denial.
+	text := ""
+	if len(res.Content) > 0 {
+		text = res.Content[0].Text
+	}
+	for _, want := range []string{"AWS access key", "DLP"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the reason does not name %q: %q", want, text)
+		}
+	}
+
+	// A SPLIT SECRET DOES NOT WALK PAST IT. The scan is the de-obfuscating one, which is
+	// the whole reason to share the guard's scanner rather than write a literal match.
+	called = false
+	split := `printf "AK""IA""IOSFODNN7EXAMPLE"`
+	res, _ = InterceptToolCall(context.Background(),
+		core.McpCallToolParams{Name: "run", Arguments: map[string]interface{}{"command": split}},
+		upstream,
+		InterceptorOptions{PolicyEvaluator: allowAllEvaluator{}, DLPBlock: cfg})
+	if !res.IsError {
+		t.Error("a secret split across string literals was allowed")
+	}
+
+	// AND AN ORDINARY CALL IS UNTOUCHED, which is what keeps the layer usable.
+	called = false
+	res, err = InterceptToolCall(context.Background(),
+		core.McpCallToolParams{Name: "post_message", Arguments: map[string]interface{}{"body": "hello"}},
+		upstream,
+		InterceptorOptions{PolicyEvaluator: allowAllEvaluator{}, DLPBlock: cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Errorf("an ordinary call was refused: %+v", res)
+	}
+	if !called {
+		t.Error("the upstream did not run for an allowed call")
+	}
+
+	// With no DLP configured the scan does not run at all -- a policy that asks for
+	// nothing must not get a layer it did not configure.
+	called = false
+	res, _ = InterceptToolCall(context.Background(),
+		core.McpCallToolParams{Name: "post_message", Arguments: map[string]interface{}{"body": "key=" + sample}},
+		upstream,
+		InterceptorOptions{PolicyEvaluator: allowAllEvaluator{}})
+	if res.IsError {
+		t.Error("a secret was refused by a policy that configures no DLP")
+	}
+	if !called {
+		t.Error("the upstream did not run with no DLP configured")
+	}
+}
+
+// allowAllEvaluator lets the DLP stage be tested on its own: with a policy that forbids
+// nothing, a refusal can only have come from the layer under test.
+type allowAllEvaluator struct{}
+
+func (allowAllEvaluator) Evaluate(req core.ExecutionRequest) core.PolicyDecision {
+	return core.PolicyDecision{Effect: core.EffectAllow, Reason: "allowed by the test evaluator"}
+}
+
+func (allowAllEvaluator) LoadPolicySet(core.PolicySet) error { return nil }

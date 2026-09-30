@@ -147,6 +147,17 @@ went with it. Three things it taught are not about a server at all:
 
 ## Traps worth not rediscovering
 
+- **A SECOND COPY OF A SECURITY CHECK IS A SECOND SET OF ANSWERS.** The DLP scanner —
+  the 70-pattern table, the de-obfuscating views, the hit ranking — was unexported in
+  `packages/guard-go`, so the MCP proxy could not reach it and scanned nothing. It
+  moved to `packages/sgshared`, which has no external dependencies, rather than to
+  `sgpolicy`, which pulls in OPA: a scanner that runs before every tool call should
+  not drag a policy engine in behind it. Both paths now call one function, and the
+  `**`-collapsing regexp both glob converters need has one definition for the same
+  reason. The JavaScript side still has three copies, held in step by
+  `test/dlp-parity.mjs` reading all four sources — which is how the 14-versus-70 gap
+  was found, and is the argument for collapsing those too.
+
 - **A TEST CAN PIN A BROKEN PRODUCT AND STAY GREEN.** `Install()` resolved a
   credential first and returned `no login on this device — add an account first
   (Accounts → + add)` when it found none. Nothing writes a credential on this build

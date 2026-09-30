@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/codeyevsky/solongate/sgshared"
 	"math"
 	"net/http"
 	"os"
@@ -178,6 +179,11 @@ func New(opts Options) (*Proxy, error) {
 			VerboseErrors:            opts.Config.Verbose,
 			RateLimitPerTool:         opts.Config.RateLimitPerTool,
 			GlobalRateLimitPerMinute: globalLimit,
+			// THE DLP BLOCK FROM THE POLICY FILE. This path scanned nothing for
+			// secrets: the block reached the guard hooks and nothing here, so a
+			// `dlpBlock` that refused a secret in an agent's tool calls did not refuse
+			// one through the proxy.
+			DLPBlock: dlpBlockFromDoc(p.policy),
 		},
 		PolicyEvaluator: opts.Evaluator,
 	})
@@ -299,16 +305,25 @@ func layerReport(policy PolicyDoc, cfg config.ProxyConfig) []string {
 		out = append(out, "Layer: rate limit off")
 	}
 
-	// NAMED WHEN IT IS CONFIGURED AND NOT ENFORCED, which is the only case that can
-	// mislead anybody. A file that configures no DLP has nothing to warn about.
+	// DLP IS ENFORCED HERE NOW, with the same scanner and the same pattern list the guard
+	// uses (sgshared.DLPScanViews), so this reports rather than warns.
 	if sec.hasDLP {
-		out = append(out, "WARNING: this policy configures DLP, and the MCP path does not "+
-			"scan for secrets — the guard hooks do. Tool calls through this proxy are NOT "+
-			"checked against your DLP patterns.")
+		out = append(out, "Layer: DLP on — arguments scanned for secrets")
+	} else {
+		out = append(out, "Layer: DLP off")
 	}
+
+	// EGRESS IS NOT, and that is a decision rather than an omission: the check reads the
+	// files a transfer command would upload, resolving them against the AGENT's working
+	// directory. A proxy in front of a tool server has no such directory — the paths in a
+	// call belong to whatever machine the upstream runs on — so a check that read them
+	// here would be reading the wrong files. Named only when the policy configures it,
+	// which is the only case that can mislead anybody.
 	if sec.hasEgress {
-		out = append(out, "WARNING: this policy configures egress protection, and the MCP "+
-			"path does not read the files a transfer command would upload — the guard hooks do.")
+		out = append(out, "NOTE: egress protection is configured and applies to the guard "+
+			"hooks, not to this path: the files a transfer command would upload live on the "+
+			"agent's machine, and a proxy in front of a tool server has no agent working "+
+			"directory to resolve them against.")
 	}
 	return out
 }
@@ -321,6 +336,22 @@ type docSecurity struct {
 	perMinute int
 	hasDLP    bool
 	hasEgress bool
+}
+
+// dlpBlockFromDoc is the policy file's `security.dlpBlock`, in the shape the scanner
+// takes. Nil when the policy configures none — and only the envelope can carry one.
+func dlpBlockFromDoc(policy PolicyDoc) *sgshared.DLPConfig {
+	raw, ok := policy.Fields["security"]
+	if !ok {
+		return nil
+	}
+	var sec struct {
+		DLPBlock *sgshared.DLPConfig `json:"dlpBlock"`
+	}
+	if json.Unmarshal(raw, &sec) != nil {
+		return nil
+	}
+	return sec.DLPBlock
 }
 
 func securityFromDoc(policy PolicyDoc) docSecurity {

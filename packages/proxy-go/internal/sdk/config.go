@@ -14,6 +14,7 @@
 package sdk
 
 import (
+	"github.com/codeyevsky/solongate/sgshared"
 	"strings"
 
 	"github.com/codeyevsky/solongate/proxy/internal/core"
@@ -34,6 +35,12 @@ type Config struct {
 	// PolicySet, when set, is enforced instead of anything fetched from the
 	// cloud. Nothing is fetched at all in that case.
 	PolicySet *core.PolicySet
+
+	// DLPBlock refuses a call whose ARGUMENTS carry a secret, from the policy file's
+	// `security.dlpBlock`. Nil means the policy configures none.
+	//
+	// This path had no DLP at all: the block reached the guard hooks and nothing here.
+	DLPBlock *sgshared.DLPConfig
 
 	// ValidateSchemas is carried through to the interceptor but NOTHING READS
 	// IT YET, in this port or in the TypeScript it comes from: validating a

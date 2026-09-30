@@ -144,11 +144,18 @@ tool calls, for an agent that speaks MCP rather than running hooks. It decides w
 the same evaluator the guard uses (`packages/proxy/hooks/policy-eval.mjs`), so a
 policy means one thing in both places.
 
-**The layers are not all there.** This path enforces the policy rules and the rate
-limit, and has no DLP or egress scanner — so a `security` block reaches the hooks
-and only half reaches here. The proxy says which layers are in force every time it
-starts, and warns by name when your policy configures one it cannot apply, because
-a difference you cannot see is the kind that gets found the expensive way.
+**Almost all the layers are there.** This path enforces the policy rules, the rate
+limit and DLP — the same scanner and the same pattern list the hooks use, so a
+secret split across string literals does not walk past it either.
+
+Egress is the exception, and for a reason rather than an omission: that check reads
+the files a transfer command would upload, resolving them against the **agent's**
+working directory. A proxy in front of a tool server has no such directory — the
+paths in a call belong to whatever machine the upstream runs on — so reading them
+here would read the wrong machine's files. The proxy prints which layers are in
+force every time it starts, and says this plainly when your policy configures
+egress, because a difference you cannot see is the kind that gets found the
+expensive way.
 
 ## Developing
 

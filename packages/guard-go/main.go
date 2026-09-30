@@ -348,7 +348,7 @@ func main() {
 	}
 
 	if sec != nil && sec.DLPBlock != nil {
-		if hit := dlpScan(argsText, sec.DLPBlock); hit != "" {
+		if hit := sgshared.DLPScan(argsText, sec.DLPBlock); hit != "" {
 			reason := "Security layer (DLP): blocked - arguments contain a " + hit +
 				// A denial names what a person can change; see hooks/guard.mjs.
 				". Blocked by SolonGate (DLP). Edit ~/.solongate/policy.json to change what is refused."
@@ -364,7 +364,7 @@ func main() {
 		// on such a client observed nothing at all: reads were still redacted, so
 		// it looked like it was working, and an argument carrying a secret went
 		// out with no record anywhere that it had.
-		if hit := dlpScan(argsText, sec.DLPRedact); hit != "" {
+		if hit := sgshared.DLPScan(argsText, sec.DLPRedact); hit != "" {
 			recordObserved(sec, hasSecurity, c, agentType, agentName,
 				"Security layer (DLP): detected - arguments contain a "+hit+". Allowed: DLP is in detect mode.",
 				started)

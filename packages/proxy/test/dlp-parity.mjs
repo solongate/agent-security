@@ -23,7 +23,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { suite, check, note, done } from './harness.mjs';
 
-const GO = fileURLToPath(new URL('../../guard-go/dlp.go', import.meta.url));
+// sgshared, not guard-go: the scanner moved there so the MCP proxy could use the same
+// one. There is now ONE Go copy where there was one, and still three JavaScript copies —
+// which is what the rest of this file is for.
+const GO = fileURLToPath(new URL('../../sgshared/dlp.go', import.meta.url));
 // Assembled: the guard protects paths spelled this way, and the tooling that
 // edits this file is subject to that protection.
 const HOOKS = [
@@ -36,7 +39,7 @@ const HOOKS = [
 function goPatterns() {
   const src = readFileSync(GO, 'utf-8');
   const from = src.indexOf('var dlpPatterns');
-  if (from < 0) throw new Error('dlp.go no longer declares dlpPatterns');
+  if (from < 0) throw new Error('sgshared/dlp.go no longer declares dlpPatterns');
   const to = src.indexOf('\n}\n', from);
   const block = src.slice(from, to);
   const out = [];

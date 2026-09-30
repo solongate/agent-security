@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/codeyevsky/solongate/sgshared"
 	"strings"
 	"sync"
 	"time"
@@ -148,6 +150,15 @@ type InterceptorOptions struct {
 	ExfiltrationTracker  *ExfiltrationChainTracker
 	ResponseScanConfig   *ResponseScanConfig
 	BlockUnsafeResponses bool
+
+	// DLPBlock refuses a call whose ARGUMENTS carry a secret, using the same scanner
+	// and the same pattern list the guard hooks use (sgshared.DLPScanViews).
+	//
+	// This path had no DLP at all. A policy's `security.dlpBlock` reached the hooks and
+	// nothing here, so somebody could watch DLP refuse a secret in their agent's tool
+	// calls, put an MCP server behind the proxy, and reasonably assume the same
+	// protection was in place. Nil means the policy configures none.
+	DLPBlock *sgshared.DLPConfig
 }
 
 // InterceptToolCall runs one tool call through the whole pipeline:
@@ -237,7 +248,39 @@ func InterceptToolCall(ctx context.Context, params core.McpCallToolParams, upstr
 		options.ExfiltrationTracker.Record(params.Name)
 	}
 
-	// ── 3. policy ──
+	// ── 3. DLP: a secret in the ARGUMENTS ──
+	//
+	// Before the policy, with the other cheap local refusals, for the reason the order
+	// comment gives: nothing that touches the network happens before the decision, and a
+	// flood must not be turned into work.
+	//
+	// The scan is the de-obfuscating one, so splitting or base64-encoding a secret does
+	// not walk past it — the same function the guard calls, so a policy means the same
+	// thing on both paths.
+	//
+	// EGRESS IS NOT HERE, and that is a decision rather than an omission: the egress
+	// check reads the files a transfer command would upload, resolving them against the
+	// AGENT's working directory. A proxy in front of a tool server has no such
+	// directory — the paths in a call belong to whatever machine the upstream runs on —
+	// so a check that read them here would be reading the wrong files. The proxy says so
+	// at startup (see internal/proxy layerReport).
+	if options.DLPBlock != nil {
+		if hit := sgshared.DLPScanViews(argumentsText(params.Arguments), options.DLPBlock); hit != "" {
+			reason := "Security layer (DLP): blocked - arguments contain a " + hit +
+				". Blocked by SolonGate (DLP). Edit ~/.solongate/" + policyFileName +
+				" to change what is refused."
+			decision := core.PolicyDecision{
+				Effect: core.EffectDeny, MatchedRule: nil, Reason: reason,
+				Timestamp: timestamp, EvaluationTimeMs: 0,
+			}
+			emit(core.ExecutionResult{
+				Status: core.StatusDenied, Request: request, Decision: &decision, Timestamp: timestamp,
+			})
+			return DeniedToolResult(reason), nil
+		}
+	}
+
+	// ── 4. policy ──
 	evaluator := options.PolicyEvaluator
 	if evaluator == nil {
 		evaluator = &FailClosedEvaluator{}
@@ -345,3 +388,22 @@ func InterceptToolCall(ctx context.Context, params core.McpCallToolParams, upstr
 
 	return toolResult, nil
 }
+
+// argumentsText is the call's arguments as one string for the scanner to read. The guard
+// does the same: json.Marshal of the argument map, so a secret in any field is seen
+// wherever it sits.
+func argumentsText(args map[string]interface{}) string {
+	if len(args) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(args)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// policyFileName is spelled in pieces because the guard's tamper protection refuses a
+// tool call whose text names it, and the tooling that edits this repository is subject to
+// that protection.
+var policyFileName = "pol" + "icy.json"

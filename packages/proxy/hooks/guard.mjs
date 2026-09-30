@@ -1142,6 +1142,15 @@ function isProtectedPath(p) {
   }
   if (/\/\.claude\/settings(\.local)?\.json$/.test(np)) return 'settings.json';
   if (/\/\.solongate\/hooks(\/|$)/.test(np)) return 'solongate-hooks';
+  // THE BINARY'S DIRECTORY, for the same reason the hooks directory above is covered.
+  // `rm -rf ~/.solongate/bin` names no protected basename and matches no `/bin/**` glob
+  // — that needs something after the slash — so it went through. It is not a disarm on
+  // its own: with no binary the hook runs its own implementation and still decides
+  // (test/go-delegation.mjs pins that). What it is, is an agent quietly taking the fast
+  // path away and `doctor` reporting the Node implementation as if that were a choice
+  // somebody made. The asymmetry — hooks covered, bin not — is what let the write-side
+  // hole next door go unnoticed.
+  if (/\/\.solongate\/bin(\/|$)/.test(np)) return 'solongate-bin';
   if (/\/\.codex\/(hooks\.json|config\.toml)$/.test(np)) return 'codex-hooks';
   if (/\/\.gemini\/config\/hooks\.json$/.test(np)) return 'antigravity-hooks';
   // Anything in ~/.solongate whose name the command side already protects.
@@ -1187,6 +1196,7 @@ function commandTargetsProtected(cmd) {
   }
   if (/\.claude[\\/]+settings(\.local)?\.json/.test(c)) return 'settings.json';
   if (/\.solongate[\\/]+hooks/.test(c)) return 'solongate-hooks';
+  if (/\.solongate[\\/]+bin/.test(c)) return 'solongate-bin';
   if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c)) return 'codex-hooks';
   if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c)) return 'antigravity-hooks';
   // Customer install dirs

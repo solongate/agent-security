@@ -132,6 +132,19 @@ for (const [label, input] of [
     ['chmod +x on it', 'Bash', { command: `chmod +x ${guardBin}` }],
     ['deleting it', 'Bash', { command: `rm -f ${guardBin}` }],
     ['moving something onto it', 'Bash', { command: `mv /tmp/x ${guardBin}` }],
+    // THE DIRECTORY ITSELF. `rm -rf ~/.solongate/bin` names no protected basename and
+    // matches no `/bin/**` glob — that needs something after the slash — so it went
+    // through in BOTH implementations. It is not a disarm on its own: with no binary the
+    // hook runs its own implementation and still decides (go-delegation.mjs pins that).
+    // What it is, is an agent quietly taking the fast path away while `doctor` reports
+    // the Node implementation as though somebody had chosen it. The hooks directory was
+    // already covered this way, and that asymmetry — hooks yes, bin no — is what let the
+    // write-side hole above sit unnoticed.
+    ['rm -rf the bin directory', 'Bash', { command: `rm -rf ${binDir}` }],
+    ['moving the bin directory away', 'Bash', { command: `mv ${binDir} ${binDir}-old` }],
+    ['rmdir on it', 'Bash', { command: `rmdir ${binDir}` }],
+    ['chmod on it', 'Bash', { command: `chmod 777 ${binDir}` }],
+    ['a Write at the directory path', 'Write', { file_path: binDir, content: 'x' }],
   ]) {
     check(`${label} is refused`, refused(tool, input), true);
   }

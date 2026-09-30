@@ -166,14 +166,20 @@ const tamperJSSpace = `[\t\n\v\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2
 var (
 	reTamperCCSettings = regexp.MustCompile(`/\.claude/settings(\.local)?\.json$`)
 	reTamperSGHooks    = regexp.MustCompile(`/\.solongate/hooks(/|$)`)
-	reTamperCXHooks    = regexp.MustCompile(`/\.codex/(hooks\.json|config\.toml)$`)
-	reTamperAGYHooks   = regexp.MustCompile(`/\.gemini/config/hooks\.json$`)
+	// The binary's DIRECTORY, for the same reason the hooks one above is covered:
+	// `rm -rf ~/.solongate/bin` names no protected basename and matches no `/bin/**`
+	// glob. Not a disarm on its own — with no binary the hook decides for itself — but
+	// an agent should not be able to take the fast path away silently.
+	reTamperSGBin    = regexp.MustCompile(`/\.solongate/bin(/|$)`)
+	reTamperCXHooks  = regexp.MustCompile(`/\.codex/(hooks\.json|config\.toml)$`)
+	reTamperAGYHooks = regexp.MustCompile(`/\.gemini/config/hooks\.json$`)
 
 	// The command forms accept a run of EITHER separator, because a command
 	// string is never normalised the way a path field is: `~\.claude\\settings.json`
 	// has to hit the same rule as `~/.claude/settings.json`.
 	reTamperCmdCCSettings = regexp.MustCompile(`\.claude[\\/]+settings(\.local)?\.json`)
 	reTamperCmdSGHooks    = regexp.MustCompile(`\.solongate[\\/]+hooks`)
+	reTamperCmdSGBin      = regexp.MustCompile(`\.solongate[\\/]+bin`)
 	reTamperCmdCXHooks    = regexp.MustCompile(`\.codex[\\/]+(hooks\.json|config\.toml)`)
 	reTamperCmdAGYHooks   = regexp.MustCompile(`\.gemini[\\/]+config[\\/]+hooks\.json`)
 	reTamperInstallDirs   = regexp.MustCompile(`[\\/]solongate[\\/]+(compose|data|images|helm)[\\/]`)
@@ -215,6 +221,9 @@ func isProtectedPath(p string) string {
 	}
 	if reTamperSGHooks.MatchString(np) {
 		return "solongate-hooks"
+	}
+	if reTamperSGBin.MatchString(np) {
+		return "solongate-bin"
 	}
 	if reTamperCXHooks.MatchString(np) {
 		return "codex-hooks"
@@ -279,6 +288,9 @@ func commandTargetsProtected(cmd string) string {
 	}
 	if reTamperCmdSGHooks.MatchString(c) {
 		return "solongate-hooks"
+	}
+	if reTamperCmdSGBin.MatchString(c) {
+		return "solongate-bin"
 	}
 	if reTamperCmdCXHooks.MatchString(c) {
 		return "codex-hooks"

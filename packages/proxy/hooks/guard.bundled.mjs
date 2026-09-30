@@ -867,6 +867,8 @@ function isProtectedPath(p) {
     return "settings.json";
   if (/\/\.solongate\/hooks(\/|$)/.test(np))
     return "solongate-hooks";
+  if (/\/\.solongate\/bin(\/|$)/.test(np))
+    return "solongate-bin";
   if (/\/\.codex\/(hooks\.json|config\.toml)$/.test(np))
     return "codex-hooks";
   if (/\/\.gemini\/config\/hooks\.json$/.test(np))
@@ -892,6 +894,8 @@ function commandTargetsProtected(cmd) {
     return "settings.json";
   if (/\.solongate[\\/]+hooks/.test(c))
     return "solongate-hooks";
+  if (/\.solongate[\\/]+bin/.test(c))
+    return "solongate-bin";
   if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c))
     return "codex-hooks";
   if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c))

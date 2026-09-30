@@ -1066,10 +1066,18 @@ const TAMPER_PROTECTED_GLOBS = [
   '**' + TAMPER_SG + '/policy.json',
   '**' + TAMPER_SG + '/.policy-cache.json',
   '**' + TAMPER_SG + '/.policy-cache-*.json',
-  '**' + TAMPER_SG + '/.pi-config-cache.json',
   '**' + TAMPER_SG + '/cloud-guard.json',
-  '**' + TAMPER_SG + '/.opa-wasm-*.json',
-  '**' + TAMPER_SG + '/.ratelimit-*.json',
+  // `.opa-wasm-*.json` and `.pi-config-cache.json` were listed here. Nothing writes
+  // either: the WASM bundle came from a service that compiled it, and the prompt-injection
+  // layer is not in this build. A lock on a file that cannot exist reads as protection and
+  // is not; what remains on this list is what an agent could actually reach for.
+  // The rate-limit counter. The extension is `.log`, not `.json` — this glob said
+  // `.ratelimit-*.json` and matched NOTHING the limiter writes. The file was still
+  // protected, by the basename rule below (`.ratelimit-` as a prefix inside
+  // ~/.solongate), which is why nothing broke; but a glob that matches no real file is
+  // a line somebody will one day rely on. Deleting this counter resets the window, so
+  // a limit of N calls/minute becomes N per deletion.
+  '**' + TAMPER_SG + '/.ratelimit-*',
   // THE GUARD BINARY, and this was a complete disarm reachable from one tool call.
   //
   // sgTryGoGuard runs whatever is at ~/.solongate/bin/solongate-guard as soon as it
@@ -1109,11 +1117,11 @@ const TAMPER_BASENAMES = [
   // `solongate-guard.exe` is covered by the same entry.
   'solongate-guard',
   // Prefixes (substring match) so per-agent runtime state can't be deleted or
-  // rewritten via a shell command either — `.policy-cache-<agent>.json`,
-  // `.ratelimit-<agent>.json`, `.opa-wasm-<agent>.json`. Editing these could
-  // otherwise flip enforcement off until the next cloud refresh; deleting just
-  // forces a refetch, but neither should be reachable from an agent tool call.
-  '.policy-cache', '.ratelimit-', '.opa-wasm-', '.pi-config-cache',
+  // rewritten via a shell command either — `.policy-cache-<agent>.json` and
+  // `.ratelimit-<agent>.log`. Deleting the counter resets the rate-limit window, so a
+  // limit of N calls/minute becomes N per deletion; the cache is no longer written but
+  // a leftover one must not be editable either.
+  '.policy-cache', '.ratelimit-',
   'cloud-guard.json',
   // Customer install: DB and wizard exe
   'solongate.db', 'solongate.exe',

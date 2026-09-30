@@ -38,11 +38,23 @@ func TestTheGuardsOwnStateIsUnreachableByPath(t *testing.T) {
 
 	blocked := []struct{ name, path string }{
 		{"the policy cache", filepath.Join(sg, "."+"policy"+"-cache-"+agent+".json")},
-		{"the rate-limit counter", filepath.Join(sg, "."+"ratelimit-"+agent+".json")},
-		{"the compiled policy", filepath.Join(sg, "."+"opa-wasm-"+agent+".json")},
+		// `.log`, which is what the limiter actually writes. This case said `.json` and
+		// passed anyway, because the basename rule matches the prefix — so it was
+		// asserting protection for a path that never exists. Deleting the real file
+		// resets the window, turning a limit of N calls/minute into N per deletion, so
+		// this is the entry on this list with a live payoff.
+		{"the rate-limit counter", filepath.Join(sg, "."+"ratelimit-"+agent+".log")},
 		{"the credential", filepath.Join(sg, "cloud"+"-guard.json")},
 		{"a hook", filepath.Join(sg, "hooks", "au"+"dit.mjs")},
+		// The guard BINARY and its directory. The hook runs whatever is there once it
+		// prints the expected version, so this is the shortest disarm there is.
+		{"the guard binary", filepath.Join(sg, "bin", "solongate-guard")},
+		{"the binary's directory", filepath.Join(sg, "bin")},
 	}
+	// The compiled policy — `.opa-wasm-<agent>.json` — was on this list. It was what a
+	// service sent; nothing writes it and nothing reads it, so a leftover one is not
+	// state and tampering with it achieves nothing. Protecting a file that cannot exist
+	// reads as thoroughness and is not.
 	for _, c := range blocked {
 		if hit := isProtectedPath(c.path); hit == "" {
 			t.Errorf("%s is reachable by path: %s", c.name, c.path)

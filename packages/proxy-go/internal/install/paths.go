@@ -183,7 +183,10 @@ func (p Paths) protectedTargets() []string {
 		filepath.Join(p.HooksDir, auditHookName),
 		filepath.Join(p.HooksDir, stopHookName),
 		filepath.Join(p.HooksDir, shieldHookName),
-		p.ConfigPath,
+		// p.ConfigPath — the credential — was pinned here. Nothing writes that file, so
+		// there is nothing to pin: the npm installer's list dropped it for the same
+		// reason, and a lock on a file that never exists is a no-op that reads as
+		// protection.
 		p.SettingsPath,
 		filepath.Join(p.HooksDir, tokensHookName),
 		// The launcher, which is the enforcement path now: every hook command in

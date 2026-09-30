@@ -100,10 +100,15 @@ var tamperProtectedGlobs = []string{
 	"**" + tamperSG + "/policy.json",
 	"**" + tamperSG + "/.policy-cache.json",
 	"**" + tamperSG + "/.policy-cache-*.json",
-	"**" + tamperSG + "/.pi-config-cache.json",
 	"**" + tamperSG + "/cloud-guard.json",
-	"**" + tamperSG + "/.opa-wasm-*.json",
-	"**" + tamperSG + "/.ratelimit-*.json",
+	// `.opa-wasm-*.json` and `.pi-config-cache.json` were listed here. Nothing writes
+	// either -- the WASM bundle came from a service, and the prompt-injection layer is not
+	// in this build -- so a lock on a file that cannot exist reads as protection and is not.
+	// The rate-limit counter. The extension is `.log`, not `.json` — this glob said
+	// `.ratelimit-*.json` and matched nothing the limiter writes. Protected anyway by
+	// the basename prefix rule, but a glob matching no real file is a line somebody will
+	// one day rely on.
+	"**" + tamperSG + "/.ratelimit-*",
 	// The guard BINARY. The hook runs whatever is at this path once it prints
 	// the expected version for --sg-version, and then honours its exit code, so
 	// a two-line stub here allows every call while `solongate doctor` still
@@ -128,11 +133,10 @@ var tamperBasenames = []string{
 	"guard.mjs", "audit.mjs", "stop.mjs", "shield.mjs",
 	"policy.json",
 	// Prefixes (substring match) so per-agent runtime state can't be deleted or
-	// rewritten via a shell command either — `.policy-cache-<agent>.json`,
-	// `.ratelimit-<agent>.json`, `.opa-wasm-<agent>.json`. Editing these could
-	// otherwise flip enforcement off until the next cloud refresh; deleting just
-	// forces a refetch, but neither should be reachable from an agent tool call.
-	".policy-cache", ".ratelimit-", ".opa-wasm-", ".pi-config-cache",
+	// rewritten via a shell command either — `.policy-cache-<agent>.json` and
+	// `.ratelimit-<agent>.log`. Deleting the counter resets the rate-limit window, so a
+	// limit of N calls/minute becomes N per deletion.
+	".policy-cache", ".ratelimit-",
 	// The guard binary, on the command side too. The path
 	// globs above catch a Write or an Edit; this catches `cp /bin/true
 	// ~/.solongate/bin/solongate-guard`, which is the same disarm through a

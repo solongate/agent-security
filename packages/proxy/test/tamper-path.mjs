@@ -150,5 +150,30 @@ for (const [label, input] of [
   }
 }
 
+// ── THE RATE-LIMIT COUNTER ───────────────────────────────────────────────────
+//
+// The limiter keeps its stamps in ~/.solongate/.ratelimit-<agent>.log. Delete that and
+// the window is empty again, so a limit of N calls/minute becomes N PER DELETION — an
+// agent that can remove one file is not rate-limited at all.
+//
+// It was protected in both implementations and exercised by neither. That is the same
+// shape as the disarm above: an entry on a shared list, correct in both, held by nothing
+// — so a change to either could quietly drop it. The extension is part of the point: the
+// path globs said `.json` while the limiter writes `.log`, so the glob matched no real
+// file and the basename rule was doing all the work on its own.
+{
+  const counter = join(home, '.solongate', '.ratelimit-conformance.log');
+  writeFileSync(counter, '[]');
+  for (const [label, tool, input] of [
+    ['rm on the counter', 'Bash', { command: `rm -f ${counter}` }],
+    ['truncating it', 'Bash', { command: `: > ${counter}` }],
+    ['a Write of [] over it', 'Write', { file_path: counter, content: '[]' }],
+    ['an Edit of it', 'Edit', { file_path: counter, old_string: '[', new_string: ' ' }],
+    ['a glob delete of every counter', 'Bash', { command: `rm -f ${join(home, '.solongate')}/.ratelimit-*` }],
+  ]) {
+    check(`${label} is refused`, refused(tool, input), true);
+  }
+}
+
 rmSync(home, { recursive: true, force: true });
 process.exit(done());

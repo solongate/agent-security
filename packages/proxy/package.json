@@ -25,7 +25,8 @@
     "dist",
     "hooks/*.mjs",
     "hooks/*.d.mts",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup && pnpm build:types && pnpm build:hooks",

@@ -434,7 +434,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 101;
+var HOOK_VERSION = 102;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -983,6 +983,168 @@ function isProtectedPath(p) {
   }
   return false;
 }
+var CLI_BASENAMES = /* @__PURE__ */ new Set([
+  "solongate",
+  "solongate.exe",
+  "solongate-proxy",
+  "solongate-proxy.exe",
+  "solongate-audit",
+  "solongate-audit.exe"
+]);
+var CLI_WRAPPERS = /* @__PURE__ */ new Set([
+  "sudo",
+  "doas",
+  "env",
+  "nohup",
+  "time",
+  "command",
+  "exec",
+  "nice",
+  "ionice",
+  "stdbuf",
+  "setsid",
+  "xargs",
+  "watch",
+  "timeout",
+  "builtin",
+  // Shell interpreters belong here for the same reason: `bash -c "solongate policy delete"`
+  // runs it as surely as a bare call does, and once quotes are honoured the command sits in
+  // the argument list like any other program name.
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "ksh",
+  "fish",
+  "csh",
+  "tcsh",
+  "ash",
+  "busybox"
+]);
+var CLI_FLAG_TAKES_VALUE = /* @__PURE__ */ new Set([
+  "-u",
+  "-g",
+  "-U",
+  "-n",
+  "-i",
+  "-I",
+  "-s",
+  "-w",
+  "-t",
+  "-p",
+  "-C",
+  "--user",
+  "--group",
+  "--chdir"
+]);
+var CLI_ALWAYS_RUNNERS = /* @__PURE__ */ new Set(["npx", "pnpx", "bunx"]);
+var CLI_MAYBE_RUNNERS = /* @__PURE__ */ new Set(["npm", "pnpm", "yarn", "bun"]);
+var CLI_RUN_SUBCOMMANDS = /* @__PURE__ */ new Set(["exec", "dlx", "x"]);
+var CLI_NUMBERISH = /^[0-9]+(?:\.[0-9]+)?[a-z]*$/;
+var CLI_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+function commandInvokesCLI(cmd) {
+  for (const fields of splitCLICommands(String(cmd || ""))) {
+    if (fieldsInvokeCLI(fields))
+      return true;
+  }
+  return false;
+}
+function splitCLICommands(cmd) {
+  const out = [];
+  let fields = [];
+  let tok = "";
+  let quote = "";
+  const endToken = () => {
+    if (tok) {
+      fields.push(tok);
+      tok = "";
+    }
+  };
+  const endCommand = () => {
+    endToken();
+    if (fields.length) {
+      out.push(fields);
+      fields = [];
+    }
+  };
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (quote) {
+      if (ch === quote)
+        quote = "";
+      else if (ch === "\\" && quote === '"' && i + 1 < cmd.length)
+        tok += cmd[++i];
+      else
+        tok += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"')
+      quote = ch;
+    else if (ch === "$" && (cmd[i + 1] === "(" || cmd[i + 1] === "{")) {
+      i++;
+      endCommand();
+    } else if ("|&;\n\r`".includes(ch))
+      endCommand();
+    else if (ch === " " || ch === "	")
+      endToken();
+    else
+      tok += ch;
+  }
+  endCommand();
+  return out;
+}
+function fieldsInvokeCLI(fields) {
+  let wrapped = false;
+  for (let i = 0; i < fields.length; i++) {
+    const tok = fields[i].replace(/^[(){}"']+/, "").replace(/[(){}"']+$/, "");
+    if (!tok)
+      continue;
+    if (CLI_ASSIGNMENT.test(tok)) {
+      wrapped = true;
+      continue;
+    }
+    if (wrapped) {
+      if (tok.startsWith("-")) {
+        if (CLI_FLAG_TAKES_VALUE.has(tok.toLowerCase()))
+          i++;
+        continue;
+      }
+      if (CLI_NUMBERISH.test(tok))
+        continue;
+    }
+    const base = tok.replace(/\\/g, "/").split("/").pop().toLowerCase();
+    if (CLI_WRAPPERS.has(base)) {
+      wrapped = true;
+      continue;
+    }
+    if (CLI_BASENAMES.has(base))
+      return true;
+    if (CLI_ALWAYS_RUNNERS.has(base))
+      return restRunsCLIPackage(fields.slice(i + 1));
+    if (CLI_MAYBE_RUNNERS.has(base))
+      return maybeRunnerRunsCLI(fields.slice(i + 1));
+    if (/[/\\]/.test(tok))
+      continue;
+    return false;
+  }
+  return false;
+}
+function maybeRunnerRunsCLI(rest) {
+  for (let j = 0; j < rest.length; j++) {
+    if (rest[j].startsWith("-"))
+      continue;
+    if (CLI_RUN_SUBCOMMANDS.has(rest[j].toLowerCase()))
+      return restRunsCLIPackage(rest.slice(j + 1));
+    return false;
+  }
+  return false;
+}
+function restRunsCLIPackage(rest) {
+  return rest.some((t) => {
+    const tl = t.toLowerCase();
+    return tl.includes("solongate/proxy") || CLI_BASENAMES.has(tl);
+  });
+}
 function commandTargetsProtected(cmd) {
   const c = String(cmd || "").toLowerCase();
   if (!c)
@@ -997,6 +1159,8 @@ function commandTargetsProtected(cmd) {
     return "solongate-hooks";
   if (/\.solongate[\\/]+bin/.test(c))
     return "solongate-bin";
+  if (commandInvokesCLI(c))
+    return "solongate-cli";
   if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c))
     return "codex-hooks";
   if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c))

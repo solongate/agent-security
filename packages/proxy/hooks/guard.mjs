@@ -140,7 +140,7 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 //
 // This number is how a machine compares the hook it has with the one in a
 // checkout, and a fix nobody picks up is not a fix.
-const HOOK_VERSION = 101;
+const HOOK_VERSION = 102;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -1203,6 +1203,212 @@ function isProtectedPath(p) {
   return false;
 }
 
+// ── the CLI, invoked ───────────────────────────────────────────────
+
+// `solongate policy delete`, `solongate dlp disable` and the rest change what is enforced,
+// so an AGENT running one is disarming the guard through the front door.
+//
+// It used to be stopped by the CLI itself, which refused whenever an agent marker was in
+// the environment. That refused the wrong people: an integrated terminal inherits the
+// agent's environment, so a HUMAN typing `solongate` in VS Code or Cursor was turned away
+// from their own tool. Here it is a fact about the caller — this check runs on a tool call
+// and nowhere else — rather than a guess about its environment, and it holds even if the
+// agent allocated a pseudo-terminal, which a TTY check alone does not.
+//
+// MATCHED AS AN INVOCATION, NOT AS A WORD, and that distinction is the whole design. Every
+// other check in this file tests a substring, which is right for a path and wrong here:
+//
+//   git commit -m "fix the solongate integration docs"
+//   python3 -c "print('solongate')"
+//   npm install @solongate/proxy
+//
+// Not one of those runs anything. A substring rule refused all three, which would leave an
+// agent unable to so much as mention the product it is working on — a wall rather than a
+// guard, and the kind of wall that gets a whole layer switched off. So this asks the only
+// question that matters: IS THE CLI THE PROGRAM BEING RUN?
+//
+// Answering it takes three things, and each one is here because leaving it out was wrong:
+//
+//   - QUOTE-AWARE SPLITTING. Splitting on `(` to catch `$(solongate policy delete)` also
+//     tears `"print('solongate')"` into a fake command whose first token is the CLI. Quotes
+//     have to be honoured, and their contents kept as one token stream.
+//   - WRAPPERS, AND THEIR ARGUMENTS. `sudo solongate` is the same invocation wearing a hat,
+//     and so are `timeout 5 solongate`, `sudo -u root solongate` and `bash -c "solongate
+//     policy delete"` — so a wrapper's own flags, flag values and numeric operands are
+//     stepped over to reach the program behind them.
+//   - RUNNERS THAT ACTUALLY RUN. `pnpm dlx @solongate/proxy policy delete` reaches the CLI
+//     without installing it; `npm install @solongate/proxy` names the same package and
+//     changes nothing enforced. The subcommand is the difference.
+//
+// The twin of commandInvokesCLI in packages/guard-go/tamper.go. The tables below are the
+// same tables, in the same order, and a name added to one belongs in the other. Both are
+// driven by the same cases in test/cli-invocation.mjs, whose second half is the half that
+// matters: every command there is one a person would reasonably ask an agent for while
+// working on this repository.
+
+const CLI_BASENAMES = new Set([
+  'solongate', 'solongate.exe',
+  'solongate-proxy', 'solongate-proxy.exe',
+  'solongate-audit', 'solongate-audit.exe',
+]);
+
+// Programs that run another program named in their own arguments.
+const CLI_WRAPPERS = new Set([
+  'sudo', 'doas', 'env', 'nohup', 'time',
+  'command', 'exec', 'nice', 'ionice', 'stdbuf',
+  'setsid', 'xargs', 'watch', 'timeout', 'builtin',
+  // Shell interpreters belong here for the same reason: `bash -c "solongate policy delete"`
+  // runs it as surely as a bare call does, and once quotes are honoured the command sits in
+  // the argument list like any other program name.
+  'bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'csh', 'tcsh', 'ash', 'busybox',
+]);
+
+// Flags that consume the token after them. Without this, `sudo -u root solongate policy
+// delete` stops on `root` and reads it as the program being run.
+//
+// `-c` is deliberately absent. Its value is a command, which is exactly what the scan needs
+// to look at next.
+const CLI_FLAG_TAKES_VALUE = new Set([
+  '-u', '-g', '-U', '-n', '-i', '-I', '-s', '-w', '-t', '-p', '-C',
+  '--user', '--group', '--chdir',
+]);
+
+// Runners that exist only to run something: whatever package they are given, they run it.
+const CLI_ALWAYS_RUNNERS = new Set(['npx', 'pnpx', 'bunx']);
+
+// Package managers, which run something only when asked to. `npm install @solongate/proxy`
+// installs a package and enforces nothing; `npm exec @solongate/proxy policy delete` runs
+// the CLI. The subcommand is the whole difference.
+const CLI_MAYBE_RUNNERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
+
+const CLI_RUN_SUBCOMMANDS = new Set(['exec', 'dlx', 'x']);
+
+// A number, with or without a unit: `timeout 5`, `timeout 1.5s`, `nice -n 10`.
+const CLI_NUMBERISH = /^[0-9]+(?:\.[0-9]+)?[a-z]*$/;
+// `VAR=value` in command position is environment, not a program.
+const CLI_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+function commandInvokesCLI(cmd) {
+  for (const fields of splitCLICommands(String(cmd || ''))) {
+    if (fieldsInvokeCLI(fields)) return true;
+  }
+  return false;
+}
+
+// splitCLICommands breaks a command line into the commands it would run, HONOURING QUOTES,
+// and returns each one already split into tokens.
+//
+// The quotes are the point. extractCommands splits on `&&`, `||`, `;` and `|` without
+// looking at them, which is right for a policy rule and wrong here: this also has to split
+// on `(`, `)`, `$(` and backticks to catch `$(solongate policy delete)`, and doing that
+// blindly turns the inside of `python3 -c "print('solongate')"` into a command whose first
+// token is the CLI.
+//
+// Quote characters are dropped rather than kept, so `bash -c "solongate policy delete"`
+// arrives as an ordinary argument list and the wrapper logic can walk straight into it.//
+// THE QUOTES MAY ALREADY BE GONE when this runs: extractCommands normalises a command before
+// the tamper rules see it, and normalising strips quoting. That is why brackets are TRIMMED
+// FROM TOKENS rather than split on. Splitting on a bare `(` turned the stripped form of
+// `python3 -c "print('solongate')"` — which arrives as `python3 -c print(solongate)` — into a
+// second command whose only token was the CLI's name. Trimming reaches `(solongate policy
+// delete)` just as well and leaves `print(solongate)` alone, and it gives the same answer
+// whether the quotes survived or not.
+//
+// What this does NOT catch is a non-shell interpreter asked to spawn a shell:
+// `ruby -e 'system("solongate policy delete")'` reads as an ordinary `ruby` invocation. The
+// alternative is matching the name anywhere in any argument, which is the wall this whole
+// design exists to avoid, and the file paths such a command would have to touch are covered
+// by the substring rules above.
+function splitCLICommands(cmd) {
+  const out = [];
+  let fields = [];
+  let tok = '';
+  let quote = '';
+
+  const endToken = () => { if (tok) { fields.push(tok); tok = ''; } };
+  const endCommand = () => {
+    endToken();
+    if (fields.length) { out.push(fields); fields = []; }
+  };
+
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (quote) {
+      if (ch === quote) quote = '';
+      else if (ch === '\\' && quote === '"' && i + 1 < cmd.length) tok += cmd[++i];
+      else tok += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === '$' && (cmd[i + 1] === '(' || cmd[i + 1] === '{')) { i++; endCommand(); }
+    else if ('|&;\n\r`'.includes(ch)) endCommand();
+    else if (ch === ' ' || ch === '\t') endToken();
+    else tok += ch;
+  }
+  endCommand();
+  return out;
+}
+
+// fieldsInvokeCLI decides whether one command's token list runs the CLI.
+function fieldsInvokeCLI(fields) {
+  let wrapped = false;
+  for (let i = 0; i < fields.length; i++) {
+    const tok = fields[i].replace(/^[(){}"']+/, '').replace(/[(){}"']+$/, '');
+    if (!tok) continue;
+    if (CLI_ASSIGNMENT.test(tok)) {
+      wrapped = true; // environment, and the program is further along
+      continue;
+    }
+    if (wrapped) {
+      // A wrapper's own flags and operands are not the program it runs.
+      if (tok.startsWith('-')) {
+        if (CLI_FLAG_TAKES_VALUE.has(tok.toLowerCase())) i++;
+        continue;
+      }
+      if (CLI_NUMBERISH.test(tok)) continue;
+    }
+    const base = tok.replace(/\\/g, '/').split('/').pop().toLowerCase();
+    if (CLI_WRAPPERS.has(base)) { wrapped = true; continue; }
+    if (CLI_BASENAMES.has(base)) return true;
+    if (CLI_ALWAYS_RUNNERS.has(base)) return restRunsCLIPackage(fields.slice(i + 1));
+    if (CLI_MAYBE_RUNNERS.has(base)) return maybeRunnerRunsCLI(fields.slice(i + 1));
+    // AN UNQUOTED PATH SPLITS ON ITS OWN SPACES. `C:\\Program Files\\SolonGate\\solongate
+    // policy delete` arrives (quotes already normalised away) as the tokens `C:\\Program`
+    // and `Files\\SolonGate\\solongate`, and stopping at the first of them misses the
+    // second, where the program name actually is.
+    //
+    // So a PATH-SHAPED token is not the end of the scan. The continuation stops at the
+    // first token that is not path-shaped, which is what keeps it narrow:
+    // `/usr/bin/git commit -m "fix the solongate docs"` stops at `commit`, and
+    // `./scripts/build.sh solongate` stops at its argument rather than reading it as a
+    // program.
+    if (/[/\\]/.test(tok)) continue;
+    // An ordinary program. Its arguments are its own business, and that is what keeps
+    // `git commit -m "fix the solongate docs"` running.
+    return false;
+  }
+  return false;
+}
+
+// maybeRunnerRunsCLI looks past a package manager's flags for the subcommand that decides
+// whether anything is being run at all.
+function maybeRunnerRunsCLI(rest) {
+  for (let j = 0; j < rest.length; j++) {
+    if (rest[j].startsWith('-')) continue;
+    if (CLI_RUN_SUBCOMMANDS.has(rest[j].toLowerCase())) return restRunsCLIPackage(rest.slice(j + 1));
+    return false; // install, add, view — naming the package is not running it
+  }
+  return false;
+}
+
+// restRunsCLIPackage reports whether a runner was pointed at this product.
+function restRunsCLIPackage(rest) {
+  return rest.some((t) => {
+    const tl = t.toLowerCase();
+    return tl.includes('solongate/proxy') || CLI_BASENAMES.has(tl);
+  });
+}
+
 function commandTargetsProtected(cmd) {
   const c = String(cmd || '').toLowerCase();
   if (!c) return false;
@@ -1212,6 +1418,7 @@ function commandTargetsProtected(cmd) {
   if (/\.claude[\\/]+settings(\.local)?\.json/.test(c)) return 'settings.json';
   if (/\.solongate[\\/]+hooks/.test(c)) return 'solongate-hooks';
   if (/\.solongate[\\/]+bin/.test(c)) return 'solongate-bin';
+  if (commandInvokesCLI(c)) return 'solongate-cli';
   if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c)) return 'codex-hooks';
   if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c)) return 'antigravity-hooks';
   // Customer install dirs

@@ -171,58 +171,36 @@ func run(args []string) int {
 
 // ── the human-only gate ────────────────────────────────────────────────────
 
-// Every command in this CLI reads or changes a security posture: policies, rate
-// limits, DLP, the guard itself. An AI agent must never be able to run them as
-// a tool call, or a compromised or prompt-injected agent could simply switch
-// off the thing watching it.
+// Every command in this CLI reads or changes a security posture: policies, rate limits,
+// DLP, the guard itself. An AI agent must never run one as a tool call, or a compromised
+// or prompt-injected agent could switch off the thing watching it.
 //
-// Two independent signals, and either one refuses:
+// THE SIGNAL IS THE TERMINAL, and only the terminal. An agent tool call pipes stdin and
+// stdout, so there is no TTY on both ends; a person at a keyboard always has one.
 //
-//  1. No interactive terminal. An agent tool call pipes stdin and stdout, so
-//     there is no TTY on both ends. A person at a terminal always has one.
-//  2. A known agent marker in the environment, even if a TTY somehow exists.
+// A SECOND SIGNAL USED TO REFUSE TOO, and it refused the wrong people: a list of
+// environment-variable prefixes — CLAUDECODE, CURSOR, CODEX_, ANTIGRAVITY and a dozen
+// more — any one of which turned the CLI away even with a real terminal on both ends.
+// The comment on it said "a human running these commands from inside an agent's
+// integrated terminal is refused too. That is on purpose: no exceptions."
 //
-// THERE IS NO EXEMPTION. SOLONGATE_INTERNAL=1 used to be one, for the detached
-// logs-server daemon that spawned itself — and that daemon is gone, so the
-// variable had no legitimate setter left and was only a way past this gate. An
-// agent that exported it would have been let straight through to edit policy.
+// It is not defensible. An integrated terminal INHERITS the agent's environment, so that
+// rule locked people out of their own tool in VS Code, Cursor, and any editor whose
+// terminal is a child of an agent process — while the thing it was guarding against, a
+// tool call, was already refused by the TTY check. It was a guess about the environment
+// standing in for a fact about the caller, and the guess was wrong far more often than it
+// was right.
 //
-// A consequence worth stating: whoever is porting this cannot run these
-// commands end to end from an agent session. That is the feature working.
-var agentEnvPrefixes = []string{
-	"CLAUDECODE", "CLAUDE_CODE", "CLAUDE_AGENT",
-	"ANTIGRAVITY", "CORTEX_", "CASCADE_", "WINDSURF", "JETSKI", "EXA_",
-	"GEMINI_CLI", "GEMINI_SESSION", "GEMINI_PROJECT", "GEMINI_CWD",
-	"CURSOR", "AIDER", "OPENAI_CODEX", "CODEX_", "OPENCLAW", "REPLIT", "DEVIN",
-}
-
-// agentMarker prefix-matches rather than comparing exactly, so the specific
-// variable a given agent leaks into a tool subprocess does not have to be known
-// — only the family. Antigravity leaks many ANTIGRAVITY_/CORTEX_/GEMINI_ names
-// and which one arrives varies by version.
+// What it was protecting is now protected where every other protection in this product
+// lives: the GUARD refuses a tool call whose command invokes this CLI. See
+// reTamperCmdCLI in packages/guard-go/tamper.go and commandTargetsProtected in the hook.
+// That is a fact about the caller — it runs on a tool call and nowhere else — and it
+// holds whether or not the agent allocated a pseudo-terminal, which the old TTY check
+// alone did not.
 //
-// A human running these commands from inside an agent's integrated terminal is
-// refused too. That is on purpose: no exceptions.
-func agentMarker() string { return agentMarkerIn(os.Environ()) }
-
-// Split from agentMarker so the matching can be tested. A test cannot unset the
-// agent variables of the process running it, and this gate is the last thing
-// that should be verified only by reading it.
-func agentMarkerIn(env []string) string {
-	for _, kv := range env {
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
-			continue
-		}
-		k := kv[:eq]
-		for _, p := range agentEnvPrefixes {
-			if k == p || strings.HasPrefix(k, p) {
-				return k
-			}
-		}
-	}
-	return ""
-}
+// THERE IS STILL NO EXEMPTION. SOLONGATE_INTERNAL=1 used to be one, for a daemon that is
+// gone, and it was only a way past the gate: an agent that exported it walked straight
+// through to edit policy.
 
 func isInteractive() bool {
 	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
@@ -232,8 +210,7 @@ func isInteractive() bool {
 // caller could forget to check. A gate that fails open when someone adds a new
 // call site is not a gate.
 func assertHumanTerminal() {
-	marker := agentMarker()
-	if isInteractive() && marker == "" {
+	if isInteractive() {
 		return
 	}
 	w := func(s string) { fmt.Fprintln(os.Stderr, s) }
@@ -241,11 +218,7 @@ func assertHumanTerminal() {
 	w("  SolonGate is human-only.")
 	w("  These commands control your security policy, so they cannot be run by an AI")
 	w("  agent or any non-interactive process. Run them yourself, in a terminal.")
-	if marker != "" {
-		w("  (refused: agent environment detected via " + marker + ")")
-	} else {
-		w("  (refused: no interactive terminal)")
-	}
+	w("  (refused: no interactive terminal — stdin and stdout are not both a tty)")
 	w("")
 	os.Exit(1)
 }

@@ -6,50 +6,24 @@ import (
 	"github.com/codeyevsky/solongate/proxy/internal/commands"
 )
 
-// The gate is the reason an agent cannot turn the guard off, so its matching is
-// tested rather than read. Every entry here is a variable one of the guarded
-// clients actually leaks into a tool subprocess.
-func TestAgentMarkerCatchesEveryClientFamily(t *testing.T) {
-	cases := []struct{ env, want string }{
-		{"CLAUDECODE=1", "CLAUDECODE"},
-		{"CLAUDE_CODE_CHILD_SESSION=x", "CLAUDE_CODE_CHILD_SESSION"},
-		{"CLAUDE_AGENT_ID=x", "CLAUDE_AGENT_ID"},
-		{"ANTIGRAVITY_SESSION=x", "ANTIGRAVITY_SESSION"},
-		{"CORTEX_HOME=/x", "CORTEX_HOME"},
-		{"CASCADE_ID=x", "CASCADE_ID"},
-		{"WINDSURF=1", "WINDSURF"},
-		{"JETSKI_X=1", "JETSKI_X"},
-		{"EXA_KEY=1", "EXA_KEY"},
-		{"GEMINI_CLI=1", "GEMINI_CLI"},
-		{"GEMINI_CWD=/x", "GEMINI_CWD"},
-		{"CURSOR_TRACE_ID=x", "CURSOR_TRACE_ID"},
-		{"AIDER_MODEL=x", "AIDER_MODEL"},
-		{"OPENAI_CODEX_X=1", "OPENAI_CODEX_X"},
-		{"CODEX_HOME=/x", "CODEX_HOME"},
-		{"OPENCLAW=1", "OPENCLAW"},
-		{"REPLIT_DB_URL=x", "REPLIT_DB_URL"},
-		{"DEVIN=1", "DEVIN"},
-	}
-	for _, tc := range cases {
-		if got := agentMarkerIn([]string{"PATH=/usr/bin", tc.env, "HOME=/home/me"}); got != tc.want {
-			t.Errorf("agentMarkerIn(%q) = %q, want %q", tc.env, got, tc.want)
-		}
-	}
-}
-
-// A plain human shell must not be refused, or the gate is a wall.
-func TestAgentMarkerIgnoresAnOrdinaryShell(t *testing.T) {
-	env := []string{
-		"PATH=/usr/bin", "HOME=/home/me", "SHELL=/bin/bash", "TERM=xterm-256color",
-		"LANG=en_GB.UTF-8", "PWD=/home/me/proj", "EDITOR=vim",
-		// Names that merely mention an agent word without being one of the
-		// prefixes: a human who set them must still be able to run the CLI.
-		"MY_CLAUDE_NOTES=/home/me/notes", "GEMINI=x", "CODEX=x",
-	}
-	if got := agentMarkerIn(env); got != "" {
-		t.Errorf("agentMarkerIn refused an ordinary shell via %q", got)
-	}
-}
+// TestAgentMarkerCatchesEveryClientFamily and TestAgentMarkerIgnoresAnOrdinaryShell
+// stood here, and between them they pinned a list of environment-variable prefixes —
+// CLAUDECODE, CURSOR, CODEX_, ANTIGRAVITY and a dozen more — any one of which made this
+// CLI refuse to run.
+//
+// The second of the two was named "a plain human shell must not be refused, or the gate is
+// a wall", and it checked exactly that: a shell with none of those variables. What it
+// could not check is the case that mattered — a human in an INTEGRATED terminal, which
+// inherits the agent's environment and therefore carries every one of those markers. Those
+// people were refused by their own tool, in VS Code, in Cursor, in any editor whose
+// terminal is a child of an agent process.
+//
+// The gate is the TERMINAL now: an agent tool call pipes stdin and stdout, a person has a
+// tty on both. What the marker list was protecting moved to the guard, which refuses a
+// tool call whose command invokes this CLI — a fact about the caller rather than a guess
+// about its environment, and one that holds even if the agent allocated a pseudo-terminal.
+// See reTamperCmdCLI in packages/guard-go/tamper.go, and the cases in
+// test/tamper-path.mjs which drive both implementations.
 
 // Every subcommand the CLI routes on has to exist in the table, or it falls
 // through to the proxy runtime and gets spawned as an upstream program.

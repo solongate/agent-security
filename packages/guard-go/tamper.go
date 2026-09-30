@@ -15,6 +15,7 @@ package main
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -296,6 +297,9 @@ func commandTargetsProtected(cmd string) string {
 	if reTamperCmdSGBin.MatchString(c) {
 		return "solongate-bin"
 	}
+	if commandInvokesCLI(c) {
+		return "solongate-cli"
+	}
 	if reTamperCmdCXHooks.MatchString(c) {
 		return "codex-hooks"
 	}
@@ -388,4 +392,267 @@ func tamperCheck(toolName string, args map[string]interface{}) string {
 		}
 	}
 	return ""
+}
+
+// ── the CLI, invoked ───────────────────────────────────────────────
+
+// `solongate policy delete`, `solongate dlp disable` and the rest change what is enforced,
+// so an AGENT running one is disarming the guard through the front door.
+//
+// It used to be stopped by the CLI itself, which refused whenever an agent marker was in
+// the environment. That refused the wrong people: an integrated terminal inherits the
+// agent's environment, so a HUMAN typing `solongate` in VS Code or Cursor was turned away
+// from their own tool. Here it is a fact about the caller — this check runs on a tool call
+// and nowhere else — rather than a guess about its environment, and it holds even if the
+// agent allocated a pseudo-terminal, which a TTY check alone does not.
+//
+// MATCHED AS AN INVOCATION, NOT AS A WORD, and that distinction is the whole design. Every
+// other check in this file tests a substring, which is right for a path and wrong here:
+//
+//	git commit -m "fix the solongate integration docs"
+//	python3 -c "print('solongate')"
+//	npm install @solongate/proxy
+//
+// Not one of those runs anything. A substring rule refused all three, which would leave an
+// agent unable to so much as mention the product it is working on — a wall rather than a
+// guard, and the kind of wall that gets a whole layer switched off. So this asks the only
+// question that matters: IS THE CLI THE PROGRAM BEING RUN?
+//
+// Answering it takes three things, and each one is here because leaving it out was wrong:
+//
+//   - QUOTE-AWARE SPLITTING. Splitting on `(` to catch `$(solongate policy delete)` also
+//     tears `"print('solongate')"` into a fake command whose first token is the CLI. Quotes
+//     have to be honoured, and their contents kept as one token stream.
+//   - WRAPPERS, AND THEIR ARGUMENTS. `sudo solongate` is the same invocation wearing a hat,
+//     and so are `timeout 5 solongate`, `sudo -u root solongate` and `bash -c "solongate
+//     policy delete"` — so a wrapper's own flags, flag values and numeric operands are
+//     stepped over to reach the program behind them.
+//   - RUNNERS THAT ACTUALLY RUN. `pnpm dlx @solongate/proxy policy delete` reaches the CLI
+//     without installing it; `npm install @solongate/proxy` names the same package and
+//     changes nothing enforced. The subcommand is the difference.
+//
+// The twin of commandInvokesCLI in the Node hook. The tables below are the same tables, in
+// the same order, and a name added to one belongs in the other. Both are driven by the same
+// cases in packages/proxy/test/cli-invocation.mjs, whose second half is the half that
+// matters: every command there is one a person would reasonably ask an agent for while
+// working on this repository.
+
+var cliBasenames = map[string]bool{
+	"solongate": true, "solongate.exe": true,
+	"solongate-proxy": true, "solongate-proxy.exe": true,
+	"solongate-audit": true, "solongate-audit.exe": true,
+}
+
+// Programs that run another program named in their own arguments.
+var cliWrappers = map[string]bool{
+	"sudo": true, "doas": true, "env": true, "nohup": true, "time": true,
+	"command": true, "exec": true, "nice": true, "ionice": true, "stdbuf": true,
+	"setsid": true, "xargs": true, "watch": true, "timeout": true, "builtin": true,
+	// Shell interpreters belong here for the same reason: `bash -c "solongate policy
+	// delete"` runs it as surely as a bare call does, and once quotes are honoured the
+	// command sits in the argument list like any other program name.
+	"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true,
+	"fish": true, "csh": true, "tcsh": true, "ash": true, "busybox": true,
+}
+
+// Flags that consume the token after them. Without this, `sudo -u root solongate policy
+// delete` stops on `root` and reads it as the program being run.
+//
+// `-c` is deliberately absent. Its value is a command, which is exactly what the scan needs
+// to look at next.
+var cliFlagTakesValue = map[string]bool{
+	"-u": true, "-g": true, "-U": true, "-n": true, "-i": true, "-I": true,
+	"-s": true, "-w": true, "-t": true, "-p": true, "-C": true,
+	"--user": true, "--group": true, "--chdir": true,
+}
+
+// Runners that exist only to run something: whatever package they are given, they run it.
+var cliAlwaysRunners = map[string]bool{"npx": true, "pnpx": true, "bunx": true}
+
+// Package managers, which run something only when asked to. `npm install @solongate/proxy`
+// installs a package and enforces nothing; `npm exec @solongate/proxy policy delete` runs
+// the CLI. The subcommand is the whole difference.
+var cliMaybeRunners = map[string]bool{"npm": true, "pnpm": true, "yarn": true, "bun": true}
+
+var cliRunSubcommands = map[string]bool{"exec": true, "dlx": true, "x": true}
+
+var (
+	// A number, with or without a unit: `timeout 5`, `timeout 1.5s`, `nice -n 10`.
+	reCLINumberish = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?[a-z]*$`)
+	// `VAR=value` in command position is environment, not a program.
+	reCLIAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+)
+
+func commandInvokesCLI(cmd string) bool {
+	for _, fields := range splitCLICommands(cmd) {
+		if fieldsInvokeCLI(fields) {
+			return true
+		}
+	}
+	return false
+}
+
+// splitCLICommands breaks a command line into the commands it would run, HONOURING QUOTES,
+// and returns each one already split into tokens.
+//
+// The quotes are the point. sgpolicy.ExtractCommands splits on `&&`, `||`, `;` and `|`
+// without looking at them, which is right for a policy rule and wrong here: this also has
+// to split on `(`, `)`, `$(` and backticks to catch `$(solongate policy delete)`, and doing
+// that blindly turns the inside of `python3 -c "print('solongate')"` into a command whose
+// first token is the CLI.
+//
+// Quote characters are dropped rather than kept, so `bash -c "solongate policy delete"`
+// arrives as an ordinary argument list and the wrapper logic can walk straight into it.//
+// THE QUOTES MAY ALREADY BE GONE when this runs: extractCommands normalises a command before
+// the tamper rules see it, and normalising strips quoting. That is why brackets are TRIMMED
+// FROM TOKENS rather than split on. Splitting on a bare `(` turned the stripped form of
+// `python3 -c "print('solongate')"` — which arrives as `python3 -c print(solongate)` — into a
+// second command whose only token was the CLI's name. Trimming reaches `(solongate policy
+// delete)` just as well and leaves `print(solongate)` alone, and it gives the same answer
+// whether the quotes survived or not.
+//
+// What this does NOT catch is a non-shell interpreter asked to spawn a shell:
+// `ruby -e 'system("solongate policy delete")'` reads as an ordinary `ruby` invocation. The
+// alternative is matching the name anywhere in any argument, which is the wall this whole
+// design exists to avoid, and the file paths such a command would have to touch are covered
+// by the substring rules above.
+func splitCLICommands(cmd string) [][]string {
+	out := [][]string{}
+	fields := []string{}
+	tok := strings.Builder{}
+	quote := byte(0)
+
+	endToken := func() {
+		if tok.Len() > 0 {
+			fields = append(fields, tok.String())
+			tok.Reset()
+		}
+	}
+	endCommand := func() {
+		endToken()
+		if len(fields) > 0 {
+			out = append(out, fields)
+			fields = []string{}
+		}
+	}
+
+	for i := 0; i < len(cmd); i++ {
+		ch := cmd[i]
+		if quote != 0 {
+			switch {
+			case ch == quote:
+				quote = 0
+			case ch == '\\' && quote == '"' && i+1 < len(cmd):
+				// Keep an escaped character as itself; the shell would.
+				i++
+				tok.WriteByte(cmd[i])
+			default:
+				tok.WriteByte(ch)
+			}
+			continue
+		}
+		switch {
+		case ch == '\'' || ch == '"':
+			quote = ch
+		case ch == '$' && i+1 < len(cmd) && (cmd[i+1] == '(' || cmd[i+1] == '{'):
+			i++
+			endCommand()
+		case strings.IndexByte("|&;\n\r`", ch) >= 0:
+			endCommand()
+		case ch == ' ' || ch == '\t':
+			endToken()
+		default:
+			tok.WriteByte(ch)
+		}
+	}
+	endCommand()
+	return out
+}
+
+// fieldsInvokeCLI decides whether one command's token list runs the CLI.
+func fieldsInvokeCLI(fields []string) bool {
+	wrapped := false
+	for i := 0; i < len(fields); i++ {
+		tok := strings.Trim(fields[i], "(){}\"'")
+		if tok == "" {
+			continue
+		}
+		if reCLIAssignment.MatchString(tok) {
+			wrapped = true // environment, and the program is further along
+			continue
+		}
+		if wrapped {
+			// A wrapper's own flags and operands are not the program it runs.
+			if strings.HasPrefix(tok, "-") {
+				if cliFlagTakesValue[strings.ToLower(tok)] {
+					i++
+				}
+				continue
+			}
+			if reCLINumberish.MatchString(tok) {
+				continue
+			}
+		}
+		// filepath.ToSlash is NOT used here, and that is deliberate: it converts only on
+		// Windows, so on Linux `..\\bin\\solongate policy delete` kept its backslashes,
+		// filepath.Base returned the whole string, and the invocation went unseen — while
+		// the Node twin, which replaces unconditionally, caught it. A guard has to give the
+		// same answer on every platform, and a Windows-shaped path in a command is a real
+		// shape whoever is typing it.
+		base := strings.ToLower(path.Base(strings.ReplaceAll(tok, "\\", "/")))
+		switch {
+		case cliWrappers[base]:
+			wrapped = true
+		case cliBasenames[base]:
+			return true
+		case cliAlwaysRunners[base]:
+			return restRunsCLIPackage(fields[i+1:])
+		case cliMaybeRunners[base]:
+			return maybeRunnerRunsCLI(fields[i+1:])
+		default:
+			// AN UNQUOTED PATH SPLITS ON ITS OWN SPACES. `C:\\Program Files\\SolonGate\\solongate
+			// policy delete` arrives (quotes already normalised away) as the tokens `C:\\Program`
+			// and `Files\\SolonGate\\solongate`, and stopping at the first of them misses the
+			// second, where the program name actually is.
+			//
+			// So a PATH-SHAPED token is not the end of the scan. The continuation stops at the
+			// first token that is not path-shaped, which is what keeps it narrow:
+			// `/usr/bin/git commit -m "fix the solongate docs"` stops at `commit`, and
+			// `./scripts/build.sh solongate` stops at its argument rather than reading it as a
+			// program.
+			if strings.ContainsAny(tok, "/\\") {
+				continue
+			}
+			// An ordinary program. Its arguments are its own business, and that is what
+			// keeps `git commit -m "fix the solongate docs"` running.
+			return false
+		}
+	}
+	return false
+}
+
+// maybeRunnerRunsCLI looks past a package manager's flags for the subcommand that decides
+// whether anything is being run at all.
+func maybeRunnerRunsCLI(rest []string) bool {
+	for j := 0; j < len(rest); j++ {
+		if strings.HasPrefix(rest[j], "-") {
+			continue
+		}
+		if cliRunSubcommands[strings.ToLower(rest[j])] {
+			return restRunsCLIPackage(rest[j+1:])
+		}
+		return false // install, add, view — naming the package is not running it
+	}
+	return false
+}
+
+// restRunsCLIPackage reports whether a runner was pointed at this product.
+func restRunsCLIPackage(rest []string) bool {
+	for _, t := range rest {
+		tl := strings.ToLower(t)
+		if strings.Contains(tl, "solongate/proxy") || cliBasenames[tl] {
+			return true
+		}
+	}
+	return false
 }

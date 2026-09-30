@@ -105,6 +105,10 @@ function protectedTargets(): string[] {
     // The token report is locked with the rest. A guest who could edit it
     // could decide what their host sees them spend.
     join(p.hooksDir, 'tokens.mjs'),
+    // The shared DLP list. Installed hooks import it at RUNTIME, so whoever can rewrite
+    // it decides what those hooks scan for — the same disarm as rewriting a hook, through
+    // a file that used not to exist.
+    join(p.hooksDir, 'dlp.mjs'),
     // The launcher is the enforcement path now: every hook command in every
     // client config runs THROUGH it. A program that could rewrite it could
     // point every hook at /bin/true and disarm the guard without touching a
@@ -849,6 +853,15 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     writeFileSync(join(p.hooksDir, 'stop.mjs'), readHook('stop.mjs'));
     writeFileSync(join(p.hooksDir, 'shield.mjs'), readHook('shield.mjs'));
     writeFileSync(join(p.hooksDir, 'tokens.mjs'), readHook('tokens.mjs'));
+    // THE SHARED DLP LIST, imported at runtime by the post-tool hook and the shield.
+    //
+    // Those two ship as LONE FILES — no bundle, no node_modules — so anything they import
+    // has to be copied beside them or the hook dies on its import. A hook that fails to
+    // start exits non-2, and every client reads a non-2 exit as "allowed": forgetting
+    // this file would mean no post-tool masking and no prompt masking, reported as
+    // nothing at all. internal/install does the same, and
+    // internal/install/installed_hooks_test.go runs each installed hook to prove it.
+    writeFileSync(join(p.hooksDir, 'dlp.mjs'), readHook('dlp.mjs'));
     writeLauncher(p.hooksDir);
 
     // THE SHIELD'S SHIM. The shield goes onto disk just above and nothing was wiring

@@ -34,7 +34,13 @@ const SHIELD = resolve(import.meta.dirname, '..', 'hooks', 'shi' + 'eld.mjs');
 /** The hook's own loadCfg and redactString, from the shipped file. */
 async function shieldParts() {
   const src = readFileSync(SHIELD, 'utf-8');
-  const mod = join(mkdtempSync(join(tmpdir(), 'sg-shield-')), 'probe.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'sg-shield-'));
+  const mod = join(dir, 'probe.mjs');
+  // THE SIBLING THE HOOK IMPORTS. The shield reads its pattern list from ./dlp.mjs, so a
+  // copy of the hook on its own does not load — which is the same failure a real install
+  // has if the installer forgets the file, and is why
+  // internal/install/installed_hooks_test.go runs every installed hook.
+  writeFileSync(join(dir, 'dlp.mjs'), readFileSync(new URL('../hooks/dlp.mjs', import.meta.url), 'utf-8'));
   // The hook's top-level body spawns a child and listens on a socket, so only the
   // part above that is wanted. Everything this test needs is declared before the
   // first line that does anything, and cutting at the marker keeps it that way.

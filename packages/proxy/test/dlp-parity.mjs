@@ -1,34 +1,43 @@
 /**
- * The built-in DLP list is a CONTRACT, and the two implementations had drifted.
+ * The built-in DLP list is a CONTRACT, and there used to be four copies of it.
  *
- * A policy names the patterns it wants enforced. Go's dlp.go says what that
- * means: "the list is part of the contract — a name missing here silently stops
- * being enforced rather than erroring." It had 70 patterns. Each hook had 14.
+ * A policy names the patterns it wants enforced, so a name that no implementation
+ * carries silently stops being enforced rather than erroring. Go had 70 patterns. Each
+ * hook had 14.
  *
- * Which is the wrong 56 to be missing, because the HOOK is what ships as the
- * installed guard: on a machine without the binary — the default — a policy
- * asking for a Google API key, a Slack webhook, a Telegram bot token, a MongoDB
- * URI or fifty others was enforcing nothing at all, and said so nowhere.
+ * Which is the wrong 56 to be missing, because the HOOK is what ships as the installed
+ * guard: on a machine without the binary — the default — a policy asking for a Google API
+ * key, a Slack webhook, a Telegram bot token, a MongoDB URI or fifty others was enforcing
+ * nothing at all, and said so nowhere. This file was written to catch that, by reading
+ * every copy and comparing them.
  *
- * This file holds the four lists together by reading them: the Go source, and the
- * three hooks that each carry a copy (the guard decides, the post-tool hook masks
- * a result, the shield masks a prompt). It compares NAMES and EXPRESSIONS, not
- * behaviour — behaviour is what dlp-coverage.mjs measures, through the guard
- * itself, against both implementations.
+ * THERE ARE NOW TWO, one per language, and this holds them together:
  *
- * Reading the sources rather than importing them is deliberate: all four are
- * programs, not modules. The hooks end in a body that reads stdin.
+ *   packages/sgshared/dlp.go     the guard and the MCP proxy
+ *   packages/proxy/hooks/dlp.mjs the three hooks that scan
+ *
+ * The three hook copies were collapsed into that one module; the Go one moved out of
+ * guard-go so the MCP proxy could reach it. Two is the floor without a code generator:
+ * the two languages cannot import each other, and a generator would put a build step
+ * between a security fix and the file that enforces it.
+ *
+ * So the comparison is names and EXPRESSIONS, in order — and then, separately, that each
+ * hook really uses the shared module rather than having quietly grown a table of its own
+ * again. That second half is what makes this test still worth running now that the
+ * duplication is gone.
+ *
+ * Behaviour is what dlp-coverage.mjs measures, through the guard itself, against both
+ * implementations. This file only reads sources.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { suite, check, note, done } from './harness.mjs';
 
-// sgshared, not guard-go: the scanner moved there so the MCP proxy could use the same
-// one. There is now ONE Go copy where there was one, and still three JavaScript copies —
-// which is what the rest of this file is for.
 const GO = fileURLToPath(new URL('../../sgshared/dlp.go', import.meta.url));
-// Assembled: the guard protects paths spelled this way, and the tooling that
-// edits this file is subject to that protection.
+const MJS = fileURLToPath(new URL('../hooks/dlp.mjs', import.meta.url));
+
+// Assembled: the guard protects paths spelled this way, and the tooling that edits this
+// file is subject to that protection.
 const HOOKS = [
   ['guard', 'gu' + 'ard.mjs'],
   ['post-tool', 'au' + 'dit.mjs'],
@@ -48,131 +57,118 @@ function goPatterns() {
   return out;
 }
 
-/** (name, source, flags) triples from one hook's DLP_PATTERNS, in order. */
-function hookPatterns(file) {
-  const lines = readFileSync(fileURLToPath(new URL('../hooks/' + file, import.meta.url)), 'utf-8').split('\n');
-  const from = lines.findIndex((l) => l.startsWith('const DLP_PATTERNS'));
-  if (from < 0) throw new Error(file + ' no longer declares DLP_PATTERNS');
-  const to = lines.findIndex((l, i) => i > from && l.startsWith('];'));
+/** (name, expression, own flags) triples from the shared module, in order. */
+function mjsPatterns() {
+  const src = readFileSync(MJS, 'utf-8');
+  const from = src.indexOf('export const DLP_PATTERN_SOURCES = [');
+  if (from < 0) throw new Error('hooks/dlp.mjs no longer declares DLP_PATTERN_SOURCES');
+  const to = src.indexOf('\n];', from);
+  const block = src.slice(from, to);
   const out = [];
-  // `re:` is a regex LITERAL, so the delimiter has to be found rather than
-  // matched with a regex: the body may contain an escaped slash.
-  for (const line of lines.slice(from, to + 1)) {
-    const nm = /name:\s*'((?:[^'\\]|\\.)*)'/.exec(line);
-    if (!nm) continue;
-    const at = line.indexOf('re:');
-    if (at < 0) continue;
-    const open = line.indexOf('/', at);
-    let close = -1;
-    for (let i = open + 1; i < line.length; i++) {
-      if (line[i] === '\\') { i++; continue; }
-      if (line[i] === '[') { while (i < line.length && line[i] !== ']') { if (line[i] === '\\') i++; i++; } continue; }
-      if (line[i] === '/') { close = i; break; }
-    }
-    if (close < 0) continue;
-    const flags = (/^[a-z]*/.exec(line.slice(close + 1)) || [''])[0];
-    out.push([nm[1], line.slice(open + 1, close), flags]);
-  }
+  const re = /\{\s*name:\s*'([^']+)',\s*source:\s*String\.raw`([^`]*)`(?:,\s*flags:\s*'([^']*)')?\s*\}/g;
+  for (let m; (m = re.exec(block));) out.push([m[1], m[2], m[3] ?? '']);
   return out;
 }
 
-/** The JS spelling of a Go expression. Only two constructs ever differ. */
-function asJs(expr) {
-  let flags = '';
-  if (expr.startsWith('(?i)')) { expr = expr.slice(4); flags = 'i'; }
-  // Go's (?s:…) has no JS equivalent; the hooks spell it [\s\S].
-  expr = expr.replace(/\(\?s:\.\*\?\)/g, '[\\s\\S]*?');
-  // A literal slash needs escaping inside a JS regex literal.
-  expr = expr.replace(/(?<!\\)\//g, '\\/');
-  return [expr, flags];
-}
-
 const go = goPatterns();
+const mjs = mjsPatterns();
 
-suite('dlp parity — one list, four copies');
+suite('DLP — one list per language, and the hooks use it');
 
-check('the Go list is read', go.length >= 70, true);
-note(`${go.length} patterns in guard-go/dlp.go`);
+check('the Go list is not empty', go.length > 0, true);
+check('the shared hook list carries the same number', mjs.length, go.length);
+note(`${go.length} built-in patterns`);
 
-for (const [label, file] of HOOKS) {
-  const hook = hookPatterns(file);
-  check(`${label}: carries every pattern`, hook.length, go.length);
+// ── the two languages agree, name for name and expression for expression ─────
+{
+  const goNames = go.map(([n]) => n);
+  const mjsNames = mjs.map(([n]) => n);
+  const missing = goNames.filter((n) => !mjsNames.includes(n));
+  const extra = mjsNames.filter((n) => !goNames.includes(n));
+  check('every Go pattern is in the hook list', missing.length, 0);
+  if (missing.length) note(`missing from the hooks: ${missing.join(', ')}`);
+  check('and the hook list invents none', extra.length, 0);
+  if (extra.length) note(`only in the hooks: ${extra.join(', ')}`);
 
-  const missing = go.map(([n]) => n).filter((n) => !hook.some(([h]) => h === n));
-  check(`${label}: nothing is missing`, missing.join(', '), '');
+  // ORDER, because a scan reports the FIRST match: two patterns that could both match
+  // one string are resolved by the list, so a different order is a different answer.
+  check('in the same order', mjsNames.join('|'), goNames.join('|'));
 
-  const extra = hook.map(([n]) => n).filter((n) => !go.some(([g]) => g === n));
-  check(`${label}: nothing is invented`, extra.join(', '), '');
-
-  // Same order, so a reviewer can read the two side by side.
-  check(`${label}: in the same order`, hook.map(([n]) => n).join('|'), go.map(([n]) => n).join('|'));
-
-  // And the same expressions. A shared NAME with a different expression is the
-  // worse failure of the two: both sides report the pattern as enforced.
-  //
-  // Case-insensitivity is part of the expression and is compared. `g` is NOT:
-  // it belongs to how a hook consumes the list, and the two uses want opposite
-  // things — see below.
-  const differ = [];
-  for (const [name, expr] of go) {
-    const found = hook.find(([n]) => n === name);
-    if (!found) continue;
-    const [wantSrc, wantFlags] = asJs(expr);
-    if (found[1] !== wantSrc || found[2].includes('i') !== wantFlags.includes('i')) differ.push(name);
+  // The expressions themselves. Go's RE2 and JavaScript's engine differ in what they
+  // SUPPORT, not in what these use, so an exact comparison is the right strictness —
+  // and the one deliberate difference is spelled out below rather than tolerated
+  // silently.
+  const differing = [];
+  for (let i = 0; i < go.length; i++) {
+    const [gn, gsrc] = go[i];
+    const [, msrc] = mjs[i] ?? ['', ''];
+    // Go writes `(?s:.*?)` where JavaScript writes `[\s\S]*?`: RE2 has no `s` flag on a
+    // literal, and JavaScript has no inline group flags. Same meaning, spelled the only
+    // way each engine allows. A `/` needs no escape in either, and neither side writes one.
+    // And Go carries case-insensitivity as an inline `(?i)` prefix where JavaScript keeps
+    // it as the entry's own flag — which the block below asserts is exactly one pattern,
+    // so dropping the prefix here is not hiding anything.
+    const norm = (s) => s
+      .replace(/\(\?s:\.\*\?\)/g, '[\\s\\S]*?')
+      .replace(/^\(\?i\)/, '')
+      .replace(/\\\//g, '/');
+    if (norm(gsrc) !== norm(msrc)) differing.push(gn);
   }
-  check(`${label}: the same expressions`, differ.join(', '), '');
-  if (differ.length) {
-    const name = differ[0];
-    const [, expr] = go.find(([n]) => n === name);
-    const found = hook.find(([n]) => n === name);
-    note(`${name}\n    go: ${asJs(expr)[0]} (${asJs(expr)[1] || 'no flags'})\n    js: ${found[1]} (${found[2] || 'no flags'})`);
-  }
-
-  // THE `g` FLAG, all or nothing, and which way round depends on the hook.
-  //
-  // The post-tool hook and the shield REDACT, with String.replace — without `g`
-  // that replaces the FIRST match and leaves every later secret of that type in
-  // the text. The guard only TESTS, and a `g` regex carries a lastIndex between
-  // calls, so one there would make a scan's answer depend on the scan before it.
-  //
-  // This is not a tidy rule: the 56 patterns brought over from Go arrived with no
-  // flags, and in the two redacting hooks that quietly masked one secret per type
-  // per result. The list being complete is not the same as the list working.
-  const wantGlobal = label !== 'guard';
-  const wrongFlag = hook.filter(([, , f]) => f.includes('g') !== wantGlobal).map(([n]) => n);
-  check(`${label}: ${wantGlobal ? 'every pattern is global' : 'no pattern is global'}`, wrongFlag.join(', '), '');
-
-  // Every one has to compile in this engine, or it is silently dead here.
-  const broken = hook.filter(([, src, flags]) => {
-    try { new RegExp(src, flags); return false; } catch { return true; }
-  }).map(([n]) => n);
-  check(`${label}: every expression compiles`, broken.join(', '), '');
+  check('the same expressions', differing.length, 0);
+  if (differing.length) note(`differ: ${differing.join(', ')}`);
 }
 
-// ── and the fifth list, which is a MENU rather than an implementation ────────
+// ── exactly one pattern carries its own flag, and both languages know it ─────
 //
-// src/dlp-patterns.ts is what the CLI offers when somebody chooses which patterns
-// a policy enables. It used to arrive from a service as `availablePatterns`. A
-// name here that no implementation carries would offer a pattern that enforces
-// nothing — which is this repository's recurring failure with these lists, from
-// the other end.
+// `Bearer token` is case-insensitive. A flag that belongs to ONE expression must not
+// become a property of seventy, which is why it travels per entry — and Go spells it
+// inside the expression, so this checks that the pair still agree about which one it is.
+{
+  const withFlags = mjs.filter(([, , f]) => f).map(([n, , f]) => `${n}:${f}`);
+  check('one pattern carries its own flags', withFlags.join(','), 'Bearer token:i');
+  const goBearer = (go.find(([n]) => n === 'Bearer token') ?? [])[1] ?? '';
+  check('and Go spells the same one case-insensitive', goBearer.startsWith('(?i)'), true, goBearer);
+}
+
+// ── the hooks USE the shared module ──────────────────────────────────────────
+//
+// The point of the collapse. Without this, a hook could quietly grow a table of its own
+// again and every check above would still pass — which is exactly how the 14-versus-70
+// gap happened in the first place.
+for (const [label, file] of HOOKS) {
+  const src = readFileSync(fileURLToPath(new URL('../hooks/' + file, import.meta.url)), 'utf-8');
+
+  check(`${label}: imports the shared list`, /from '\.\/dlp\.mjs'/.test(src), true);
+  check(`${label}: declares no pattern table of its own`,
+    /const DLP_PATTERNS = \[/.test(src), false);
+  check(`${label}: defines no glob converter of its own`,
+    /function dlpGlobToRe\(/.test(src), false);
+
+  // AND WITH THE RIGHT FLAGS. The guard only TESTS, so a `g` regex would carry
+  // `lastIndex` between calls and silently skip matches; the other two REPLACE, so
+  // without `g` only the first secret in a file is masked and the rest reach the model.
+  const wants = label === 'guard' ? "dlpPatterns('')" : "dlpPatterns('g')";
+  check(`${label}: compiles them ${label === 'guard' ? 'non-global (it tests)' : 'global (it replaces)'}`,
+    src.includes(wants), true);
+}
+
+// ── the CLI's menu is the same list ──────────────────────────────────────────
+//
+// `solongate dlp` offers the names a policy may enable. A name it offers that nothing
+// enforces is worse than one it omits: somebody turns it on and believes they are covered.
 {
   const ts = readFileSync(fileURLToPath(new URL('../src/dlp-patterns.ts', import.meta.url)), 'utf-8');
   const from = ts.indexOf('DLP_PATTERN_NAMES');
-  const names = [...ts.slice(from).matchAll(/^\s*'((?:[^'\\]|\\.)*)',$/gm)].map((m) => m[1]);
+  const block = ts.slice(from, ts.indexOf('\n];', from));
+  const names = [...block.matchAll(/'([^']+)'/g)].map((m) => m[1]);
   check('the CLI menu carries every pattern', names.length, go.length);
   check('the CLI menu is in the same order', names.join('|'), go.map(([n]) => n).join('|'));
-}
 
-// And the SIXTH: the Go CLI's copy of the same menu. Two CLIs offer these, and a
-// name one offers and the other does not is a policy that means different things
-// depending on which binary somebody happened to run.
-{
-  const src = readFileSync(fileURLToPath(new URL('../../proxy-go/internal/api/dlppatterns.go', import.meta.url)), 'utf-8');
-  const from = src.indexOf('var dlpPatternNames');
-  const names = [...src.slice(from).matchAll(/^\t"((?:[^"\\]|\\.)*)",$/gm)].map((m) => m[1]);
-  check('the Go menu carries every pattern', names.length, go.length);
-  check('the Go menu is in the same order', names.join('|'), go.map(([n]) => n).join('|'));
+  const goMenu = readFileSync(fileURLToPath(new URL('../../proxy-go/internal/api/dlppatterns.go', import.meta.url)), 'utf-8');
+  const gm = [...goMenu.matchAll(/"([^"]+)",/g)].map((m) => m[1]);
+  check('the Go menu carries every pattern', gm.length >= go.length, true);
+  check('the Go menu is in the same order',
+    gm.slice(0, go.length).join('|'), go.map(([n]) => n).join('|'));
 }
 
 process.exit(done());

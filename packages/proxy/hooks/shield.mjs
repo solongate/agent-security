@@ -23,6 +23,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 
+import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // Bump on every shield.mjs change. The cloud serves the newest version; the
 // guard hook installs it on its next run (no re-login needed).
 // 8 collapses a run of `*` in a custom DLP glob before compiling it. That is a
@@ -31,86 +32,14 @@ import { homedir } from 'node:os';
 const HOOK_VERSION = 9;
 
 const log = (...a) => process.stderr.write(`[SolonGate shield] ${a.map(String).join(' ')}\n`);
-
-const DLP_PATTERNS = [
-  { name: 'AWS access key', re: /AKIA[0-9A-Z]{16}/g },
-  { name: 'Private key block', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
-  { name: 'Anthropic key', re: /sk-ant-[A-Za-z0-9_-]{20,}/g },
-  { name: 'OpenAI key', re: /sk-(proj-)?[A-Za-z0-9_-]{20,}/g },
-  { name: 'GitHub token', re: /gh[pousr]_[A-Za-z0-9]{20,}/g },
-  { name: 'GitHub fine-grained PAT', re: /github_pat_[A-Za-z0-9_]{20,}/g },
-  { name: 'GitLab token', re: /glpat-[A-Za-z0-9_-]{20,}/g },
-  { name: 'Slack token', re: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
-  { name: 'Stripe key', re: /[sr]k_(live|test)_[A-Za-z0-9]{20,}/g },
-  { name: 'SendGrid key', re: /SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g },
-  { name: 'Twilio key', re: /SK[0-9a-fA-F]{32}/g },
-  { name: 'npm token', re: /npm_[A-Za-z0-9]{36}/g },
-  { name: 'JWT', re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
-  { name: 'Bearer token', re: /bearer\s+[A-Za-z0-9._-]{20,}/gi },
-
-  // Kept in step with packages/guard-go/dlp.go, name for name and
-  // expression for expression. The two lists had drifted to 14 here
-  // against 74 there, and a name this list does not carry silently stops
-  // being enforced on every machine that runs the hook rather than the
-  // binary — which is every machine by default. dlp-parity.mjs holds them
-  // together now.
-  { name: 'Google API key', re: /AIza[0-9A-Za-z_-]{35}/g },
-  { name: 'Slack webhook', re: /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9\/_+-]{40,}/g },
-  { name: 'Twilio account SID', re: /AC[0-9a-fA-F]{32}/g },
-  { name: 'Mailgun key', re: /key-[0-9a-f]{32}/g },
-  { name: 'Mailchimp key', re: /[0-9a-f]{32}-us[0-9]{1,2}/g },
-  { name: 'DigitalOcean token', re: /dop_v1_[0-9a-f]{64}/g },
-  { name: 'Databricks token', re: /dapi[0-9a-f]{32}/g },
-  { name: 'Shopify token', re: /shp(at|ca|pa|ss)_[0-9a-fA-F]{32}/g },
-  { name: 'Square token', re: /sq0(atp|csp)-[0-9A-Za-z_-]{22,43}/g },
-  { name: 'Telegram bot token', re: /[0-9]{8,10}:AA[0-9A-Za-z_-]{33}/g },
-  { name: 'Postman key', re: /PMAK-[0-9a-f]{24}-[0-9a-f]{34}/g },
-  { name: 'Doppler token', re: /dp\.(pt|st|sa|ct|scim|audit)\.[A-Za-z0-9]{40,}/g },
-  { name: 'HashiCorp Vault token', re: /hvs\.[A-Za-z0-9_-]{24,}/g },
-  { name: 'New Relic key', re: /NRAK-[A-Z0-9]{27}/g },
-  { name: 'Grafana token', re: /glc_[A-Za-z0-9+\/=_-]{32,}/g },
-  { name: 'Razorpay key', re: /rzp_(live|test)_[0-9A-Za-z]{14}/g },
-  { name: 'Linear key', re: /lin_api_[0-9A-Za-z]{40,}/g },
-  { name: 'Figma token', re: /figd_[0-9A-Za-z_-]{40,}/g },
-  { name: 'Atlassian token', re: /ATATT3[0-9A-Za-z_=.-]{20,}/g },
-  { name: 'Google OAuth token', re: /ya29\.[0-9A-Za-z_-]{50,}/g },
-  { name: 'Google OAuth refresh', re: /1\/\/0[0-9A-Za-z_-]{30,}/g },
-  { name: 'Alibaba access key', re: /LTAI[0-9A-Za-z]{20}/g },
-  { name: 'Tencent secret id', re: /AKID[0-9A-Za-z]{13,40}/g },
-  { name: 'Hugging Face token', re: /hf_[0-9A-Za-z]{34,}/g },
-  { name: 'Replicate token', re: /r8_[0-9A-Za-z]{37,}/g },
-  { name: 'Groq key', re: /gsk_[0-9A-Za-z]{48,}/g },
-  { name: 'OpenRouter key', re: /sk-or-v1-[0-9a-f]{64}/g },
-  { name: 'Perplexity key', re: /pplx-[0-9A-Za-z]{40,}/g },
-  { name: 'xAI key', re: /xai-[0-9A-Za-z]{40,}/g },
-  { name: 'LangSmith key', re: /lsv2_(pt|sk)_[0-9a-f]{32}_[0-9a-f]{10}/g },
-  { name: 'Stripe webhook secret', re: /whsec_[0-9A-Za-z]{32,}/g },
-  { name: 'Plaid token', re: /access-(sandbox|development|production)-[0-9a-f-]{36}/g },
-  { name: 'Braintree token', re: /access_token\$production\$[0-9a-z]{16}\$[0-9a-f]{32}/g },
-  { name: 'Discord bot token', re: /[MNO][0-9A-Za-z_-]{23}\.[0-9A-Za-z_-]{6}\.[0-9A-Za-z_-]{27}/g },
-  { name: 'Discord webhook', re: /https:\/\/discord(app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[0-9A-Za-z_-]{60,}/g },
-  { name: 'Slack app token', re: /xapp-[0-9]-[0-9A-Za-z]+-[0-9]+-[0-9a-f]+/g },
-  { name: 'Sentry DSN', re: /https:\/\/[0-9a-f]{32}@[0-9a-z.-]+sentry\.io\/[0-9]+/g },
-  { name: 'Supabase token', re: /sbp_[0-9a-f]{40}/g },
-  { name: 'PlanetScale token', re: /pscale_tkn_[0-9A-Za-z._-]{32,}/g },
-  { name: 'PlanetScale password', re: /pscale_pw_[0-9A-Za-z._-]{32,}/g },
-  { name: 'Airtable token', re: /pat[0-9A-Za-z]{14}\.[0-9a-f]{64}/g },
-  { name: 'Cloudinary URL', re: /cloudinary:\/\/[0-9]{12,}:[0-9A-Za-z_-]{20,}@[0-9a-z-]+/g },
-  { name: 'MongoDB SRV URI', re: /mongodb\+srv:\/\/[^\s:@]+:[^\s:@]+@[0-9a-z.-]+/g },
-  { name: 'Terraform Cloud token', re: /[0-9A-Za-z]{14}\.atlasv1\.[0-9A-Za-z_-]{60,}/g },
-  { name: 'PyPI token', re: /pypi-AgEIcHlwaS[0-9A-Za-z_-]{50,}/g },
-  { name: 'RubyGems key', re: /rubygems_[0-9a-f]{48}/g },
-  { name: 'NuGet key', re: /oy2[a-z0-9]{43}/g },
-  { name: 'Docker Hub token', re: /dckr_pat_[0-9A-Za-z_-]{27,}/g },
-  { name: 'Notion token', re: /ntn_[0-9A-Za-z]{40,}/g },
-  { name: 'Dropbox token', re: /sl\.[0-9A-Za-z_-]{130,}/g },
-  { name: 'Sentry auth token', re: /sntrys_[0-9A-Za-z_=+\/-]{40,}/g },
-  { name: 'Contentful token', re: /CFPAT-[0-9A-Za-z_-]{40,}/g },
-  { name: 'Typeform token', re: /tfp_[0-9A-Za-z_-]{40,}/g },
-  { name: 'Pinecone key', re: /pcsk_[0-9A-Za-z_-]{40,}/g },
-  { name: 'WooCommerce key', re: /c[ks]_[0-9a-f]{40}/g },
-  { name: 'PostHog key', re: /ph[cs]_[0-9A-Za-z]{40,}/g },
-];
+// THE PATTERN LIST LIVES IN ./dlp.mjs, one copy for the three hooks that scan.
+//
+// Each of them carried its own, and they had drifted: the guard had 70 and each hook had
+// 14 — so on a machine without the Go binary, which is the default, a policy asking for
+// most of the list was enforcing nothing. Compiled here with the flags THIS hook needs:
+// `g`, because this REPLACES every occurrence — without it only the first
+// secret in a file is masked and the rest reach the model.
+const DLP_PATTERNS = dlpPatterns('g');
 
 // ── What to redact comes from the policy file ────────────────────────────────
 //
@@ -152,26 +81,8 @@ function loadCfg() {
   } catch { return defaults(); }
 }
 
-// Custom patterns are GLOBs: `*` = any run of non-whitespace, same as the policy layer.
-//
-// A RUN of `*` collapses to one, and that is a fix rather than a tidy-up. `*`
-// becomes `[^\s]*`, so `**` became two unbounded quantifiers over the same
-// character class back to back, which backtracks catastrophically: measured on
-// this converter, six stars cost 0.9s and ten cost four minutes. The shield is
-// the worst place for it — this runs over the whole REQUEST BODY on its way to
-// the model, prompt included — and the pattern is one somebody types.
-// Collapsing changes nothing about what a glob accepts, because `[^\s]*[^\s]*`
-// matches exactly the strings `[^\s]*` matches. Kept identical in the guard and
-// the audit hook, which carry the same converter.
-function dlpGlobToRe(glob, flags) {
-  let re = '';
-  for (const ch of String(glob || '').replace(/\*{2,}/g, '*')) {
-    if (ch === '*') re += '[^\\s]*';
-    else if ('.+?^${}()|[]\\'.indexOf(ch) !== -1) re += '\\' + ch;
-    else re += ch;
-  }
-  return new RegExp(re, flags);
-}
+// dlpGlobToRe is in ./dlp.mjs too: three copies of one converter, and the reason it
+// collapses a run of stars is a HANG on a pattern somebody types.
 function redactString(s, cfg) {
   if (!cfg || typeof s !== "string" || !s) return s;
   const allow = new Set(cfg.patterns);

@@ -98,7 +98,7 @@ func Install() Result {
 	// guard.mjs is not a broken install, it is an UNGUARDED machine, because a
 	// hook that fails to parse exits non-zero and every client reads that as
 	// "allowed".
-	for _, name := range []string{GuardHookName, auditHookName, stopHookName, tokensHookName, shieldHookName} {
+	for _, name := range []string{GuardHookName, auditHookName, stopHookName, tokensHookName, shieldHookName, dlpModuleName} {
 		body, ok := st.hooks[name]
 		if !ok {
 			continue

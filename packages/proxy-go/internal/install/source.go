@@ -96,7 +96,7 @@ func packageCandidates(start string) []string {
 }
 
 func hasAllHookSources(dir string) bool {
-	for _, name := range []string{auditHookName, stopHookName, tokensHookName, shieldHookName, opencodePluginName} {
+	for _, name := range []string{auditHookName, stopHookName, tokensHookName, shieldHookName, dlpModuleName, opencodePluginName} {
 		if !Exists(filepath.Join(dir, name)) {
 			return false
 		}
@@ -158,7 +158,7 @@ func stageHooks(p Paths, node string) (staged, error) {
 		return staged{}, err
 	}
 	st.hooks[GuardHookName] = guard
-	for _, name := range []string{auditHookName, stopHookName, tokensHookName, shieldHookName} {
+	for _, name := range []string{auditHookName, stopHookName, tokensHookName, shieldHookName, dlpModuleName} {
 		b, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			return staged{}, err

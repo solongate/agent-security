@@ -154,9 +154,30 @@ went with it. Three things it taught are not about a server at all:
   `sgpolicy`, which pulls in OPA: a scanner that runs before every tool call should
   not drag a policy engine in behind it. Both paths now call one function, and the
   `**`-collapsing regexp both glob converters need has one definition for the same
-  reason. The JavaScript side still has three copies, held in step by
-  `test/dlp-parity.mjs` reading all four sources — which is how the 14-versus-70 gap
-  was found, and is the argument for collapsing those too.
+  reason. The JavaScript side's three copies collapsed into `hooks/dlp.mjs` the same
+  way, so there are now TWO lists — one per language — and `test/dlp-parity.mjs` holds
+  the pair together, plus checks that each hook really uses the shared module rather
+  than having quietly grown a table of its own again. Two is the floor without a code
+  generator, and a generator would put a build step between a security fix and the
+  file that enforces it.
+- **COLLAPSING COPIES IS ITSELF A CHANCE TO DROP ONE.** The three hook tables were not
+  quite identical: the guard compiled its patterns WITHOUT `g` because it only tests,
+  the other two with `g` because they replace, and exactly one pattern carried its own
+  `i`. A naive extraction missed that pattern and produced 69 of 70 — the same class of
+  bug as the original drift, self-inflicted while fixing it. What caught it was
+  refusing to proceed on a count mismatch, and then proving all 210 compiled regexes
+  (70 x 3 consumers) identical to the originals before the tables were replaced.
+- **A HOOK IS A LONE FILE, so anything it imports has to be installed beside it.**
+  That collapse made the post-tool hook and the shield import a sibling for the first
+  time. Nothing tested it: the conformance suite runs the hooks from the CHECKOUT,
+  where every sibling exists because the repository has it — so a hook could import a
+  file the installer does not copy, pass everything, and fail on the first tool call
+  of a real install. A hook that dies on its import exits non-2, and every client reads
+  a non-2 exit as "allowed": the failure mode is an unguarded machine reporting
+  nothing. `internal/install/installed_hooks_test.go` now runs each installed hook from
+  the directory it was installed into, and was written BEFORE the collapse so it could
+  be trusted to catch it. Verified by omitting the file from the copy list: it fails
+  with ERR_MODULE_NOT_FOUND.
 
 - **A TEST CAN PIN A BROKEN PRODUCT AND STAY GREEN.** `Install()` resolved a
   credential first and returned `no login on this device — add an account first

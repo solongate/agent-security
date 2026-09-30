@@ -82,9 +82,17 @@ function timed(fn) {
 
 suite('glob blowup — a run of stars cannot hang a scan');
 
-// ── the DLP converter, in all three hooks that carry it ─────────────────────
-for (const file of ['gu' + 'ard.mjs', 'audit.mjs', 'shield.mjs']) {
-  const dlpGlobToRe = lift(file, 'dlpGlobToRe');
+// ── the DLP converter, which there is now one of ────────────────────────────
+//
+// This looped over the three hooks, each of which carried its own copy. They import
+// hooks/dlp.mjs now, so there is one converter to test and it is a real export rather
+// than something lifted out of a program — see `lift` above for why that mattered.
+//
+// The loop is kept with a single entry: the blowup this measures is a property of the
+// converter, and if a second copy ever appears the fix is to add it here rather than to
+// rediscover the four-minute regex.
+for (const file of ['dlp.mjs']) {
+  const { dlpGlobToRe } = await import(new URL(file, HOOKS).href);
   const re = dlpGlobToRe('*'.repeat(STARS) + 'X', 'i');
   const ms = timed(() => re.test(SUBJECT));
   check(`${file}: ${STARS} stars scans in under ${BUDGET_MS}ms`, ms < BUDGET_MS, true);

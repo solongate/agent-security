@@ -51,6 +51,16 @@ const (
 	// than in a client. It is installed with the hooks because it is one of the
 	// protected files.
 	shieldHookName = "shield.mjs"
+	// THE SHARED DLP LIST, imported at runtime by audit.mjs and shield.mjs.
+	//
+	// Those two ship as LONE FILES — no bundle, no node_modules — so anything they import
+	// has to be copied beside them or the hook dies on its import. A hook that fails to
+	// start exits non-2, and every client reads a non-2 exit as "allowed": forgetting this
+	// file would mean no post-tool masking and no prompt masking, reported as nothing.
+	//
+	// The guard does not need it installed (its bundle inlines the module), but it is
+	// copied for every hook because the two that do need it are here.
+	dlpModuleName = "dlp.mjs"
 
 	// The guard ships pre-bundled (opa-wasm inlined) so the single installed file
 	// runs with no node_modules beside it. The unbundled source is the dev-tree
@@ -189,6 +199,10 @@ func (p Paths) protectedTargets() []string {
 		// protection.
 		p.SettingsPath,
 		filepath.Join(p.HooksDir, tokensHookName),
+		// The shared DLP list. Installed hooks import it at RUNTIME, so whoever can
+		// rewrite it decides what those hooks scan for — which is the same disarm as
+		// rewriting a hook, through a file that used not to exist.
+		filepath.Join(p.HooksDir, dlpModuleName),
 		// The launcher, which is the enforcement path now: every hook command in
 		// every client config runs through it. A program that could rewrite it
 		// could point every hook at /bin/true and disarm the guard without

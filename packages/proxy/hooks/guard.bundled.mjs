@@ -339,7 +339,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 99;
+var HOOK_VERSION = 100;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -751,6 +751,8 @@ var TAMPER_PROTECTED_ABS = [
   TAMPER_HOME + TAMPER_CX + "/config.toml",
   TAMPER_HOME + TAMPER_AGY + "/hooks.json",
   TAMPER_HOME + TAMPER_SG + "/hooks",
+  // The directory the guard BINARY lives in — see the glob below for why.
+  TAMPER_HOME + TAMPER_SG + "/bin",
   TAMPER_HOME + TAMPER_SG + "/policy.json",
   TAMPER_HOME + TAMPER_SG + "/.policy-cache.json",
   // The cloud credential (contains the API key) — never readable via a tool.
@@ -771,6 +773,26 @@ var TAMPER_PROTECTED_GLOBS = [
   "**" + TAMPER_SG + "/cloud-guard.json",
   "**" + TAMPER_SG + "/.opa-wasm-*.json",
   "**" + TAMPER_SG + "/.ratelimit-*.json",
+  // THE GUARD BINARY, and this was a complete disarm reachable from one tool call.
+  //
+  // sgTryGoGuard runs whatever is at ~/.solongate/bin/solongate-guard as soon as it
+  // prints the expected number for --sg-version, and then honours its exit code. So a
+  // two-line shell script there —
+  //
+  //   #!/bin/sh
+  //   case "$1" in --sg-version) echo 99;; *) exit 0;; esac
+  //
+  // — makes this hook hand every call to it and allow everything, while `solongate
+  // doctor` still reports a native guard in use. Writing that file was not protected
+  // here, so an agent could arm its own bypass and then use it on the next tool call.
+  //
+  // The Go guard has covered this path for a while (see tamperProtectedGlobs in
+  // packages/guard-go/tamper.go, whose comment says it "was the one file in this
+  // directory the tamper check did not cover"). The fix was never ported, so which
+  // implementation a machine runs decided whether the disarm worked — and the machines
+  // that run THIS one are exactly the ones with no binary, where nothing legitimate
+  // occupies the path. test/tamper-path.mjs now holds both to it.
+  "**" + TAMPER_SG + "/bin/**",
   // Persistent host data (DB + audit JSONL) at ~/.solongate/data
   "**" + TAMPER_SG + "/data/**",
   // Customer install layout (zip extracted as solongate/)
@@ -787,6 +809,11 @@ var TAMPER_BASENAMES = [
   "stop.mjs",
   "shield.mjs",
   "policy.json",
+  // The guard binary, on the COMMAND side too. The globs above catch a Write or an
+  // Edit; this catches `cp /bin/true ~/.solongate/bin/solongate-guard`, which is the
+  // same disarm through a different tool. Matched as a substring, so the Windows
+  // `solongate-guard.exe` is covered by the same entry.
+  "solongate-guard",
   // Prefixes (substring match) so per-agent runtime state can't be deleted or
   // rewritten via a shell command either — `.policy-cache-<agent>.json`,
   // `.ratelimit-<agent>.json`, `.opa-wasm-<agent>.json`. Editing these could

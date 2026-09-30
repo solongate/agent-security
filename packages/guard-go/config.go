@@ -80,10 +80,9 @@ func securityInsidePolicy(doc []byte) (*sgshared.Security, bool) {
 //
 // Both are accepted. A `policy` key is what tells them apart, so a bare policy
 // keeps working and nobody has to rewrite a file that already exists.
-func loadLocalPolicyFile(cwd string, managed bool) *sgshared.PolicyCache {
-	if managed {
-		return nil
-	}
+// It took a `managed bool` and returned nil for a managed machine — no policy file at
+// all, not even this machine's own. See main.go for why that is gone.
+func loadLocalPolicyFile(cwd string) *sgshared.PolicyCache {
 	if cwd == "" {
 		if wd, err := os.Getwd(); err == nil {
 			cwd = wd

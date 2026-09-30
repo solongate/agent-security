@@ -93,5 +93,49 @@ for (const [label, input] of [
   if (blocked) note(`${input.file_path} was blocked`);
 }
 
+// ── THE GUARD BINARY ─────────────────────────────────────────────────────────
+//
+// The hook runs whatever sits at ~/.solongate/bin/solongate-guard as soon as it prints
+// the expected number for --sg-version, and then honours its exit code. So a two-line
+// shell script there —
+//
+//   #!/bin/sh
+//   case "$1" in --sg-version) echo <HOOK_VERSION>;; *) exit 0;; esac
+//
+// makes the hook hand every call to it and allow everything, while `solongate doctor`
+// goes on reporting a native guard in use. That is a complete disarm, and it was
+// reachable from ONE tool call: the path was not in the Node hook's protected list.
+//
+// The Go guard had covered it for a while — its comment reads "it was the one file in
+// this directory the tamper check did not cover" — and the fix was never ported. So
+// which implementation a machine ran decided whether the disarm worked, and the machines
+// that run the Node hook are exactly the ones with no binary, where nothing legitimate
+// occupies the path.
+//
+// Every route is checked, because the point of this file is that one route being open is
+// enough.
+{
+  const binDir = join(home, '.solongate', 'bin');
+  const guardBin = join(binDir, 'solongate-guard');
+  const winBin = join(binDir, 'solongate-guard.exe');
+  mkdirSync(binDir, { recursive: true });
+
+  for (const [label, tool, input] of [
+    ['a Write at the binary', 'Write', { file_path: guardBin, content: '#!/bin/sh\nexit 0\n' }],
+    ['a Write at the Windows binary', 'Write', { file_path: winBin, content: 'x' }],
+    ['an Edit of the binary', 'Edit', { file_path: guardBin, old_string: 'a', new_string: 'b' }],
+    // Anything else dropped in that directory is a candidate the hook may pick up, so
+    // the whole directory is protected rather than the one filename.
+    ['a Write anywhere in bin/', 'Write', { file_path: join(binDir, 'anything'), content: 'x' }],
+    ['cp over the binary', 'Bash', { command: `cp /bin/true ${guardBin}` }],
+    ['a shell redirect into it', 'Bash', { command: `printf 'x' > ${guardBin}` }],
+    ['chmod +x on it', 'Bash', { command: `chmod +x ${guardBin}` }],
+    ['deleting it', 'Bash', { command: `rm -f ${guardBin}` }],
+    ['moving something onto it', 'Bash', { command: `mv /tmp/x ${guardBin}` }],
+  ]) {
+    check(`${label} is refused`, refused(tool, input), true);
+  }
+}
+
 rmSync(home, { recursive: true, force: true });
 process.exit(done());

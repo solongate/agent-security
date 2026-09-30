@@ -59,7 +59,7 @@ func TestTheLocalFileIsReadInBothSpellings(t *testing.T) {
 			t.Setenv("HOME", home)
 			writeFile(t, filepath.Join(home, ".solongate", NAME), c.body)
 
-			got := loadLocalPolicyFile(home, false)
+			got := loadLocalPolicyFile(home)
 			if got == nil || got.Policy == nil {
 				t.Fatalf("no policy read from %s", c.name)
 			}
@@ -83,7 +83,7 @@ func TestTheMachinesOwnFileMayCarrySecurityAndTheTamperFlag(t *testing.T) {
 		"security":    map[string]interface{}{"rateLimit": map[string]interface{}{"mode": "enforce", "perMinute": 1}},
 	})
 
-	got := loadLocalPolicyFile(home, false)
+	got := loadLocalPolicyFile(home)
 	if got == nil {
 		t.Fatal("nothing read")
 	}
@@ -114,7 +114,7 @@ func TestTheProjectFileMayAddRulesAndNothingElse(t *testing.T) {
 		"security":    map[string]interface{}{"rateLimit": map[string]interface{}{"mode": "enforce", "perMinute": 1}},
 	})
 
-	got := loadLocalPolicyFile(cwd, false)
+	got := loadLocalPolicyFile(cwd)
 	if got == nil || got.Policy == nil {
 		t.Fatal("the project file's rules were not read, and they should be")
 	}
@@ -139,7 +139,7 @@ func TestTheMachinesOwnFileWinsOverTheProjects(t *testing.T) {
 	writeFile(t, filepath.Join(home, ".solongate", NAME), aPolicy("mine"))
 	writeFile(t, filepath.Join(cwd, NAME), aPolicy("theirs"))
 
-	got := loadLocalPolicyFile(cwd, false)
+	got := loadLocalPolicyFile(cwd)
 	if got == nil || got.Policy == nil {
 		t.Fatal("nothing read")
 	}
@@ -148,17 +148,33 @@ func TestTheMachinesOwnFileWinsOverTheProjects(t *testing.T) {
 	}
 }
 
-// A machine under somebody else's policy reads neither. The second path is a
-// file inside the repository the agent is working in, so "the service said
-// nothing, therefore read the file in this checkout" is an escape on a machine
-// its owner is answerable for.
-func TestAManagedMachineReadsNeitherFile(t *testing.T) {
+// TestAManagedMachineReadsNeitherFile stood here, and it was right about a real hazard:
+// a machine under somebody else's policy must not read a policy file out of the
+// repository the agent is working in, because "the service said nothing, so read the file
+// in this checkout" is an escape on a machine its owner is answerable for.
+//
+// It passed a `managed: true` straight into the loader. The flag came from
+// ~/.solongate/.fleet.json, written by a policy poll — and nothing polls, so nothing
+// writes it. What the read still did was dangerous rather than dead: on a machine left
+// with a stale `managed: true`, this loader returned nil for EVERY policy file including
+// the machine's own, so the Go guard enforced nothing while the Node hook — which never
+// read that file at all — enforced normally.
+//
+// A STALE MARKER MUST NOT SILENCE THE GUARD, which is what this checks now.
+func TestAStaleFleetMarkerDoesNotSilenceTheGuard(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	writeFile(t, filepath.Join(home, ".solongate", "poli"+"cy.json"), aPolicy("own"))
+	// Exactly what an older install would have left behind.
+	writeFile(t, filepath.Join(home, ".solongate", ".fleet.json"),
+		`{"managed":true,"projectId":"proj-1","_ts":1}`)
 
-	if got := loadLocalPolicyFile(home, true); got != nil {
-		t.Errorf("a managed machine read a local policy: %+v", got.Policy)
+	got := loadLocalPolicyFile(home)
+	if got == nil || got.Policy == nil {
+		t.Fatal("a leftover fleet marker stopped this machine's own policy from being read")
+	}
+	if got.Policy.ID != "own" {
+		t.Errorf("policy = %q, want the machine's own", got.Policy.ID)
 	}
 }
 
@@ -221,7 +237,7 @@ func TestSecurityInsideThePolicyDocumentIsRead(t *testing.T) {
 		doc["security"] = sec
 		writeFile(t, filepath.Join(home, ".solongate", NAME), doc)
 
-		got := loadLocalPolicyFile(home, false)
+		got := loadLocalPolicyFile(home)
 		if got == nil || !got.HasSecurity || got.Security == nil || got.Security.RateLimit == nil {
 			t.Fatalf("security inside the document was not read: %+v", got)
 		}
@@ -237,7 +253,7 @@ func TestSecurityInsideThePolicyDocumentIsRead(t *testing.T) {
 		doc["security"] = sec
 		writeFile(t, filepath.Join(home, ".solongate", NAME), map[string]interface{}{"policy": doc})
 
-		got := loadLocalPolicyFile(home, false)
+		got := loadLocalPolicyFile(home)
 		if got == nil || got.Security == nil || got.Security.RateLimit == nil {
 			t.Fatalf("security inside the document was not read: %+v", got)
 		}
@@ -259,7 +275,7 @@ func TestSecurityInsideThePolicyDocumentIsRead(t *testing.T) {
 			"security": map[string]interface{}{"rateLimit": map[string]interface{}{"mode": "enforce", "perMinute": 99}},
 		})
 
-		got := loadLocalPolicyFile(home, false)
+		got := loadLocalPolicyFile(home)
 		if got == nil || got.Security == nil || got.Security.RateLimit == nil {
 			t.Fatalf("nothing read: %+v", got)
 		}
@@ -278,7 +294,7 @@ func TestSecurityInsideThePolicyDocumentIsRead(t *testing.T) {
 		doc["security"] = sec
 		writeFile(t, filepath.Join(cwd, NAME), doc)
 
-		got := loadLocalPolicyFile(cwd, false)
+		got := loadLocalPolicyFile(cwd)
 		if got == nil || got.Policy == nil {
 			t.Fatal("the project file's rules were not read")
 		}

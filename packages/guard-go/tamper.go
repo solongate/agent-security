@@ -110,10 +110,6 @@ var tamperProtectedGlobs = []string{
 	// reports a native guard in use. It was the one file in this directory the
 	// tamper check did not cover.
 	"**" + tamperSG + "/bin/**",
-	// Whether this machine is under somebody else's policy. Everything the
-	// guard hardens for a guest is decided from this file, so it is the file to
-	// rewrite if you wanted the hardening off.
-	"**" + tamperSG + "/.fleet.json",
 	// Persistent host data (DB + audit JSONL) at ~/.solongate/data
 	"**" + tamperSG + "/data/**",
 	// Customer install layout (zip extracted as solongate/)
@@ -137,11 +133,11 @@ var tamperBasenames = []string{
 	// otherwise flip enforcement off until the next cloud refresh; deleting just
 	// forces a refetch, but neither should be reachable from an agent tool call.
 	".policy-cache", ".ratelimit-", ".opa-wasm-", ".pi-config-cache",
-	// The guard binary and the fleet marker, on the command side too. The path
+	// The guard binary, on the command side too. The path
 	// globs above catch a Write or an Edit; this catches `cp /bin/true
 	// ~/.solongate/bin/solongate-guard`, which is the same disarm through a
 	// different tool.
-	"solongate-guard", ".fleet.json",
+	"solongate-guard",
 	"cloud-guard.json",
 	// Customer install: DB and wizard exe
 	"solongate.db", "solongate.exe",

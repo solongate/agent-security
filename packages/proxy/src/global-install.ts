@@ -110,6 +110,16 @@ function protectedTargets(): string[] {
     // point every hook at /bin/true and disarm the guard without touching a
     // single file that used to be locked.
     join(p.hooksDir, LAUNCHER_NAME),
+    // THE GUARD BINARY, which was the one file in this list's own directory that was
+    // not in it — and only on this side: internal/install/paths.go has locked it for a
+    // while. Both installers ship, so which one a machine was set up with decided
+    // whether the file was pinned.
+    //
+    // The hook runs whatever sits at this path as soon as it prints the expected number
+    // for --sg-version, and then honours its exit code. A two-line stub there allows
+    // every call while `solongate doctor` goes on reporting a native guard in use, so
+    // this was a disarm that left the diagnostics saying everything was fine.
+    join(p.binDir, process.platform === 'win32' ? 'solongate-guard.exe' : 'solongate-guard'),
     p.settingsPath,
     p.antigravityHooksPath,
     p.codexHooksPath,

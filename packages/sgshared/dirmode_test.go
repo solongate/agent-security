@@ -60,25 +60,10 @@ func TestTheConfigDirectoryIsOwnerOnly(t *testing.T) {
 		}
 	})
 
-	// The guard reaches the directory through SaveFleet, which is the path that
-	// used to create it at 0755.
-	t.Run("and when the guard writes its fleet state", func(t *testing.T) {
-		home := t.TempDir()
-		t.Setenv("HOME", home)
-		t.Setenv("USERPROFILE", home)
+	// A second case stood here: the guard reached the directory through SaveFleet, which
+	// was the path that used to create it at 0755. SaveFleet and the fleet marker are
+	// gone — nothing wrote the file, and a stale one made the Go guard enforce nothing
+	// (see guard-go/localmode_test.go). EnsureSGDir above is the one creator left, and
+	// it is what every writer goes through.
 
-		// A state that DIFFERS from the empty one an absent file reads as:
-		// SaveFleet writes only on a change, so an empty value returns early and
-		// creates nothing.
-		if err := SaveFleet(FleetState{Managed: true, ProjectID: "proj-1"}); err != nil {
-			t.Fatal(err)
-		}
-		info, err := os.Stat(SGDir())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := info.Mode().Perm(); got != DirMode {
-			t.Errorf("mode = %04o, want %04o — the guard's own path must not widen it", got, DirMode)
-		}
-	})
 }

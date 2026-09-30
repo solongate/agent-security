@@ -196,7 +196,7 @@ func allow() { emit(decision{Type: "allow"}) }
 //
 // TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
 // cannot drift without the build saying so.
-const hookVersion = 99
+const hookVersion = 100
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.
@@ -230,18 +230,26 @@ func main() {
 	if len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "--") {
 		agentName = os.Args[2]
 	}
-	// Whether this machine is under somebody else's policy. Read FIRST, before
-	// the credential, because it decides which credential is trusted at all.
-	// See sgshared.LoadFleet for why it is a file of its own.
-	fleet := sgshared.LoadFleet()
-
+	// THE FLEET MARKER IS GONE, and it was not merely dead.
+	//
+	// ~/.solongate/.fleet.json said whether this machine was under somebody else's
+	// policy: a guest whose key opened their HOST's project, where the host wrote one
+	// policy and every machine enforced it. The file was the last answer a policy poll
+	// gave, kept separately because the guard needs it before it decides which
+	// credential to trust.
+	//
+	// Nothing polls, so nothing writes it. What it still did was read — and on a machine
+	// left with a stale `managed: true` from an older install, THIS GUARD ENFORCED
+	// NOTHING: loadLocalPolicyFile returned nil for a managed machine, which is every
+	// policy file including this machine's own. The Node hook never read the file at
+	// all, so the same machine was guarded or unguarded depending only on whether it had
+	// the binary.
+	//
+	// SOLONGATE_AGENT_ID names the rate-limit counter, and is honoured: it is for
+	// running two clients side by side without them sharing a bucket. The managed case
+	// withheld it because a guest could otherwise mint a fresh empty counter on demand.
 	agentID := agentType
-	// SOLONGATE_AGENT_ID names the policy cache AND the rate-limit counter, so
-	// on a managed machine a fresh value is a fresh empty counter on demand and
-	// a cache miss that switches DLP and the rate limit off together. It
-	// is honoured for everyone else, which is what it is for: running two
-	// clients side by side without them sharing a bucket.
-	if v := os.Getenv("SOLONGATE_AGENT_ID"); v != "" && !fleet.Managed {
+	if v := os.Getenv("SOLONGATE_AGENT_ID"); v != "" {
 		agentID = v
 	}
 
@@ -283,7 +291,7 @@ func main() {
 	// Read here rather than at the policy step below, because what the file can
 	// carry BESIDE the policy is consulted before the policy is: the tamper flag
 	// just below, then the rate limit, the egress rules and the DLP scanner.
-	local := loadLocalPolicyFile(c.Cwd, fleet.Managed)
+	local := loadLocalPolicyFile(c.Cwd)
 
 	// hasSecurity is not the same question as "is sec nil": the file can carry a
 	// `security` block of null, which is a machine saying it configures no layers,

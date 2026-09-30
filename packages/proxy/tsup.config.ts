@@ -32,6 +32,11 @@ export default defineConfig({
     // the HOOKS use. The two answering differently is how a viewer ends up showing an
     // empty log while entries land correctly somewhere else.
     'src/tui/local-log.ts',
+    // The MCP proxy's config: how it reads the policy file, and how it decides what a
+    // policy file even IS. test/proxy-parity.mjs holds loadPolicy to both spellings of
+    // that file, having found it crashing on the one the CLI writes — so it has to be
+    // importable, and importable from the BUILT package rather than the source.
+    'src/config.ts',
     // Management CLI: scriptable commands + interactive Ink TUI. Both are only
     // reached via dynamic import() from src/index.ts, so the proxy runtime never
     // pulls in the API-client / React / Ink code.

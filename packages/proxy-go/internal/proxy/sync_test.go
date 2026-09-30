@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -328,5 +329,72 @@ func TestTheProxyRecordIsWrittenWhereEverythingElseReadsIt(t *testing.T) {
 	}
 	if mode := dir.Mode().Perm(); mode != 0o700 {
 		t.Errorf("folder mode = %04o, want 0700", mode)
+	}
+}
+
+// BOTH SPELLINGS OF THE POLICY FILE, and reading only one of them meant this proxy
+// enforced NOTHING on most machines.
+//
+//	{"mode": "denylist", "rules": [ … ]}                   a bare policy
+//	{"policy": {…}, "security": {…}, "selfProtect": true}  the envelope
+//
+// Only the bare one was read. `rules` is absent at the top level of an envelope, so the
+// decoded rule list came back EMPTY — and an empty rule list in denylist mode forbids
+// nothing. The envelope is the shape the README documents for configuring any security
+// layer and the shape the CLI writes the moment one is set, so a machine that had
+// configured DLP or a rate limit ran `solongate -- <upstream>` with no rules at all.
+//
+// The guard, the CLI store and the hook all decide on the PRESENCE of a `policy` key.
+// This is the fourth reader of that file and the last one to learn it.
+func TestBothSpellingsOfThePolicyFileGiveTheSameRules(t *testing.T) {
+	rules := `[{"id":"r1","effect":"DENY","toolPattern":"Bash","priority":10,"enabled":true}]`
+	bare := `{"id":"p1","name":"P","version":3,"rules":` + rules + `}`
+	envelope := `{"policy":{"id":"p1","name":"P","version":3,"rules":` + rules + `},` +
+		`"security":{"dlpBlock":{"patterns":["AWS access key"]}},"selfProtect":true}`
+
+	a, err := DecodePolicyDoc([]byte(bare))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := DecodePolicyDoc([]byte(envelope))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(a.Set.Rules) != 1 {
+		t.Fatalf("bare: rules = %d, want 1", len(a.Set.Rules))
+	}
+	if len(b.Set.Rules) != len(a.Set.Rules) {
+		t.Fatalf("envelope: rules = %d, want the same %d as the bare document",
+			len(b.Set.Rules), len(a.Set.Rules))
+	}
+	if b.Set.ID != a.Set.ID || b.Set.Name != a.Set.Name || b.Set.Version != a.Set.Version {
+		t.Errorf("envelope read a different policy: %+v vs %+v", b.Set, a.Set)
+	}
+	if b.Set.Rules[0].ID != "r1" {
+		t.Errorf("envelope rule = %q, want r1", b.Set.Rules[0].ID)
+	}
+
+	// THE WRITE-BACK MUST KEEP THE ENVELOPE. Fields holds the outer document, so
+	// re-encoding preserves `security` and `selfProtect` — replacing the file with just
+	// the policy would strip the layers the guard reads from the same file.
+	out, err := EncodeIndented(b.Fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"security", "dlpBlock", "selfProtect"} {
+		if !bytes.Contains(out, []byte(want)) {
+			t.Errorf("a write-back dropped %q:\n%s", want, out)
+		}
+	}
+
+	// `"policy": null` is a real configuration — layers and no rules — and reads as no
+	// rules rather than as a parse failure.
+	n, err := DecodePolicyDoc([]byte(`{"policy":null,"security":{"dlpBlock":{"patterns":[]}}}`))
+	if err != nil {
+		t.Fatalf("a null policy must not be an error: %v", err)
+	}
+	if len(n.Set.Rules) != 0 {
+		t.Errorf("a null policy produced %d rules", len(n.Set.Rules))
 	}
 }

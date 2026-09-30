@@ -174,4 +174,75 @@ for (const c of CASES) {
   }
 }
 
+// ── THE PROXY'S OWN LOADER, on both spellings of the file ────────────────────
+//
+// Everything above feeds a policy OBJECT to the engine and to the guard, which skips the
+// step where the MCP proxy READS the file — and that step was where it failed.
+//
+//   {"mode": "denylist", "rules": [ … ]}                   a bare policy
+//   {"policy": {…}, "security": {…}, "selfProtect": true}  the envelope
+//
+// The envelope is what the README documents for configuring any security layer and what
+// the CLI writes the moment one is set (local-cli.mjs: "written as an envelope"). Only
+// the bare shape was read, and the two implementations failed differently:
+//
+//   this one   `JSON.parse(content) as PolicySet` is a cast, which does nothing at
+//              runtime, so the next line — `policy.rules.some(...)` — threw
+//              `Cannot read properties of undefined`. The proxy did not start.
+//   the Go one read zero rules and enforced NOTHING, silently, which is worse.
+//
+// So on a machine that had configured DLP or a rate limit, `solongate -- <upstream>`
+// either refused to start or ran as an open pipe. This is the fourth reader of that file
+// and the last to learn the rule the other three follow: the PRESENCE of a `policy` key
+// tells the shapes apart, and its VALUE may be null.
+{
+  const { loadPolicy } = await import('../dist/config.js');
+  const denied = [rule({ commandConstraints: { denied: ['*rm -rf /*'] } })];
+  const inner = { id: 'p', name: 'P', mode: 'denylist', rules: denied };
+
+  const dir = mkdtempSync(join(tmpdir(), 'sg-envelope-'));
+  const write = (name, body) => {
+    const p = join(dir, name);
+    writeFileSync(p, typeof body === 'string' ? body : JSON.stringify(body, null, 2));
+    return p;
+  };
+
+  const ruleCount = (file) => {
+    try {
+      const p = loadPolicy(file);
+      return Array.isArray(p.rules) ? p.rules.length : `rules is ${typeof p.rules}`;
+    } catch (e) {
+      return `THREW ${e.constructor.name}`;
+    }
+  };
+
+  // ensureCatchAllAllow appends a trailing `ALLOW *` when the file has none, which is
+  // what makes denylist mode allow whatever no rule forbids. So a one-rule file loads
+  // TWO rules, and that is the contract rather than an accident — the count is written
+  // out here so a change to it has to be deliberate.
+  const bare = ruleCount(write('bare.json', inner));
+  check('a bare policy file loads its rule plus the catch-all', bare, 2);
+  check('an envelope loads THE SAME rules',
+    ruleCount(write('envelope.json', {
+      policy: inner,
+      security: { dlpBlock: { patterns: ['AWS access key'], custom: [] } },
+      selfProtect: true,
+    })), bare);
+
+  // A file carrying LAYERS AND NO RULES is a real configuration — DLP on, nothing
+  // forbidden — and reads as no rules rather than as a failure.
+  check('a null policy loads nothing but the catch-all, rather than throwing',
+    ruleCount(write('null.json', { policy: null, security: { dlpBlock: { patterns: [] } } })), 1);
+
+  // Half a file is not a policy. Throwing here would take the agent down with the
+  // proxy; enforcing nothing silently is the other wrong answer, so the DEFAULT applies
+  // — which allows, and is the documented default for a machine with no policy.
+  check('half a file falls back to a default rather than throwing',
+    typeof ruleCount(write('broken.json', '{ "policy": { "rules": [')) === 'number', true);
+
+  // A `rules` that is not an array must read as no rules, not as a crash downstream.
+  check('a rules field of the wrong type reads as none of its own',
+    ruleCount(write('wrongtype.json', { policy: { rules: 'nope' } })), 1);
+}
+
 process.exit(done());

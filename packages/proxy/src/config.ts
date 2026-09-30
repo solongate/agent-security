@@ -180,24 +180,59 @@ function ensureCatchAllAllow(policy: PolicySet): PolicySet {
 }
 
 /**
- * Load policy from a JSON file path or inline object.
+ * Load the policy from a file path or an inline object.
+ *
+ * BOTH SPELLINGS OF THE FILE, and reading only one of them CRASHED this proxy on most
+ * machines:
+ *
+ *   {"mode": "denylist", "rules": [ … ]}                   a bare policy
+ *   {"policy": {…}, "security": {…}, "selfProtect": true}  the envelope
+ *
+ * The parse was `JSON.parse(content) as PolicySet` — a cast, which does nothing at
+ * runtime — so an envelope arrived with no `rules` field and the next line,
+ * `policy.rules.some(...)`, threw `Cannot read properties of undefined`. The envelope is
+ * the shape the README documents for configuring any security layer and the shape the
+ * CLI writes the moment one is set, so `solongate -- <upstream>` failed to start on
+ * exactly the machines that had configured something.
+ *
+ * (The Go proxy had the same bug and failed the other way, which is worse: it read zero
+ * rules and enforced nothing, silently. internal/proxy/policydoc.go.)
+ *
+ * The PRESENCE of a `policy` key is what tells the two apart, as in the guard, the CLI
+ * store and the hook. Its value may be null — a file carrying layers and no rules is a
+ * real configuration — and that reads as no rules rather than as a failure.
  */
 export function loadPolicy(source: string | PolicySet): PolicySet {
-  let policy: PolicySet;
+  let parsed: unknown;
 
   if (typeof source === 'object') {
-    policy = source;
+    parsed = source;
   } else {
-    // Try as a file path
     const filePath = resolve(source);
-    if (existsSync(filePath)) {
-      const content = readFileSync(filePath, 'utf-8');
-      policy = JSON.parse(content) as PolicySet;
-    } else {
-      // If no file found, return default-deny
+    if (!existsSync(filePath)) return DEFAULT_POLICY;
+    try {
+      parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+    } catch {
+      // A half-written file is not a policy. Refusing to start is wrong here — the
+      // proxy would take the agent down with it — and so is enforcing nothing, so the
+      // default applies and says so.
       return DEFAULT_POLICY;
     }
   }
+
+  const obj = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+  const inner = 'policy' in obj
+    ? (obj.policy && typeof obj.policy === 'object' ? obj.policy as Record<string, unknown> : {})
+    : obj;
+
+  // Spread first, then pin `rules` to an array: a document with no rules, or with a
+  // `rules` that is not an array, must read as NO rules rather than crash the pipeline
+  // downstream. Everything else the file carries is passed through untouched, because a
+  // field this version does not model still belongs to whoever wrote it.
+  const policy = {
+    ...inner,
+    rules: Array.isArray(inner.rules) ? inner.rules : [],
+  } as unknown as PolicySet;
 
   return ensureCatchAllAllow(policy);
 }

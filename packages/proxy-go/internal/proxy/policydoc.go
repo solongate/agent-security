@@ -43,7 +43,38 @@ func DecodePolicyDoc(raw []byte) (PolicyDoc, error) {
 		return PolicyDoc{}, err
 	}
 
-	doc := PolicyDoc{Fields: fields}
+	// BOTH SPELLINGS OF THE FILE, and reading only one of them meant this proxy
+	// enforced NOTHING on most machines.
+	//
+	//	{"mode": "denylist", "rules": [ … ]}                     a bare policy
+	//	{"policy": {…}, "security": {…}, "selfProtect": true}    the envelope
+	//
+	// Only the bare one was read. `fields["rules"]` is absent in an envelope, so
+	// doc.Set.Rules came back EMPTY — and an empty rule list in denylist mode forbids
+	// nothing. The envelope is the shape the README documents for configuring any
+	// security layer, and the shape the CLI writes the moment one is set (see
+	// test/local-cli.mjs, "written as an envelope"), so a machine that had configured
+	// DLP or a rate limit was running `solongate -- <upstream>` with no rules at all.
+	//
+	// The PRESENCE of a `policy` key is what tells them apart, exactly as in the guard
+	// (guard-go/config.go), the CLI store (internal/api/localstore.go) and the hook.
+	// Its value may be null — a file carrying layers and no rules is a real
+	// configuration — and that reads as no rules rather than as a parse failure.
+	envelope := fields
+	if inner, ok := fields["policy"]; ok {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(inner, &nested) == nil && nested != nil {
+			fields = nested
+		} else {
+			// `"policy": null`, or a value that is not an object. No rules, and the
+			// envelope's own keys are not the policy's.
+			fields = map[string]json.RawMessage{}
+		}
+	}
+
+	// Fields keeps the OUTER document, so a write-back preserves `security` and
+	// `selfProtect` rather than replacing the file with just the policy.
+	doc := PolicyDoc{Fields: envelope}
 	doc.Set.ID = stringField(fields, "id")
 	doc.Set.Name = stringField(fields, "name")
 	doc.Set.Description = stringField(fields, "description")

@@ -398,3 +398,83 @@ func TestBothSpellingsOfThePolicyFileGiveTheSameRules(t *testing.T) {
 		t.Errorf("a null policy produced %d rules", len(n.Set.Rules))
 	}
 }
+
+// WHAT THE MCP PATH ENFORCES, AND WHAT IT DOES NOT — said at startup.
+//
+// The policy file carries a `security` block and the guard hooks apply all of it. This
+// path applies the rate limit and has no DLP or egress scanner at all. So somebody can
+// configure `dlpBlock`, watch it work on their agent's tool calls, put an MCP server
+// behind this proxy and reasonably assume the same protection is there.
+//
+// A difference a person cannot see is the kind that gets found the expensive way, so the
+// proxy names it every time it starts. This pins both halves: the limit that IS taken
+// from the file, and the warning for the layers that are not.
+func TestTheProxySaysWhichLayersItEnforces(t *testing.T) {
+	withSecurity := func(sec string) PolicyDoc {
+		doc, err := DecodePolicyDoc([]byte(`{"policy":{"id":"p","name":"P","rules":[]},"security":` + sec + `}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc
+	}
+	has := func(lines []string, want string) bool {
+		for _, l := range lines {
+			if strings.Contains(l, want) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// THE RATE LIMIT COMES FROM THE FILE. It used to come only from the flags, so a
+	// machine whose policy set one got none here while the hooks enforced it.
+	lines := layerReport(withSecurity(`{"rateLimit":{"perMinute":42}}`), config.ProxyConfig{})
+	if !has(lines, "rate limit 42/min") || !has(lines, "the policy file") {
+		t.Errorf("the file's rate limit was not reported: %v", lines)
+	}
+
+	// The flag still wins when given: it is the more specific instruction, typed for
+	// this invocation.
+	lines = layerReport(withSecurity(`{"rateLimit":{"perMinute":42}}`), config.ProxyConfig{GlobalRateLimit: 7})
+	if !has(lines, "rate limit 7/min") || !has(lines, "--global-rate-limit") {
+		t.Errorf("the flag did not win: %v", lines)
+	}
+
+	// DLP AND EGRESS ARE NAMED WHEN CONFIGURED, because that is the only case that can
+	// mislead anybody.
+	lines = layerReport(withSecurity(`{"dlpBlock":{"patterns":["AWS access key"]}}`), config.ProxyConfig{})
+	if !has(lines, "does not scan for secrets") {
+		t.Errorf("a configured DLP block was not warned about: %v", lines)
+	}
+	if !has(lines, "does not read the files a transfer command would upload") {
+		t.Errorf("a configured dlpBlock implies egress, and it was not warned about: %v", lines)
+	}
+
+	// dlpRedact alone is masking without refusing, which this path also cannot do.
+	lines = layerReport(withSecurity(`{"dlpRedact":{"patterns":["AWS access key"]}}`), config.ProxyConfig{})
+	if !has(lines, "does not scan for secrets") {
+		t.Errorf("dlpRedact was not warned about: %v", lines)
+	}
+
+	// AND NOTHING IS INVENTED. A policy that configures no layers has nothing to warn
+	// about, and a warning nobody needs is how people learn to skim past warnings.
+	lines = layerReport(withSecurity(`{}`), config.ProxyConfig{})
+	for _, unwanted := range []string{"WARNING", "does not"} {
+		if has(lines, unwanted) {
+			t.Errorf("a policy with no layers produced a warning: %v", lines)
+		}
+	}
+	if !has(lines, "rate limit off") {
+		t.Errorf("the absent rate limit was not reported: %v", lines)
+	}
+
+	// A bare policy document cannot carry a security block at all, and must not crash
+	// the report.
+	bare, err := DecodePolicyDoc([]byte(`{"id":"p","name":"P","rules":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := layerReport(bare, config.ProxyConfig{}); !has(lines, "rate limit off") {
+		t.Errorf("a bare policy broke the report: %v", lines)
+	}
+}

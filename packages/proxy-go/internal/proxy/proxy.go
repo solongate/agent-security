@@ -158,6 +158,17 @@ func New(opts Options) (*Proxy, error) {
 		p.agentID = slugify(opts.Config.AgentName)
 	}
 
+	// THE RATE LIMIT COMES FROM THE POLICY FILE TOO, and it did not before.
+	//
+	// These two numbers were taken only from --rate-limit and --global-rate-limit, so a
+	// machine whose policy file set `security.rateLimit` got no limit on this path while
+	// the guard hooks enforced one. The flag still wins when it is given: it is the more
+	// specific instruction, typed for this invocation.
+	globalLimit := opts.Config.GlobalRateLimit
+	if globalLimit == 0 {
+		globalLimit = securityFromDoc(p.policy).perMinute
+	}
+
 	gate, err := sdk.New(sdk.Options{
 		Name:      orDefault(opts.Config.Name, "solongate-proxy"),
 		APIKey:    internalGateKey,
@@ -166,7 +177,7 @@ func New(opts Options) (*Proxy, error) {
 			ValidateSchemas:          sdk.Bool(true),
 			VerboseErrors:            opts.Config.Verbose,
 			RateLimitPerTool:         opts.Config.RateLimitPerTool,
-			GlobalRateLimitPerMinute: opts.Config.GlobalRateLimit,
+			GlobalRateLimitPerMinute: globalLimit,
 		},
 		PolicyEvaluator: opts.Evaluator,
 	})
@@ -208,6 +219,9 @@ func (p *Proxy) Start(ctx context.Context) error {
 
 	policy := p.currentPolicy()
 	p.log("Policy: " + policy.Set.Name + " (" + strconv.Itoa(len(policy.Set.Rules)) + " rules)")
+	for _, line := range layerReport(policy, p.config) {
+		p.log(line)
+	}
 	if policy.Unreadable > 0 {
 		// Said out loud rather than swallowed: the dashboard still lists these
 		// rules, so a silent skip means the enforced policy and the displayed
@@ -255,6 +269,87 @@ func (p *Proxy) Start(ctx context.Context) error {
 // then a policy fetched from that service with the local file as the fallback.
 // There is no service, so the file is not a fallback — it is the policy.
 //
+// WHICH LAYERS THIS PATH ENFORCES, said out loud at startup.
+//
+// The policy file carries a `security` block — a rate limit, DLP, egress rules — and the
+// hooks apply all of it. THIS path does not: the interceptor pipeline has rate limiting,
+// the exfiltration chain, policy evaluation, capability tokens, request signing and a
+// response scan, and no DLP or egress scanner at all.
+//
+// Which means somebody can configure `dlpBlock`, watch it work on their agent's tool
+// calls, put an MCP server behind this proxy, and reasonably assume the same protection
+// is there. It is not. A difference a person cannot see is the kind that gets found the
+// expensive way, so the proxy names it every time it starts rather than leaving it to
+// whoever reads the README.
+//
+// The rate limit IS read from the file now. It was taken only from --rate-limit and
+// --global-rate-limit, so a machine that had set one in its policy got none here.
+func layerReport(policy PolicyDoc, cfg config.ProxyConfig) []string {
+	sec := securityFromDoc(policy)
+	var out []string
+
+	limit := cfg.GlobalRateLimit
+	source := "--global-rate-limit"
+	if limit == 0 && sec.perMinute > 0 {
+		limit, source = sec.perMinute, "the policy file"
+	}
+	if limit > 0 {
+		out = append(out, "Layer: rate limit "+strconv.Itoa(limit)+"/min (from "+source+")")
+	} else {
+		out = append(out, "Layer: rate limit off")
+	}
+
+	// NAMED WHEN IT IS CONFIGURED AND NOT ENFORCED, which is the only case that can
+	// mislead anybody. A file that configures no DLP has nothing to warn about.
+	if sec.hasDLP {
+		out = append(out, "WARNING: this policy configures DLP, and the MCP path does not "+
+			"scan for secrets — the guard hooks do. Tool calls through this proxy are NOT "+
+			"checked against your DLP patterns.")
+	}
+	if sec.hasEgress {
+		out = append(out, "WARNING: this policy configures egress protection, and the MCP "+
+			"path does not read the files a transfer command would upload — the guard hooks do.")
+	}
+	return out
+}
+
+// securityFromDoc reads the `security` block out of the document's own fields.
+//
+// Fields is the OUTER document (see DecodePolicyDoc), so this works for the envelope —
+// which is the only shape that can carry a security block in the first place.
+type docSecurity struct {
+	perMinute int
+	hasDLP    bool
+	hasEgress bool
+}
+
+func securityFromDoc(policy PolicyDoc) docSecurity {
+	raw, ok := policy.Fields["security"]
+	if !ok {
+		return docSecurity{}
+	}
+	var sec struct {
+		RateLimit *struct {
+			PerMinute int `json:"perMinute"`
+		} `json:"rateLimit"`
+		DLPBlock  json.RawMessage `json:"dlpBlock"`
+		DLPRedact json.RawMessage `json:"dlpRedact"`
+	}
+	if json.Unmarshal(raw, &sec) != nil {
+		return docSecurity{}
+	}
+	out := docSecurity{}
+	if sec.RateLimit != nil {
+		out.perMinute = sec.RateLimit.PerMinute
+	}
+	has := func(r json.RawMessage) bool { return len(r) > 0 && string(r) != "null" }
+	out.hasDLP = has(sec.DLPBlock) || has(sec.DLPRedact)
+	// Egress reads the files a transfer command would upload, and it is driven by
+	// dlpBlock — the same block, the blocking half.
+	out.hasEgress = has(sec.DLPBlock)
+	return out
+}
+
 // Loaded HERE rather than left to a caller, because a gate with no policy loaded
 // denies everything, and an empty machine should not mean a dead agent.
 func (p *Proxy) loadPolicy(ctx context.Context) error {

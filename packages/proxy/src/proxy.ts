@@ -25,7 +25,7 @@ import {
   RESPONSE_WARNING_MARKER,
 } from './core/index.js';
 import type { ProxyConfig } from './config.js';
-import { writeAuditEntry } from './config.js';
+import { layerReport, loadPolicySecurity, writeAuditEntry } from './config.js';
 import { PolicySyncManager } from './sync.js';
 
 const log = (...args: unknown[]) => process.stderr.write(`[SolonGate] ${args.map(String).join(' ')}\n`);
@@ -139,7 +139,12 @@ export class SolonGateProxy {
         validateSchemas: true,
         verboseErrors: config.verbose ?? false,
         rateLimitPerTool: config.rateLimitPerTool,
-        globalRateLimitPerMinute: config.globalRateLimit,
+        // THE RATE LIMIT COMES FROM THE POLICY FILE TOO, and it did not before: this was
+        // taken only from --global-rate-limit, so a machine whose policy set
+        // `security.rateLimit` got no limit on this path while the guard hooks enforced
+        // one. The flag still wins when given — it is the more specific instruction.
+        globalRateLimitPerMinute: config.globalRateLimit
+          || loadPolicySecurity(config.policyPath ?? config.policy).perMinute,
       },
     });
 
@@ -198,6 +203,12 @@ export class SolonGateProxy {
     log(`Deciding with the ${this.gate.getEvaluatorMode()} evaluator.`);
 
     log(`Policy: ${this.config.policy.name} (${this.config.policy.rules.length} rules)`);
+    for (const line of layerReport(
+      loadPolicySecurity(this.config.policyPath ?? this.config.policy),
+      this.config.globalRateLimit,
+    )) {
+      log(line);
+    }
     const transport = this.config.upstream.transport ?? 'stdio';
     if (transport === 'stdio') {
       log(`Upstream: [stdio] ${this.config.upstream.command} ${(this.config.upstream.args ?? []).join(' ')}`);

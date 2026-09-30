@@ -144,6 +144,12 @@ tool calls, for an agent that speaks MCP rather than running hooks. It decides w
 the same evaluator the guard uses (`packages/proxy/hooks/policy-eval.mjs`), so a
 policy means one thing in both places.
 
+**The layers are not all there.** This path enforces the policy rules and the rate
+limit, and has no DLP or egress scanner — so a `security` block reaches the hooks
+and only half reaches here. The proxy says which layers are in force every time it
+starts, and warns by name when your policy configures one it cannot apply, because
+a difference you cannot see is the kind that gets found the expensive way.
+
 ## Developing
 
 Go 1.25 and Node 20+.

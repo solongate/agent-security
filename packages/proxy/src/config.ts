@@ -237,6 +237,91 @@ export function loadPolicy(source: string | PolicySet): PolicySet {
   return ensureCatchAllAllow(policy);
 }
 
+/** What a policy file's `security` block configures, as much of it as this path cares
+ *  about. Every field is optional: a file may carry none of them. */
+export interface PolicySecurity {
+  /** Calls per minute, or 0 when none is configured. */
+  perMinute: number;
+  /** A dlpBlock or dlpRedact block is present. */
+  hasDLP: boolean;
+  /** dlpBlock is present, which is what drives the egress file scan. */
+  hasEgress: boolean;
+}
+
+/**
+ * Read the `security` block out of a policy file.
+ *
+ * loadPolicy returns the POLICY, so the layers beside it were lost — and the MCP proxy
+ * needs them for two reasons: to take the rate limit from the file (it used to come only
+ * from the flags, so a machine whose policy set one got none on this path), and to say at
+ * startup which layers it does not enforce.
+ *
+ * Only the envelope can carry a security block, so a bare policy document answers none —
+ * which is the correct answer rather than a fallback. internal/proxy has the Go twin.
+ */
+export function loadPolicySecurity(source: string | PolicySet): PolicySecurity {
+  const none: PolicySecurity = { perMinute: 0, hasDLP: false, hasEgress: false };
+  let parsed: unknown;
+  if (typeof source === 'object') {
+    parsed = source;
+  } else {
+    const filePath = resolve(source);
+    if (!existsSync(filePath)) return none;
+    try {
+      parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+    } catch {
+      return none;
+    }
+  }
+  const obj = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+  const sec = (obj.security && typeof obj.security === 'object'
+    ? obj.security
+    : {}) as Record<string, unknown>;
+
+  const rl = (sec.rateLimit && typeof sec.rateLimit === 'object'
+    ? sec.rateLimit
+    : {}) as Record<string, unknown>;
+  const has = (v: unknown): boolean => !!v && typeof v === 'object';
+
+  return {
+    perMinute: typeof rl.perMinute === 'number' && rl.perMinute > 0 ? rl.perMinute : 0,
+    hasDLP: has(sec.dlpBlock) || has(sec.dlpRedact),
+    // Egress reads the files a transfer command would upload, and it is driven by
+    // dlpBlock — the same block, the blocking half.
+    hasEgress: has(sec.dlpBlock),
+  };
+}
+
+/**
+ * WHICH LAYERS THIS PATH ENFORCES, for the proxy to say at startup.
+ *
+ * The policy file carries a `security` block and the guard hooks apply all of it. The MCP
+ * path applies the rate limit and has no DLP or egress scanner at all — so somebody can
+ * configure `dlpBlock`, watch it work on their agent's tool calls, put an MCP server
+ * behind this proxy and reasonably assume the same protection is there.
+ *
+ * A difference a person cannot see is the kind that gets found the expensive way. The
+ * warnings name only what is CONFIGURED and not enforced, because a warning nobody needs
+ * is how people learn to skim past warnings.
+ */
+export function layerReport(sec: PolicySecurity, flagLimit: number | undefined): string[] {
+  const out: string[] = [];
+  const limit = flagLimit && flagLimit > 0 ? flagLimit : sec.perMinute;
+  const source = flagLimit && flagLimit > 0 ? '--global-rate-limit' : 'the policy file';
+  out.push(limit > 0 ? `Layer: rate limit ${limit}/min (from ${source})` : 'Layer: rate limit off');
+
+  if (sec.hasDLP) {
+    out.push('WARNING: this policy configures DLP, and the MCP path does not scan for '
+      + 'secrets — the guard hooks do. Tool calls through this proxy are NOT checked '
+      + 'against your DLP patterns.');
+  }
+  if (sec.hasEgress) {
+    out.push('WARNING: this policy configures egress protection, and the MCP path does '
+      + 'not read the files a transfer command would upload — the guard hooks do.');
+  }
+  return out;
+}
+
 /**
  * Parse CLI arguments into a ProxyConfig.
  *

@@ -243,6 +243,48 @@ for (const c of CASES) {
   // A `rules` that is not an array must read as no rules, not as a crash downstream.
   check('a rules field of the wrong type reads as none of its own',
     ruleCount(write('wrongtype.json', { policy: { rules: 'nope' } })), 1);
+
+  // ── WHAT THE MCP PATH ENFORCES, AND WHAT IT DOES NOT ──────────────────────
+  //
+  // The policy file carries a `security` block and the guard hooks apply all of it. This
+  // path applies the rate limit and has NO DLP or egress scanner. So somebody can
+  // configure `dlpBlock`, watch it work on their agent's tool calls, put an MCP server
+  // behind this proxy and reasonably assume the same protection is there.
+  //
+  // A difference a person cannot see is the kind that gets found the expensive way, so
+  // the proxy names it every time it starts. internal/proxy has the Go twin of every
+  // case here, and the two must agree — the wording is what a person acts on.
+  const { loadPolicySecurity, layerReport } = await import('../dist/config.js');
+  const report = (sec, flag) => layerReport(loadPolicySecurity(write('sec.json', {
+    policy: inner, security: sec,
+  })), flag).join(' | ');
+
+  // THE RATE LIMIT COMES FROM THE FILE. It used to come only from the flag, so a machine
+  // whose policy set one got none here while the hooks enforced it.
+  check('the file\'s rate limit is taken and named',
+    /rate limit 42\/min.*the policy file/.test(report({ rateLimit: { perMinute: 42 } })), true,
+    report({ rateLimit: { perMinute: 42 } }));
+  check('and the flag wins when it is given',
+    /rate limit 7\/min.*--global-rate-limit/.test(report({ rateLimit: { perMinute: 42 } }, 7)), true);
+
+  // Named when CONFIGURED and not enforced, which is the only case that misleads.
+  const dlp = report({ dlpBlock: { patterns: ['AWS access key'] } });
+  check('a configured DLP block is warned about', /does not scan for secrets/.test(dlp), true, dlp);
+  check('and so is the egress it implies',
+    /does not read the files a transfer command would upload/.test(dlp), true);
+  check('dlpRedact alone is warned about too',
+    /does not scan for secrets/.test(report({ dlpRedact: { patterns: ['JWT'] } })), true);
+
+  // AND NOTHING IS INVENTED. A warning nobody needs is how people learn to skim past
+  // warnings.
+  const quiet = report({});
+  check('a policy with no layers produces no warning', /WARNING/.test(quiet), false, quiet);
+  check('and says the rate limit is off', /rate limit off/.test(quiet), true);
+
+  // A bare policy document cannot carry a security block at all.
+  check('a bare document answers no layers',
+    layerReport(loadPolicySecurity(write('bare2.json', inner)), undefined).join(' | '),
+    'Layer: rate limit off');
 }
 
 process.exit(done());

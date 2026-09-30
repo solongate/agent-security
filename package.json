@@ -4,7 +4,6 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "node tools/dev-go.mjs",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean"

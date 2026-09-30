@@ -150,12 +150,18 @@ Go 1.25 and Node 20+.
 
 ```bash
 pnpm install
+pnpm build                    # every package, the way it ships
+pnpm test                     # the conformance suite
 
-cd packages/guard-go && go test ./...
-cd packages/proxy-go && go test ./...
-cd packages/sgpolicy && go test ./...
-cd packages/proxy    && npx tsc --noEmit -p tsconfig.json
+# and the Go side, module by module
+for m in guard-go proxy-go sgpolicy sgshared; do
+  (cd packages/$m && gofmt -l . && go vet ./... && go test -count=1 ./...)
+done
 ```
+
+`-count=1` is not a habit, it is the fix for something that happened: Go serves a
+cached PASS for a test whose subject was deleted elsewhere in the repo, and one sat
+green that way for a while.
 
 **The conformance suite is the contract.** It runs the guard as a subprocess, feeds
 it a client payload, and asserts on the exit code, the files touched and what a
@@ -163,13 +169,18 @@ stub server does NOT receive — without importing any implementation's internal
 
 ```bash
 cd packages/proxy
-npx tsc -p tsconfig.json      # once, or after a change: the suite imports dist/
-npm run build:hooks           # and the bundled hook it drives
+pnpm build                    # the suite imports dist/, and drives the bundled hook
 
 node test/run-all.mjs                                   # the Node hook
 SG_HOOK=$PWD/../guard-go/solongate-guard \
   node test/run-all.mjs                                 # and the Go binary
 ```
+
+`pnpm build` rather than `npx tsc`: tsc emits one .js per source file, which resolves
+every import the suite has and is **not what ships** — the package ships tsup's
+bundles, so a module the suite imports has to be an entry to survive the real build.
+Two were not, and only a machine that had run `pnpm build` noticed. CI runs the same
+command for the same reason.
 
 Both, every time. The two implementations are meant to be indistinguishable, and
 every divergence found so far was found by running the same suite against each:

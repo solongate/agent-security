@@ -240,39 +240,51 @@ plain "SolonGate is installed. Your AI agents now have to ask it before they act
 
 # ── and a command called solongate ────────────────────────────────────
 
-# An install puts the binaries in the store, which is where the guard hook looks
-# for them. It does NOT put anything on PATH: that is normally npm's job, done by
-# `npm i -g @solongate/proxy`, and somebody who cloned this repository never ran
-# it. Without this, `repair` succeeds and `solongate` is still not a command —
-# which is the exact complaint this script was written for.
+# AN INSTALL DOES NOT MAKE A COMMAND. It puts the binaries in the store, which is
+# where the guard hook looks for them; putting `solongate` on PATH is npm's job, and
+# somebody who cloned this repository never ran npm.
+#
+# AND IF SOMETHING IS ALREADY THERE, IT MAY NOT BE THIS. That was the first version
+# of this block: it found a `solongate` on PATH, reported success and stopped. What
+# it found was an npm install from months earlier, whose launcher resolves the
+# platform package shipped BESIDE IT before it ever looks in the store — so the
+# command kept running a binary from a different build entirely, while the guard
+# enforcing every tool call was the new one. Two versions, one name, and the only
+# visible symptom was a screen that looked unfamiliar.
+#
+# So the link is pointed at the binary this run installed, every time. It is one
+# symlink, it is reversible, and anything that was not a symlink is kept.
 store_bin="$HOME/.solongate/bin/solongate"
+[ -x "$store_bin" ] || die "the install finished but $store_bin is not there." \
+	"Nothing was added to your PATH. Run ./install.sh again and read step 5."
 
-if existing=$(command -v solongate 2>/dev/null); then
-	# Something already answers to the name. Leave it: the npm launcher's last
-	# candidate is the store, so it finds the binary that was just installed.
-	printf '\n%b✓%b solongate is ready\n' "$GREEN" "$OFF"
-	note "via $existing"
-else
-	linked=''
-	for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
-		# On PATH and writable, or it is not a candidate. A link into a directory
-		# nothing searches is indistinguishable from doing nothing.
-		case ":$PATH:" in *":$dir:"*) ;; *) continue ;; esac
-		[ -d "$dir" ] && [ -w "$dir" ] || continue
-		if ln -sf "$store_bin" "$dir/solongate" 2>/dev/null; then
-			linked="$dir/solongate"
-			break
-		fi
-	done
+linked=''
+for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
+	# On PATH and writable, or it is not a candidate: a link into a directory nothing
+	# searches is indistinguishable from doing nothing.
+	case ":$PATH:" in *":$dir:"*) ;; *) continue ;; esac
+	[ -d "$dir" ] && [ -w "$dir" ] || continue
 
-	if [ -n "$linked" ]; then
-		printf '\n%b✓%b solongate is ready\n' "$GREEN" "$OFF"
-		note "linked at $linked"
-	else
-		printf '\n%b✓%b installed, but not on your PATH yet\n' "$GREEN" "$OFF"
-		note "Add this to your shell profile:"
-		printf '\n    export PATH="$HOME/.solongate/bin:$PATH"\n'
+	# A real file is somebody else's install, not a link this script can replace. Keep
+	# it — renamed, not deleted — so the change can be undone by hand.
+	if [ -e "$dir/solongate" ] && [ ! -L "$dir/solongate" ]; then
+		mv "$dir/solongate" "$dir/solongate.before-solongate-install" || continue
+		note "moved an existing $dir/solongate aside (renamed to solongate.before-solongate-install)"
 	fi
+
+	if ln -sf "$store_bin" "$dir/solongate" 2>/dev/null; then
+		linked="$dir/solongate"
+		break
+	fi
+done
+
+if [ -n "$linked" ]; then
+	printf '\n%b✓%b solongate is ready\n' "$GREEN" "$OFF"
+	note "$linked → $store_bin"
+else
+	printf '\n%b✓%b installed, but not on your PATH yet\n' "$GREEN" "$OFF"
+	note "Add this to your shell profile:"
+	printf '\n    export PATH="$HOME/.solongate/bin:$PATH"\n'
 fi
 
 # Hooks are read when a client starts, so a session that is already open is still

@@ -73,6 +73,14 @@ id_ed25519
 # Shell scripts (dev/test only)
 **/*.sh
 
+# ...except the installer, which is the first thing anybody runs.
+#
+# This rule swallowed it silently. `git add -A` skips an ignored file without a
+# word, so install.sh was written, made executable, tested on a fresh clone, and
+# committed in a change whose message described adding it — and it was never in
+# the repository. The clone it was written for did not have it.
+!/install.sh
+
 # Icon/Logo files (served from CDN)
 **/public/icon-*.png
 **/public/apple-icon.png

@@ -34,6 +34,32 @@ solongate                    # the dataroom; install the guard from Settings
 Start a new terminal afterwards. Hooks load when a session starts, so
 already-open terminals are not guarded yet.
 
+### From this checkout
+
+The command above needs the published package. To run what is in this tree:
+
+```bash
+pnpm install
+cd packages/proxy
+pnpm build                                  # the CLI, the TUI and the hooks
+pnpm build:go linux-x64                     # or your own: darwin-arm64, win32-x64, …
+./platforms/linux-x64/solongate             # the dataroom; install from Settings
+```
+
+`pnpm build:go` with no target builds all six, which takes a few minutes and is
+what a release needs; one target is enough to try it.
+
+Run the built binary from inside the checkout. It looks for the hook files by
+walking up from its own location to `packages/proxy/hooks`, and installing copies
+them — along with itself and the guard — into `~/.solongate`. After that, the
+`solongate` on your PATH is this build.
+
+`./platforms/linux-x64/solongate repair` does the same install without the TUI.
+
+**It will not run from an agent.** Every command here changes a security posture,
+so the CLI requires a terminal on both stdin and stdout, and the guard refuses a
+tool call that invokes it. Type it yourself.
+
 ## Write a policy
 
 `~/.solongate/policy.json`:

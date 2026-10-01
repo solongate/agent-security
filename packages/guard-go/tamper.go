@@ -453,6 +453,23 @@ var cliWrappers = map[string]bool{
 	// command sits in the argument list like any other program name.
 	"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true,
 	"fish": true, "csh": true, "tcsh": true, "ash": true, "busybox": true,
+	// AND THE ONES THAT HAND A PROGRAM A TERMINAL. `script -c "solongate policy delete"`
+	// allocates a pty and runs the command inside it, which is how an agent would fake the
+	// interactive terminal the CLI asks for — the exact case the TTY check cannot see and
+	// the reason this guard rule exists at all. A rule that missed `script` would leave the
+	// product protected by nothing but the env sniff it replaced.
+	"script": true, "unbuffer": true, "expect": true, "socat": true,
+	"flock": true, "chroot": true, "su": true, "runuser": true,
+	"taskset": true, "strace": true, "ltrace": true, "proot": true,
+	"fakeroot": true, "setarch": true, "nsenter": true, "systemd-run": true,
+	"xvfb-run": true, "dbus-run-session": true,
+	//
+	// THE TAIL IS REAL AND THIS DOES NOT CLOSE IT. `screen -dmS name solongate policy
+	// delete` bundles its flags, so the scan stops on `name` and reads it as the program;
+	// so does any wrapper whose value-taking flag is not in the table below. Enumeration
+	// cannot win this outright — what it does is raise the cost, in front of a CLI that
+	// still refuses to run without a terminal, and beside the path and basename rules
+	// above that catch what such a command would have to touch.
 }
 
 // Flags that consume the token after them. Without this, `sudo -u root solongate policy

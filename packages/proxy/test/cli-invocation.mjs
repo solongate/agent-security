@@ -84,6 +84,16 @@ const mustBlock = [
   ['nohup solongate policy delete local', 'behind nohup'],
   ['timeout 5 solongate policy delete local', 'behind timeout'],
   ['exec solongate policy delete local', 'behind exec'],
+  // Faking the terminal the CLI asks for. `script -c` is the whole reason this rule has to
+  // exist: the TTY check cannot tell a pty an agent allocated from one a person is sitting at.
+  ['script -qec "solongate policy delete local" /dev/null', 'behind script, which fakes a tty'],
+  ['script -c "solongate policy delete local" /tmp/out.log', 'behind script with a log file'],
+  ['unbuffer solongate policy delete local', 'behind unbuffer'],
+  ['bash -c "solongate policy delete local"', 'behind bash -c'],
+  ['sh -c \'solongate policy delete local\'', 'behind sh -c in single quotes'],
+  ['flock /tmp/lock solongate policy delete local', 'behind flock'],
+  ['strace -f solongate policy delete local', 'behind strace'],
+  ['su -c "solongate policy delete local" root', 'behind su -c'],
   // without installing it
   ['npx @solongate/proxy policy delete local', 'via npx'],
   ['npx -y @solongate/proxy policy delete local', 'via npx with a flag between'],

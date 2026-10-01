@@ -434,7 +434,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 102;
+var HOOK_VERSION = 103;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -1019,7 +1019,37 @@ var CLI_WRAPPERS = /* @__PURE__ */ new Set([
   "csh",
   "tcsh",
   "ash",
-  "busybox"
+  "busybox",
+  // AND THE ONES THAT HAND A PROGRAM A TERMINAL. `script -c "solongate policy delete"`
+  // allocates a pty and runs the command inside it, which is how an agent would fake the
+  // interactive terminal the CLI asks for — the exact case the TTY check cannot see and the
+  // reason this guard rule exists at all. A rule that missed `script` would leave the
+  // product protected by nothing but the env sniff it replaced.
+  "script",
+  "unbuffer",
+  "expect",
+  "socat",
+  "flock",
+  "chroot",
+  "su",
+  "runuser",
+  "taskset",
+  "strace",
+  "ltrace",
+  "proot",
+  "fakeroot",
+  "setarch",
+  "nsenter",
+  "systemd-run",
+  "xvfb-run",
+  "dbus-run-session"
+  //
+  // THE TAIL IS REAL AND THIS DOES NOT CLOSE IT. `screen -dmS name solongate policy delete`
+  // bundles its flags, so the scan stops on `name` and reads it as the program; so does any
+  // wrapper whose value-taking flag is not in the table below. Enumeration cannot win this
+  // outright — what it does is raise the cost, in front of a CLI that still refuses to run
+  // without a terminal, and beside the path and basename rules above that catch what such a
+  // command would have to touch.
 ]);
 var CLI_FLAG_TAKES_VALUE = /* @__PURE__ */ new Set([
   "-u",

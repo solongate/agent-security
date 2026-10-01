@@ -49,6 +49,11 @@ pnpm build:go linux-x64                     # or your own: darwin-arm64, win32-x
 `pnpm build:go` with no target builds all six, which takes a few minutes and is
 what a release needs; one target is enough to try it.
 
+`pnpm install` warns four times that it could not create a bin — `solongate`,
+`solongate-proxy`, `proxy`, `solongate-audit`. It is linking commands at files
+that `pnpm build` has not produced yet, and the next command produces them.
+Nothing is wrong and nothing needs rerunning.
+
 Run the built binary from inside the checkout. It looks for the hook files by
 walking up from its own location to `packages/proxy/hooks`, and installing copies
 them — along with itself and the guard — into `~/.solongate`. After that, the

@@ -39,6 +39,8 @@ already-open terminals are not guarded yet.
 The command above needs the published package. To run what is in this tree:
 
 ```bash
+git clone https://github.com/codeyevsky/solongate-oss.git
+cd solongate-oss
 ./install.sh
 ```
 

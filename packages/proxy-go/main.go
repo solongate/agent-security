@@ -276,6 +276,7 @@ func table() []command {
 		{"watch", "live-tail tool calls", commands.Runner("watch")},
 
 		{"repair", "restore the guard, hooks and settings files", commands.RunRepair},
+		{"update", "pull the newest version and reinstall it", commands.RunUpdate},
 	}
 }
 

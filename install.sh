@@ -295,4 +295,5 @@ printf '\n'
 ok "solongate              the dataroom"
 ok "solongate policy       what is enforced here"
 ok "solongate doctor       whether it is working"
+ok "solongate update       pull the newest version and reinstall"
 printf '\n'

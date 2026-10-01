@@ -53,15 +53,19 @@ func TestStubsDoNotReportSuccess(t *testing.T) {
 		// One-line pointer at the dataroom rather than a stub.
 		// Owned by the TUI slice; running it would start a Bubble Tea program.
 		"dataroom": true,
-		// `update` reaches the npm registry and can run `npm install -g`, and
-		// `repair` rewrites this machine's guard hooks and client settings.
-		// Both were called by this test for one run after they were ported, and
-		// `update` did install the package globally: the test binary carries no
-		// version stamp, so it compared itself as 0.0.0 and concluded it was out
-		// of date. The updater refuses an unstamped build now (see
-		// selfupdate.VersionKnown), and neither belongs in a list of commands
-		// this test INVOKES.
+		// COMMANDS THIS TEST MUST NOT INVOKE, as opposed to commands it has nothing
+		// to say about. `repair` rewrites this machine's guard hooks and client
+		// settings; `update` pulls the checkout it was installed from and runs its
+		// install script, which rebuilds and reinstalls. Both were called by this
+		// test for one run after they were ported, and both did exactly what they
+		// say on whatever machine was running the suite.
+		//
+		// `update`'s entry went missing in a later edit while this comment stayed,
+		// so the test called it. It got as far as "this install did not come from a
+		// checkout" and returned 1, which read as an unported stub — the failure
+		// that found this.
 		"repair": true,
+		"update": true,
 	}
 	for _, n := range commands.Names {
 		ported[n] = true

@@ -50,6 +50,16 @@ registrations. Then `solongate` is a command.
 
 Open a new terminal afterwards, for the same reason as above.
 
+To update later, from anywhere:
+
+```bash
+solongate update
+```
+
+It pulls the newest source into the checkout it was installed from, rebuilds and
+reinstalls. The install writes that path down, so there is no directory to
+remember and nothing to `git pull` by hand.
+
 **It will not run from an agent.** Every command in the CLI changes a security
 posture, so the CLI requires a terminal on both stdin and stdout, and the guard
 refuses a tool call that invokes it. Run `./install.sh` yourself: the build steps

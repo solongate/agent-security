@@ -127,6 +127,11 @@ func Install() Result {
 	// gobinaries.go for why a platform without one is a valid install.
 	goBins := InstallGoBinaries()
 
+	// Write down where this came from, so `update` does not have to ask. Best effort:
+	// an npm install has no checkout to record, and a failure here costs nothing but
+	// that convenience.
+	RecordInstallSource()
+
 	if err := claude.commit(); err != nil {
 		return fail(err.Error())
 	}

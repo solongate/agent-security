@@ -147,6 +147,41 @@ jobs:
           SG_HOOK: ${{ github.workspace }}/packages/guard-go/solongate-guard
         run: node packages/proxy/test/run-all.mjs
 
+      # THE RELEASE BUILD, which nothing here exercised until it was broken.
+      #
+      # `go build` above compiles the guard for this runner. It is not the script that
+      # produces what users install, and that script spent an unknown number of weeks
+      # unable to build this repository at all: it built a third program from a module
+      # that is not in the tree, and spawnSync reports a missing `cwd` as ENOENT on the
+      # COMMAND, so the failure read as "no Go toolchain" on machines that had one.
+      # Every job above was green throughout.
+      #
+      # One target, not six. Six takes minutes and proves nothing more about the script.
+      - name: the release build works
+        working-directory: packages/proxy
+        run: pnpm build:go linux-x64
+
+      # AND THAT IT CHANGED NOTHING IT SHOULD NOT HAVE.
+      #
+      # The script rewrites optionalDependencies to this package's own version — six
+      # entries whose only non-buggy value is pkg.version — and it writes all six
+      # whichever target was built, so one target is enough to check them.
+      #
+      # The failure this catches is the one the script's own comment describes: a
+      # version bumped without those entries following it publishes new JavaScript
+      # beside the PREVIOUS release's binaries. npm installs cleanly, `update` prints
+      # the new version, and the launcher runs the old binary. Nothing in that chain is
+      # detectably broken from the outside, which is why it needs a check here rather
+      # than someone remembering to run the script before publishing.
+      - name: optionalDependencies match the version
+        run: |
+          if ! git diff --exit-code -- packages/proxy/package.json; then
+            echo
+            echo "build:go rewrote optionalDependencies, so they did not match the version."
+            echo "Run \`pnpm build:go\` in packages/proxy and commit the result."
+            exit 1
+          fi
+
   secrets:
     name: secret scan
     runs-on: ubuntu-latest

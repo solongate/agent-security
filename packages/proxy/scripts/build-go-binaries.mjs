@@ -74,23 +74,27 @@ try {
 const PROGRAMS = [
   { bin: 'solongate-guard', module: join(repo, 'packages', 'guard-go') },
   { bin: 'solongate', module: join(repo, 'packages', 'proxy-go') },
-  // The Shadow AI agent: the process a browser asks before it lets somebody
-  // paste customer records into a chat window. Built for every target like the
-  // others, and only REACHABLE by a browser on Windows, because Google's own
-  // SDK stubs the macOS and Linux transports. Building it everywhere costs a
-  // few megabytes and means the machine somebody develops on runs the same
-  // binary the fleet does.
-  //
-  // `pkg` is the package to build inside the module, defaulting to its root. It
-  // exists because packages/proxy-go/cmd/solongate-audit has sat there unbuilt
-  // and unshipped for months: a Go main package does not reach anybody by
-  // existing, and a build script that could only build a module root is why.
-  {
-    bin: 'solongate-browser',
-    module: join(repo, 'packages', 'shadowbridge'),
-    pkg: './cmd/solongate-browser',
-  },
 ];
+
+// A THIRD PROGRAM USED TO BE HERE and it broke this script outright. It built
+// `./cmd/solongate-browser` from `packages/shadowbridge` — a browser-side agent
+// that is not part of this release and whose module is not in this repository.
+//
+// The failure was worth more than the missing feature, because it named the wrong
+// cause. spawnSync reports a missing `cwd` as ENOENT on the COMMAND, so a build
+// run in a directory that does not exist came back as:
+//
+//     Error: spawnSync go ENOENT   path: 'go'
+//
+// on a machine with a perfectly good Go toolchain on PATH — and gobin.mjs next
+// door exists entirely to make that message mean what it says. Anyone reading it
+// would have gone looking for their Go install.
+//
+// `pkg` — the package to build inside a module, defaulting to its root — is kept
+// even though both programs now build from theirs. It is what lets a module ship
+// more than one command, and packages/proxy-go/cmd/solongate-audit is one such
+// command sitting unbuilt: a Go main package reaches nobody by existing, and a
+// build script that could only build a module root is why.
 
 function build(target, program) {
   const exe = program.bin + (target.os === 'win32' ? '.exe' : '');

@@ -33,18 +33,19 @@ import (
 // would turn a performance feature into an outage.
 
 // goBinaryNames are the two programs a platform package carries. The names are
-// part of the contract: packages/proxy/hooks/guard.mjs looks for exactly
-// `solongate-guard` in this directory.
+// part of the contract: the installed hook looks for exactly `solongate-guard`
+// in this directory.
+//
+// A THIRD NAME USED TO BE HERE, `solongate-browser`, for a browser-side agent
+// that is not part of this release — nothing in this repository builds it. The
+// copy loop below skips a name it cannot stat, so the only cost was a file that
+// never arrived and a comment explaining why it was everywhere. Both are better
+// gone than explained.
 func goBinaryNames() []string {
 	if runtime.GOOS == "windows" {
-		return []string{"solongate-guard.exe", "solongate.exe", "solongate-browser.exe"}
+		return []string{"solongate-guard.exe", "solongate.exe"}
 	}
-	// solongate-browser is copied on every platform even though only Windows
-	// has a browser that can reach it. The alternative is a per-OS list that
-	// disagrees with the per-OS build matrix, and the failure that produces is
-	// a machine where the file is missing and the reason is three files away.
-	// A binary nothing starts costs disk and nothing else.
-	return []string{"solongate-guard", "solongate", "solongate-browser"}
+	return []string{"solongate-guard", "solongate"}
 }
 
 // BinDir is where the installed hook looks for a binary.

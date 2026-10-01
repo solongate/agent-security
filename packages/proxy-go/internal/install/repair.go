@@ -161,9 +161,10 @@ func sweepScratch(root string, maxDepth, budget int) int {
 	// never descends into them. Walking in makes the OS raise a permission
 	// prompt - Desktop, Documents, Downloads, the media library under Music, the
 	// Photos library under Pictures, iCloud Drive and third-party cloud mounts
-	// under Library - and because repair is spawned by the Shadow agent, EVERY
-	// one of those prompts names "solongate-browser" and blocks the install
-	// behind it until answered: a dozen scary dialogs for a legacy cleanup.
+	// under Library - and each one BLOCKS THE SWEEP until somebody answers it:
+	// a dozen dialogs asking for access to a person's photos, raised by a
+	// security tool, in the middle of tidying up legacy scratch files.
+	//
 	// Stray scratch never lived in these anyway - it was left beside a user's
 	// code. By full path, not by name, so a project directory deeper down that
 	// merely shares one of these names is still swept. Only on darwin, which is

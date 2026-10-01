@@ -91,6 +91,18 @@ step() {
 	printf '\n%b[%d/%d]%b %s\n' "$B" "$step" "$TOTAL" "$OFF" "$1"
 }
 note() { printf '      %b%s%b\n' "$DIM" "$1" "$OFF"; }
+
+# WHAT JUST HAPPENED, IN WORDS SOMEBODY CAN USE.
+#
+# Four of these five steps print output this script does not control — a package
+# manager, a bundler and a Go build, each reporting at its own volume and in its own
+# vocabulary. A person installing a security tool for the first time reads a few
+# hundred lines of that and has no way to tell a warning from a failure, or to answer
+# the only question they actually have: did that work, and what was it for.
+#
+# So every step ends with one sentence, in plain language, after the noise and before
+# the pause. It is the last thing on screen while they decide whether to continue.
+plain() { printf '\n      %b✓%b %s\n' "$GREEN" "$OFF" "$1"; }
 ok() { printf '      %b%s%b\n' "$GREEN" "$1" "$OFF"; }
 
 # die prints the problem AND what to do about it. A one-line failure that leaves
@@ -171,6 +183,8 @@ if ! "$go_bin" version >/dev/null 2>&1; then
 fi
 note "$("$go_bin" version | cut -d' ' -f3) at $go_bin"
 
+plain "Your machine has the three tools needed to build SolonGate."
+
 # ── 2. the workspace ──────────────────────────────────────────────────
 
 step "Installing workspace dependencies"
@@ -178,11 +192,15 @@ note "pnpm warns here that it could not create a bin — it is linking commands 
 note "files the next step has not produced yet. Nothing is wrong."
 pnpm install
 
+plain "Downloaded the code libraries the build needs. The warnings above are expected."
+
 # ── 3. the TypeScript half ────────────────────────────────────────────
 
 step "Building the CLI, the TUI and the hooks"
 cd "$repo/packages/proxy"
 pnpm build
+
+plain "Built the \`solongate\` command and the hooks that watch what your AI agents do."
 
 # ── 4. this host's binaries ───────────────────────────────────────────
 
@@ -192,6 +210,8 @@ step "Building the Go guard and CLI for $tag"
 GO_BIN="$go_bin" pnpm build:go "$tag"
 [ -x "$bin" ] || die "the build reported success but $bin is not there." \
 	"Run \`pnpm build:go $tag\` in packages/proxy and read what it says."
+
+plain "Built the guard: the program that checks every action an AI agent takes."
 
 # ── 5. the install ────────────────────────────────────────────────────
 
@@ -215,6 +235,8 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
 fi
 
 "$bin" repair
+
+plain "SolonGate is installed. Your AI agents now have to ask it before they act."
 
 # ── and a command called solongate ────────────────────────────────────
 

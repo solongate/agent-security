@@ -140,7 +140,7 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 //
 // This number is how a machine compares the hook it has with the one in a
 // checkout, and a fix nobody picks up is not a fix.
-const HOOK_VERSION = 103;
+const HOOK_VERSION = 104;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -1306,8 +1306,15 @@ const CLI_NUMBERISH = /^[0-9]+(?:\.[0-9]+)?[a-z]*$/;
 const CLI_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 function commandInvokesCLI(cmd) {
+  return commandInvokesCLIDepth(cmd, 0);
+}
+
+// depth bounds the recursion into a wrapper's quoted argument. `bash -c "sh -c
+// 'solongate x'"` is two levels deep and legitimate; the bound is there so a
+// pathological nesting cannot spend the guard's whole time budget on one call.
+function commandInvokesCLIDepth(cmd, depth) {
   for (const fields of splitCLICommands(String(cmd || ''))) {
-    if (fieldsInvokeCLI(fields)) return true;
+    if (fieldsInvokeCLI(fields, depth)) return true;
   }
   return false;
 }
@@ -1322,7 +1329,27 @@ function commandInvokesCLI(cmd) {
 // token is the CLI.
 //
 // Quote characters are dropped rather than kept, so `bash -c "solongate policy delete"`
-// arrives as an ordinary argument list and the wrapper logic can walk straight into it.//
+// arrives as an ordinary argument list and the wrapper logic can walk straight into it.
+// A QUOTED HEREDOC BODY IS TEXT, and reading it as commands is how this rule first
+// refused a person writing documentation about the product it protects.
+//
+// The splitter breaks on backticks, because `solongate policy delete` in backticks IS
+// a command substitution. Inside a heredoc whose delimiter is quoted it is not: the
+// shell expands nothing there, so backticks are punctuation — which is exactly how
+// anybody writing markdown uses them. The command that caught it was a script being
+// written to a file:
+//
+//   cat <<'USAGE'
+//   Afterwards `solongate` is a command. Open a new terminal before testing it.
+//   USAGE
+//
+// The backticks around the product's own name made a command out of a sentence, and
+// the guard refused to let the file be written. An agent cannot document this product
+// if naming it in a code span is a blocked tool call.
+//
+// AN UNQUOTED DELIMITER STILL COUNTS, because then the shell really does expand: in
+// `cat <<EOF` the body is live, `$(solongate policy delete)` in it runs, and skipping
+// it would be a hole rather than a fix. The quoting is the whole signal.//
 // THE QUOTES MAY ALREADY BE GONE when this runs: extractCommands normalises a command before
 // the tamper rules see it, and normalising strips quoting. That is why brackets are TRIMMED
 // FROM TOKENS rather than split on. Splitting on a bare `(` turned the stripped form of
@@ -1358,6 +1385,17 @@ function splitCLICommands(cmd) {
     }
     if (ch === "'" || ch === '"') quote = ch;
     else if (ch === '$' && (cmd[i + 1] === '(' || cmd[i + 1] === '{')) { i++; endCommand(); }
+    // A heredoc: `<<WORD`, `<<'WORD'`, `<<-WORD`. Only the quoted forms are skipped
+    // — see the note above — and `<<<` is a herestring, not a heredoc.
+    else if (ch === '<' && cmd[i + 1] === '<' && cmd[i + 2] !== '<') {
+      const { delim, quoted, after } = readHeredocDelimiter(cmd, i + 2);
+      if (!quoted) {
+        i = after - 1; // the body is live; carry on reading it as commands
+      } else {
+        endCommand();
+        i = skipHeredocBody(cmd, after, delim) - 1;
+      }
+    }
     else if ('|&;\n\r`'.includes(ch)) endCommand();
     else if (ch === ' ' || ch === '\t') endToken();
     else tok += ch;
@@ -1366,8 +1404,78 @@ function splitCLICommands(cmd) {
   return out;
 }
 
+// readHeredocDelimiter reads the word after `<<` and reports whether it was quoted.
+function readHeredocDelimiter(cmd, i) {
+  if (cmd[i] === '-') i++; // <<-DELIM strips leading tabs from the body
+  while (i < cmd.length && (cmd[i] === ' ' || cmd[i] === '\t')) i++;
+  if (i >= cmd.length) return { delim: '', quoted: false, after: i };
+  const q = cmd[i];
+  if (q === "'" || q === '"') {
+    i++;
+    const start = i;
+    while (i < cmd.length && cmd[i] !== q) i++;
+    const delim = cmd.slice(start, i);
+    if (i < cmd.length) i++; // past the closing quote
+    return { delim, quoted: true, after: i };
+  }
+  const start = i;
+  while (i < cmd.length && !' \t\n\r;|&'.includes(cmd[i])) i++;
+  return { delim: cmd.slice(start, i), quoted: false, after: i };
+}
+
+// skipHeredocBody returns the index just past the line that closes the heredoc, or the
+// end of the string when nothing closes it — an unterminated heredoc has no commands
+// after it either way.
+function skipHeredocBody(cmd, i, delim) {
+  if (!delim) return cmd.length;
+  // The body starts on the line after the redirect.
+  const nl = cmd.indexOf('\n', i);
+  if (nl < 0) return cmd.length;
+  i = nl + 1;
+  while (i < cmd.length) {
+    const end = cmd.indexOf('\n', i);
+    const line = end < 0 ? cmd.slice(i) : cmd.slice(i, end);
+    const next = end < 0 ? cmd.length : end + 1;
+    // <<- allows the closing delimiter to be indented with tabs.
+    if (line.replace(/^[ \t]+/, '').replace(/[ \t\r]+$/, '') === delim) return next;
+    i = next;
+  }
+  return cmd.length;
+}
+
+// argsInvokeCLI reports whether any command field in a tool call runs the CLI.
+// ON THE RAW COMMAND, WHICH IS WHY THIS DOES NOT LIVE WITH THE RULES ABOVE.
+//
+// Every other tamper rule reads the NORMALISED command, and normalising strips
+// quoting — which is right for them, because a path is the same path whether or not
+// somebody quoted it. This check cannot use it. Two signals it depends on are
+// destroyed by the time the normalised text arrives:
+//
+//   <<'EOF'   becomes   <<EOF
+//
+// and a heredoc's quoting is the entire difference between a body that is text and a
+// body the shell expands. Reading the stripped form, the installer's own usage text —
+// a quoted heredoc with the product named in a markdown code span — looked like a
+// command substitution, and writing that file was a blocked tool call.
+//
+// So this runs on the field values as the caller sent them.
+function argsInvokeCLI(args) {
+  if (!args || typeof args !== 'object') return false;
+  for (const k of Object.keys(args)) {
+    if (!CLI_COMMAND_FIELDS.has(k.toLowerCase())) continue;
+    const v = args[k];
+    if (typeof v === 'string' && commandInvokesCLI(v)) return true;
+  }
+  return false;
+}
+
+// The same fields the policy evaluator treats as commands. Named here rather than
+// imported because a copy that drifts is a rule that stops seeing a whole class of
+// tool call — so the conformance suite drives both.
+const CLI_COMMAND_FIELDS = new Set(['command', 'cmd', 'function', 'script', 'shell']);
+
 // fieldsInvokeCLI decides whether one command's token list runs the CLI.
-function fieldsInvokeCLI(fields) {
+function fieldsInvokeCLI(fields, depth) {
   let wrapped = false;
   for (let i = 0; i < fields.length; i++) {
     const tok = fields[i].replace(/^[(){}"']+/, '').replace(/[(){}"']+$/, '');
@@ -1384,6 +1492,23 @@ function fieldsInvokeCLI(fields) {
       }
       if (CLI_NUMBERISH.test(tok)) continue;
     }
+    // A WRAPPER'S QUOTED ARGUMENT IS A COMMAND, and now that this reads the raw text
+    // rather than the normalised one, it arrives whole:
+    //
+    //   bash -c "solongate policy delete"
+    //
+    // splits to `bash`, `-c`, and the single token `solongate policy delete`, because
+    // the quotes keep the spaces. Its basename is the whole string and matches nothing.
+    // While the quotes were being stripped upstream this worked by accident; on the raw
+    // text it has to be done on purpose.
+    //
+    // Only after a wrapper, which is what keeps it from being a substring rule wearing
+    // a disguise: `git commit -m "fix the solongate docs"` stops at `git` and never
+    // looks inside the message, and so does `sudo git commit -m "…"`.
+    if (wrapped && depth < 8 && /[ \t]/.test(tok)) {
+      if (commandInvokesCLIDepth(tok, depth + 1)) return true;
+    }
+
     const base = tok.replace(/\\/g, '/').split('/').pop().toLowerCase();
     if (CLI_WRAPPERS.has(base)) { wrapped = true; continue; }
     if (CLI_BASENAMES.has(base)) return true;
@@ -1435,7 +1560,6 @@ function commandTargetsProtected(cmd) {
   if (/\.claude[\\/]+settings(\.local)?\.json/.test(c)) return 'settings.json';
   if (/\.solongate[\\/]+hooks/.test(c)) return 'solongate-hooks';
   if (/\.solongate[\\/]+bin/.test(c)) return 'solongate-bin';
-  if (commandInvokesCLI(c)) return 'solongate-cli';
   if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c)) return 'codex-hooks';
   if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c)) return 'antigravity-hooks';
   // Customer install dirs
@@ -1484,6 +1608,9 @@ function tamperCheck(toolName, args) {
     for (const cmd of extractCommands(args)) {
       const hit = commandTargetsProtected(cmd);
       if (hit) return 'Tamper protection: command references protected resource "' + hit + '" — blocked';
+    }
+    if (argsInvokeCLI(args)) {
+      return 'Tamper protection: command references protected resource "solongate-cli" — blocked';
     }
   }
   return null;

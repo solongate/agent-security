@@ -94,6 +94,10 @@ const mustBlock = [
   ['flock /tmp/lock solongate policy delete local', 'behind flock'],
   ['strace -f solongate policy delete local', 'behind strace'],
   ['su -c "solongate policy delete local" root', 'behind su -c'],
+  // An UNQUOTED heredoc is live: the shell expands it, so a substitution in the body
+  // really does run. Only the quoted form is text — see the pair below.
+  ['cat <<EOF\n$(solongate policy delete local)\nEOF', 'in an unquoted heredoc body'],
+  ['cat <<EOF\n`solongate policy delete local`\nEOF', 'in unquoted heredoc backticks'],
   // without installing it
   ['npx @solongate/proxy policy delete local', 'via npx'],
   ['npx -y @solongate/proxy policy delete local', 'via npx with a flag between'],
@@ -118,6 +122,18 @@ const mustAllow = [
   ['echo "run solongate to open the dataroom" >> README.md', 'documenting how to run it'],
   ['python3 -c "print(\'solongate\')"', 'a program printing the name'],
   ['docker run solongate/demo', 'an image named after it'],
+  // WRITING DOCUMENTATION ABOUT THIS PRODUCT. A quoted heredoc expands nothing, so
+  // backticks in it are markdown punctuation rather than command substitution — and
+  // this is the case that caught the rule: the installer's own usage text could not be
+  // written, because it names the command it installs inside a code span.
+  ['cat > USAGE.md <<\'EOF\'\nRun `solongate` to open the dataroom.\nEOF',
+    'a code span in a quoted heredoc'],
+  ['cat > doc.md <<"EOF"\nThen `solongate policy deny` blocks it.\nEOF',
+    'a double-quoted heredoc delimiter'],
+  ['cat > r.md <<-\'EOF\'\n\t`solongate doctor` tells you.\n\tEOF',
+    'an indented heredoc'],
+  ['cat <<\'EOF\' > a.md\n`solongate`\nEOF\necho done',
+    'a command after the heredoc still parses'],
 ];
 
 const label = IS_BIN ? 'go' : 'node';

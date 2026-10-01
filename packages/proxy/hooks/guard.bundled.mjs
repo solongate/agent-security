@@ -434,7 +434,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 103;
+var HOOK_VERSION = 104;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -1073,8 +1073,11 @@ var CLI_RUN_SUBCOMMANDS = /* @__PURE__ */ new Set(["exec", "dlx", "x"]);
 var CLI_NUMBERISH = /^[0-9]+(?:\.[0-9]+)?[a-z]*$/;
 var CLI_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 function commandInvokesCLI(cmd) {
+  return commandInvokesCLIDepth(cmd, 0);
+}
+function commandInvokesCLIDepth(cmd, depth) {
   for (const fields of splitCLICommands(String(cmd || ""))) {
-    if (fieldsInvokeCLI(fields))
+    if (fieldsInvokeCLI(fields, depth))
       return true;
   }
   return false;
@@ -1113,6 +1116,14 @@ function splitCLICommands(cmd) {
     else if (ch === "$" && (cmd[i + 1] === "(" || cmd[i + 1] === "{")) {
       i++;
       endCommand();
+    } else if (ch === "<" && cmd[i + 1] === "<" && cmd[i + 2] !== "<") {
+      const { delim, quoted, after } = readHeredocDelimiter(cmd, i + 2);
+      if (!quoted) {
+        i = after - 1;
+      } else {
+        endCommand();
+        i = skipHeredocBody(cmd, after, delim) - 1;
+      }
     } else if ("|&;\n\r`".includes(ch))
       endCommand();
     else if (ch === " " || ch === "	")
@@ -1123,7 +1134,60 @@ function splitCLICommands(cmd) {
   endCommand();
   return out;
 }
-function fieldsInvokeCLI(fields) {
+function readHeredocDelimiter(cmd, i) {
+  if (cmd[i] === "-")
+    i++;
+  while (i < cmd.length && (cmd[i] === " " || cmd[i] === "	"))
+    i++;
+  if (i >= cmd.length)
+    return { delim: "", quoted: false, after: i };
+  const q = cmd[i];
+  if (q === "'" || q === '"') {
+    i++;
+    const start2 = i;
+    while (i < cmd.length && cmd[i] !== q)
+      i++;
+    const delim = cmd.slice(start2, i);
+    if (i < cmd.length)
+      i++;
+    return { delim, quoted: true, after: i };
+  }
+  const start = i;
+  while (i < cmd.length && !" 	\n\r;|&".includes(cmd[i]))
+    i++;
+  return { delim: cmd.slice(start, i), quoted: false, after: i };
+}
+function skipHeredocBody(cmd, i, delim) {
+  if (!delim)
+    return cmd.length;
+  const nl = cmd.indexOf("\n", i);
+  if (nl < 0)
+    return cmd.length;
+  i = nl + 1;
+  while (i < cmd.length) {
+    const end = cmd.indexOf("\n", i);
+    const line = end < 0 ? cmd.slice(i) : cmd.slice(i, end);
+    const next = end < 0 ? cmd.length : end + 1;
+    if (line.replace(/^[ \t]+/, "").replace(/[ \t\r]+$/, "") === delim)
+      return next;
+    i = next;
+  }
+  return cmd.length;
+}
+function argsInvokeCLI(args) {
+  if (!args || typeof args !== "object")
+    return false;
+  for (const k of Object.keys(args)) {
+    if (!CLI_COMMAND_FIELDS.has(k.toLowerCase()))
+      continue;
+    const v = args[k];
+    if (typeof v === "string" && commandInvokesCLI(v))
+      return true;
+  }
+  return false;
+}
+var CLI_COMMAND_FIELDS = /* @__PURE__ */ new Set(["command", "cmd", "function", "script", "shell"]);
+function fieldsInvokeCLI(fields, depth) {
   let wrapped = false;
   for (let i = 0; i < fields.length; i++) {
     const tok = fields[i].replace(/^[(){}"']+/, "").replace(/[(){}"']+$/, "");
@@ -1141,6 +1205,10 @@ function fieldsInvokeCLI(fields) {
       }
       if (CLI_NUMBERISH.test(tok))
         continue;
+    }
+    if (wrapped && depth < 8 && /[ \t]/.test(tok)) {
+      if (commandInvokesCLIDepth(tok, depth + 1))
+        return true;
     }
     const base = tok.replace(/\\/g, "/").split("/").pop().toLowerCase();
     if (CLI_WRAPPERS.has(base)) {
@@ -1189,8 +1257,6 @@ function commandTargetsProtected(cmd) {
     return "solongate-hooks";
   if (/\.solongate[\\/]+bin/.test(c))
     return "solongate-bin";
-  if (commandInvokesCLI(c))
-    return "solongate-cli";
   if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c))
     return "codex-hooks";
   if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c))
@@ -1236,6 +1302,9 @@ function tamperCheck(toolName, args) {
       const hit = commandTargetsProtected(cmd);
       if (hit)
         return 'Tamper protection: command references protected resource "' + hit + '" \u2014 blocked';
+    }
+    if (argsInvokeCLI(args)) {
+      return 'Tamper protection: command references protected resource "solongate-cli" \u2014 blocked';
     }
   }
   return null;

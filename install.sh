@@ -27,6 +27,31 @@
 
 set -eu
 
+# ── arguments ────────────────────────────────────────
+
+AUTO=0
+for arg in "$@"; do
+	case $arg in
+	-y | --yes) AUTO=1 ;;
+	-h | --help)
+		cat <<'USAGE'
+Install SolonGate from this checkout.
+
+  ./install.sh         walk through it, pausing between steps
+  ./install.sh --yes   run it straight through, no pauses
+
+Afterwards "solongate" is a command. Open a new terminal before testing it:
+hooks load when a session starts, so sessions already open are not guarded.
+USAGE
+		exit 0
+		;;
+	*)
+		printf 'unknown argument: %s (try --help)\n' "$arg" >&2
+		exit 1
+		;;
+	esac
+done
+
 # ── output ────────────────────────────────────────────────────────────
 
 # Colour only when something is there to read it. A pipe or a CI log gets plain
@@ -37,8 +62,31 @@ else
 	B=''; DIM=''; RED=''; GREEN=''; OFF=''
 fi
 
+# WHY THIS STOPS BETWEEN STEPS. Five steps produce several hundred lines — two of
+# them are a package manager and a bundler reporting at their own volume — and the
+# few lines this script prints itself are the ones worth reading. Run straight
+# through, all of it arrives at once and the only thing a person can do afterwards
+# is scroll back and hope the terminal kept enough.
+#
+# So each step stops at its end, with what it did still on screen.
+#
+# ONLY WHEN SOMEBODY IS THERE TO PRESS A KEY. A pipe, a CI job and an agent have no
+# tty, and a prompt there is not a pause but a hang with nothing explaining it.
+# --yes is for the person who wants it straight through anyway.
+pause() {
+	[ "$AUTO" = 1 ] && return 0
+	[ -t 0 ] && [ -t 1 ] || return 0
+	printf '\n      %bEnter to continue · Ctrl+C to stop%b ' "$DIM" "$OFF"
+	# `|| true` because EOF on stdin is not a failure, and set -e would treat it as
+	# one — ending the install at a prompt rather than at a problem.
+	read -r _ || true
+}
+
 step=0
 step() {
+	# Before the header rather than after the work: the pause belongs at the end of
+	# the step that just finished, while its output is still what you are looking at.
+	[ "$step" -gt 0 ] && pause
 	step=$((step + 1))
 	printf '\n%b[%d/%d]%b %s\n' "$B" "$step" "$TOTAL" "$OFF" "$1"
 }

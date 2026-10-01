@@ -297,9 +297,6 @@ func commandTargetsProtected(cmd string) string {
 	if reTamperCmdSGBin.MatchString(c) {
 		return "solongate-bin"
 	}
-	if commandInvokesCLI(c) {
-		return "solongate-cli"
-	}
 	if reTamperCmdCXHooks.MatchString(c) {
 		return "codex-hooks"
 	}
@@ -389,6 +386,9 @@ func tamperCheck(toolName string, args map[string]interface{}) string {
 			if hit := commandTargetsProtected(cmd); hit != "" {
 				return `Tamper protection: command references protected resource "` + hit + `" — blocked`
 			}
+		}
+		if argsInvokeCLI(args) {
+			return `Tamper protection: command references protected resource "solongate-cli" — blocked`
 		}
 	}
 	return ""
@@ -500,9 +500,14 @@ var (
 	reCLIAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 )
 
-func commandInvokesCLI(cmd string) bool {
+func commandInvokesCLI(cmd string) bool { return commandInvokesCLIDepth(cmd, 0) }
+
+// depth bounds the recursion into a wrapper's quoted argument. `bash -c "sh -c
+// 'solongate x'"` is two levels deep and legitimate; the bound is there so a
+// pathological nesting cannot spend the guard's whole time budget on one call.
+func commandInvokesCLIDepth(cmd string, depth int) bool {
 	for _, fields := range splitCLICommands(cmd) {
-		if fieldsInvokeCLI(fields) {
+		if fieldsInvokeCLI(fields, depth) {
 			return true
 		}
 	}
@@ -519,7 +524,27 @@ func commandInvokesCLI(cmd string) bool {
 // first token is the CLI.
 //
 // Quote characters are dropped rather than kept, so `bash -c "solongate policy delete"`
-// arrives as an ordinary argument list and the wrapper logic can walk straight into it.//
+// arrives as an ordinary argument list and the wrapper logic can walk straight into it.
+// A QUOTED HEREDOC BODY IS TEXT, and reading it as commands is how this rule first
+// refused a person writing documentation about the product it protects.
+//
+// The splitter breaks on backticks, because `solongate policy delete` in backticks IS
+// a command substitution. Inside a heredoc whose delimiter is quoted it is not: the
+// shell expands nothing there, so backticks are punctuation — which is exactly how
+// anybody writing markdown uses them. The command that caught it was a script being
+// written to a file:
+//
+//	cat <<'USAGE'
+//	Afterwards `solongate` is a command. Open a new terminal before testing it.
+//	USAGE
+//
+// The backticks around the product's own name made a command out of a sentence, and
+// the guard refused to let the file be written. An agent cannot document this product
+// if naming it in a code span is a blocked tool call.
+//
+// AN UNQUOTED DELIMITER STILL COUNTS, because then the shell really does expand: in
+// `cat <<EOF` the body is live, `$(solongate policy delete)` in it runs, and skipping
+// it would be a hole rather than a fix. The quoting is the whole signal.//
 // THE QUOTES MAY ALREADY BE GONE when this runs: extractCommands normalises a command before
 // the tamper rules see it, and normalising strips quoting. That is why brackets are TRIMMED
 // FROM TOKENS rather than split on. Splitting on a bare `(` turned the stripped form of
@@ -574,6 +599,16 @@ func splitCLICommands(cmd string) [][]string {
 		case ch == '$' && i+1 < len(cmd) && (cmd[i+1] == '(' || cmd[i+1] == '{'):
 			i++
 			endCommand()
+		// A heredoc: `<<WORD`, `<<'WORD'`, `<<-WORD`. Only the quoted forms are
+		// skipped — see the note above — and `<<<` is a herestring, not a heredoc.
+		case ch == '<' && i+1 < len(cmd) && cmd[i+1] == '<' && (i+2 >= len(cmd) || cmd[i+2] != '<'):
+			delim, quoted, after := readHeredocDelimiter(cmd, i+2)
+			if !quoted {
+				i = after - 1 // the body is live; carry on reading it as commands
+				continue
+			}
+			endCommand()
+			i = skipHeredocBody(cmd, after, delim) - 1
 		case strings.IndexByte("|&;\n\r`", ch) >= 0:
 			endCommand()
 		case ch == ' ' || ch == '\t':
@@ -587,7 +622,7 @@ func splitCLICommands(cmd string) [][]string {
 }
 
 // fieldsInvokeCLI decides whether one command's token list runs the CLI.
-func fieldsInvokeCLI(fields []string) bool {
+func fieldsInvokeCLI(fields []string, depth int) bool {
 	wrapped := false
 	for i := 0; i < len(fields); i++ {
 		tok := strings.Trim(fields[i], "(){}\"'")
@@ -616,6 +651,25 @@ func fieldsInvokeCLI(fields []string) bool {
 		// the Node twin, which replaces unconditionally, caught it. A guard has to give the
 		// same answer on every platform, and a Windows-shaped path in a command is a real
 		// shape whoever is typing it.
+		// A WRAPPER'S QUOTED ARGUMENT IS A COMMAND, and now that this reads the raw
+		// text rather than the normalised one, it arrives whole:
+		//
+		//	bash -c "solongate policy delete"
+		//
+		// splits to `bash`, `-c`, and the single token `solongate policy delete`,
+		// because the quotes keep the spaces. Its basename is the whole string and
+		// matches nothing. While the quotes were being stripped upstream this worked by
+		// accident; on the raw text it has to be done on purpose.
+		//
+		// Only after a wrapper, which is what keeps it from being a substring rule
+		// wearing a disguise: `git commit -m "fix the solongate docs"` stops at `git`
+		// and never looks inside the message, and so does `sudo git commit -m "…"`.
+		if wrapped && depth < 8 && strings.ContainsAny(tok, " \t") {
+			if commandInvokesCLIDepth(tok, depth+1) {
+				return true
+			}
+		}
+
 		base := strings.ToLower(path.Base(strings.ReplaceAll(tok, "\\", "/")))
 		switch {
 		case cliWrappers[base]:
@@ -672,4 +726,100 @@ func restRunsCLIPackage(rest []string) bool {
 		}
 	}
 	return false
+}
+
+// readHeredocDelimiter reads the word after `<<` and reports whether it was quoted.
+// It returns the index just past the delimiter.
+func readHeredocDelimiter(cmd string, i int) (delim string, quoted bool, after int) {
+	if i < len(cmd) && cmd[i] == '-' { // <<-DELIM strips leading tabs from the body
+		i++
+	}
+	for i < len(cmd) && (cmd[i] == ' ' || cmd[i] == '\t') {
+		i++
+	}
+	if i >= len(cmd) {
+		return "", false, i
+	}
+	if q := cmd[i]; q == '\'' || q == '"' {
+		i++
+		start := i
+		for i < len(cmd) && cmd[i] != q {
+			i++
+		}
+		delim = cmd[start:i]
+		if i < len(cmd) {
+			i++ // past the closing quote
+		}
+		return delim, true, i
+	}
+	start := i
+	for i < len(cmd) && !strings.ContainsRune(" \t\n\r;|&", rune(cmd[i])) {
+		i++
+	}
+	return cmd[start:i], false, i
+}
+
+// skipHeredocBody returns the index just past the line that closes the heredoc, or the
+// end of the string when nothing closes it — an unterminated heredoc has no commands
+// after it either way.
+func skipHeredocBody(cmd string, i int, delim string) int {
+	if delim == "" {
+		return len(cmd)
+	}
+	// The body starts on the line after the redirect.
+	nl := strings.IndexByte(cmd[i:], '\n')
+	if nl < 0 {
+		return len(cmd)
+	}
+	i += nl + 1
+	for i < len(cmd) {
+		end := strings.IndexByte(cmd[i:], '\n')
+		line := cmd[i:]
+		next := len(cmd)
+		if end >= 0 {
+			line = cmd[i : i+end]
+			next = i + end + 1
+		}
+		// <<- allows the closing delimiter to be indented with tabs.
+		if strings.Trim(line, " \t\r") == delim {
+			return next
+		}
+		i = next
+	}
+	return len(cmd)
+}
+
+// argsInvokeCLI reports whether any command field in a tool call runs the CLI.
+// ON THE RAW COMMAND, WHICH IS WHY THIS DOES NOT LIVE WITH THE RULES ABOVE.
+//
+// Every other tamper rule reads the NORMALISED command, and normalising strips
+// quoting — which is right for them, because a path is the same path whether or not
+// somebody quoted it. This check cannot use it. Two signals it depends on are
+// destroyed by the time the normalised text arrives:
+//
+//	<<'EOF'   becomes   <<EOF
+//
+// and a heredoc's quoting is the entire difference between a body that is text and a
+// body the shell expands. Reading the stripped form, the installer's own usage text —
+// a quoted heredoc with the product named in a markdown code span — looked like a
+// command substitution, and writing that file was a blocked tool call.
+//
+// So this runs on the field values as the caller sent them.
+func argsInvokeCLI(args map[string]interface{}) bool {
+	for _, k := range sgpolicy.SortedKeys(args) {
+		if !cliCommandFields[strings.ToLower(k)] {
+			continue
+		}
+		if s, ok := args[k].(string); ok && commandInvokesCLI(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// The same fields sgpolicy treats as commands. Named here rather than imported
+// because that list is unexported, and a copy that drifts is a rule that stops
+// seeing a whole class of tool call — so the conformance suite drives both.
+var cliCommandFields = map[string]bool{
+	"command": true, "cmd": true, "function": true, "script": true, "shell": true,
 }

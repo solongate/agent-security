@@ -23,6 +23,7 @@ import (
 
 	"github.com/mattn/go-isatty"
 
+	"github.com/codeyevsky/solongate/proxy/internal/api"
 	"github.com/codeyevsky/solongate/proxy/internal/commands"
 	"github.com/codeyevsky/solongate/proxy/internal/install"
 	"github.com/codeyevsky/solongate/proxy/internal/proxy"
@@ -70,7 +71,34 @@ var policyFileName = "poli" + "cy.json"
 
 func main() { os.Exit(run(os.Args[1:])) }
 
+// WHO KNOWS THE GUARD'S VERSION NUMBERS. internal/api declares GuardVersions as a
+// function variable, with a comment saying the install layer fills it in, and nothing
+// ever did — so it kept its default of (0, nil) on every machine. Everything reading
+// it therefore believed the installed guard was unknown and the newest available was
+// zero, which the live view renders literally:
+//
+//	hooks v? → v0
+//
+// A permanent warning that the guard is out of date, pointing at a version that
+// cannot exist, on an install made thirty seconds earlier. `solongate doctor` papered
+// over it by reading the local file itself, which is why this survived: the command
+// whose job is to say whether the guard is healthy had its own copy of the answer.
+//
+// Wired here rather than in an init() because internal/install does not import
+// internal/api, and main imports both. One assignment, before anything can read it.
+func wireGuardVersions() {
+	api.GuardVersions = func() (int, *int) {
+		latest := 0
+		if v := install.ShippedGuardVersion(); v != nil {
+			latest = *v
+		}
+		return latest, install.InstalledGuardVersion()
+	}
+}
+
 func run(args []string) int {
+	wireGuardVersions()
+
 	sub := ""
 	if len(args) > 0 {
 		sub = args[0]

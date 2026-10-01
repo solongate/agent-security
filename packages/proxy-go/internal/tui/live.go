@@ -1709,7 +1709,10 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		}
 		text := "v" + installed
 		color := lipgloss.TerminalColor(theme.OK)
-		if !p.guard.UpToDate {
+		// Only when there is a real newer version to name. Latest is 0 when this build
+		// cannot find its own packaged hook to compare against, and rendering that
+		// turned "I cannot tell" into "yours is out of date, upgrade to v0".
+		if !p.guard.UpToDate && p.guard.Latest > 0 && p.guard.Installed != nil {
 			text += "→v" + strconv.Itoa(p.guard.Latest)
 			color = theme.Warn
 		}

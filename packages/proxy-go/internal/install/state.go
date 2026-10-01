@@ -36,6 +36,33 @@ func InstalledGuardVersion() *int {
 	return &n
 }
 
+// ShippedGuardVersion is the HOOK_VERSION of the guard THIS BUILD would install,
+// read from the packaged hook source beside the binary.
+//
+// Nil when there is no package to read — a binary carried somewhere on its own —
+// and the caller has to treat that as "cannot tell" rather than as zero. A zero
+// here is what made every machine report `v? → v0`: an unknown newest version,
+// compared against, and losing to, nothing at all.
+func ShippedGuardVersion() *int {
+	dir, ok := hookSourceDir()
+	if !ok {
+		return nil
+	}
+	b, err := readGuardSource(dir)
+	if err != nil {
+		return nil
+	}
+	m := hookVersionRe.FindSubmatch(b)
+	if m == nil {
+		return nil
+	}
+	n, err := strconv.Atoi(string(m[1]))
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+
 // GuardHookOutdated reports whether the installed guard DIFFERS from the one
 // this build ships, so the dataroom can offer an update even when the API is
 // behind or unreachable.

@@ -39,11 +39,29 @@ already-open terminals are not guarded yet.
 The command above needs the published package. To run what is in this tree:
 
 ```bash
+./install.sh
+```
+
+It checks the toolchain, installs the workspace, builds the TypeScript and this
+host's Go binaries, and installs the guard, the hooks and the client
+registrations. Then `solongate` is a command.
+
+Open a new terminal afterwards, for the same reason as above.
+
+**It will not run from an agent.** Every command in the CLI changes a security
+posture, so the CLI requires a terminal on both stdin and stdout, and the guard
+refuses a tool call that invokes it. Run `./install.sh` yourself: the build steps
+work from anywhere, the install step is refused without a terminal and says so.
+
+<details>
+<summary>The same thing by hand</summary>
+
+```bash
 pnpm install
 cd packages/proxy
 pnpm build                                  # the CLI, the TUI and the hooks
 pnpm build:go linux-x64                     # or your own: darwin-arm64, win32-x64, …
-./platforms/linux-x64/solongate             # the dataroom; install from Settings
+./platforms/linux-x64/solongate repair      # install, using the build you just made
 ```
 
 `pnpm build:go` with no target builds all six, which takes a few minutes and is
@@ -54,16 +72,13 @@ what a release needs; one target is enough to try it.
 that `pnpm build` has not produced yet, and the next command produces them.
 Nothing is wrong and nothing needs rerunning.
 
-Run the built binary from inside the checkout. It looks for the hook files by
-walking up from its own location to `packages/proxy/hooks`, and installing copies
-them — along with itself and the guard — into `~/.solongate`. After that, the
-`solongate` on your PATH is this build.
+The last command is run by path on purpose. The `solongate` on PATH, if there is
+one, is whatever was installed before — so asking it to install would install the
+old version over the new one. After that one run, plain `solongate` is this build:
+an install puts the binaries in `~/.solongate/bin`, which is where both the guard
+hook and the launcher on PATH look for them.
 
-`./platforms/linux-x64/solongate repair` does the same install without the TUI.
-
-**It will not run from an agent.** Every command here changes a security posture,
-so the CLI requires a terminal on both stdin and stdout, and the guard refuses a
-tool call that invokes it. Type it yourself.
+</details>
 
 ## Write a policy
 

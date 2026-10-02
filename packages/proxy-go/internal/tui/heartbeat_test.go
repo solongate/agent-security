@@ -1,70 +1,75 @@
 package tui
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-// THE PANE TITLED "system heartbeat" HAS TO BEAT.
+// THE HEARTBEAT TRACE ADVANCES WITH THE CLOCK, NOT WITH THE DATA.
 //
-// It is written to by API errors — there is no API in this build — by alerts, and by a
-// local poll that found a handful of new calls. So the healthy case, a quiet machine with
-// nothing wrong, produced an empty pane under a title promising a sign of life, and the
-// one question a live console exists to answer was the one it could not: is this running?
-//
-// An idle console and a hung console looked identical.
-func TestTheHeartbeatBeatsOnAQuietMachine(t *testing.T) {
+// The chart used to be drawn straight from `eval`, which gains an entry per decision. On
+// a machine nobody was driving it was a still picture under a live console — and a still
+// picture is what a hung program looks like, so the one pane that should answer "is this
+// running?" was the pane that could not.
+func TestTheTraceMovesWhileNothingIsHappening(t *testing.T) {
 	p := &Live{}
 
-	// Nothing has happened at all: no recording, no calls, no events.
-	p.setBeat(1_000)
-	if p.beat.ts == 0 {
-		t.Fatal("no heartbeat on an idle console, which is exactly when one is needed")
-	}
-	if strings.TrimSpace(p.beat.msg) == "" {
-		t.Error("the heartbeat has no text, so the row is blank")
+	for i := 0; i < 5; i++ {
+		p.beat()
 	}
 
-	// THE CLOCK HAS TO MOVE. A row whose every field is identical from one second to the
-	// next cannot distinguish a live console from a frozen one, which is the failure this
-	// whole thing is for.
-	first := p.beat
-	p.setBeat(2_000)
-	if p.beat.ts == first.ts {
-		t.Error("the heartbeat timestamp did not advance between polls")
+	if len(p.pulse) != 5 {
+		t.Fatalf("five ticks produced %d samples; an idle console draws no trace and "+
+			"looks identical to a frozen one", len(p.pulse))
+	}
+	for i, v := range p.pulse {
+		if v != 0 {
+			t.Errorf("sample %d is %d; an idle tick has no decision to report", i, v)
+		}
 	}
 }
 
-// What it says changes with what it saw, or it is a decoration rather than a reading.
-func TestTheHeartbeatReportsWhatThePollSaw(t *testing.T) {
-	on := true
-	off := false
+// A decision seen between two ticks lands in the next sample, and only in that one.
+func TestADecisionShowsUpOnceAndThenTheTraceGoesFlat(t *testing.T) {
+	p := &Live{}
 
-	p := &Live{localOn: &off}
-	p.setBeat(1_000)
-	if !strings.Contains(p.beat.msg, "no local recording") {
-		t.Errorf("with recording off the heartbeat says %q", p.beat.msg)
+	p.pulsePending = 42
+	p.beat()
+	if len(p.pulse) != 1 || p.pulse[0] != 42 {
+		t.Fatalf("pulse = %v, want the 42ms decision in the first sample", p.pulse)
 	}
 
-	p = &Live{localOn: &on}
-	p.setBeat(1_000)
-	if !strings.Contains(p.beat.msg, "no calls") {
-		t.Errorf("with nothing recorded the heartbeat says %q", p.beat.msg)
+	// CONSUMED, not carried. A sample that kept its value would draw a plateau for as
+	// long as the machine stayed idle, which reads as a guard permanently taking 42ms.
+	p.beat()
+	if len(p.pulse) != 2 || p.pulse[1] != 0 {
+		t.Errorf("pulse = %v; the second tick should be flat, not a repeat of the first", p.pulse)
 	}
+}
 
-	// Calls arrive: the beat reports how many are new, which is the number that tells
-	// somebody the guard is being exercised right now rather than merely loaded.
-	p.local = make([]streamItem, 7)
-	p.setBeat(2_000)
-	if !strings.Contains(p.beat.msg, "7") {
-		t.Errorf("after 7 calls arrived the heartbeat says %q, with no count in it", p.beat.msg)
+// Several decisions inside one tick collapse to the WORST of them.
+//
+// At two ticks a second a busy machine puts several decisions in every column, and the
+// slow one is the sample worth seeing — taking the last would hide a spike behind
+// whatever happened to arrive after it.
+func TestABusyTickReportsItsSlowestDecision(t *testing.T) {
+	p := &Live{}
+	for _, ms := range []int{12, 95, 14} {
+		if ms > p.pulsePending {
+			p.pulsePending = ms
+		}
 	}
+	p.beat()
+	if p.pulse[0] != 95 {
+		t.Errorf("a tick holding 12, 95 and 14ms reported %d, want the slowest", p.pulse[0])
+	}
+}
 
-	// And nothing new since: quiet, which is a reading and not an absence. Without this
-	// the busy readings mean nothing, because there would be nothing to contrast them
-	// with.
-	p.setBeat(3_000)
-	if !strings.Contains(p.beat.msg, "quiet") {
-		t.Errorf("with no new calls the heartbeat says %q, want it to report quiet", p.beat.msg)
+// The trace is bounded, or a console left open overnight grows without limit.
+func TestTheTraceDoesNotGrowForever(t *testing.T) {
+	p := &Live{}
+	for i := 0; i < 1000; i++ {
+		p.beat()
+	}
+	if len(p.pulse) > 400 {
+		t.Errorf("after 1000 ticks the trace holds %d samples, which is unbounded growth "+
+			"in a view people leave running", len(p.pulse))
 	}
 }

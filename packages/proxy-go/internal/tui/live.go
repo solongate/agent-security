@@ -185,20 +185,24 @@ type Live struct {
 
 	events []logLine
 
-	// THE HEARTBEAT, kept apart from the events above and rendered under them.
+	// THE HEARTBEAT TRACE, one sample per animation tick.
 	//
-	// EVENT LOG is titled "system heartbeat" and, on a healthy machine, was blank. It is
-	// written to by API errors (there is no API in this build), by alerts, and by a local
-	// poll that found a small number of new calls — so a quiet machine with nothing wrong
-	// produced an empty pane under a title promising a sign of life. The question somebody
-	// asks of a live console, "is this thing actually running?", was the one thing it did
-	// not answer.
+	// `eval` above holds what each decision COST, one entry per decision, and the chart
+	// drawn from it only moved when a decision arrived. On a machine nobody was driving
+	// it was a frozen picture under a live console — and a frozen picture is exactly what
+	// a hung program looks like, so the pane could not answer the question it existed to
+	// answer: is this still running?
 	//
-	// ONE LINE, REWRITTEN each poll rather than appended. Appending would answer the
-	// question and bury every real event under two beats a second; this moves — the clock
-	// and the counts change — while the events above it stay put.
-	beat     logLine
-	beatSeen int
+	// This advances with the CLOCK. Every tick appends the cost of whatever the guard
+	// decided since the last one, or nothing at all, so the trace marches left the way a
+	// cardiograph does: flat while idle, a spike per decision. Idle is drawn as a
+	// baseline rather than as blank, because an ECG flatline reads as "alive, nothing
+	// happening" and an empty column reads as broken.
+	//
+	// `eval` is still what the numbers in the title are computed from. Padding a median
+	// with the zeros between decisions would report a speed nothing ever achieved.
+	pulse        []int
+	pulsePending int
 	// `filter` (all | local | cloud) stood here, cycled by `f`. Everything is read from
 	// one file, so it filtered that file from itself.
 	signal string // none | deny | dlp | ratelimit
@@ -549,10 +553,7 @@ func (p *Live) onTick(m liveTick, ctx PanelContext) tea.Cmd {
 			return p.tickCmd(tickAnim, 500*time.Millisecond)
 		}
 		p.tick++
-		// On the animation tick rather than on a poll: a poll that fails, or a cadence
-		// that is slow, is exactly when somebody needs to see whether the console is
-		// still alive. This is the one tick that always runs.
-		p.setBeat(ctx.Now.UnixMilli())
+		p.beat()
 		return p.tickCmd(tickAnim, 500*time.Millisecond)
 	case tickLocal:
 		return p.cadence(tickLocal, 2*time.Second, p.pollLocal)
@@ -626,7 +627,14 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 	// zero, because a zero would drag the median toward a speed nothing achieved.
 	for _, f := range fresh {
 		if f.EvalMs != nil {
-			p.eval = append(p.eval, int(*f.EvalMs+0.5))
+			ms := int(*f.EvalMs + 0.5)
+			p.eval = append(p.eval, ms)
+			// The heartbeat shows the WORST decision in each tick's window rather than
+			// the last. A slow one between two fast ones is the sample worth seeing, and
+			// at two ticks a second a busy machine puts several in every column.
+			if ms > p.pulsePending {
+				p.pulsePending = ms
+			}
 		}
 	}
 	if len(p.eval) > 240 {
@@ -683,27 +691,17 @@ func (p *Live) apiError(err error, now int64) tea.Cmd {
 	return nil
 }
 
-// setBeat refreshes the heartbeat line from what the last poll actually saw.
+// beat appends one sample to the heartbeat trace and clears what it consumed.
 //
-// Deliberately says the dull thing when the news is dull. "watching · quiet" on an idle
-// machine is the correct reading and is what makes the busy readings mean something; a
-// heartbeat that only appeared when something happened would be an event log again.
-func (p *Live) setBeat(now int64) {
-	total := len(p.local)
-	msg := "watching · guard armed"
-	switch {
-	case p.localOn == nil || !*p.localOn:
-		msg = "watching · no local recording"
-	case total == 0:
-		msg = "watching · no calls recorded yet"
-	case total > p.beatSeen:
-		msg = "watching · " + strconv.Itoa(total-p.beatSeen) + " new · " +
-			strconv.Itoa(total) + " seen"
-	default:
-		msg = "watching · quiet · " + strconv.Itoa(total) + " seen"
+// Called from the animation tick, so the trace keeps moving through a poll that fails or
+// a cadence that has gone slow — which is precisely when somebody is looking at this pane
+// to find out whether anything is still alive.
+func (p *Live) beat() {
+	p.pulse = append(p.pulse, p.pulsePending)
+	p.pulsePending = 0
+	if len(p.pulse) > 400 {
+		p.pulse = p.pulse[len(p.pulse)-400:]
 	}
-	p.beatSeen = total
-	p.beat = logLine{ts: now, msg: msg, level: "beat"}
 }
 
 func (p *Live) pushLog(msg, level string, now int64) {
@@ -1810,17 +1808,22 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	// does not paint every ordinary call hot. The floor was 2000ms for a network round
 	// trip; for a local policy decision 50ms is already slow.
 	evalHotAt := maxFloat(50, float64(p.evalMedian())*2.5)
-	evalHot := make([]bool, len(p.eval))
-	for i, v := range p.eval {
+	// A BASELINE UNDER THE IDLE SAMPLES. A zero column draws nothing, and a trace of
+	// nothing is the frozen picture this pane was replaced for. One unit is below the
+	// chart's floor of 50, so it moves the scale by nothing and reads as a flatline.
+	trace := make([]int, len(p.pulse))
+	evalHot := make([]bool, len(p.pulse))
+	for i, v := range p.pulse {
+		trace[i] = maxInt(1, v)
 		evalHot[i] = float64(v) > evalHotAt
 	}
 	left := append([]string{paneTitle("TRAFFIC",
 		"calls/10s · last 10m · live · peak "+strconv.Itoa(peak)+" · red = denials", leftW)},
 		columnChart(traffic, trafficHot, chartH, leftW, theme.Accent, theme.Bad)...)
-	right := append([]string{paneTitle("GUARD COST",
-		"ms per decision · now "+strconv.Itoa(p.evalNow())+" · med "+strconv.Itoa(p.evalMedian())+
+	right := append([]string{paneTitle("HEARTBEAT",
+		"live · ms per decision · now "+strconv.Itoa(p.evalNow())+" · med "+strconv.Itoa(p.evalMedian())+
 			" · amber >"+strconv.Itoa(int(evalHotAt+0.5)), rightW)},
-		columnChart(p.eval, evalHot, chartH, rightW, theme.White, lipgloss.Color(hexWarnFG))...)
+		columnChart(trace, evalHot, chartH, rightW, theme.White, lipgloss.Color(hexWarnFG))...)
 	lines = append(lines, joinColumns([][]string{left, right}, []int{leftW, rightW}, 1+chartH)...)
 
 	// LAYERS · SESSIONS · EVENT LOG
@@ -1873,12 +1876,9 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	layersCol = append(layersCol, renderRow(colW, guardSegs...))
 
 	eventCol := []string{paneTitle("EVENT LOG", "system heartbeat", colW)}
-	// One row is reserved for the beat, so a full event list scrolls under it rather
-	// than pushing it off the pane — the line that proves the console is alive is the
-	// last one that should disappear when something goes wrong.
 	tail := p.events
-	if len(tail) > colH-2 {
-		tail = tail[len(tail)-(colH-2):]
+	if len(tail) > colH-1 {
+		tail = tail[len(tail)-(colH-1):]
 	}
 	for _, l := range tail {
 		tickColor := lipgloss.TerminalColor(lipgloss.Color(hexEventTick))
@@ -1893,19 +1893,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			sg(hhmmss(l.ts)+" ", theme.Dim),
 			seg{text: "▸ ", fg: tickColor},
 			seg{text: l.msg, fg: msgColor}))
-	}
-	if p.beat.ts != 0 {
-		// The pulse alternates with the animation tick, so the row visibly moves even
-		// when every number on it is unchanged. That is the whole point of it: a frozen
-		// console and an idle one look identical until something is beating.
-		pulse := "♥ "
-		if p.tick%2 == 0 {
-			pulse = "♡ "
-		}
-		eventCol = append(eventCol, renderRow(colW,
-			sg(hhmmss(p.beat.ts)+" ", theme.Dim),
-			seg{text: pulse, fg: theme.OK},
-			seg{text: p.beat.msg, fg: theme.Dim}))
 	}
 	lines = append(lines, joinColumns([][]string{layersCol, eventCol},
 		[]int{colW, colW}, colH)...)

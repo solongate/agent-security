@@ -190,6 +190,23 @@ plain "Your machine has the three tools needed to build SolonGate."
 step "Installing workspace dependencies"
 note "pnpm warns here that it could not create a bin — it is linking commands at"
 note "files the next step has not produced yet. Nothing is wrong."
+
+# AND NOT pnpm's OWN UPGRADE AD, which it draws in a box in the middle of this:
+#
+#     ╭──────────────────────────────────────────╮
+#     │     Update available! 9.15.0 → 12.8.1.   │
+#     │     Run "pnpm add -g pnpm" to update.    │
+#     ╰──────────────────────────────────────────╯
+#
+# It is about pnpm, it is not a problem, and it lands directly under a line saying
+# the warnings above are expected — so it reads as the next thing that went wrong,
+# in the install of a security tool, where somebody is already watching for trouble.
+# It was reported as an error the first time anybody saw it.
+#
+# An installer's output should be about the thing being installed. The variable is
+# npm's, which pnpm honours.
+export npm_config_update_notifier=false
+
 pnpm install
 
 plain "Downloaded the code libraries the build needs. The warnings above are expected."

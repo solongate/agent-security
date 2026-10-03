@@ -64,7 +64,7 @@ func liveStates(on bool) []struct {
 	// Running, with nothing recorded — the quiet machine the heartbeat exists for.
 	quiet := &Live{localOn: &on}
 	for i := 0; i < 20; i++ {
-		quiet.beat()
+		quiet.beat(int64(1_000 + i))
 	}
 
 	// Running, with traffic and a decision in the trace.
@@ -75,7 +75,7 @@ func liveStates(on bool) []struct {
 		if i%7 == 0 {
 			busy.pulsePending = 30 + i
 		}
-		busy.beat()
+		busy.beat(int64(1_000 + i))
 		busy.eval = append(busy.eval, 28+i%12)
 	}
 
@@ -83,7 +83,7 @@ func liveStates(on bool) []struct {
 	long := &Live{localOn: &on}
 	for i := 0; i < 500; i++ {
 		long.pulsePending = i % 90
-		long.beat()
+		long.beat(int64(1_000 + i))
 	}
 
 	return []state{

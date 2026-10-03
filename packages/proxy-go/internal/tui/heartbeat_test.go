@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // THE HEARTBEAT TRACE ADVANCES WITH THE CLOCK, NOT WITH THE DATA.
 //
@@ -12,7 +15,7 @@ func TestTheTraceMovesWhileNothingIsHappening(t *testing.T) {
 	p := &Live{}
 
 	for i := 0; i < 5; i++ {
-		p.beat()
+		p.beat(int64(1_000 + i))
 	}
 
 	if len(p.pulse) != 5 {
@@ -31,14 +34,14 @@ func TestADecisionShowsUpOnceAndThenTheTraceGoesFlat(t *testing.T) {
 	p := &Live{}
 
 	p.pulsePending = 42
-	p.beat()
+	p.beat(1_000)
 	if len(p.pulse) != 1 || p.pulse[0] != 42 {
 		t.Fatalf("pulse = %v, want the 42ms decision in the first sample", p.pulse)
 	}
 
 	// CONSUMED, not carried. A sample that kept its value would draw a plateau for as
 	// long as the machine stayed idle, which reads as a guard permanently taking 42ms.
-	p.beat()
+	p.beat(1_000)
 	if len(p.pulse) != 2 || p.pulse[1] != 0 {
 		t.Errorf("pulse = %v; the second tick should be flat, not a repeat of the first", p.pulse)
 	}
@@ -56,7 +59,7 @@ func TestABusyTickReportsItsSlowestDecision(t *testing.T) {
 			p.pulsePending = ms
 		}
 	}
-	p.beat()
+	p.beat(1_000)
 	if p.pulse[0] != 95 {
 		t.Errorf("a tick holding 12, 95 and 14ms reported %d, want the slowest", p.pulse[0])
 	}
@@ -66,10 +69,48 @@ func TestABusyTickReportsItsSlowestDecision(t *testing.T) {
 func TestTheTraceDoesNotGrowForever(t *testing.T) {
 	p := &Live{}
 	for i := 0; i < 1000; i++ {
-		p.beat()
+		p.beat(int64(1_000 + i))
 	}
 	if len(p.pulse) > 400 {
 		t.Errorf("after 1000 ticks the trace holds %d samples, which is unbounded growth "+
 			"in a view people leave running", len(p.pulse))
+	}
+}
+
+// THE BEAT WRITES ITS NUMBERS DOWN, because the chart cannot carry them.
+//
+// A column of a certain height says "slower than the others" and nothing more: not how
+// slow, and not whether the machine was busy or idle while it happened. Those are the two
+// things worth knowing about a beat, so each one leaves a line saying the cost of the
+// slowest decision in that second and how many calls there were to decide.
+func TestEachBeatRecordsItsCostAndItsCalls(t *testing.T) {
+	p := &Live{}
+
+	// A second with three decisions, the slowest of them 95ms.
+	p.pulsePending, p.pulseCalls = 95, 3
+	p.beat(1_000)
+
+	last := p.events[len(p.events)-1]
+	if last.level != "beat" {
+		t.Fatalf("the beat wrote a %q line, not a beat", last.level)
+	}
+	if !strings.Contains(last.msg, "95ms") {
+		t.Errorf("the line is %q, with no cost in it", last.msg)
+	}
+	if !strings.Contains(last.msg, "3 call") {
+		t.Errorf("the line is %q, with no call count in it", last.msg)
+	}
+
+	// AND A QUIET SECOND SAYS SO. An idle beat with a cost of zero would read as a
+	// decision that took no time, which is a different and much more alarming claim.
+	p.beat(2_000)
+	if msg := p.events[len(p.events)-1].msg; msg != "idle" {
+		t.Errorf("a second with no calls reported %q", msg)
+	}
+
+	// The counters are consumed, or the next second inherits this one's numbers.
+	if p.pulsePending != 0 || p.pulseCalls != 0 {
+		t.Errorf("after a beat the counters are %dms / %d calls, want both cleared",
+			p.pulsePending, p.pulseCalls)
 	}
 }

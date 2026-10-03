@@ -692,20 +692,16 @@ var auditHelp = []helpGroup{
 		{"E", "export ALL matched rows"},
 		{"c", "clear every filter (incl. session)"},
 	}},
-	{"Sessions", [][2]string{
-		{"↑↓", "select a session"},
-		{"enter", "open that session's logs"},
-		{"f", "status filter: all → active → idle → ended"},
-		{"/", "search agent / session id"},
-		{"c", "clear session filters"},
-	}},
-	// `s`, "switch source cloud ↔ local file", was listed here and bound to nothing.
-	// The second source went when the cloud did — both paths read the same file now,
-	// as the comment at the top of this file says — but the key stayed in the help,
-	// advertising a thing that does not exist and a toggle that does nothing. The
-	// export rows named it too.
+	// A SESSIONS VIEW WAS ADVERTISED HERE AND DID NOT EXIST. `v` switched to it, `s`
+	// switched the source "cloud ↔ local file", and a five-key Sessions group listed
+	// how to filter and open the sessions you would find there. None of it was bound
+	// to anything: there is no second source — both paths read the same JSONL, as the
+	// comment at the top of this file says — and no sessions list to switch to.
+	//
+	// So the help taught keys that do nothing, the header offered "sessions (v)", and
+	// the footer hint spent room on it. Pressing the keys did nothing at all, which
+	// reads as the panel being broken rather than the feature being absent.
 	{"Anywhere in Audit", [][2]string{
-		{"v", "switch logs ↔ sessions"},
 		{"space", "copy mode: freeze screen for mouse selection"},
 		{"?", "this help · any key closes"},
 		{"esc", "back to the menu"},
@@ -921,7 +917,7 @@ func (p *Audit) viewLogs(ctx PanelContext) []string {
 	start := minInt(maxInt(0, sel-(listRows-1)/2), maxInt(0, len(rows)-listRows))
 	end := minInt(start+listRows, len(rows))
 
-	head := []seg{sgb("LOGS", theme.AccentBright), sg(" · sessions (v) ", theme.Dim)}
+	head := []seg{sgb("LOGS", theme.AccentBright), sg(" ", theme.Dim)}
 	head = append(head, chip("dec", orAll(auditDecisions[p.di]), p.di != 0)...)
 	head = append(head, chip("sig", orAll(auditSignals[p.gi]), p.gi != 0)...)
 	head = append(head, chip("tool", orDot(p.tool), p.tool != "")...)
@@ -930,7 +926,7 @@ func (p *Audit) viewLogs(ctx PanelContext) []string {
 
 	hint := "press → to browse"
 	if ctx.Focused {
-		hint = "↑↓ select · enter full entry · ←→ page · v sessions · ^R refresh · ? all keys"
+		hint = "↑↓ select · enter full entry · ←→ page · ^R refresh · ? all keys"
 	}
 
 	var body []string

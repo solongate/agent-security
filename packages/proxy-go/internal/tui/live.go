@@ -661,21 +661,15 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 	if len(p.eval) > 240 {
 		p.eval = p.eval[len(p.eval)-240:]
 	}
-	denies := 0
-	for _, f := range fresh {
-		if f.Decision != "ALLOW" {
-			denies++
-		}
-	}
-	if len(fresh) < 10 {
-		msg := "local +" + strconv.Itoa(len(fresh)) + " calls"
-		level := "warn"
-		if denies > 0 {
-			msg += " · " + strconv.Itoa(denies) + " DENIED"
-			level = "bad"
-		}
-		p.pushLog(msg, level, time.Now().UnixMilli())
-	}
+	// A "local +N calls" line stood here, pushed on every poll that saw fewer than ten
+	// new rows. The heartbeat now reports the same second with more in it — the cost as
+	// well as the count — so this was the same event twice, one line apart:
+	//
+	//	00:26:15 ▸ local +1 calls
+	//	00:26:15 • 30ms · 1 call
+	//
+	// Denials still raise their own alert, which is a different claim and still worth a
+	// line of its own.
 }
 
 // afterBuffers rebuilds the merged view and raises alerts for anything notable
@@ -1859,11 +1853,14 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	}
 	left := append([]string{paneTitle("TRAFFIC",
 		"calls/10s · last 10m · live · peak "+strconv.Itoa(peak)+" · red = denials", leftW)},
-		columnChart(traffic, trafficHot, chartH, leftW, theme.Accent, theme.Bad)...)
+		// Ten calls in ten seconds is a busy machine; below that the bars stay short.
+		columnChart(traffic, trafficHot, chartH, leftW, 10, theme.Accent, theme.Bad)...)
 	right := append([]string{paneTitle("HEARTBEAT",
 		"live · ms per decision · now "+strconv.Itoa(p.evalNow())+" · med "+strconv.Itoa(p.evalMedian())+
 			" · amber >"+strconv.Itoa(int(evalHotAt+0.5)), rightW)},
-		columnChart(trace, evalHot, chartH, rightW, theme.White, lipgloss.Color(hexWarnFG))...)
+		// The amber threshold is the top of the scale: an ordinary decision sits well
+		// under it, and a bar that reaches up there is one worth looking at.
+		columnChart(trace, evalHot, chartH, rightW, int(evalHotAt+0.5), theme.White, lipgloss.Color(hexWarnFG))...)
 	lines = append(lines, joinColumns([][]string{left, right}, []int{leftW, rightW}, 1+chartH)...)
 
 	// LAYERS · SESSIONS · EVENT LOG
@@ -2036,7 +2033,7 @@ func modeOr(m string) string {
 // ── small renderers ────────────────────────────────────────────────────────
 
 // columnChart draws `height` rows of block columns, newest on the right.
-func columnChart(series []int, hot []bool, height, width int, color, hotColor lipgloss.TerminalColor) []string {
+func columnChart(series []int, hot []bool, height, width, floor int, color, hotColor lipgloss.TerminalColor) []string {
 	if width < 1 {
 		width = 1
 	}
@@ -2056,7 +2053,20 @@ func columnChart(series []int, hot []bool, height, width int, color, hotColor li
 			hotData[pad+i] = hot[i]
 		}
 	}
-	max := 1
+	// A FLOOR UNDER THE SCALE, so a quiet machine looks quiet.
+	//
+	// The top of the chart was whatever the tallest sample happened to be, so on an idle
+	// console ONE call drew a full-height bar. Technically a 100% increase over nothing,
+	// and useless: every reading looked like a spike, and a real spike looked the same.
+	//
+	// The floor is what the caller considers a normal maximum — the amber threshold for
+	// decision cost, a busy second's traffic for call counts — so a bar only approaches
+	// the top when it is genuinely near that. Above the floor the scale still grows, so
+	// nothing is ever clipped.
+	max := floor
+	if max < 1 {
+		max = 1
+	}
 	for _, v := range data {
 		if v > max {
 			max = v

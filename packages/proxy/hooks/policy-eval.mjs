@@ -27,24 +27,56 @@
  * proxy both import for the same reason.
  */
 
-// ── Glob Matching ──
+// MORE THAN ONE WILDCARD IS A PATTERN, not a literal asterisk.
+//
+// This used to branch on where the stars were: one at each end meant "contains", one at
+// the start meant "ends with", one at the end meant "begins with", and exactly one in the
+// middle meant prefix-plus-suffix. Any other arrangement fell through to a comparison
+// against the pattern WITH THE ASTERISK STILL IN IT, so these matched nothing at all:
+//
+//	https://*.github.com/*     written to allow GitHub; allowed nothing
+//	git push * --force*        written to block force-pushes; blocked nothing
+//
+// Both read correctly in `policy show`, which is the whole problem: a rule that enforces
+// nothing is indistinguishable from one that enforces something until the day it was
+// supposed to stop a call and did not. The second of those two is a rule somebody wrote
+// precisely because they did not trust themselves to remember.
+//
+// The implementation is a scan rather than a compiled regexp, deliberately. These
+// patterns come out of a policy file, a star run like `a***b` is a sequence somebody
+// types by accident, and a backtracking engine turns that into a stall in the one code
+// path that runs before every tool call. This walks the string once per segment and can
+// do no worse.
 function matchGlob(str, pattern) {
   if (pattern === '*') return true;
-  const s = str.toLowerCase();
+  const s0 = str.toLowerCase();
   const p = pattern.toLowerCase();
-  if (s === p) return true;
-  const startsW = p.startsWith('*');
-  const endsW = p.endsWith('*');
-  if (startsW && endsW) { const infix = p.slice(1, -1); return infix.length > 0 && s.includes(infix); }
-  if (startsW) return s.endsWith(p.slice(1));
-  if (endsW) return s.startsWith(p.slice(0, -1));
-  const idx = p.indexOf('*');
-  if (idx !== -1) {
-    const pre = p.slice(0, idx);
-    const suf = p.slice(idx + 1);
-    return s.startsWith(pre) && s.endsWith(suf) && s.length >= pre.length + suf.length;
+  if (s0 === p) return true;
+  if (!p.includes('*')) return false;
+
+  const parts = p.split('*');
+  let s = s0;
+
+  // The first segment is anchored to the start unless the pattern opened with a star.
+  if (parts[0] !== '') {
+    if (!s.startsWith(parts[0])) return false;
+    s = s.slice(parts[0].length);
   }
-  return false;
+
+  // Each middle segment must appear, in order, after the one before it. Earliest match
+  // wins: a later one can only make the remaining suffix shorter, never longer, so
+  // taking the first occurrence never loses a match that a later one would have found.
+  for (const part of parts.slice(1, -1)) {
+    if (part === '') continue; // a run of stars is one star
+    const i = s.indexOf(part);
+    if (i < 0) return false;
+    s = s.slice(i + part.length);
+  }
+
+  // And the last is anchored to the end unless the pattern closed with a star.
+  const last = parts[parts.length - 1];
+  if (last !== '') return s.endsWith(last);
+  return true;
 }
 
 // ── Path Glob (supports **) ──
@@ -126,7 +158,7 @@ function extractFilenames(args) {
   // Strip surrounding/trailing quotes — `"…/secret.env"` must reduce to
   // `secret.env`, not `secret.env"` (a trailing quote breaks the *.env glob).
   const dequote = (t) => t.replace(/^["'`]+/, '').replace(/["'`]+$/, '');
-  for (const s of scanStrings(args)) {
+  for (const s of scanTargetStrings(args)) {
     if (/^https?:\/\//i.test(s)) continue;
     // Process EVERY whitespace-separated token, not just the last `/` segment of
     // the whole string. Multi-file commands (`rm a b c`) must check all of them.
@@ -210,6 +242,60 @@ function extractCommands(args) {
   return cmds;
 }
 
+// WHAT A CALL ACTS ON, as opposed to what it says.
+//
+// ScanStrings walks every string in a tool call, which is what the scanners want: a
+// secret can be anywhere, so DLP has to look everywhere. A PATH rule is a different
+// question — it is about the file a call touches — and asking it of every string turned
+// the TEXT of a file into a path:
+//
+//   Write { file_path: "notes.md", content: "keys live under the home key folder" }
+//
+// tripped a rule naming that folder, because the content mentions it. Writing
+// documentation, a test, or a config example that merely NAMES a protected path was
+// blocked, and the message quoted the whole file as the offending path.
+//
+// Tamper protection learned this first and says so in its own comment: it reads target
+// path fields only, "never the free-form content/body, which would false-positive on any
+// file that merely mentions a protected path in its text". Policy path rules mean the
+// same thing and now behave the same way.
+//
+// A DENYLIST OF CONTENT FIELDS, not an allowlist of path fields, and the difference
+// matters. An allowlist stops seeing a path that arrives in a field nobody listed, which
+// is a hole; this only stops reading the fields that are prose by definition, so an
+// unknown field carrying a path is still a path.
+//
+// `command` is deliberately absent: an exec call keeps its paths there and the caller
+// already tokenises it. So are `patch` and `diff`, where Codex keeps the target of a
+// file edit.
+const CONTENT_FIELDS = new Set([
+  'content', 'body', 'text',
+  'new_string', 'old_string', 'newstring', 'oldstring',
+  'replacement', 'prompt', 'instructions',
+  'description', 'message',
+]);
+
+// scanTargetStrings is scanStrings without the fields that hold prose.
+function scanTargetStrings(v) {
+  const out = [];
+  const walk = (x) => {
+    if (typeof x === 'string') {
+      const s = x.trim();
+      if (s) out.push(s);
+      return;
+    }
+    if (Array.isArray(x)) { for (const item of x) walk(item); return; }
+    if (x && typeof x === 'object') {
+      for (const k of Object.keys(x).sort()) {
+        if (CONTENT_FIELDS.has(k.toLowerCase())) continue;
+        walk(x[k]);
+      }
+    }
+  };
+  walk(v);
+  return out;
+}
+
 function extractPaths(args, isExec) {
   const paths = [];
   const add = (t) => {
@@ -219,7 +305,7 @@ function extractPaths(args, isExec) {
     // does no separator translation, so raw "C:\..." never matched "/" patterns.
     if (t.includes('/') || t.includes('\\') || t.startsWith('.')) paths.push(t.replace(/\\/g, '/'));
   };
-  for (const s of scanStrings(args)) {
+  for (const s of scanTargetStrings(args)) {
     if (/^https?:\/\//i.test(s)) continue;
     if (isExec && /\s/.test(s)) {
       // A command line (exec tool): pull out individual path-like tokens instead

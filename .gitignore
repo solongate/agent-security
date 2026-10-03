@@ -98,6 +98,7 @@ deploy-package/
 # refuses without being asked, `git status` does not list the file, and the first
 # anybody notices is a clone with no README in it.
 !README.md
+!TESTING.md
 !ENGINEERING.md
 !packages/proxy/test/README.md
 # Lock files (pnpm only)

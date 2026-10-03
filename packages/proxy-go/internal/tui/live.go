@@ -554,8 +554,11 @@ func (p *Live) onTick(m liveTick, ctx PanelContext) tea.Cmd {
 			return p.tickCmd(tickAnim, 500*time.Millisecond)
 		}
 		p.tick++
-		// Every other tick: the spinner wants 500ms, the heartbeat wants a second.
-		if p.tick%2 == 0 {
+		// Every tenth tick. The spinner wants 500ms; a heartbeat wants long enough that
+		// a line is worth reading when it appears, and short enough that a stalled
+		// console is obvious. A beat a second filled the pane faster than anybody could
+		// read it and pushed real events off the top in under a minute.
+		if p.tick%10 == 0 {
 			p.beat(ctx.Now.UnixMilli())
 		}
 		return p.tickCmd(tickAnim, 500*time.Millisecond)
@@ -621,6 +624,17 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 	if len(fresh) == 0 {
 		return
 	}
+	// THE FIRST POLL IS THE WHOLE LOG, not a second's traffic.
+	//
+	// lastLocalTS starts at zero, so everything on disk comes back as "fresh" the first
+	// time. The heartbeat counted it, and every console opened with a line like
+	//
+	//	00:11:18 • 43ms · 111 calls
+	//
+	// — the machine's entire recorded history, attributed to the one second somebody
+	// happened to start looking. It made the first beat meaningless and the chart open
+	// with a spike that never happened.
+	backfill := p.lastLocalTS == 0
 	p.lastLocalTS = fresh[len(fresh)-1].At
 	p.local = append(p.local, fresh...)
 	if len(p.local) > 400 {
@@ -636,10 +650,12 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 			// The heartbeat shows the WORST decision in each tick's window rather than
 			// the last. A slow one between two fast ones is the sample worth seeing, and
 			// at two ticks a second a busy machine puts several in every column.
-			if ms > p.pulsePending {
-				p.pulsePending = ms
+			if !backfill {
+				if ms > p.pulsePending {
+					p.pulsePending = ms
+				}
+				p.pulseCalls++
 			}
-			p.pulseCalls++
 		}
 	}
 	if len(p.eval) > 240 {
@@ -701,9 +717,9 @@ func (p *Live) apiError(err error, now int64) tea.Cmd {
 // Called from the animation tick, so the trace keeps moving through a poll that fails or
 // a cadence that has gone slow — which is precisely when somebody is looking at this pane
 // to find out whether anything is still alive.
-// ONE BEAT A SECOND, not two. The animation tick runs at 500ms because a spinner needs
-// to look like it is spinning; a heartbeat at that rate is a flicker, and the trace it
-// draws scrolls a full screen of history away in under a minute.
+// ONE BEAT EVERY FIVE SECONDS. The animation tick runs at 500ms because a spinner needs
+// to look like it is spinning; a heartbeat at that rate is a flicker, and it pushed real
+// events off the top of the pane in under a minute.
 //
 // AND THE NUMBERS GO IN THE EVENT LOG, because the chart cannot carry them. A column of
 // a certain height says "slower than the others" and nothing more: not how slow, and not

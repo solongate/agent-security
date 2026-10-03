@@ -817,19 +817,14 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	bodyW := maxInt(20, ctx.Cols-4)
 	width := ctx.Cols - 2
 
-	// FULL CONTENT surfaces the denial reason — Audit's forensic value — ABOVE
-	// the arguments. Live folds the reason into the row only when the arguments
-	// are absent, but an audit browser should always show WHY a call was denied.
-	var content []string
-	if e.reason != "" && e.decision != "ALLOW" {
-		content = append(content, wrapLines("reason: "+e.reason, bodyW)...)
-		content = append(content, "")
-	}
+	// FULL CONTENT surfaces WHY — Audit's forensic value — ABOVE the arguments.
+	// The same block the Live inspector uses, so the two never explain the same
+	// entry differently: which layer refused it, and the guard's own sentence.
+	content := whyBlock(e.decision, e.reason, e.rule, e.dlp, e.burst, bodyW)
 	argsText := "(no arguments recorded)"
-	switch {
-	case e.args != "":
+	if e.args != "" {
 		argsText = prettyJson(e.args)
-	case e.reason != "" && e.decision == "ALLOW":
+	} else if len(content) == 0 && e.reason != "" {
 		argsText = e.reason
 	}
 	content = append(content, wrapLines(argsText, bodyW)...)

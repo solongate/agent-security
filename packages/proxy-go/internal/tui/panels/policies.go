@@ -85,6 +85,32 @@ var polFields = []polField{
 	{"Match", "match"},
 }
 
+// PERMISSIONS ARE ONLY A QUESTION FOR A RULE ABOUT FILES.
+//
+// READ, WRITE, EXECUTE and NETWORK come from the TOOL a call was made with, so narrowing
+// by them says WHICH KIND of tool a rule covers. For a path or a filename that is a real
+// choice — block reading a directory but not writing to it, or the reverse. For the other
+// two kinds it is noise at best and a trap at worst: a rule about a command already only
+// matches a command, a rule about a URL already only matches a fetch, and the row sat
+// there showing all four lit as though somebody had chosen them.
+//
+// Worse, it is one of the three rows ←→ edits rather than navigates, so the way out of
+// the editor on that row is not the way out on the next one.
+func fieldsFor(r api.PolicyRule) []polField {
+	switch currentCType(r) {
+	case cPath, cFilename:
+		return polFields
+	}
+	out := make([]polField, 0, len(polFields)-1)
+	for _, f := range polFields {
+		if f.kind == "perms" {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 type (
 	polListMsg struct {
 		genTag
@@ -1002,7 +1028,8 @@ func (p *Policies) ruleKey(k tea.KeyMsg, s string) tea.Cmd {
 		p.view = viewRules
 		return nil
 	}
-	field := polFields[min(p.fi, len(polFields)-1)]
+	fields := fieldsFor(p.rules[p.ri].rule)
+	field := fields[min(p.fi, len(fields)-1)]
 	switch {
 	// ← leaves the editor, EXCEPT on the three fields whose own hint says ←→
 	// picks a value. The Ink version tested leftArrow first in one else-if
@@ -1024,7 +1051,7 @@ func (p *Policies) ruleKey(k tea.KeyMsg, s string) tea.Cmd {
 	case s == "up":
 		p.fi = max(0, p.fi-1)
 	case s == "down":
-		p.fi = min(len(polFields)-1, p.fi+1)
+		p.fi = min(len(fields)-1, p.fi+1)
 	case field.kind == "effect" && (s == " " || s == "right"):
 		p.flipEffect(p.ri)
 	case field.kind == "ctype" && (s == " " || s == "right" || s == "left"):
@@ -1835,7 +1862,7 @@ func (p *Policies) viewRuleBody() string {
 	out = append(out, stDim.Render("↑↓ field · enter edit/open · space toggle · ←→ move/pick · s save · ← back"))
 	out = append(out, "")
 
-	for i, f := range polFields {
+	for i, f := range fieldsFor(rule) {
 		active := i == p.fi
 		l := newLine(false)
 		labelStyle := stPlain

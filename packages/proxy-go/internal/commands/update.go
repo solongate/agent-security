@@ -47,6 +47,24 @@ func RunUpdate(args []string) int {
 	// FETCH FIRST, AND SAY WHETHER ANYTHING CAME. A pull that changes nothing still costs
 	// a full rebuild, and somebody watching it has no way to tell a no-op from a real
 	// update unless it is said out loud.
+	// THE INSTALL DIRTIES THE CHECKOUT IT WILL LATER PULL INTO.
+	//
+	// install.sh runs `pnpm install`, and pnpm rewrites pnpm-lock.yaml whenever the
+	// manifest and the lock disagree about anything — including an optional package
+	// it decides to drop. The build script rewrites packages/proxy/package.json for
+	// the same class of reason. Both files are tracked, so one update later the
+	// checkout has modifications nobody made, and the NEXT update dies on
+	// `git pull --ff-only` before it reaches any of the work.
+	//
+	// The user never typed anything to cause that and has nothing to decide about
+	// it, so the only honest behaviour is to put those files back and carry on. The
+	// test is narrow on purpose: ONLY the files an install is known to write are
+	// restored, and anything else stops the update exactly as it did before —
+	// a real local edit is the user's and discarding it silently would be theft.
+	if code := restoreInstallArtifacts(root); code != 0 {
+		return code
+	}
+
 	head, _ := gitOutput(root, "rev-parse", "HEAD")
 	if code := step(root, "Fetching the newest version", "git", "pull", "--ff-only"); code != 0 {
 		fmt.Fprintln(os.Stderr)
@@ -147,4 +165,99 @@ func noSourceToUpdateFrom() int {
 	fmt.Fprintln(w, "      ./install.sh")
 	fmt.Fprintln(w)
 	return 1
+}
+
+// installArtifacts are the TRACKED files an install rewrites inside the checkout.
+//
+// Each one is generated, not authored: pnpm owns the lockfile, and
+// build-go-binaries.mjs owns the six optionalDependencies pins in the proxy
+// manifest (it forces them to equal the package version, which is correct for a
+// publish and is why the file moves during an ordinary build). guard.bundled.mjs
+// is written by bundle-hooks on every build from the source beside it.
+//
+// A file is on this list because an INSTALL writes it, not because it looks
+// unimportant. Nothing else may be added without that being true.
+var installArtifacts = []string{
+	"pnpm-lock.yaml",
+	"packages/proxy/package.json",
+	"packages/proxy/hooks/guard.bundled.mjs",
+}
+
+// restoreInstallArtifacts puts the generated files back so the pull can run.
+//
+// Returns 0 when the checkout is pullable — either it was already clean, or the
+// only modifications were files the install itself wrote. A modification
+// anywhere else is reported and the update stops: that is somebody's work, and
+// this command has no business choosing to lose it.
+func restoreInstallArtifacts(root string) int {
+	out, ok := gitOutput(root, "status", "--porcelain")
+	if !ok || strings.TrimSpace(out) == "" {
+		return 0
+	}
+
+	var generated, foreign []string
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		// Untracked files do not block a fast-forward, so they are not this
+		// command's problem and must not be deleted on the way past.
+		if strings.HasPrefix(line, "??") {
+			continue
+		}
+		path := strings.TrimSpace(line[2:])
+		// A rename reads as "old -> new"; the new name is the one on disk.
+		if i := strings.Index(path, " -> "); i >= 0 {
+			path = path[i+4:]
+		}
+		path = strings.Trim(path, `"`)
+		if containsPath(installArtifacts, path) {
+			generated = append(generated, path)
+		} else {
+			foreign = append(foreign, path)
+		}
+	}
+
+	if len(foreign) > 0 {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "  The checkout has local changes that are not the install's:")
+		for _, f := range foreign {
+			fmt.Fprintln(os.Stderr, "      "+f)
+		}
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "  Those are yours, so nothing here will throw them away. Commit or")
+		fmt.Fprintln(os.Stderr, "  stash them and run update again:")
+		fmt.Fprintln(os.Stderr, "      cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr)
+		return 1
+	}
+
+	if len(generated) == 0 {
+		return 0
+	}
+
+	args := append([]string{"checkout", "--"}, generated...)
+	if _, ok := gitOutput(root, args...); !ok {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "  Could not restore the files the last install rewrote:")
+		for _, g := range generated {
+			fmt.Fprintln(os.Stderr, "      "+g)
+		}
+		fmt.Fprintln(os.Stderr)
+		return 1
+	}
+	fmt.Println("  Reset " + strconv.Itoa(len(generated)) + " file(s) the last install rewrote (" +
+		strings.Join(generated, ", ") + ").")
+	return 0
+}
+
+// containsPath is a plain lookup. The list is three entries and a map would read
+// worse than the thing it replaced.
+func containsPath(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }

@@ -23,9 +23,15 @@ import (
 // The Rate Limit panel: the layer's own settings plus the dashboard's
 // busiest-window and burst view, ported from tui/panels/RateLimit.tsx.
 //
-// Edits are draft-only and saved with `s`. The ↑↓ cursor is UNIFIED — indexes
-// 0-3 are the editable fields and everything after them is a burst row — so the
-// list scrolls out of the fields rather than needing a second cursor.
+// Edits are draft-only: `s` writes and `x` throws the draft away. `x` is not a
+// convenience. ←→ is how a number is changed here, so ← cannot also mean back
+// while the cursor is on a field — and with no bursts recorded the cursor can
+// only ever BE on a field, which left a dirty panel with no key that both
+// stopped editing and did not write. `x` is that key; esc is the one that leaves.
+//
+// The ↑↓ cursor is UNIFIED — indexes 0-3 are the editable fields and everything
+// after them is a burst row — so the list scrolls out of the fields rather than
+// needing a second cursor.
 
 var rlModes = []api.LayerMode{api.LayerOff, api.LayerDetect, api.LayerBlock}
 
@@ -307,8 +313,26 @@ func (p *RateLimit) key(k tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		return p.save()
+	case "x":
+		if p.bound {
+			// The owner discards, for the same reason it saves: the draft is the
+			// policy's, and throwing away only this half would leave the two
+			// disagreeing about what is unsaved.
+			return nil
+		}
+		p.discard()
 	}
 	return nil
+}
+
+// discard drops the draft and takes the server's answer back.
+func (p *RateLimit) discard() {
+	if !p.haveSrv {
+		return
+	}
+	p.draft, p.hasDraft = p.server.Layers, true
+	p.dirty = false
+	p.status = "discarded"
 }
 
 // adjust moves the field under the cursor. A cursor sitting on a burst row is
@@ -564,7 +588,7 @@ func (p *RateLimit) View(ctx tui.PanelContext) string {
 			f.put("  · changed "+time.UnixMilli(last.TS).Format("Jan 2 15:04"), stDim)
 		}
 		if p.dirty {
-			f.put("   ● unsaved (s)", stWarn)
+			f.put("   ● unsaved (s save · x discard)", stWarn)
 		}
 		if p.status != "" {
 			st := stOK

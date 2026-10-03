@@ -1,4 +1,12 @@
-/** Rate-limit panel — edit the layer + the dashboard's busiest/bursts view. */
+/**
+ * Rate-limit panel — edit the layer + the dashboard's busiest/bursts view.
+ *
+ * Draft-only, like Policies and DLP: `s` saves, `x` throws the draft away. It
+ * used to offer only `s`, and ←→ are the ±1 adjust here, so a panel left dirty
+ * had no way out that did not write — you either saved a number you were only
+ * looking at, or walked away from a panel still claiming unsaved edits. esc
+ * leaves (the menu takes the key); `x` is what makes leaving lossless.
+ */
 import { Box, Text, useInput } from 'ink';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -73,6 +81,13 @@ export function RateLimitPanel({ focused }: { active: boolean; focused: boolean 
     }
   };
 
+  const discard = () => {
+    if (!layersQ.data) return;
+    setDraft({ ...layersQ.data.layers.rateLimit });
+    setDirty(false);
+    setStatus('discarded');
+  };
+
   const history = (historyQ.data?.history ?? []).slice().sort((a, b) => b.ts - a.ts);
   const lastChange = history[0];
   const peaks = (insightsQ.data?.['peaks'] as Peaks | undefined) ?? { minute: 0, hour: 0, day: 0 };
@@ -123,6 +138,7 @@ export function RateLimitPanel({ focused }: { active: boolean; focused: boolean 
       else if (key.leftArrow) adjust(-1, step);
       else if (key.rightArrow) adjust(1, step);
       else if (input === 's') void save();
+      else if (input === 'x') discard();
       else if (key.ctrl && input === 'r') { layersQ.reload(); historyQ.reload(); insightsQ.reload(); setStatus(`⟳ refreshed ${when(Date.now())}`); }
     },
     { isActive: focused },
@@ -144,7 +160,7 @@ export function RateLimitPanel({ focused }: { active: boolean; focused: boolean 
 
         return (
           <Box flexDirection="column" height={rows} overflow="hidden">
-            <Text color={theme.dim} wrap="truncate">{focused ? '↑↓ move (fields + bursts) · ←→ ±1 · shift+←→ ±10 · s save · ^R refresh' : 'press → to edit'}</Text>
+            <Text color={theme.dim} wrap="truncate">{focused ? '↑↓ move (fields + bursts) · ←→ ±1 · shift+←→ ±10 · s save · x discard · esc back' : 'press → to edit'}</Text>
             <FieldRow label="Mode" active={focused && fi === 0}><Text color={modeColor(draft.mode)} bold>{draft.mode}</Text><Text color={theme.dim}>{draft.mode === 'off' ? '  no limit' : draft.mode === 'detect' ? '  flag bursts, never block' : '  DENY calls over the limit'}</Text></FieldRow>
             <FieldRow label="Per minute" active={focused && fi === 1}><Text bold>{draft.perMinute || 'off'}</Text></FieldRow>
             <FieldRow label="Per hour" active={focused && fi === 2}><Text bold>{draft.perHour || 'off'}</Text></FieldRow>
@@ -201,7 +217,7 @@ export function RateLimitPanel({ focused }: { active: boolean; focused: boolean 
               <Text color={theme.dim}>{'limit now  '}</Text>
               <Text>{lim > 0 ? `${lim}/min` : 'no per-minute limit'}</Text>
               {lastChange ? <Text color={theme.dim}>{`  · changed ${when(lastChange.ts)}`}</Text> : null}
-              {dirty ? <Text color={theme.warn}>{'   ● unsaved (s)'}</Text> : null}
+              {dirty ? <Text color={theme.warn}>{'   ● unsaved (s save · x discard)'}</Text> : null}
               {status ? <Text color={status.startsWith('✗') ? theme.bad : theme.ok}>{'   ' + status}</Text> : null}
             </Text>
           </Box>

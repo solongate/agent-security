@@ -2,8 +2,13 @@
  * DLP panel — draft-only edits, saved with `s` (never auto-saves).
  *
  * ONE scrollable cursor over three sections, so nothing is ever clipped:
- *   built-in secret patterns  · space toggles each on/off
+ *   built-in secret patterns  · space toggles each on/off · A all · U none
  *   custom patterns           · a add (name → glob) · d remove
+ *
+ * The built-ins tile FOUR to a row. There are seventy of them: one per line put
+ * the custom section four screens below the fold, and the names are short enough
+ * (23 chars at the longest) that four fit side by side on any terminal this TUI
+ * already requires. ↑↓ steps a whole row, ←→ steps one cell.
  *
  * Custom patterns use the SAME glob syntax as the built-in secret patterns
  * (`*` = any characters) — NOT regular expressions.
@@ -21,6 +26,10 @@ import { useLoader, usePanelSize, usePoll } from '../hooks.js';
 import { modeColor, theme, truncate } from '../theme.js';
 
 const MODES: LayerMode[] = ['off', 'detect', 'block'];
+// Built-ins per row. Fixed, not derived from width: the row stride is also the
+// ↑↓ step, and a stride that changed with the terminal would move the cursor
+// somewhere different on every resize.
+const BCOLS = 4;
 type Dlp = SecurityLayers['dlp'];
 
 // Selectable rows, flattened across the two sections in display order.
@@ -95,12 +104,27 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
   const selC = Math.min(sel, Math.max(0, entries.length - 1));
   const cur = entries[selC];
 
+  const nB = available.length;
+
   useInput(
     (input2, key) => {
       if (!dlp) return;
       if (key.ctrl && input2 === 'r') { q.reload(); setStatus(`⟳ refreshed ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`); return; }
-      if (key.upArrow) setSel(() => Math.max(0, selC - 1));
-      else if (key.downArrow) setSel(() => Math.min(entries.length - 1, selC + 1));
+      // Built-ins are a grid, customs are a list: ↑↓ steps a row inside the grid
+      // and a single entry inside the list, and crossing the boundary lands on
+      // the nearest edge of the other section rather than skipping it.
+      if (key.upArrow) setSel(() => (selC >= nB ? (selC - 1 >= nB ? selC - 1 : Math.max(0, nB - 1)) : Math.max(0, selC - BCOLS)));
+      else if (key.downArrow)
+        setSel(() => {
+          if (selC >= nB) return Math.min(entries.length - 1, selC + 1);
+          const next = selC + BCOLS;
+          if (next < nB) return next;
+          return Math.min(entries.length - 1, nB);
+        });
+      else if (key.leftArrow) setSel(() => (selC < nB ? Math.max(0, selC - 1) : selC));
+      else if (key.rightArrow) setSel(() => (selC < nB ? Math.min(nB - 1, selC + 1) : selC));
+      else if (input2 === 'A') mutate({ ...dlp, patterns: [...available] });
+      else if (input2 === 'U') mutate({ ...dlp, patterns: [] });
       else if (input2 === 'm') mutate({ ...dlp, mode: MODES[(MODES.indexOf(dlp.mode) + 1) % MODES.length]! });
       else if (input2 === ' ' && cur?.kind === 'builtin') {
         const set = new Set(dlp.patterns);
@@ -148,7 +172,10 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
   const starR = (on: boolean) => <Text color={on ? theme.ok : theme.dim}>{on ? ' ✱' : ' ·'}</Text>;
 
   // ── build display lines (section headers + selectable entry rows) ─────────
-  const lines: Array<{ node: JSX.Element; entry: number }> = [];
+  // A line can hold FOUR selectable entries now, so each one carries the set of
+  // entry indexes it draws — the scroll window finds the line containing the
+  // cursor by membership, not by equality.
+  const lines: Array<{ node: JSX.Element; entries: number[] }> = [];
   const header = (key: string, label: string, extra?: string) =>
     lines.push({
       node: (
@@ -157,27 +184,40 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
           {extra ? <Text color={theme.dim}>{'  ' + extra}</Text> : null}
         </Text>
       ),
-      entry: -1,
+      entries: [],
     });
-  const note = (key: string, text: string) => lines.push({ node: <Text key={key} color={theme.dim} wrap="truncate">{text}</Text>, entry: -1 });
+  const note = (key: string, text: string) => lines.push({ node: <Text key={key} color={theme.dim} wrap="truncate">{text}</Text>, entries: [] });
 
   let ei = 0;
-  header('h:builtin', 'built-in secret patterns', 'space toggles on/off');
-  available.forEach((p) => {
-    const on = enabled.has(p);
-    const isCur = focused && ei === selC;
-    const idx = ei++;
+  const onCount = available.reduce((n, p) => n + (enabled.has(p) ? 1 : 0), 0);
+  header('h:builtin', 'built-in secret patterns', `${onCount}/${nB} on · space toggles · A all · U none`);
+  // Four to a row. The cell is sized from the panel, floored so a narrow
+  // terminal truncates names instead of wrapping the row (wrap="truncate" would
+  // then drop whole cells off the right and they would be unreachable).
+  const cellW = Math.max(12, Math.floor((cols - 1) / BCOLS));
+  for (let r = 0; r < nB; r += BCOLS) {
+    const row = available.slice(r, r + BCOLS);
     lines.push({
       node: (
-        <Text key={'b:' + p} wrap="truncate" backgroundColor={isCur ? '#1c2f63' : undefined} bold={isCur}>
-          <Text color={isCur ? theme.accentBright : theme.dim}>{isCur ? '▸ ' : '  '}</Text>
-          <Text color={on ? theme.ok : theme.dim}>{on ? '● ' : '○ '}</Text>
-          <Text color={on ? undefined : theme.dim}>{p}</Text>
+        <Text key={'brow:' + r} wrap="truncate">
+          {row.map((p, c) => {
+            const i = r + c;
+            const on = enabled.has(p);
+            const isCur = focused && i === selC;
+            return (
+              <Text key={p} backgroundColor={isCur ? '#1c2f63' : undefined} bold={isCur}>
+                <Text color={isCur ? theme.accentBright : theme.dim}>{isCur ? '▸' : ' '}</Text>
+                <Text color={on ? theme.ok : theme.dim}>{on ? '●' : '○'}</Text>
+                <Text color={on ? undefined : theme.dim}>{' ' + truncate(p, cellW - 4).padEnd(cellW - 3)}</Text>
+              </Text>
+            );
+          })}
         </Text>
       ),
-      entry: idx,
+      entries: row.map((_, c) => r + c),
     });
-  });
+  }
+  ei = nB;
 
   header('h:custom', 'custom patterns', 'a add · d remove');
   note('n:custom-help', '  * = any chars · green ✱ on a side = wildcard active there · e.g.  sk-*   *PRIVATE KEY*');
@@ -197,7 +237,7 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
           {starR(w.right)}
         </Text>
       ),
-      entry: idx,
+      entries: [idx],
     });
   });
 
@@ -205,7 +245,7 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
   const editRows = adding ? 1 : 0;
   const headerRows = 2 + editRows + (status ? 1 : 0);
   const budget = Math.max(3, rows - headerRows - 1);
-  const selLine = Math.max(0, lines.findIndex((l) => l.entry === selC));
+  const selLine = Math.max(0, lines.findIndex((l) => l.entries.includes(selC)));
   const maxStart = Math.max(0, lines.length - budget);
   const start = Math.min(Math.max(0, selLine - Math.floor(budget / 2)), maxStart);
   const win = lines.slice(start, start + budget);
@@ -224,7 +264,7 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
           </Text>
           <Text color={theme.dim} wrap="truncate">
             {focused
-              ? `↑↓ move · space on/off · m mode · a add · e/enter edit · d remove · s save · ^R refresh${moreAbove ? ` · ▲${moreAbove}` : ''}${moreBelow ? ` · ▼${moreBelow}` : ''}`
+              ? `↑↓←→ move · space on/off · A all · U none · m mode · a add · e edit · d remove · s save · x discard${moreAbove ? ` · ▲${moreAbove}` : ''}${moreBelow ? ` · ▼${moreBelow}` : ''}`
               : 'press → to edit'}
           </Text>
 

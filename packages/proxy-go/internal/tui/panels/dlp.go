@@ -1,6 +1,7 @@
 package panels
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -27,10 +28,25 @@ import (
 // field is named `re` on the wire, which is exactly why the prompts say glob
 // every time they are shown.
 //
+// The built-ins tile FOUR TO A ROW. There are seventy of them, and one per line
+// put the custom section four screens below the fold — nobody scrolled that far,
+// so nobody found it. The names are 23 characters at the longest, which fits
+// four across any terminal this TUI already asks for. The row is also the ↑↓
+// step; ←→ moves one cell, and ← from the leftmost column means back, because a
+// cursor already at the edge has nowhere else for that key to take it.
+//
+// `A` turns every built-in on and `U` turns every one off. Seventy space presses
+// was the only way to say "all of them", which is the common answer.
+//
 // The add editor is pinned at the TOP so what is being typed is always visible.
 // Self-protection lives in Settings, not here.
 
 var dlpModes = []api.LayerMode{api.LayerOff, api.LayerDetect, api.LayerBlock}
+
+// dlpCols is how many built-ins share a row. Fixed, not derived from the width:
+// the row is the ↑↓ stride, and a stride that changed with the terminal would
+// land the cursor somewhere different after every resize.
+const dlpCols = 4
 
 // dlpEntryKind discriminates the flattened cursor's rows.
 type dlpEntryKind int
@@ -131,6 +147,17 @@ func (p *DLP) Bound() api.SecurityLayers { return p.dlp }
 // CapturingKeys is true while the add/edit prompt is open, so the shell leaves
 // every key — including q and esc — to the prompt.
 func (p *DLP) CapturingKeys() bool { return p.adding != dlpAddNone }
+
+// WantsLeft is whether ← means something here right now.
+//
+// It does inside the built-in grid, where ← steps one cell to the left, and it
+// does not in the leftmost column or anywhere in the custom list. The owner asks
+// before it treats ← as "back", so the grid keeps its key and the panel still
+// has one that leaves it.
+func (p *DLP) WantsLeft() bool {
+	selC := p.selClamped()
+	return selC < len(p.available) && selC%dlpCols != 0
+}
 
 func (p *DLP) apply(ctx tui.PanelContext) {
 	p.cols, p.rows, p.focused, p.gen = ctx.Cols, ctx.Rows, ctx.Focused, ctx.Gen
@@ -258,11 +285,50 @@ func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
 		p.status = "⟳ refreshed " + time.Now().Format("15:04:05")
 		return p.load()
 
+	// The built-ins are a GRID and the custom patterns are a list, so ↑↓ means a
+	// different distance in each. Crossing between them lands on the nearest edge
+	// of the other section rather than skipping over it.
 	case "up":
-		p.sel = max(0, selC-1)
+		nB := len(p.available)
+		switch {
+		case selC >= nB && selC-1 >= nB:
+			p.sel = selC - 1
+		case selC >= nB:
+			p.sel = max(0, nB-1)
+		default:
+			p.sel = max(0, selC-dlpCols)
+		}
 
 	case "down":
-		p.sel = min(len(p.entries())-1, selC+1)
+		nB, total := len(p.available), len(p.entries())
+		switch {
+		case selC >= nB:
+			p.sel = min(total-1, selC+1)
+		case selC+dlpCols < nB:
+			p.sel = selC + dlpCols
+		default:
+			p.sel = min(total-1, nB)
+		}
+
+	case "left":
+		if selC < len(p.available) {
+			p.sel = max(0, selC-1)
+		}
+
+	case "right":
+		if nB := len(p.available); selC < nB {
+			p.sel = min(nB-1, selC+1)
+		}
+
+	// All on / all off. The custom patterns are a different list and are left
+	// exactly as they were: "every built-in" is not "everything".
+	case "A":
+		p.dlp.DLP.Patterns = append([]string(nil), p.available...)
+		p.mutated()
+
+	case "U":
+		p.dlp.DLP.Patterns = nil
+		p.mutated()
 
 	case "m":
 		i := 0
@@ -439,11 +505,14 @@ func starRight(on bool) (string, lipgloss.Style) {
 	return " ·", stDim
 }
 
-// dlpLine is one rendered row plus the entry index it selects (-1 for headers
-// and help notes, which the cursor skips).
+// dlpLine is one rendered row plus the entries it selects: `entry` is the first
+// of them and `span` is how many it holds — one for a custom row, up to dlpCols
+// for a row of the built-in grid. `entry` is -1 for headers and help notes,
+// which the cursor skips.
 type dlpLine struct {
 	text  string
 	entry int
+	span  int
 }
 
 func (p *DLP) View(ctx tui.PanelContext) string {
@@ -465,32 +534,51 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 		if extra != "" {
 			l.put("  "+extra, stDim)
 		}
-		lines = append(lines, dlpLine{l.String(), -1})
+		lines = append(lines, dlpLine{l.String(), -1, 0})
 	}
-	note := func(text string) { lines = append(lines, dlpLine{stDim.Render(text), -1}) }
+	note := func(text string) { lines = append(lines, dlpLine{stDim.Render(text), -1, 0}) }
 
-	ei := 0
-	header("built-in secret patterns", "space toggles on/off")
+	onCount := 0
 	for _, name := range p.available {
-		on := enabled[name]
-		isCur := p.focused && ei == selC
-		l := newLine(isCur)
-		cursorStyle := stDim
-		cursor := "  "
-		if isCur {
-			cursorStyle, cursor = stAccent, "▸ "
+		if enabled[name] {
+			onCount++
 		}
-		l.put(cursor, cursorStyle.Bold(isCur))
-		if on {
-			l.put("● ", stOK.Bold(isCur))
-			l.put(name, stPlain.Bold(isCur))
-		} else {
-			l.put("○ ", stDim.Bold(isCur))
-			l.put(name, stDim.Bold(isCur))
-		}
-		lines = append(lines, dlpLine{l.String(), ei})
-		ei++
 	}
+	header("built-in secret patterns", fmt.Sprintf("%d/%d on · space toggles · A all · U none", onCount, len(p.available)))
+	// The cell is sized from the panel and floored, so a narrow terminal
+	// truncates names rather than wrapping a row — a wrapped row would push its
+	// last cells past the clip, where they are unreachable but still selectable.
+	cellW := max(12, (p.cols-1)/dlpCols)
+	for r := 0; r < len(p.available); r += dlpCols {
+		end := min(r+dlpCols, len(p.available))
+		// newLine(false): the highlight is per CELL here, not per row, so each
+		// run carries its own background instead of the builder adding one.
+		l := newLine(false)
+		for i := r; i < end; i++ {
+			name := p.available[i]
+			on := enabled[name]
+			isCur := p.focused && i == selC
+			cursor, cursorStyle := " ", stDim
+			if isCur {
+				cursor, cursorStyle = "▸", stAccent
+			}
+			mark, markStyle := "○", stDim
+			nameStyle := stDim
+			if on {
+				mark, markStyle, nameStyle = "●", stOK, stPlain
+			}
+			if isCur {
+				cursorStyle = cursorStyle.Background(selColor).Bold(true)
+				markStyle = markStyle.Background(selColor).Bold(true)
+				nameStyle = nameStyle.Background(selColor).Bold(true)
+			}
+			l.put(cursor, cursorStyle)
+			l.put(mark, markStyle)
+			l.put(" "+pad(truncate(name, cellW-4), cellW-3), nameStyle)
+		}
+		lines = append(lines, dlpLine{l.String(), r, end - r})
+	}
+	ei := len(p.available)
 
 	header("custom patterns", "a add · d remove")
 	note("  * = any chars · green ✱ on a side = wildcard active there · e.g.  sk-*   *PRIVATE KEY*")
@@ -513,7 +601,7 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 		l.put(truncate(core, max(6, p.cols-len([]rune(c.Name))-14)), stDim.Bold(isCur))
 		txt, st = starRight(right)
 		l.put(txt, st.Bold(isCur))
-		lines = append(lines, dlpLine{l.String(), ei})
+		lines = append(lines, dlpLine{l.String(), ei, 1})
 		ei++
 	}
 
@@ -531,7 +619,7 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 
 	selLine := 0
 	for i, l := range lines {
-		if l.entry == selC {
+		if l.entry >= 0 && selC >= l.entry && selC < l.entry+l.span {
 			selLine = i
 			break
 		}
@@ -562,11 +650,11 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 
 	hint := "press → to edit"
 	if p.focused {
-		tail := " · s save · ^R refresh"
+		tail := " · s save · x discard · ^R refresh"
 		if p.bound {
-			tail = " · s save · ← back"
+			tail = " · s save · x discard · esc back"
 		}
-		hint = "↑↓ move · space on/off · m mode · a add · e/enter edit · d remove" +
+		hint = "↑↓←→ move · space on/off · A all · U none · m mode · a add · e edit · d remove" +
 			tail + scrollTag(above, below)
 	}
 	out = append(out, stDim.Render(hint))

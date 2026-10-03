@@ -49,14 +49,22 @@ type streamItem struct {
 	// Args is what the guard RECORDED, verbatim, for the w/b keys to build a rule
 	// from. Detail is the same JSON collapsed onto one line for display, and it was
 	// what the action re-parsed — a display string standing in for data.
-	Args    json.RawMessage `json:"-"`
-	DLP     bool            `json:"dlp"`
-	Burst   bool            `json:"burst"`
-	Source  string          `json:"source"` // "local" | "cloud"
-	Session string          `json:"session,omitempty"`
-	Agent   string          `json:"agent,omitempty"`
-	EvalMs  *float64        `json:"evalMs,omitempty"`
-	Rule    string          `json:"rule,omitempty"`
+	Args json.RawMessage `json:"-"`
+	// Reason is the guard's own sentence for the decision, kept SEPARATE from
+	// Detail. Detail is the arguments or the reason, whichever exists, so on a
+	// call with arguments — which is every real one — the reason was dropped and
+	// the inspector had nothing to explain the refusal with.
+	Reason string `json:"reason,omitempty"`
+	DLP    bool   `json:"dlp"`
+	// DLPNames is which patterns fired. The bool above drives the chip and the
+	// filter; the names are what tell somebody WHICH secret was found.
+	DLPNames []string `json:"dlpNames,omitempty"`
+	Burst    bool     `json:"burst"`
+	Source   string   `json:"source"` // "local" | "cloud"
+	Session  string   `json:"session,omitempty"`
+	Agent    string   `json:"agent,omitempty"`
+	EvalMs   *float64 `json:"evalMs,omitempty"`
+	Rule     string   `json:"rule,omitempty"`
 }
 
 func (e streamItem) row() StreamRow {
@@ -612,12 +620,26 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 		// is what keeps every row's id unique.
 		id := "l:" + strconv.FormatInt(j.At, 10) + ":" + j.Tool + ":" + strconv.Itoa(p.localSeq)
 		p.localSeq++
+		// The structured dlp field is an array of pattern names when it is there
+		// at all. When it is not, the reason carries the name — it is written at
+		// block time and never redacted — which is what reasonSignals reads.
+		var dlpNames []string
+		if len(j.DLP) > 0 {
+			_ = json.Unmarshal(j.DLP, &dlpNames)
+		}
+		fromReason, burstFromReason := reasonSignals(j.Reason)
+		if len(dlpNames) == 0 {
+			dlpNames = fromReason
+		}
 		fresh = append(fresh, streamItem{
 			ID: id, At: j.At, Tool: tool, Decision: decision,
 			Permission: truncate4(j.Permission), Detail: collapseSpace(detail),
-			Args:  j.Arguments,
-			DLP:   len(j.DLP) > 0 && string(j.DLP) != "null" && string(j.DLP) != "false",
-			Burst: j.RateLimitBurst, Source: "local", Session: j.SessionID,
+			Args:     j.Arguments,
+			Reason:   j.Reason,
+			DLP:      len(j.DLP) > 0 && string(j.DLP) != "null" && string(j.DLP) != "false",
+			DLPNames: dlpNames,
+			Burst:    j.RateLimitBurst || burstFromReason,
+			Source:   "local", Session: j.SessionID,
 			Agent: j.AgentName, EvalMs: j.EvaluationTimeMs, Rule: j.MatchedRuleID,
 		})
 	}
@@ -1432,11 +1454,17 @@ func (p *Live) viewHelp(ctx PanelContext, width int, now int64) []string {
 func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 	e := *p.inspect
 	bodyW := maxInt(20, ctx.Cols-4)
-	detail := e.Detail
-	if strings.TrimSpace(detail) == "" {
-		detail = "(no arguments / reason recorded)"
+	// WHY FIRST, arguments second. On a big call the arguments are a screen of
+	// JSON, and the one thing somebody opened this view to find is the sentence
+	// explaining why it was refused.
+	content := whyBlock(e.Decision, e.Reason, e.Rule, e.DLPNames, e.Burst, bodyW)
+	argsText := "(no arguments recorded)"
+	if len(e.Args) > 0 && string(e.Args) != "null" {
+		argsText = prettyJson(string(e.Args))
+	} else if len(content) == 0 && strings.TrimSpace(e.Detail) != "" {
+		argsText = e.Detail
 	}
-	content := wrapLines(prettyJson(detail), bodyW)
+	content = append(content, wrapLines(argsText, bodyW)...)
 	bodyRows := maxInt(4, ctx.Rows-6) // title + 3 header rows + pane title + footer
 	maxScroll := maxInt(0, len(content)-bodyRows)
 	off := minInt(p.inspectScroll, maxScroll)

@@ -255,3 +255,65 @@ func helpBlock(groups []helpGroup, keyWidth, width int) []string {
 	}
 	return out
 }
+
+// ── why a call was refused ─────────────────────────────────────────────────
+
+// whyBlock is the WHY of one entry, rendered above its arguments.
+//
+// The detail view used to open on the arguments alone. For a one-line command
+// that was almost readable — the rule id sat in the header and the rest could be
+// guessed. For a real tool call it was a screen of JSON with the answer nowhere
+// on it: the reason the guard gave was recorded, and thrown away at display
+// time, because the row's `detail` field holds the arguments OR the reason and
+// a call with arguments always took the first branch.
+//
+// So the three things that refuse a call now say so in words, before the
+// payload: which layer it was (policy rule, rate limit, DLP), and the guard's
+// own sentence explaining it. That sentence is the reliable one — it is written
+// at block time and never redacted, which is why reasonSignals reads the DLP
+// pattern name back out of it when the structured field is missing.
+//
+// Returns nil when there is nothing to say, so an ordinary ALLOW still opens
+// straight onto its arguments.
+func whyBlock(decision, reason, rule string, dlp []string, burst bool, width int) []string {
+	if strings.TrimSpace(reason) == "" && len(dlp) == 0 && !burst {
+		return nil
+	}
+
+	// WHICH LAYER, named before the sentence that explains it. A rate limit and
+	// a DLP hit are not rule denials and looking for a rule id to explain them is
+	// what makes them confusing.
+	what := ""
+	switch {
+	case burst && len(dlp) > 0:
+		what = "rate limit · DLP: " + strings.Join(dlp, ", ")
+	case burst:
+		what = "rate limit"
+	case len(dlp) > 0:
+		what = "DLP: " + strings.Join(dlp, ", ")
+	case rule != "":
+		what = "rule " + rule
+	}
+
+	// An ALLOW that carries a DLP or burst signal is detect mode: recorded and
+	// let through. Labelling that "ALLOW" beside a DLP pattern reads as a
+	// contradiction, so it is labelled as what it is.
+	key := decision
+	if decision == "ALLOW" && (burst || len(dlp) > 0) {
+		key = "flagged"
+	}
+
+	label := func(k, v string) []string { return wrapLines(padEnd(k, 10)+v, width) }
+
+	var out []string
+	if what != "" {
+		out = append(out, label(key, what)...)
+	}
+	if r := strings.TrimSpace(reason); r != "" {
+		out = append(out, label("reason", r)...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return append(out, "")
+}

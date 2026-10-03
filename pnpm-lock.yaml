@@ -46,25 +46,6 @@ importers:
       zod:
         specifier: ^3.25.0
         version: 3.25.76
-    optionalDependencies:
-      '@solongate/guard-darwin-arm64':
-        specifier: 0.91.25
-        version: 0.91.25
-      '@solongate/guard-darwin-x64':
-        specifier: 0.91.25
-        version: 0.91.25
-      '@solongate/guard-linux-arm64':
-        specifier: 0.91.25
-        version: 0.91.25
-      '@solongate/guard-linux-x64':
-        specifier: 0.91.25
-        version: 0.91.25
-      '@solongate/guard-win32-arm64':
-        specifier: 0.91.25
-        version: 0.91.25
-      '@solongate/guard-win32-x64':
-        specifier: 0.91.25
-        version: 0.91.25
     devDependencies:
       '@open-policy-agent/opa-wasm':
         specifier: ^1.10.0
@@ -550,36 +531,6 @@ packages:
 
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     resolution: {integrity: sha512-2HRCml6OztYXyJXAvdDXPKcawukWY2GpR5/nxKp4iBgiO3wcoEGkAaqctIbZcNB6KlUQBIqt8VYkNSj2397EfA==}
-    cpu: [x64]
-    os: [win32]
-
-  '@solongate/guard-darwin-arm64@0.91.25':
-    resolution: {integrity: sha512-RYXgnW48NBtPMoL/hGglcIMri0jEvGBFWYNq73IMmPz2IOAZteAevnPEz1l2AgDAcvjsFZnCJBIXmze+7x++YQ==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@solongate/guard-darwin-x64@0.91.25':
-    resolution: {integrity: sha512-utipowYreNVVX9eCtySe6WUtS69J7C8DS9O/1zwAzagvAy65GRcVysXm6xN7/F04Mx+CAiE11EikiVMZpNlGjA==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@solongate/guard-linux-arm64@0.91.25':
-    resolution: {integrity: sha512-aWf2phuAzWMQ7kzsKhDyZj/qVMUdFSZqzRAyfDqYm6KWt3BDZfO42wzoD2pxejO5UZ4CZzbbExyd7UoNWRfsPQ==}
-    cpu: [arm64]
-    os: [linux]
-
-  '@solongate/guard-linux-x64@0.91.25':
-    resolution: {integrity: sha512-ah4iWqxuHinFwTfw+kpairKlgLdAXBAJRtVZs6tJNaLfNMXwah28PCcikvd2KTBY4u080GF+DgRP9BvoZd1ZsQ==}
-    cpu: [x64]
-    os: [linux]
-
-  '@solongate/guard-win32-arm64@0.91.25':
-    resolution: {integrity: sha512-QZz4jthmoHCwg4LN5QshL8QyCLBRFdgQMq1cFt7gjXJcH2RWPmJ0y2BER0ZdiSWYFK/KsN6FHndNIMC9W4BmZw==}
-    cpu: [arm64]
-    os: [win32]
-
-  '@solongate/guard-win32-x64@0.91.25':
-    resolution: {integrity: sha512-HweGdPWA64t5TfSsJ2dwl3MZ7gzRKeeYYEJ8yXconiScrPpFiZfgfpgG4vEFjz5b4gpceOdgAITmU6TVFmuxrw==}
     cpu: [x64]
     os: [win32]
 
@@ -1678,24 +1629,6 @@ snapshots:
     optional: true
 
   '@rollup/rollup-win32-x64-msvc@4.59.0':
-    optional: true
-
-  '@solongate/guard-darwin-arm64@0.91.25':
-    optional: true
-
-  '@solongate/guard-darwin-x64@0.91.25':
-    optional: true
-
-  '@solongate/guard-linux-arm64@0.91.25':
-    optional: true
-
-  '@solongate/guard-linux-x64@0.91.25':
-    optional: true
-
-  '@solongate/guard-win32-arm64@0.91.25':
-    optional: true
-
-  '@solongate/guard-win32-x64@0.91.25':
     optional: true
 
   '@types/estree@1.0.8': {}

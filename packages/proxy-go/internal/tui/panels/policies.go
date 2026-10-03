@@ -1550,11 +1550,11 @@ func (p *Policies) layerSummary(layer int) (string, lipgloss.Style) {
 
 var polLayerNames = [layerCount]string{"Rules", "Secret detectors", "Rate limit"}
 
-var polLayerNotes = [layerCount]string{
-	"what is allowed and what is denied",
-	"what counts as a secret, and the paths to hide",
-	"how many calls, per minute, hour and day",
-}
+// A second, dimmer line used to sit under each layer explaining what it was for —
+// "what is allowed and what is denied" under Rules, and so on. It doubled the height
+// of the card to restate the three names next to it, and it never changed, so after
+// the first read it was three lines of furniture between the reader and the numbers
+// they came for.
 
 // viewPolicyBody is one policy: its variants along the top, its three layers
 // under them. It is the dashboard's policy card, which is always open and whose
@@ -1611,7 +1611,6 @@ func (p *Policies) viewPolicyBody() string {
 		text, st := p.layerSummary(i)
 		l.put(pad(truncate(text, max(10, p.cols-42)), max(10, p.cols-42)), st)
 		out = append(out, l.String())
-		out = append(out, stDim.Render(truncate("    "+polLayerNotes[i], p.cols)))
 	}
 
 	if p.unreadable > 0 {

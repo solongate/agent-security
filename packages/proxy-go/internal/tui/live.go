@@ -1917,7 +1917,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			// A beat is a different KIND of line from an event: it says the console is
 			// alive, not that something happened. Marked and dimmed so a denial still
 			// stands out in a column that now has one of these every second.
-			mark, tickColor = "♥ ", theme.OK
+			mark, tickColor = "• ", theme.OK
 		}
 		eventCol = append(eventCol, renderRow(colW,
 			sg(hhmmss(l.ts)+" ", theme.Dim),

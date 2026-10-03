@@ -262,12 +262,26 @@ func opaReason(reason, fallback string) string {
 	return "[SolonGate OPA] " + reason
 }
 
-// ── Deterministic fallback ───────────────────────────────────────────────────
+// MORE THAN ONE WILDCARD IS A PATTERN, not a literal asterisk.
 //
-// Used only when the policy will not compile. It applies the same two modes
-// with a literal matcher and no engine, which is what keeps a broken policy
-// from reading as an empty one.
-
+// This used to branch on where the stars were: one at each end meant "contains", one at
+// the start meant "ends with", one at the end meant "begins with", and exactly one in the
+// middle meant prefix-plus-suffix. Any other arrangement fell through to a comparison
+// against the pattern WITH THE ASTERISK STILL IN IT, so these matched nothing at all:
+//
+//	https://*.github.com/*     written to allow GitHub; allowed nothing
+//	git push * --force*        written to block force-pushes; blocked nothing
+//
+// Both read correctly in `policy show`, which is the whole problem: a rule that enforces
+// nothing is indistinguishable from one that enforces something until the day it was
+// supposed to stop a call and did not. The second of those two is a rule somebody wrote
+// precisely because they did not trust themselves to remember.
+//
+// The implementation is a scan rather than a compiled regexp, deliberately. These
+// patterns come out of a policy file, a star run like `a***b` is a sequence somebody
+// types by accident, and a backtracking engine turns that into a stall in the one code
+// path that runs before every tool call. This walks the string once per segment and can
+// do no worse.
 func MatchGlob(str, pattern string) bool {
 	if pattern == "*" {
 		return true
@@ -277,23 +291,39 @@ func MatchGlob(str, pattern string) bool {
 	if s == p {
 		return true
 	}
-	startsW := strings.HasPrefix(p, "*")
-	endsW := strings.HasSuffix(p, "*")
-	if startsW && endsW {
-		infix := p[1 : len(p)-1]
-		return infix != "" && strings.Contains(s, infix)
+	if !strings.Contains(p, "*") {
+		return false
 	}
-	if startsW {
-		return strings.HasSuffix(s, p[1:])
+
+	parts := strings.Split(p, "*")
+
+	// The first segment is anchored to the start unless the pattern opened with a star.
+	if parts[0] != "" {
+		if !strings.HasPrefix(s, parts[0]) {
+			return false
+		}
+		s = s[len(parts[0]):]
 	}
-	if endsW {
-		return strings.HasPrefix(s, p[:len(p)-1])
+
+	// Each middle segment must appear, in order, after the one before it. Earliest match
+	// wins: a later one can only make the remaining suffix shorter, never longer, so
+	// taking the first occurrence never loses a match that a later one would have found.
+	for _, part := range parts[1 : len(parts)-1] {
+		if part == "" {
+			continue // a run of stars is one star
+		}
+		i := strings.Index(s, part)
+		if i < 0 {
+			return false
+		}
+		s = s[i+len(part):]
 	}
-	if idx := strings.Index(p, "*"); idx != -1 {
-		pre, suf := p[:idx], p[idx+1:]
-		return strings.HasPrefix(s, pre) && strings.HasSuffix(s, suf) && len(s) >= len(pre)+len(suf)
+
+	// And the last is anchored to the end unless the pattern closed with a star.
+	if last := parts[len(parts)-1]; last != "" {
+		return strings.HasSuffix(s, last)
 	}
-	return false
+	return true
 }
 
 // PathPatternRegex compiles a path pattern to an anchored regular expression

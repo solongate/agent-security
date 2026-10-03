@@ -141,6 +141,66 @@ func ScanStrings(v interface{}) []string {
 	return out
 }
 
+// WHAT A CALL ACTS ON, as opposed to what it says.
+//
+// ScanStrings walks every string in a tool call, which is what the scanners want: a
+// secret can be anywhere, so DLP has to look everywhere. A PATH rule is a different
+// question — it is about the file a call touches — and asking it of every string turned
+// the TEXT of a file into a path:
+//
+//	Write { file_path: "notes.md", content: "keys live under the home key folder" }
+//
+// tripped a rule naming that folder, because the content mentions it. Writing
+// documentation, a test, or a config example that merely NAMES a protected path was
+// blocked, and the message quoted the whole file as the offending path.
+//
+// Tamper protection learned this first and says so in its own comment: it reads target
+// path fields only, "never the free-form content/body, which would false-positive on any
+// file that merely mentions a protected path in its text". Policy path rules mean the
+// same thing and now behave the same way.
+//
+// A DENYLIST OF CONTENT FIELDS, not an allowlist of path fields, and the difference
+// matters. An allowlist stops seeing a path that arrives in a field nobody listed, which
+// is a hole; this only stops reading the fields that are prose by definition, so an
+// unknown field carrying a path is still a path.
+//
+// `command` is deliberately absent: an exec call keeps its paths there and the caller
+// already tokenises it. So are `patch` and `diff`, where Codex keeps the target of a
+// file edit.
+var contentFields = map[string]bool{
+	"content": true, "body": true, "text": true,
+	"new_string": true, "old_string": true, "newstring": true, "oldstring": true,
+	"replacement": true, "prompt": true, "instructions": true,
+	"description": true, "message": true,
+}
+
+// ScanTargetStrings is ScanStrings without the fields that hold prose.
+func ScanTargetStrings(v interface{}) []string {
+	var out []string
+	var walk func(interface{})
+	walk = func(v interface{}) {
+		switch t := v.(type) {
+		case string:
+			if s := strings.TrimSpace(t); s != "" {
+				out = append(out, s)
+			}
+		case []interface{}:
+			for _, item := range t {
+				walk(item)
+			}
+		case map[string]interface{}:
+			for _, k := range SortedKeys(t) {
+				if contentFields[strings.ToLower(k)] {
+					continue
+				}
+				walk(t[k])
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
 func LooksLikeFilename(s string) bool {
 	if strings.HasPrefix(s, ".") {
 		return true
@@ -237,7 +297,7 @@ func ExtractFilenames(args map[string]interface{}) []string {
 			names = append(names, n)
 		}
 	}
-	for _, s := range ScanStrings(normalized) {
+	for _, s := range ScanTargetStrings(normalized) {
 		if HTTPPrefix.MatchString(s) {
 			continue
 		}
@@ -368,7 +428,7 @@ func ExtractPaths(args map[string]interface{}, isExec bool) []string {
 			paths = append(paths, strings.ReplaceAll(t, "\\", "/"))
 		}
 	}
-	for _, s := range ScanStrings(args) {
+	for _, s := range ScanTargetStrings(args) {
 		if HTTPPrefix.MatchString(s) {
 			continue
 		}

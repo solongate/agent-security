@@ -13,27 +13,31 @@ import { createRequire } from "node:module";
 function matchGlob(str, pattern) {
   if (pattern === "*")
     return true;
-  const s = str.toLowerCase();
+  const s0 = str.toLowerCase();
   const p = pattern.toLowerCase();
-  if (s === p)
+  if (s0 === p)
     return true;
-  const startsW = p.startsWith("*");
-  const endsW = p.endsWith("*");
-  if (startsW && endsW) {
-    const infix = p.slice(1, -1);
-    return infix.length > 0 && s.includes(infix);
+  if (!p.includes("*"))
+    return false;
+  const parts = p.split("*");
+  let s = s0;
+  if (parts[0] !== "") {
+    if (!s.startsWith(parts[0]))
+      return false;
+    s = s.slice(parts[0].length);
   }
-  if (startsW)
-    return s.endsWith(p.slice(1));
-  if (endsW)
-    return s.startsWith(p.slice(0, -1));
-  const idx = p.indexOf("*");
-  if (idx !== -1) {
-    const pre = p.slice(0, idx);
-    const suf = p.slice(idx + 1);
-    return s.startsWith(pre) && s.endsWith(suf) && s.length >= pre.length + suf.length;
+  for (const part of parts.slice(1, -1)) {
+    if (part === "")
+      continue;
+    const i = s.indexOf(part);
+    if (i < 0)
+      return false;
+    s = s.slice(i + part.length);
   }
-  return false;
+  const last = parts[parts.length - 1];
+  if (last !== "")
+    return s.endsWith(last);
+  return true;
 }
 function matchPathGlob(path, pattern) {
   const p = path.replace(/\\/g, "/").toLowerCase();
@@ -104,7 +108,7 @@ function extractFilenames(args) {
   args = normalizeArgs(args);
   const names = /* @__PURE__ */ new Set();
   const dequote = (t) => t.replace(/^["'`]+/, "").replace(/["'`]+$/, "");
-  for (const s of scanStrings(args)) {
+  for (const s of scanTargetStrings(args)) {
     if (/^https?:\/\//i.test(s))
       continue;
     const tokens = s.includes(" ") ? s.split(/\s+/) : [s];
@@ -174,6 +178,45 @@ function extractCommands(args) {
   }
   return cmds;
 }
+var CONTENT_FIELDS = /* @__PURE__ */ new Set([
+  "content",
+  "body",
+  "text",
+  "new_string",
+  "old_string",
+  "newstring",
+  "oldstring",
+  "replacement",
+  "prompt",
+  "instructions",
+  "description",
+  "message"
+]);
+function scanTargetStrings(v) {
+  const out = [];
+  const walk = (x) => {
+    if (typeof x === "string") {
+      const s = x.trim();
+      if (s)
+        out.push(s);
+      return;
+    }
+    if (Array.isArray(x)) {
+      for (const item of x)
+        walk(item);
+      return;
+    }
+    if (x && typeof x === "object") {
+      for (const k of Object.keys(x).sort()) {
+        if (CONTENT_FIELDS.has(k.toLowerCase()))
+          continue;
+        walk(x[k]);
+      }
+    }
+  };
+  walk(v);
+  return out;
+}
 function extractPaths(args, isExec) {
   const paths = [];
   const add = (t) => {
@@ -182,7 +225,7 @@ function extractPaths(args, isExec) {
     if (t.includes("/") || t.includes("\\") || t.startsWith("."))
       paths.push(t.replace(/\\/g, "/"));
   };
-  for (const s of scanStrings(args)) {
+  for (const s of scanTargetStrings(args)) {
     if (/^https?:\/\//i.test(s))
       continue;
     if (isExec && /\s/.test(s)) {

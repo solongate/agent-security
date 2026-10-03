@@ -688,8 +688,8 @@ var auditHelp = []helpGroup{
 		{"/", "free-text search"},
 		{"x", "delete ONLY the selected entry (press x twice)"},
 		{"X", "delete ALL matched logs of the source (press X twice)"},
-		{"e", "export this page → ~/.solongate/audit-export-<src>.jsonl"},
-		{"E", "export ALL matched rows (cloud: up to 10k)"},
+		{"e", "export this page → ~/.solongate/audit-export.jsonl"},
+		{"E", "export ALL matched rows"},
 		{"c", "clear every filter (incl. session)"},
 	}},
 	{"Sessions", [][2]string{
@@ -699,9 +699,13 @@ var auditHelp = []helpGroup{
 		{"/", "search agent / session id"},
 		{"c", "clear session filters"},
 	}},
+	// `s`, "switch source cloud ↔ local file", was listed here and bound to nothing.
+	// The second source went when the cloud did — both paths read the same file now,
+	// as the comment at the top of this file says — but the key stayed in the help,
+	// advertising a thing that does not exist and a toggle that does nothing. The
+	// export rows named it too.
 	{"Anywhere in Audit", [][2]string{
 		{"v", "switch logs ↔ sessions"},
-		{"s", "switch source cloud ↔ local file"},
 		{"space", "copy mode: freeze screen for mouse selection"},
 		{"?", "this help · any key closes"},
 		{"esc", "back to the menu"},

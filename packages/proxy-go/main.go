@@ -403,15 +403,12 @@ func printHelp() {
 		term.Dim, term.Reset, term.Cyan, term.Reset, term.Dim, term.Reset, term.Dim, term.Reset)
 
 	head("Setup & status")
-	cmd("solongate", "open the dataroom UI (login, policies, audit, settings)")
-	cmd("update auto on|off", "background auto-update (default off — on macOS npm -g often needs sudo)")
+	cmd("solongate", "open the dataroom: policies, audit, settings")
+	cmd("update", "pull the newest version and reinstall it")
 	cmd("repair", "restore the guard + hook + settings files if they were deleted or disarmed")
-	cmd("doctor", "health check: login, policy, guard, local logs")
-	cmd("trace [--limit N]", "what the guard saw in this directory, allows included")
+	cmd("doctor", "health check: policy, guard, hooks, local logs")
 	cmd("doctor --json", "the same health check as machine-readable JSON")
-	cmd("browser status", "the Shadow AI agent, and which browsers ask it")
-	cmd("browser start|stop", "run or stop the agent that answers a browser")
-	cmd("browser enable firefox|edge|chrome", "point a browser at the agent")
+	cmd("trace [--limit N]", "what the guard saw in this directory, allows included")
 
 	head("Policies")
 	cmd("policy list", "list all policies")
@@ -426,7 +423,6 @@ func printHelp() {
 	cmd("policy revoke <id> <ruleId>", "remove a rule")
 	cmd("policy activate <id> | --off", "pin the active policy, or enforce nothing")
 	cmd("policy active", "show the resolved active policy")
-	cmd("policy dry-run <id|file.json> [--mode denylist|whitelist]", "replay recent traffic against rules")
 
 	head("Rate limits")
 	cmd("ratelimit show", "current limits + change history")
@@ -443,14 +439,8 @@ func printHelp() {
 
 	head("Monitoring")
 	cmd("audit [--filter ALLOW|DENY] [--tool <s>] [--signal dlp|ratelimit] [--limit N]", "browse the audit log")
-	cmd("audit whitelist <logId> [--scope exact|tool]", "turn a denial into an ALLOW rule")
-	cmd("audit block <logId> [--scope exact|tool]", "turn a call into a DENY rule")
-	cmd("stats [timeseries|drift]", "traffic & security statistics")
+	cmd("stats", "traffic & security statistics")
 	cmd("watch [--filter DENY] [--tool <s>]", "live-tail tool calls (Ctrl+C to stop)")
-	cmd("sessions [--all]", "live agent-session feed (calls, denies, trust)")
-	cmd("session <id>", "one session's detail")
-
-	printPortStatus()
 
 	fmt.Println("")
 	fmt.Printf("  %sAdd %s%s--json%s%s to most read commands for machine output.%s\n",
@@ -460,13 +450,8 @@ func printHelp() {
 	fmt.Println("")
 }
 
-// printPortStatus is temporary and goes away with the last stub. While this
-// build still has stubs in it, the help text above must not read as a list of
-// things that work.
-func printPortStatus() {
-	fmt.Println("")
-	fmt.Printf("  %sThis is the Go build. The management commands (policy, ratelimit, dlp,%s\n", term.Dim, term.Reset)
-	fmt.Printf("  %sstats, audit, sessions, session, doctor, watch, alerts, webhooks) run%s\n", term.Dim, term.Reset)
-	fmt.Printf("  %shere. Anything still marked \"not ported yet\" runs from the npm package:%s\n", term.Dim, term.Reset)
-	fmt.Printf("  %s%snpx @solongate/proxy <command>%s\n", term.Reset, term.Cyan, term.Reset)
-}
+// A "This is the Go build … anything still marked not ported yet runs from the npm
+// package" footer stood here, naming sessions, alerts and webhooks among the commands
+// that "run here". None of those three exist, the port has no stubs left (see
+// TestStubsDoNotReportSuccess), and a footer explaining a migration is not something a
+// person typing --help needs to read.

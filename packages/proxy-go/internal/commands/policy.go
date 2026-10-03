@@ -404,14 +404,17 @@ func printRules(rules api.Rules) {
 		if desc == "" {
 			desc = "-"
 		}
+		kind, pattern := ruleMatch(r)
 		out = append(out, []string{
 			effect,
 			strconv.Itoa(r.Priority),
 			dim(r.ID),
-			truncate(desc, 40),
+			kind,
+			truncate(pattern, 34),
+			truncate(desc, 30),
 		})
 	}
-	table([]string{"EFFECT", "PRIO", "ID", "DESCRIPTION"}, out)
+	table([]string{"EFFECT", "PRIO", "ID", "ON", "PATTERN", "DESCRIPTION"}, out)
 	// A rule that will not decode is still enforced by the cloud. Printing the
 	// readable ones and saying nothing would show a policy that looks narrower
 	// than the one actually in force.
@@ -469,4 +472,51 @@ func mustJSON(v any) json.RawMessage {
 		return json.RawMessage(`{}`)
 	}
 	return b
+}
+
+// ruleMatch is WHAT A RULE ACTUALLY MATCHES, which this table did not show.
+//
+// The columns were effect, priority, id and description, and the description is free
+// text somebody may never have written. A rule added from the dataroom has none, so it
+// printed as:
+//
+//	DENY  100  rule-1791039653150  -
+//
+// — a rule that is enforcing something, in a list of what is enforced, with no way to
+// tell what. The kind and the pattern are not decoration; they are the rule.
+//
+// Read from the constraint sets rather than parsed back out of the description, because
+// the description is a label and these are the thing itself. A rule with none of them
+// constrains the TOOL, which is what its tool pattern says.
+func ruleMatch(r api.PolicyRule) (kind, pattern string) {
+	for _, c := range []struct {
+		name string
+		set  *api.Constraint
+	}{
+		{"command", r.CommandConstraints},
+		{"filename", r.FilenameConstraints},
+		{"url", r.URLConstraints},
+	} {
+		if c.set == nil {
+			continue
+		}
+		if len(c.set.Denied) > 0 {
+			return c.name, strings.Join(c.set.Denied, ", ")
+		}
+		if len(c.set.Allowed) > 0 {
+			return c.name, strings.Join(c.set.Allowed, ", ")
+		}
+	}
+	if p := r.PathConstraints; p != nil {
+		if len(p.Denied) > 0 {
+			return "path", strings.Join(p.Denied, ", ")
+		}
+		if len(p.Allowed) > 0 {
+			return "path", strings.Join(p.Allowed, ", ")
+		}
+	}
+	if r.ToolPattern != "" && r.ToolPattern != "*" {
+		return "tool", r.ToolPattern
+	}
+	return "tool", "*"
 }

@@ -110,6 +110,11 @@ solongate dlp remove-custom internal-id
 - **A bad regex must be refused at add time**, not stored and skipped later.
 - **`detect` and `block` must differ.** Section 2 has the pair that shows it.
 
+In the TUI's DLP panel the seventy built-ins tile **four to a row** — `↑↓` steps a
+whole row, `←→` steps one cell, `A` turns every built-in on and `U` turns every
+one off. Check the pair: `A` then `s` then `dlp show` should list all seventy as
+on, and `U` then `s` should list none. Neither touches your custom patterns.
+
 ### Rate limits
 
 ```bash
@@ -120,6 +125,10 @@ solongate ratelimit set --mode detect
 solongate ratelimit history               # the changes above, in order
 solongate ratelimit set --mode off
 ```
+
+The TUI's Rate limit panel is draft-only like Policies and DLP: `s` writes, `x`
+throws the draft away. Nudge a limit with `←→`, press `x`, and the panel must
+return to the saved number with the unsaved marker gone — then `esc` back out.
 
 ### The rest
 
@@ -209,6 +218,111 @@ says so. `solongate doctor` reports it.
 
 **Hooks load at session start.** A client that was already open when you
 installed is not guarded. Restart it before concluding anything.
+
+---
+
+## 3.1 The run sheet — every constraint type, on every client
+
+Section 2 proves each rule kind once and section 3 proves each client speaks.
+This is the cross product, because that is where it actually breaks: a constraint
+type can work on three clients and not the fourth, and nothing in a single-client
+session would tell you. Ten checks per client, forty in all.
+
+Each client gets the SAME ten. Work one client all the way down before moving on
+— a client has to be restarted to pick the guard up, so switching clients mid
+column costs a restart every time.
+
+**Before each client's column:** restart that client (hooks load at session
+start), then run `solongate doctor` and confirm its row says *guard registered*.
+
+**Both directions on every row.** Each row below has a call that must be refused
+AND a call that must go through. A rule that blocks everything passes every
+"was it blocked?" check ever written, so the second half of each row is the half
+that finds walls.
+
+### The ten checks
+
+| # | Constraint | You set | Ask the agent | Expect |
+| --- | --- | --- | --- | --- |
+| 1 | command · DENY | `policy deny <id> --command 'curl *'` | `curl https://example.com` | **blocked**, reason names the rule |
+| 2 | command · ALLOW | `policy mode <id> whitelist` + `policy allow <id> --command 'ls *'` | `ls` then `cat /etc/hosts` | `ls` **allowed**, `cat` **blocked** |
+| 3 | path · DENY | `policy deny <id> --path '/etc/*'` | read `/etc/hosts` | **blocked** |
+| 4 | path · ALLOW | `policy mode <id> whitelist` + `policy allow <id> --path '<repo>/*'` | read a repo file, then `~/.ssh/config` | repo file **allowed**, `~/.ssh` **blocked** |
+| 5 | filename · DENY | `policy deny <id> --filename '*.pem'` | read any `.pem`, then a `.txt` *containing* the text `.pem` | `.pem` **blocked**, `.txt` **allowed** (name, not content) |
+| 6 | filename · ALLOW | `policy mode <id> whitelist` + `policy allow <id> --filename '*.ts'` | read a `.ts`, then a `.env` | `.ts` **allowed**, `.env` **blocked** |
+| 7 | url · DENY | `policy deny <id> --url '*example.com*'` | fetch `https://example.com`, then `https://anthropic.com` | example.com **blocked**, the other **allowed** |
+| 8 | url · ALLOW | `policy mode <id> whitelist` + `policy allow <id> --url '*docs.anthropic.com*'` | fetch the allowed host, then any other | allowed host **allowed**, other **blocked** |
+| 9 | DLP | `dlp mode block` + a real-looking key in a file | read that file, then re-run under `dlp mode detect` | **blocked**/redacted, then **allowed** + hit recorded |
+| 10 | rate limit | `ratelimit set --minute 3 --mode block` | four quick commands, then the same under `--mode detect` | 4th **blocked**, then all four **allowed** + recorded |
+
+`<id>` is your policy id (`solongate policy list`). Whitelist mode belongs to the
+ALLOW rows only — flip back with `policy mode <id> blacklist` before the next
+DENY row, or every DENY row passes for the wrong reason.
+
+After every blocked row: `solongate audit` must carry the DENY with its reason,
+and `solongate trace` must show what the guard saw. A block the record missed is
+a failure even though the call was refused.
+
+### The branches
+
+- [ ] **Claude Code** — registered in `~/.claude/settings.json`
+  - [ ] restarted since install · `doctor` says guard registered
+  - [ ] 1. command · DENY
+  - [ ] 2. command · ALLOW
+  - [ ] 3. path · DENY
+  - [ ] 4. path · ALLOW
+  - [ ] 5. filename · DENY
+  - [ ] 6. filename · ALLOW
+  - [ ] 7. url · DENY
+  - [ ] 8. url · ALLOW
+  - [ ] 9. DLP
+  - [ ] 10. rate limit
+
+- [ ] **Codex** — registered in `~/.codex/hooks.json` — run `/hooks` once inside Codex to trust them, or every hook is skipped **silently**
+  - [ ] restarted since install · `doctor` says guard registered
+  - [ ] 1. command · DENY
+  - [ ] 2. command · ALLOW
+  - [ ] 3. path · DENY
+  - [ ] 4. path · ALLOW
+  - [ ] 5. filename · DENY
+  - [ ] 6. filename · ALLOW
+  - [ ] 7. url · DENY
+  - [ ] 8. url · ALLOW
+  - [ ] 9. DLP
+  - [ ] 10. rate limit
+
+- [ ] **Antigravity** — registered in `~/.gemini/config/hooks.json` — denies with **exit 0** and a JSON body, so watch the agent's behaviour, not an exit code
+  - [ ] restarted since install · `doctor` says guard registered
+  - [ ] 1. command · DENY
+  - [ ] 2. command · ALLOW
+  - [ ] 3. path · DENY
+  - [ ] 4. path · ALLOW
+  - [ ] 5. filename · DENY
+  - [ ] 6. filename · ALLOW
+  - [ ] 7. url · DENY
+  - [ ] 8. url · ALLOW
+  - [ ] 9. DLP
+  - [ ] 10. rate limit
+
+- [ ] **OpenCode** — registered in `~/.config/opencode/` — the plugin refuses by throwing in-process; the refusal reads as a tool error
+  - [ ] restarted since install · `doctor` says guard registered
+  - [ ] 1. command · DENY
+  - [ ] 2. command · ALLOW
+  - [ ] 3. path · DENY
+  - [ ] 4. path · ALLOW
+  - [ ] 5. filename · DENY
+  - [ ] 6. filename · ALLOW
+  - [ ] 7. url · DENY
+  - [ ] 8. url · ALLOW
+  - [ ] 9. DLP
+  - [ ] 10. rate limit
+
+Forty boxes, and the four columns must agree box for box. A row that passes on
+one client and fails on another is an **adapter** bug, not a policy bug — the
+rule is the same file in both cases. `packages/proxy/test/matrix.mjs` sweeps the
+same cross product against the guard directly; if a box fails here but the matrix
+is green, the policy is reaching the guard and the break is in that client's
+registration or payload, not in the rule.
 
 ---
 

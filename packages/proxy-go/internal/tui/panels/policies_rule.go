@@ -125,12 +125,23 @@ func allowSide(r api.PolicyRule) bool { return r.Effect == "ALLOW" }
 
 // setCType selects a constraint type: the others are cleared and the chosen one
 // is created empty, on the side the effect dictates.
+// setCType changes WHICH KIND of thing a rule matches, CARRYING THE PATTERNS ACROSS.
+//
+// It used to write an empty list, so cycling the constraint type threw the rule's
+// patterns away. The field is cycled with ← and → while moving around the editor, so a
+// person navigating a rule could land on Constraint, press an arrow, and watch `curl*`
+// become `—`. Nothing warned them and nothing could bring it back; the only clue was the
+// Match row turning into a dash two lines below where they were looking.
+//
+// A command pattern reinterpreted as a filename is a strange rule, but it is the one the
+// person typed and it is one keystroke from being fixed. Silently discarding it is not.
 func setCType(r *api.PolicyRule, t cType) {
+	items := matchItems(*r)
 	clearConstraints(r)
 	if t == cNone {
 		return
 	}
-	writeItems(r, t, nil)
+	writeItems(r, t, items)
 }
 
 // writeItems puts the value list on the effect's side of the given constraint.

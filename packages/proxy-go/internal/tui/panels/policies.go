@@ -1010,6 +1010,15 @@ func (p *Policies) ruleKey(k tea.KeyMsg, s string) tea.Cmd {
 	// those fields could only be cycled forwards. Anything ← used to do it
 	// still does on Effect, Description and Match, so there is always a way
 	// back out of the editor with one key.
+	// esc ALWAYS leaves the editor, on every field.
+	//
+	// It was not handled here at all, so it fell through to the app and moved focus to
+	// the section list — out of the panel entirely, with the rule still half-edited and
+	// no way to answer the "unsaved (s save · x discard)" prompt the editor was showing.
+	// ← only leaves from three of the six fields, because on the other three it picks a
+	// value, so there was no key that reliably meant "get me out of here".
+	case s == "esc":
+		p.view = viewRules
 	case s == "left" && field.kind != "ctype" && field.kind != "perms" && field.kind != "priority":
 		p.view = viewRules
 	case s == "up":

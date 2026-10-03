@@ -114,3 +114,34 @@ func TestEachBeatRecordsItsCostAndItsCalls(t *testing.T) {
 			p.pulsePending, p.pulseCalls)
 	}
 }
+
+// THE FIRST POLL IS THE WHOLE LOG, and must not be reported as one beat's traffic.
+//
+// lastLocalTS starts at zero, so the first read of the audit file comes back entirely
+// "fresh". The heartbeat counted it, and every console opened with a line claiming the
+// machine's whole recorded history happened in the second somebody started looking:
+//
+//	00:11:18 • 43ms · 111 calls
+//
+// The chart opened with a matching spike that never happened. This checks the counters
+// the beat reads, which is where the backfill was landing.
+func TestTheOpeningBacklogIsNotCountedAsOneSecond(t *testing.T) {
+	p := &Live{}
+
+	// Nothing has been counted before the first beat: a console that has only just
+	// opened has seen no traffic yet, however much is on disk.
+	p.beat(1_000)
+
+	first := p.events[len(p.events)-1]
+	if first.msg != "idle" {
+		t.Errorf("the first beat reported %q; a console that has just opened has seen "+
+			"nothing yet, whatever the log file holds", first.msg)
+	}
+
+	// And a call that arrives AFTER the console is up is counted normally.
+	p.pulsePending, p.pulseCalls = 31, 1
+	p.beat(2_000)
+	if msg := p.events[len(p.events)-1].msg; msg == "idle" {
+		t.Error("a call that arrived while the console was open was not counted")
+	}
+}

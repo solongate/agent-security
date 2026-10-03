@@ -80,6 +80,7 @@ id_ed25519
 # committed in a change whose message described adding it — and it was never in
 # the repository. The clone it was written for did not have it.
 !/install.sh
+!/examples/*.sh
 
 # Icon/Logo files (served from CDN)
 **/public/icon-*.png

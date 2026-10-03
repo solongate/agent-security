@@ -178,6 +178,7 @@ func readStore() (stored, error) {
 
 // writeStore writes the file back in the shape it was read in.
 func writeStore(s stored) error {
+	mirrorRulesIntoDefaultVariant(s.Policy)
 	doc := map[string]any{}
 	if s.envelope {
 		doc["policy"] = s.Policy
@@ -524,4 +525,46 @@ func sortedCounts(m map[string]int, n int) []struct {
 		out = out[:n]
 	}
 	return out
+}
+
+// ONE LIST OF RULES, WRITTEN IN TWO PLACES, kept equal here.
+//
+// A policy document carries its rules at the top level AND inside a variant bundle, and
+// the top level is a mirror rather than a second source: three readers in the field take
+// only $.rules, so a document whose rules live only in the bundle compiles to an empty
+// rule set — which for a denylist denies nothing.
+//
+// The dataroom knew that and wrote both. The CLI wrote only the top level, so after
+// `solongate policy deny` the two disagreed, and each tool showed its own:
+//
+//	solongate policy show local   14 rules
+//	the dataroom's Rules pane      1 rule
+//
+// The silent half is worse than the confusing half. The dataroom saves what it read, so
+// opening a policy it believed had one rule and pressing save would have written one rule
+// back — deleting thirteen that were being enforced, with no warning, because from inside
+// that panel nothing was being removed.
+//
+// So the mirror is maintained at the one point every writer goes through, rather than at
+// each of them. A writer that forgets is the bug this had; a writer that cannot forget is
+// the fix.
+func mirrorRulesIntoDefaultVariant(p *PolicySet) {
+	if p == nil || len(p.Variants) == 0 {
+		return // no bundle to keep in step
+	}
+	i := 0
+	if p.DefaultVariant != "" {
+		for j, v := range p.Variants {
+			if v.ID == p.DefaultVariant {
+				i = j
+				break
+			}
+		}
+	}
+	// The top level is the authority: it is what the CLI edits and what the readers in
+	// the field enforce, so a disagreement is resolved in its favour.
+	p.Variants[i].Rules = p.Rules
+	if p.Security != nil {
+		p.Variants[i].Security = p.Security
+	}
 }

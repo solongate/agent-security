@@ -203,6 +203,7 @@ type Live struct {
 	// with the zeros between decisions would report a speed nothing ever achieved.
 	pulse        []int
 	pulsePending int
+	pulseCalls   int
 	// `filter` (all | local | cloud) stood here, cycled by `f`. Everything is read from
 	// one file, so it filtered that file from itself.
 	signal string // none | deny | dlp | ratelimit
@@ -553,7 +554,10 @@ func (p *Live) onTick(m liveTick, ctx PanelContext) tea.Cmd {
 			return p.tickCmd(tickAnim, 500*time.Millisecond)
 		}
 		p.tick++
-		p.beat()
+		// Every other tick: the spinner wants 500ms, the heartbeat wants a second.
+		if p.tick%2 == 0 {
+			p.beat(ctx.Now.UnixMilli())
+		}
 		return p.tickCmd(tickAnim, 500*time.Millisecond)
 	case tickLocal:
 		return p.cadence(tickLocal, 2*time.Second, p.pollLocal)
@@ -635,6 +639,7 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 			if ms > p.pulsePending {
 				p.pulsePending = ms
 			}
+			p.pulseCalls++
 		}
 	}
 	if len(p.eval) > 240 {
@@ -696,12 +701,31 @@ func (p *Live) apiError(err error, now int64) tea.Cmd {
 // Called from the animation tick, so the trace keeps moving through a poll that fails or
 // a cadence that has gone slow — which is precisely when somebody is looking at this pane
 // to find out whether anything is still alive.
-func (p *Live) beat() {
-	p.pulse = append(p.pulse, p.pulsePending)
-	p.pulsePending = 0
+// ONE BEAT A SECOND, not two. The animation tick runs at 500ms because a spinner needs
+// to look like it is spinning; a heartbeat at that rate is a flicker, and the trace it
+// draws scrolls a full screen of history away in under a minute.
+//
+// AND THE NUMBERS GO IN THE EVENT LOG, because the chart cannot carry them. A column of
+// a certain height says "slower than the others" and nothing more: not how slow, and not
+// whether the machine was busy or idle while it happened. Those are the two things worth
+// knowing about a beat, so each one writes them down — the cost of the slowest decision
+// in that second, and how many calls there were to decide.
+func (p *Live) beat(now int64) {
+	ms, calls := p.pulsePending, p.pulseCalls
+	p.pulse = append(p.pulse, ms)
+	p.pulsePending, p.pulseCalls = 0, 0
 	if len(p.pulse) > 400 {
 		p.pulse = p.pulse[len(p.pulse)-400:]
 	}
+
+	msg := "idle"
+	if calls > 0 {
+		msg = strconv.Itoa(ms) + "ms · " + strconv.Itoa(calls) + " call"
+		if calls > 1 {
+			msg += "s"
+		}
+	}
+	p.pushLog(msg, "beat", now)
 }
 
 func (p *Live) pushLog(msg, level string, now int64) {
@@ -1883,15 +1907,21 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	for _, l := range tail {
 		tickColor := lipgloss.TerminalColor(lipgloss.Color(hexEventTick))
 		msgColor := lipgloss.TerminalColor(theme.Dim)
+		mark := "▸ "
 		switch l.level {
 		case "bad":
 			tickColor, msgColor = theme.Bad, theme.Bad
 		case "warn":
 			tickColor = theme.Warn
+		case "beat":
+			// A beat is a different KIND of line from an event: it says the console is
+			// alive, not that something happened. Marked and dimmed so a denial still
+			// stands out in a column that now has one of these every second.
+			mark, tickColor = "♥ ", theme.OK
 		}
 		eventCol = append(eventCol, renderRow(colW,
 			sg(hhmmss(l.ts)+" ", theme.Dim),
-			seg{text: "▸ ", fg: tickColor},
+			seg{text: mark, fg: tickColor},
 			seg{text: l.msg, fg: msgColor}))
 	}
 	lines = append(lines, joinColumns([][]string{layersCol, eventCol},

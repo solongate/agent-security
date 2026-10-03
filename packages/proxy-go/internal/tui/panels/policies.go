@@ -821,6 +821,15 @@ func (p *Policies) layerKey(k tea.KeyMsg, s string) tea.Cmd {
 				p.view = viewPolicy
 				return nil
 			}
+		case "esc":
+			// esc steps the level back unconditionally. ← cannot: both children
+			// spend it on editing (±1 on a rate-limit field, one cell left in the
+			// DLP grid), and the rate limit spends it on EVERY field — so a panel
+			// with no bursts recorded had no key at all that left it. Every other
+			// level here already treats esc this way.
+			p.syncFromLayer()
+			p.view = viewPolicy
+			return nil
 		}
 	}
 	p.syncToLayer()
@@ -1146,8 +1155,11 @@ func (p *Policies) childCapturing() bool {
 }
 
 func (p *Policies) layerWantsLeft() bool {
-	if p.view == viewRate {
+	switch p.view {
+	case viewRate:
 		return p.ratePanel.WantsLeft()
+	case viewDLP:
+		return p.dlpPanel.WantsLeft()
 	}
 	return false
 }

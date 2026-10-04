@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -389,6 +390,26 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 	return unknownSub("policy", sub, policyUsage())
 }
 
+// permScope is the tool classes a rule is scoped to, or "any" when it is scoped
+// to none.
+//
+// The column exists because two rules differing only here are two rules, and the
+// table had no way to say so: a READ-scoped and a WRITE-scoped rule over one
+// path printed as the same line twice, which reads as a duplicate somebody
+// should clean up rather than the pair the policy actually needs.
+func permScope(r api.PolicyRule) string {
+	perms := r.Permissions()
+	if len(perms) == 0 {
+		return dim("any")
+	}
+	parts := make([]string, 0, len(perms))
+	for _, p := range perms {
+		parts = append(parts, string(p))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "+")
+}
+
 func printRules(rules api.Rules) {
 	if rulesCount(rules) == 0 {
 		errln(dim("  (no rules)"))
@@ -410,11 +431,12 @@ func printRules(rules api.Rules) {
 			strconv.Itoa(r.Priority),
 			dim(r.ID),
 			kind,
-			truncate(pattern, 34),
-			truncate(desc, 30),
+			permScope(r),
+			truncate(pattern, 32),
+			truncate(desc, 28),
 		})
 	}
-	table([]string{"EFFECT", "PRIO", "ID", "ON", "PATTERN", "DESCRIPTION"}, out)
+	table([]string{"EFFECT", "PRIO", "ID", "ON", "PERM", "PATTERN", "DESCRIPTION"}, out)
 	// A rule that will not decode is still enforced by the cloud. Printing the
 	// readable ones and saying nothing would show a policy that looks narrower
 	// than the one actually in force.

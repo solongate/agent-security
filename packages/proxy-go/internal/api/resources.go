@@ -165,6 +165,22 @@ type RuleMutation struct {
 	Message       string      `json:"message,omitempty"`
 }
 
+// permissionKey is a rule's permission scope, order-insensitive, so READ,WRITE
+// and WRITE,READ are one scope rather than two rules that shadow each other.
+// Empty means unscoped, which is its own distinct value: it matches every class.
+func permissionKey(r PolicyRule) string {
+	perms := r.Permissions()
+	if len(perms) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(perms))
+	for _, p := range perms {
+		parts = append(parts, string(p))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
 func constraintsOf(r PolicyRule) string {
 	raw, _ := json.Marshal([]any{r.CommandConstraints, r.PathConstraints, r.FilenameConstraints, r.URLConstraints})
 	return string(raw)
@@ -284,8 +300,16 @@ func (p PoliciesAPI) AddRule(ctx context.Context, id string, spec RuleSpec) (Rul
 	}
 
 	// Deduped by what the rule DOES, not by its generated id.
+	//
+	// THE PERMISSION SCOPE IS PART OF WHAT A RULE DOES. It was missing here, and
+	// the omission was worse than a no-op: adding the same constraint once for
+	// READ and once for WRITE reported "Equivalent rule already present" for the
+	// second, so the rule set LOOKED complete while the write half had been
+	// thrown away. A scoped rule and an unscoped one over the same constraint
+	// are not the same rule either -- one covers every tool class, the other one.
 	for i := range rules {
 		if rules[i].Effect == rule.Effect && rules[i].ToolPattern == rule.ToolPattern &&
+			permissionKey(rules[i]) == permissionKey(rule) &&
 			constraintsOf(rules[i]) == constraintsOf(rule) {
 			existing := rules[i]
 			return RuleMutation{OK: true, Deduped: true, Rule: &existing, PolicyID: s.Policy.ID, PolicyVersion: localVersion}, nil

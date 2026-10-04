@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // A BIG TOOL CALL USED TO OPEN ONTO ITS ARGUMENTS AND NOTHING ELSE.
@@ -110,4 +113,48 @@ func newLiveForTest(e streamItem) *Live {
 	p.mode = "inspect"
 	p.inspect = &e
 	return p
+}
+
+// THE BLOCK HAS TO LOOK LIKE AN ALARM.
+//
+// It sits directly above a wall of arguments. Drawn in the body's own colour it
+// reads as the first two lines of the payload rather than as the answer the view
+// was opened for — which is how a reason can be on screen and still not be seen.
+func TestTheWhyBlockIsRedOnARefusalAndAmberOnAFlag(t *testing.T) {
+	if got := whyColor("DENY", false, nil); got != theme.Bad {
+		t.Errorf("a refusal is drawn in %v, want the bad colour", got)
+	}
+	if got := whyColor("DENY", true, nil); got != theme.Bad {
+		t.Errorf("a rate-limit refusal is drawn in %v, want the bad colour", got)
+	}
+	// detect mode: recorded and let through. Red would claim it was stopped.
+	if got := whyColor("ALLOW", false, []string{"AWS access key"}); got != theme.Warn {
+		t.Errorf("a flagged allow is drawn in %v, want the warn colour", got)
+	}
+	if got := whyColor("ALLOW", true, nil); got != theme.Warn {
+		t.Errorf("a flagged burst is drawn in %v, want the warn colour", got)
+	}
+}
+
+// And the colour has to actually reach the screen, not just the helper.
+func TestTheRefusalReasonIsRenderedInColour(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	p := newLiveForTest(streamItem{
+		ID: "l:1", At: 1_700_000_000_000, Tool: "Write", Decision: "DENY",
+		Reason: `Blocked by policy: URL "http://x/s" matches "http://*"`,
+		Args:   json.RawMessage(`{"file_path":"/tmp/a.go"}`),
+	})
+	out := p.View(PanelContext{Cols: 120, Rows: 40, Now: time.Unix(1_700_000_000, 0)})
+
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "matches") {
+			if !strings.Contains(line, "\x1b[") {
+				t.Fatal("the reason line carries no escape sequence, so it renders as body text")
+			}
+			return
+		}
+	}
+	t.Fatal("the reason never reached the screen at all")
 }

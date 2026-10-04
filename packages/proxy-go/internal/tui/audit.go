@@ -820,7 +820,9 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	// FULL CONTENT surfaces WHY — Audit's forensic value — ABOVE the arguments.
 	// The same block the Live inspector uses, so the two never explain the same
 	// entry differently: which layer refused it, and the guard's own sentence.
-	content := whyBlock(e.decision, e.reason, e.rule, e.dlp, e.burst, bodyW)
+	why := whyBlock(e.decision, e.reason, e.rule, e.dlp, e.burst, bodyW)
+	whyN, whyFG := len(why), whyColor(e.decision, e.burst, e.dlp)
+	content := why
 	argsText := "(no arguments recorded)"
 	if e.args != "" {
 		argsText = prettyJson(e.args)
@@ -887,11 +889,16 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 		paneTitle("FULL CONTENT", strconv.Itoa(len(content))+" lines"+scrollNote+
 			" · space copy · ← back", width))
 	for i := 0; i < bodyRows; i++ {
-		if off+i >= len(content) {
+		idx := off + i
+		if idx >= len(content) {
 			lines = append(lines, "")
 			continue
 		}
-		lines = append(lines, renderRow(width, plain(content[off+i])))
+		if idx < whyN {
+			lines = append(lines, renderRow(width, seg{text: content[idx], fg: whyFG, bold: idx == 0}))
+			continue
+		}
+		lines = append(lines, renderRow(width, plain(content[idx])))
 	}
 	return append(lines, renderRow(width,
 		seg{text: " ENTRY ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},

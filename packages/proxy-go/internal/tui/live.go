@@ -1457,7 +1457,9 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 	// WHY FIRST, arguments second. On a big call the arguments are a screen of
 	// JSON, and the one thing somebody opened this view to find is the sentence
 	// explaining why it was refused.
-	content := whyBlock(e.Decision, e.Reason, e.Rule, e.DLPNames, e.Burst, bodyW)
+	why := whyBlock(e.Decision, e.Reason, e.Rule, e.DLPNames, e.Burst, bodyW)
+	whyN, whyFG := len(why), whyColor(e.Decision, e.Burst, e.DLPNames)
+	content := why
 	argsText := "(no arguments recorded)"
 	if len(e.Args) > 0 && string(e.Args) != "null" {
 		argsText = prettyJson(string(e.Args))
@@ -1534,11 +1536,18 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 			strconv.Itoa(len(content))+" lines"+scrollNote+" · space copy · ← back", width),
 	}
 	for i := 0; i < bodyRows; i++ {
-		if off+i >= len(content) {
+		idx := off + i
+		if idx >= len(content) {
 			lines = append(lines, "")
 			continue
 		}
-		lines = append(lines, renderRow(width, plain(content[off+i])))
+		// The why block is coloured; the arguments under it are not. The first of
+		// its lines names the layer, so it is the one that carries the weight.
+		if idx < whyN {
+			lines = append(lines, renderRow(width, seg{text: content[idx], fg: whyFG, bold: idx == 0}))
+			continue
+		}
+		lines = append(lines, renderRow(width, plain(content[idx])))
 	}
 	return append(lines, renderRow(width,
 		seg{text: " ENTRY ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},

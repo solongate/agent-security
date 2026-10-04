@@ -317,3 +317,19 @@ func whyBlock(decision, reason, rule string, dlp []string, burst bool, width int
 	}
 	return append(out, "")
 }
+
+// whyColor is the colour the why block is drawn in.
+//
+// Red when the call was refused, amber when it was only flagged. It is deliberately
+// NOT the body's colour: the block sits directly above a wall of arguments, and in
+// plain text it reads as the first two lines of the payload rather than as the
+// answer to the question the view was opened to ask.
+func whyColor(decision string, burst bool, dlp []string) lipgloss.TerminalColor {
+	if strings.ToUpper(strings.TrimSpace(decision)) == "ALLOW" {
+		if burst || len(dlp) > 0 {
+			return theme.Warn // detect mode: recorded, let through
+		}
+		return theme.Dim
+	}
+	return theme.Bad
+}

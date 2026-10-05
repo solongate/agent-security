@@ -31,6 +31,14 @@ export function evaluate(
   policy: EvalPolicy | null | undefined,
   args: unknown,
   toolName: string,
+  /**
+   * The directory the call was made from. A relative path token in a shell
+   * command only names a file once it is resolved against this; without it an
+   * absolute path rule is walked past by `cat forbidden/notes.txt`. Optional
+   * because a caller that has no cwd is better off matching literally than
+   * guessing one.
+   */
+  cwd?: string,
 ): string | null;
 
 /** Which class of call a tool name is, the way every rule's `permission` reads it. */

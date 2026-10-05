@@ -706,3 +706,54 @@ func walkSearchRoot(root string, budget *int) []string {
 	})
 	return out
 }
+
+// AbsolutizePaths resolves relative path tokens against the call's cwd, and
+// returns the absolute forms to be matched ALONGSIDE the originals.
+//
+// THE HOLE THIS CLOSES. ExtractPaths returns what the call said, verbatim. A
+// file tool sends an absolute path, because the client resolves it before the
+// hook ever sees the call -- but a shell command carries whatever the model
+// typed, and a model in the directory types `cat forbidden/notes.txt`. That
+// token is relative, an absolute path rule never matches it, and the same file
+// the Read tool is refused for is handed over by `cat`. The rule looked like it
+// covered a directory; it covered one way of reaching it.
+//
+// ExpandCommandGlobs already resolved against cwd, but only for tokens
+// containing a glob character -- so `cat forbidden/note*.txt` was caught and
+// `cat forbidden/notes.txt` was not, which is the wrong way round.
+//
+// Both forms are kept. A rule may legitimately be written relative, and
+// dropping the original would break it. No filesystem access: resolution is
+// lexical, so a path that does not exist still matches a pattern that names it.
+func AbsolutizePaths(paths []string, cwd string) []string {
+	base := cwd
+	if base == "" {
+		if wd, err := os.Getwd(); err == nil {
+			base = wd
+		}
+	}
+	if base == "" {
+		return nil
+	}
+	base = filepath.ToSlash(base)
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		// Already absolute, a home-relative path nothing here can resolve, or a
+		// Windows drive path: leave them to the literal match.
+		if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "~") || winDrive.MatchString(p) {
+			continue
+		}
+		abs := filepath.ToSlash(filepath.Clean(base + "/" + p))
+		if abs == "" || abs == p || seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		out = append(out, abs)
+	}
+	return out
+}
+
+// winDrive is "C:/..." and friends, which are absolute on the platform that
+// writes them even though they do not start with a slash.
+var winDrive = regexp.MustCompile(`^[A-Za-z]:[\\/]`)

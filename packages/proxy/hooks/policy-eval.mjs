@@ -320,6 +320,60 @@ function extractPaths(args, isExec) {
   return paths;
 }
 
+// absolutizePaths resolves relative path tokens against the call's cwd, and
+// returns the absolute forms to be matched ALONGSIDE the originals.
+//
+// THE HOLE THIS CLOSES. extractPaths returns what the call said, verbatim. A
+// file tool sends an absolute path because the client resolves it before the
+// hook sees the call — but a shell command carries whatever the model typed,
+// and a model sitting in the directory types `cat forbidden/notes.txt`. That
+// token is relative, an absolute path rule never matches it, and the file the
+// Read tool is refused for is handed over by `cat`. The rule looked like it
+// covered a directory; it covered one way of reaching it.
+//
+// Both forms are kept: a rule may legitimately be written relative, and
+// dropping the original would break it. Resolution is lexical, so a path that
+// does not exist still matches a pattern naming it.
+//
+// The Go twin is AbsolutizePaths in sgpolicy/extract.go. The two decide the
+// same calls and have to stay identical.
+function absolutizePaths(paths, cwd) {
+  const base = (cwd || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!base) return [];
+  const out = [];
+  const seen = new Set();
+  for (const p of paths) {
+    // Already absolute, home-relative, or a Windows drive path: leave them to
+    // the literal match.
+    if (!p || p.startsWith('/') || p.startsWith('~') || /^[A-Za-z]:[\\/]/.test(p)) continue;
+    const abs = normalizeSlashPath(base + '/' + p);
+    if (!abs || abs === p || seen.has(abs)) continue;
+    seen.add(abs);
+    out.push(abs);
+  }
+  return out;
+}
+
+// normalizeSlashPath is filepath.Clean for forward-slash paths: it collapses
+// `.` and `..` lexically, with no filesystem access and no node:path import —
+// the hook runs as a lone file and keeps its dependencies to zero.
+function normalizeSlashPath(p) {
+  const absolute = p.startsWith('/');
+  const parts = [];
+  for (const seg of p.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (parts.length && parts[parts.length - 1] !== '..') parts.pop();
+      else if (!absolute) parts.push('..');
+      continue;
+    }
+    parts.push(seg);
+  }
+  const joined = parts.join('/');
+  if (absolute) return '/' + joined;
+  return joined || '.';
+}
+
 function guessPermission(toolName) {
   const name = (toolName || '').toLowerCase();
   // Codex writes every file edit through one tool named `apply_patch` — no
@@ -364,7 +418,7 @@ function permissionApplies(rule, toolName) {
   return perms.includes(guessed);
 }
 
-function ruleMatches(rule, args, isExec) {
+function ruleMatches(rule, args, isExec, cwd) {
   const fnPats = patternsOf(rule.filenameConstraints);
   if (fnPats) {
     const filenames = extractFilenames(args);
@@ -395,6 +449,7 @@ function ruleMatches(rule, args, isExec) {
   const pathPats = patternsOf(rule.pathConstraints);
   if (pathPats) {
     const paths = extractPaths(args, isExec);
+    for (const abs of absolutizePaths(paths, cwd)) paths.push(abs);
     for (const p of paths) {
       for (const pat of pathPats) {
         if (matchPathGlob(p, pat)) return { kind: 'path', value: p, pattern: pat };
@@ -408,7 +463,7 @@ function ruleMatches(rule, args, isExec) {
 //   denylist (default): default ALLOW. Any DENY rule that matches → block.
 //   whitelist (strict): default DENY. Must match at least one ALLOW rule to
 //                       pass. DENY rules still override on top.
-function evaluate(policy, args, toolName) {
+function evaluate(policy, args, toolName, cwd) {
   if (!policy || !policy.rules) return null;
   const enabledRules = policy.rules.filter(r => r.enabled !== false);
   const mode = policy.mode === 'whitelist' ? 'whitelist' : 'denylist';
@@ -419,7 +474,7 @@ function evaluate(policy, args, toolName) {
     .filter(r => r.effect === 'DENY' && permissionApplies(r, toolName))
     .sort((a, b) => (a.priority || 100) - (b.priority || 100));
   for (const rule of denyRules) {
-    const m = ruleMatches(rule, args, isExec);
+    const m = ruleMatches(rule, args, isExec, cwd);
     if (m) return 'Blocked by policy: ' + m.kind + ' "' + m.value + '" matches "' + m.pattern + '"';
   }
 
@@ -431,7 +486,7 @@ function evaluate(policy, args, toolName) {
     }
     let matched = false;
     for (const rule of allowRules) {
-      if (ruleMatches(rule, args, isExec)) { matched = true; break; }
+      if (ruleMatches(rule, args, isExec, cwd)) { matched = true; break; }
     }
     if (!matched) {
       return 'Blocked by policy: strict whitelist mode — request does not match any ALLOW rule';

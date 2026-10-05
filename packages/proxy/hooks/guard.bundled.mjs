@@ -237,6 +237,43 @@ function extractPaths(args, isExec) {
   }
   return paths;
 }
+function absolutizePaths(paths, cwd) {
+  const base = (cwd || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!base)
+    return [];
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const p of paths) {
+    if (!p || p.startsWith("/") || p.startsWith("~") || /^[A-Za-z]:[\\/]/.test(p))
+      continue;
+    const abs = normalizeSlashPath(base + "/" + p);
+    if (!abs || abs === p || seen.has(abs))
+      continue;
+    seen.add(abs);
+    out.push(abs);
+  }
+  return out;
+}
+function normalizeSlashPath(p) {
+  const absolute = p.startsWith("/");
+  const parts = [];
+  for (const seg of p.split("/")) {
+    if (seg === "" || seg === ".")
+      continue;
+    if (seg === "..") {
+      if (parts.length && parts[parts.length - 1] !== "..")
+        parts.pop();
+      else if (!absolute)
+        parts.push("..");
+      continue;
+    }
+    parts.push(seg);
+  }
+  const joined = parts.join("/");
+  if (absolute)
+    return "/" + joined;
+  return joined || ".";
+}
 function guessPermission(toolName) {
   const name = (toolName || "").toLowerCase();
   if (name === "apply_patch" || name === "applypatch")
@@ -264,7 +301,7 @@ function permissionApplies(rule, toolName) {
   const guessed = guessPermission(toolName);
   return perms.includes(guessed);
 }
-function ruleMatches(rule, args, isExec) {
+function ruleMatches(rule, args, isExec, cwd) {
   const fnPats = patternsOf(rule.filenameConstraints);
   if (fnPats) {
     const filenames = extractFilenames(args);
@@ -298,6 +335,8 @@ function ruleMatches(rule, args, isExec) {
   const pathPats = patternsOf(rule.pathConstraints);
   if (pathPats) {
     const paths = extractPaths(args, isExec);
+    for (const abs of absolutizePaths(paths, cwd))
+      paths.push(abs);
     for (const p of paths) {
       for (const pat of pathPats) {
         if (matchPathGlob(p, pat))
@@ -307,7 +346,7 @@ function ruleMatches(rule, args, isExec) {
   }
   return null;
 }
-function evaluate(policy, args, toolName) {
+function evaluate(policy, args, toolName, cwd) {
   if (!policy || !policy.rules)
     return null;
   const enabledRules = policy.rules.filter((r) => r.enabled !== false);
@@ -315,7 +354,7 @@ function evaluate(policy, args, toolName) {
   const isExec = /bash|shell|exec|powershell|cmd|run|eval/.test((toolName || "").toLowerCase());
   const denyRules = enabledRules.filter((r) => r.effect === "DENY" && permissionApplies(r, toolName)).sort((a, b) => (a.priority || 100) - (b.priority || 100));
   for (const rule of denyRules) {
-    const m = ruleMatches(rule, args, isExec);
+    const m = ruleMatches(rule, args, isExec, cwd);
     if (m)
       return "Blocked by policy: " + m.kind + ' "' + m.value + '" matches "' + m.pattern + '"';
   }
@@ -326,7 +365,7 @@ function evaluate(policy, args, toolName) {
     }
     let matched = false;
     for (const rule of allowRules) {
-      if (ruleMatches(rule, args, isExec)) {
+      if (ruleMatches(rule, args, isExec, cwd)) {
         matched = true;
         break;
       }
@@ -477,7 +516,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 104;
+var HOOK_VERSION = 105;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -1806,7 +1845,7 @@ input += SG_STDIN;
       if (reason) {
         opaRoute = "black";
       } else if (policy && policy.rules) {
-        const verdict = evaluate(policy, args, toolName);
+        const verdict = evaluate(policy, args, toolName, hookCwd);
         if (typeof verdict === "string") {
           reason = verdict;
           opaRoute = "black";

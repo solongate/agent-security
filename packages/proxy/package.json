@@ -1,6 +1,6 @@
 {
   "name": "@solongate/proxy",
-  "version": "0.91.30",
+  "version": "0.91.31",
   "description": "AI tool security proxy: protect any AI tool server with customizable policies, path/command constraints, rate limiting, and audit logging. No code changes required.",
   "type": "module",
   "bin": {
@@ -65,12 +65,12 @@
     "node": ">=20.0.0"
   },
   "optionalDependencies": {
-    "@solongate/guard-linux-x64": "0.91.30",
-    "@solongate/guard-linux-arm64": "0.91.30",
-    "@solongate/guard-darwin-x64": "0.91.30",
-    "@solongate/guard-darwin-arm64": "0.91.30",
-    "@solongate/guard-win32-x64": "0.91.30",
-    "@solongate/guard-win32-arm64": "0.91.30"
+    "@solongate/guard-linux-x64": "0.91.31",
+    "@solongate/guard-linux-arm64": "0.91.31",
+    "@solongate/guard-darwin-x64": "0.91.31",
+    "@solongate/guard-darwin-arm64": "0.91.31",
+    "@solongate/guard-win32-x64": "0.91.31",
+    "@solongate/guard-win32-arm64": "0.91.31"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",

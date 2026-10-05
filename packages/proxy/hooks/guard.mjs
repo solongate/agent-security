@@ -140,7 +140,7 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 //
 // This number is how a machine compares the hook it has with the one in a
 // checkout, and a fix nobody picks up is not a fix.
-const HOOK_VERSION = 104;
+const HOOK_VERSION = 105;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -2405,7 +2405,9 @@ input += SG_STDIN;
     if (reason) {
       opaRoute = 'black'; // hardcoded tamper protection blocked it
     } else if (policy && policy.rules) {
-      const verdict = evaluate(policy, args, toolName);
+      // hookCwd is the directory the call was made from, and a relative path
+      // token in a shell command only means a file once it is resolved against it.
+      const verdict = evaluate(policy, args, toolName, hookCwd);
       if (typeof verdict === 'string') {
         reason = verdict;
         opaRoute = 'black';

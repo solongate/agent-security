@@ -129,6 +129,13 @@ func BuildPolicyInput(args map[string]interface{}, toolName, cwd string) Input {
 		Filenames:  ExtractFilenames(accessArgs),
 	}
 
+	// A relative path token names the same file an absolute rule is written
+	// about. Resolving it here is what stops `cat forbidden/notes.txt` walking
+	// past the rule that refuses `Read /abs/forbidden/notes.txt`.
+	if abs := AbsolutizePaths(in.Paths, cwd); len(abs) > 0 {
+		in.Paths = append(in.Paths, abs...)
+	}
+
 	// Resolve globbed tokens to the files they actually name, so `cut
 	// staging.e*` is matched by the same rule that catches `cat staging.env`.
 	if isExec {

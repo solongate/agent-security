@@ -8,10 +8,7 @@ reasoning and the failure modes. This one is the map.
 ## The decision path
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/decision-path-dark.svg">
-    <img src="assets/decision-path-light.svg" alt="The five layers a tool call passes through: tamper protection, rate limit, policy rules, DLP, egress. Any layer can deny, and a denial is written to the audit trail before the agent is answered." width="860">
-  </picture>
+  <img src="assets/decision-path.svg" alt="The five layers a tool call passes through: tamper protection, rate limit, policy rules, DLP, egress. Any layer can deny, and a denial is written to the audit trail before the agent is answered." width="860">
 </p>
 
 Nothing in that path opens a socket. The policy is a file, it is compiled in the
@@ -60,10 +57,7 @@ Nothing else chooses, so certifying one certifies half the machines, and the
 conformance suite runs against both.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/two-implementations-dark.svg">
-    <img src="assets/two-implementations-light.svg" alt="A tool call goes to the Go binary if the machine has it, otherwise to the bundled Node hook. Both reach the same verdict, and one conformance suite judges both." width="820">
-  </picture>
+  <img src="assets/two-implementations.svg" alt="A tool call goes to the Go binary if the machine has it, otherwise to the bundled Node hook. Both reach the same verdict, and one conformance suite judges both." width="820">
 </p>
 
 The installed hook prefers the binary and falls back to deciding itself when the

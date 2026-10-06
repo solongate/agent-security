@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/banner-dark.svg">
-    <img src="docs/assets/banner-light.svg" alt="SolonGate: a policy gate for AI coding agents" width="820">
-  </picture>
+  <img src="docs/assets/banner.svg" alt="SolonGate: a policy gate for AI coding agents" width="820">
 </p>
 
 <p align="center">
@@ -39,10 +36,7 @@ Five layers, in this order, on every single tool call. Any one of them can
 refuse, and a refusal is recorded before the agent is answered.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/decision-path-dark.svg">
-    <img src="docs/assets/decision-path-light.svg" alt="The five layers a tool call passes through: tamper protection, rate limit, policy rules, DLP, egress. Any layer can deny, and a denial is written to the audit trail before the agent is answered." width="860">
-  </picture>
+  <img src="docs/assets/decision-path.svg" alt="The five layers a tool call passes through: tamper protection, rate limit, policy rules, DLP, egress. Any layer can deny, and a denial is written to the audit trail before the agent is answered." width="860">
 </p>
 
 ## Documentation
@@ -80,10 +74,7 @@ depends only on whether a machine has the Go binary, so they have to agree, and
 the conformance suite runs against both to make sure they do.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/two-implementations-dark.svg">
-    <img src="docs/assets/two-implementations-light.svg" alt="A tool call goes to the Go binary if the machine has it, otherwise to the bundled Node hook. Both reach the same verdict, and one conformance suite judges both." width="820">
-  </picture>
+  <img src="docs/assets/two-implementations.svg" alt="A tool call goes to the Go binary if the machine has it, otherwise to the bundled Node hook. Both reach the same verdict, and one conformance suite judges both." width="820">
 </p>
 
 ## Getting started

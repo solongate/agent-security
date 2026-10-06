@@ -66,7 +66,7 @@
   "optionalDependencies": {
     "@solongate/guard-linux-x64": "0.0.6",
     "@solongate/guard-linux-arm64": "0.0.6",
-    "@solongate/guard-darwin-x64": "0.0.6",
+    "@solongate/guard-darwin-x64": "0.91.25",
     "@solongate/guard-darwin-arm64": "0.0.6",
     "@solongate/guard-win32-x64": "0.0.6",
     "@solongate/guard-win32-arm64": "0.0.6"

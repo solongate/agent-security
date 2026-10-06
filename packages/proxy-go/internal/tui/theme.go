@@ -109,6 +109,9 @@ func modeColor(m string) lipgloss.Color {
 	switch m {
 	case "block", "active", "on":
 		return theme.OK
+	// redact acts, detect only watches, so they are not the same amber.
+	case "redact":
+		return theme.Accent
 	case "detect", "idle":
 		return theme.Warn
 	}

@@ -242,7 +242,7 @@ export function loadPolicy(source: string | PolicySet): PolicySet {
 export interface PolicySecurity {
   /** Calls per minute, or 0 when none is configured. */
   perMinute: number;
-  /** A dlpBlock or dlpRedact block is present. */
+  /** A dlpBlock, dlpRedact or dlpObserve block is present. */
   hasDLP: boolean;
   /** dlpBlock is present, which is what drives the egress file scan. */
   hasEgress: boolean;
@@ -285,7 +285,7 @@ export function loadPolicySecurity(source: string | PolicySet): PolicySecurity {
 
   return {
     perMinute: typeof rl.perMinute === 'number' && rl.perMinute > 0 ? rl.perMinute : 0,
-    hasDLP: has(sec.dlpBlock) || has(sec.dlpRedact),
+    hasDLP: has(sec.dlpBlock) || has(sec.dlpRedact) || has(sec.dlpObserve),
     // Egress reads the files a transfer command would upload, and it is driven by
     // dlpBlock — the same block, the blocking half.
     hasEgress: has(sec.dlpBlock),

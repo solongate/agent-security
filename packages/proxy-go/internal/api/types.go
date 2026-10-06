@@ -262,13 +262,21 @@ type ActivePolicy struct {
 
 // ── Security layers ────────────────────────────────────────────────────────
 
-// LayerMode is how hard a layer bites. `detect` records without blocking, and
-// is what the audit trail derives a DLP or rate-limit signal from.
+// LayerMode is how hard a layer bites.
+//
+//	off     nothing happens
+//	detect  scan, record, change nothing the caller sees
+//	redact  DLP ONLY: mask the secret, let the call through
+//	block   refuse the call
+//
+// `redact` sits between the other two and belongs to DLP alone: there is no
+// middle step for a rate limit, where a call either counts or is refused.
 type LayerMode string
 
 const (
 	LayerOff    LayerMode = "off"
 	LayerDetect LayerMode = "detect"
+	LayerRedact LayerMode = "redact"
 	LayerBlock  LayerMode = "block"
 )
 

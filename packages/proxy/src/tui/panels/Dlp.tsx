@@ -20,12 +20,12 @@ import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { useEffect, useState } from 'react';
 import { api } from '../../api-client/index.js';
-import type { LayerMode, SecurityLayers } from '../../api-client/index.js';
+import type { DlpMode, SecurityLayers } from '../../api-client/index.js';
 import { DataView } from '../components.js';
 import { useLoader, usePanelSize, usePoll } from '../hooks.js';
 import { modeColor, theme, truncate } from '../theme.js';
 
-const MODES: LayerMode[] = ['off', 'detect', 'block'];
+const MODES: DlpMode[] = ['off', 'detect', 'redact', 'block'];
 // Built-ins per row. Fixed, not derived from width: the row stride is also the
 // ↑↓ step, and a stride that changed with the terminal would move the cursor
 // somewhere different on every resize.
@@ -259,7 +259,7 @@ export function DlpPanel({ focused }: { active: boolean; focused: boolean }): JS
           <Text wrap="truncate">
             <Text>mode: </Text>
             <Text color={modeColor(dlp.mode)} bold>{dlp.mode}</Text>
-            <Text color={theme.dim}>{dlp.mode === 'off' ? '  (scanning disabled)' : dlp.mode === 'detect' ? '  (flag dlp:yes, redact output)' : '  (deny + redact secrets)'}</Text>
+            <Text color={theme.dim}>{dlp.mode === 'off' ? '  (nothing is scanned)' : dlp.mode === 'detect' ? '  (record the hit, change nothing)' : dlp.mode === 'redact' ? '  (mask the secret, let the call through)' : '  (refuse the call)'}</Text>
             {dirty ? <Text color={theme.warn}>{'   ● unsaved (s save · x discard)'}</Text> : null}
           </Text>
           <Text color={theme.dim} wrap="truncate">

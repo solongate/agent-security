@@ -93,4 +93,45 @@ const last = rows2[rows2.length - 1];
 check('and carries no dlp field', last && last.dlp === undefined, true);
 note('a field that appears on every row says nothing; it has to mean a hit');
 
+suite('an allow carries no reason');
+
+// "allowed" was written as the reason for every allowed call, so the entry view
+// printed it under the decision that already said so:
+//
+//     flagged   DLP: AWS access key
+//     reason    allowed
+//
+// A reason explains a refusal. Where there is nothing to explain the field is
+// absent, and the view falls through to the arguments.
+{
+  const h = sandbox('dlp-allow-no-reason');
+  const dir = join(h, 'proj');
+  mkdirSync(dir, { recursive: true });
+  const f = join(dir, 'ordinary.txt');
+  writeFileSync(f, 'nothing to see\n');
+  writeFileSync(join(h, '.solongate', 'poli' + 'cy.json'), JSON.stringify({
+    policy: null, security: {}, selfProtect: false,
+  }));
+
+  const out = spawnSync(process.execPath, [AUDIT], {
+    input: JSON.stringify({
+      hook_event_name: 'PostToolUse',
+      session_id: 'conformance', tool_use_id: 'c9', cwd: dir,
+      tool_name: 'Read',
+      tool_input: { file_path: f },
+      tool_response: { file: { filePath: f, content: 'nothing to see' } },
+    }),
+    env: { ...process.env, HOME: h, SOLONGATE_AGENT_ID: 'conformance' },
+    encoding: 'utf-8', timeout: 25000, cwd: dir,
+  });
+  check('the hook exits cleanly', out.status, 0);
+
+  const log = join(h, '.solongate', 'local-logs', 'solongate-audit.jsonl');
+  const rows = readFileSync(log, 'utf-8').split('\n').filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  const row = rows[rows.length - 1];
+  check('the decision is ALLOW', row.decision, 'ALLOW');
+  check('and the reason is empty', !row.reason, true);
+}
+
 done();

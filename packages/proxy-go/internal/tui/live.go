@@ -1679,12 +1679,28 @@ func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) [
 	} else {
 		kv("pattern hits", sg("none in the last 7 days", theme.Dim))
 	}
+	// A BAR COMPARES THINGS. Scaling each pattern against the busiest one means
+	// the busiest is always full width, so a single pattern drew a full-width red
+	// bar across the panel for a count of seven — which reads as an alarm and
+	// carries no information at all, because there was nothing to compare it to.
+	//
+	// Two or more patterns, and the comparison is real. One, and the number is
+	// the whole of what there is to say.
 	maxHit := 1
 	if len(hits) > 0 && hits[0].Count > 0 {
 		maxHit = hits[0].Count
 	}
 	for _, h := range hits {
-		push(hbar("  "+truncate(h.Pattern, 10), h.Count, maxHit, barW, theme.Bad, width))
+		// 10 columns cut "AWS access key" to "AWS acces…", which names nothing.
+		label := "  " + truncate(h.Pattern, 22)
+		if len(hits) == 1 {
+			push(renderRow(width,
+				sg(padEnd(label, 25), theme.Dim),
+				sgb(strconv.Itoa(h.Count), theme.Bad),
+				sg(" hits", theme.Dim)))
+			continue
+		}
+		push(hbar(label, h.Count, maxHit, barW, theme.Bad, width))
 	}
 	push("")
 

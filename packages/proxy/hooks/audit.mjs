@@ -628,7 +628,16 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
 
     const sessionId = data.session_id || data.sessionId || data.conversation_id || '';
     const decision = hasError ? 'DENY' : 'ALLOW';
-    const reason = guardDenied ? 'blocked by policy guard' : hasError ? 'tool returned error' : 'allowed';
+    // AN ALLOW HAS NO REASON, and writing one was worse than leaving it empty.
+    // Every allowed call carried the string "allowed", so the entry view printed
+    //
+    //     flagged   DLP: AWS access key
+    //     reason    allowed
+    //
+    // where the second line restates the decision already on the row above it and
+    // says nothing about why. A reason exists to explain a refusal; where there is
+    // nothing to explain the field is absent.
+    const reason = guardDenied ? 'blocked by policy guard' : hasError ? 'tool returned error' : '';
     const permission = guessPermission(toolName);
     const evaluationTimeMs = readLastEvalMs(toolName, sessionId);
 

@@ -516,7 +516,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 106;
+var HOOK_VERSION = 107;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -1853,10 +1853,11 @@ input += SG_STDIN;
           opaRoute = "white";
         }
       }
-      if (!reason && !CLIENT.redactsOutput && securityCfg && (securityCfg.dlpBlock || securityCfg.dlpRedact)) {
+      const dlpBlocking = !!(securityCfg && securityCfg.dlpBlock);
+      if (!reason && securityCfg && (securityCfg.dlpBlock || securityCfg.dlpRedact) && (dlpBlocking || !CLIENT.redactsOutput)) {
         const dlpCfg = securityCfg.dlpBlock || securityCfg.dlpRedact;
         const plan = dlpRedactReadPlan(toolName, args, dlpCfg, hookCwd);
-        if (plan && plan.block) {
+        if (plan && (plan.block || dlpBlocking && plan.rewrite)) {
           reason = "Security layer (DLP): reading a file that contains a secret is blocked. Blocked by SolonGate.";
           opaRoute = "black";
         } else if (plan && plan.rewrite) {

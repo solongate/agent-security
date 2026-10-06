@@ -89,16 +89,38 @@ check('the row still names the pattern',
 suite('block — refuse the call');
 
 s = setup('dlp-mode-block', { dlpBlock: RULES, dlpRedact: RULES });
-const guard = spawnSync(process.execPath, [join(HERE, '..', 'hooks', 'guard.bundled.mjs')], {
-  input: JSON.stringify({
-    hook_event_name: 'PreToolUse', session_id: 'conformance', tool_use_id: 'c1',
-    cwd: s.proj, tool_name: 'bash', tool_input: { command: 'echo ' + KEY },
-  }),
-  env: { ...process.env, HOME: s.home, SOLONGATE_AGENT_ID: 'conformance' },
-  encoding: 'utf-8', timeout: 25000, cwd: s.proj,
-});
-check('a secret in the arguments is refused', guard.status, 2);
-check('and the refusal names the layer', (guard.stderr || '').includes('DLP'), true);
+
+function guardCall(input, agent) {
+  return spawnSync(process.execPath, [join(HERE, '..', 'hooks', 'guard.bundled.mjs')], {
+    input: JSON.stringify({
+      hook_event_name: 'PreToolUse', session_id: 'conformance', tool_use_id: 'c1',
+      cwd: s.proj, tool_name: 'bash', tool_input: input,
+    }),
+    env: { ...process.env, HOME: s.home, SOLONGATE_AGENT_ID: agent || 'conformance' },
+    encoding: 'utf-8', timeout: 25000, cwd: s.proj,
+  });
+}
+
+let g = guardCall({ command: 'echo ' + KEY });
+check('a secret in the arguments is refused', g.status, 2);
+check('and the refusal names the layer', (g.stderr || '').includes('DLP'), true);
+
+// THE HALF THAT DEGRADED TO REDACT.
+//
+// The pre-tool file scan was gated on the client NOT being able to rewrite its
+// own tool output — true for the clients most people use. Masking can be
+// deferred to a post-tool stage; refusing cannot, because by the time that stage
+// runs the file has been read. So on Claude Code `cat secrets.txt` came back
+// masked and ALLOWED under a mode called block.
+g = guardCall({ command: 'cat ' + s.leak });
+check('reading a file that holds a secret is refused too', g.status, 2);
+check('and says it was the file, not the arguments',
+  (g.stderr || '').includes('file that contains a secret'), true);
+
+// And the direction that keeps it usable: a file with nothing in it still reads.
+const plain = join(s.proj, 'plain.txt');
+writeFileSync(plain, 'nothing secret here\n');
+check('an ordinary file is untouched', guardCall({ command: 'cat ' + plain }).status, 0);
 
 suite('off — nothing is scanned');
 

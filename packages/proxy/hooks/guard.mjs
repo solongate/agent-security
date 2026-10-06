@@ -140,7 +140,7 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 //
 // This number is how a machine compares the hook it has with the one in a
 // checkout, and a fix nobody picks up is not a fix.
-const HOOK_VERSION = 106;
+const HOOK_VERSION = 107;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -2433,10 +2433,22 @@ input += SG_STDIN;
     // did it was doing a stronger mode's work under a weaker mode's name, and
     // whoever chose detect never saw the value they had asked only to be told
     // about. dlpObserve is scanned and recorded, never rewritten.
-    if (!reason && !CLIENT.redactsOutput && securityCfg && (securityCfg.dlpBlock || securityCfg.dlpRedact)) {
+    //
+    // THE CAPABILITY GATE IS FOR REDACT, NOT FOR BLOCK. Masking can be deferred
+    // to a client that rewrites its own tool output, which is why this scan was
+    // skipped there. Refusing cannot: by the time a post-tool stage runs, the
+    // file has been read. So block mode ran this on nobody who could redact, and
+    // `cat secrets.pem` came back masked and ALLOWED on exactly the clients most
+    // people use. Block quietly degraded to redact, the same shape of bug detect
+    // had.
+    const dlpBlocking = !!(securityCfg && securityCfg.dlpBlock);
+    if (!reason && securityCfg && (securityCfg.dlpBlock || securityCfg.dlpRedact)
+        && (dlpBlocking || !CLIENT.redactsOutput)) {
       const dlpCfg = securityCfg.dlpBlock || securityCfg.dlpRedact;
       const plan = dlpRedactReadPlan(toolName, args, dlpCfg, hookCwd);
-      if (plan && plan.block) {
+      // A rewrite plan means the file HAS a secret and redaction is possible. In
+      // block mode that is not an offer to take.
+      if (plan && (plan.block || (dlpBlocking && plan.rewrite))) {
         reason = 'Security layer (DLP): reading a file that contains a secret is blocked. Blocked by SolonGate.';
         opaRoute = 'black';
       } else if (plan && plan.rewrite) {

@@ -222,7 +222,7 @@ func observingDLP(sec *sgshared.Security) *observingCfg {
 //
 // TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
 // cannot drift without the build saying so.
-const hookVersion = 106
+const hookVersion = 107
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.
@@ -483,19 +483,30 @@ func main() {
 	// that can rewrite what the tool returned masks the secret there instead;
 	// one without it has to be handed a redacted copy before the tool runs, and
 	// a secret we cannot redact becomes a block rather than a pass.
-	if sec != nil && !activeClient.RedactsOutput {
-		// DETECT IS NOT IN THIS LIST, and that is the whole of the mode. Masking
-		// a file's contents on the way to the model is redacting; a mode called
-		// detect that did it was doing a stronger mode's work under a weaker
-		// mode's name, and the person who chose it never saw the real value they
-		// had asked only to be told about.
+	// DETECT IS NOT IN THIS LIST, and that is the whole of the mode. Masking a
+	// file's contents on the way to the model is redacting; a mode called detect
+	// that did it was doing a stronger mode's work under a weaker mode's name,
+	// and the person who chose it never saw the real value they had asked only
+	// to be told about.
+	//
+	// THE CAPABILITY GATE IS FOR REDACT, NOT FOR BLOCK. Masking can be deferred
+	// to a client that rewrites its own tool output, which is why this whole
+	// scan was skipped there. Refusing cannot: by the time a post-tool stage
+	// runs, the file has been read. So block mode ran this on nobody who could
+	// redact, and `cat secrets.pem` came back masked and ALLOWED on exactly the
+	// clients most people use — block quietly degraded to redact, the same shape
+	// of bug detect had.
+	if sec != nil {
+		blocking := sec.DLPBlock != nil
 		dlpCfg := sec.DLPBlock
 		if dlpCfg == nil {
 			dlpCfg = sec.DLPRedact
 		}
-		if dlpCfg != nil {
+		if dlpCfg != nil && (blocking || !activeClient.RedactsOutput) {
 			if plan := dlpRedactReadPlan(c.Tool, c.Args, dlpCfg, c.Cwd); plan != nil {
-				if plan.Block {
+				// A Rewrite plan means the file HAS a secret and redaction is
+				// possible. In block mode that is not an offer to take.
+				if plan.Block || blocking {
 					reason := "Security layer (DLP): reading a file that contains a secret is blocked. Blocked by SolonGate."
 					record(sec, hasSecurity, c, agentType, agentName, reason, started)
 					deny(reason)

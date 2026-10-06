@@ -59,10 +59,12 @@ export async function collectChecks(): Promise<Check[]> {
       // made it look like a fourth mode that exists nowhere else.
       checks.push(
         sec?.dlpBlock
-          ? { name: 'dlp', ok: true, detail: `block · ${sec.dlpBlock.patterns.length} patterns` }
+          ? { name: 'dlp', ok: true, detail: `block · ${sec.dlpBlock.patterns.length} patterns · refuses a call carrying one` }
           : sec?.dlpRedact
-            ? { name: 'dlp', ok: true, detail: `detect · ${sec.dlpRedact.patterns.length} patterns · masks secrets, never blocks` }
-            : { name: 'dlp', ok: 'warn', detail: 'off' },
+            ? { name: 'dlp', ok: true, detail: `redact · ${sec.dlpRedact.patterns.length} patterns · masks secrets, never blocks` }
+            : sec?.dlpObserve
+              ? { name: 'dlp', ok: true, detail: `detect · ${sec.dlpObserve.patterns.length} patterns · records hits, changes nothing` }
+              : { name: 'dlp', ok: 'warn', detail: 'off' },
       );
       checks.push({ name: 'self-protection', ok: active.self_protection_enabled ? true : 'warn', detail: active.self_protection_enabled ? 'on' : 'off' });
     } catch (e) {

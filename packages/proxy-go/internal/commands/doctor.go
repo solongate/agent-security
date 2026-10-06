@@ -155,17 +155,24 @@ func policyChecks(ctx context.Context, c *api.Client) []Check {
 		checks = append(checks, Check{Name: "rate limit", OK: StateWarn, Detail: "off"})
 	}
 
-	// The middle DLP state is stored as "redact" and called detect everywhere a
-	// user sees it, matching the other layers. Reporting the storage word here
-	// made it look like a fourth mode that exists nowhere else.
+	// Redact used to be reported as "detect", on the grounds that the storage
+	// word would look like a fourth mode nobody could choose. It was not a
+	// storage word: it was what the layer did, and calling it detect is what let
+	// a mode that masked every secret it found pass for one that only watched.
+	// Three modes exist and each is named here by the thing it does.
 	switch {
 	case active.Security != nil && active.Security.DLPBlock != nil:
 		checks = append(checks, Check{Name: "dlp", OK: StateOK,
-			Detail: "block · " + strconv.Itoa(len(active.Security.DLPBlock.Patterns)) + " patterns"})
+			Detail: "block · " + strconv.Itoa(len(active.Security.DLPBlock.Patterns)) +
+				" patterns · refuses a call carrying one"})
 	case active.Security != nil && active.Security.DLPRedact != nil:
 		checks = append(checks, Check{Name: "dlp", OK: StateOK,
-			Detail: "detect · " + strconv.Itoa(len(active.Security.DLPRedact.Patterns)) +
+			Detail: "redact · " + strconv.Itoa(len(active.Security.DLPRedact.Patterns)) +
 				" patterns · masks secrets, never blocks"})
+	case active.Security != nil && active.Security.DLPObserve != nil:
+		checks = append(checks, Check{Name: "dlp", OK: StateOK,
+			Detail: "detect · " + strconv.Itoa(len(active.Security.DLPObserve.Patterns)) +
+				" patterns · records hits, changes nothing"})
 	default:
 		checks = append(checks, Check{Name: "dlp", OK: StateWarn, Detail: "off"})
 	}

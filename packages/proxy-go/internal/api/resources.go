@@ -385,11 +385,19 @@ func (p PoliciesAPI) Active(ctx context.Context, agentID string) (ActivePolicy, 
 			custom = append(custom, raw)
 		}
 	}
-	if l.DLP.Mode == LayerBlock {
-		out.Security.DLPBlock = &DLPSettings{Patterns: l.DLP.Patterns, Custom: custom}
-	}
-	if l.DLP.Mode != LayerOff {
-		out.Security.DLPRedact = &DLPSettings{Patterns: l.DLP.Patterns, Custom: custom}
+	// One key per mode, the same shape the guard reads off disk. `mode != off`
+	// used to fill DLPRedact for every mode, which is the line that made detect
+	// redact: every reader downstream saw a redact config and did redact things
+	// with it.
+	rules := &DLPSettings{Patterns: l.DLP.Patterns, Custom: custom}
+	switch l.DLP.Mode {
+	case LayerBlock:
+		out.Security.DLPBlock = rules
+		out.Security.DLPRedact = rules
+	case LayerRedact:
+		out.Security.DLPRedact = rules
+	case LayerDetect:
+		out.Security.DLPObserve = rules
 	}
 	if s.Security != nil && s.Security.LocalLogs != nil {
 		if raw, err := json.Marshal(s.Security.LocalLogs); err == nil {

@@ -237,7 +237,11 @@ type ActivePolicySecurity struct {
 	RateLimitObserve *RateLimitSettings `json:"rateLimitObserve"`
 	DLPBlock         *DLPSettings       `json:"dlpBlock"`
 	DLPRedact        *DLPSettings       `json:"dlpRedact"`
-	LocalLogs        json.RawMessage    `json:"localLogs"`
+	// DLPObserve carries the same patterns in DETECT mode, where a hit is
+	// recorded and nothing the caller sees changes. Exactly one of the three
+	// shapes is ever set.
+	DLPObserve *DLPSettings    `json:"dlpObserve"`
+	LocalLogs  json.RawMessage `json:"localLogs"`
 }
 
 type ActivePolicy struct {

@@ -166,7 +166,25 @@ function loadDlpRedact() {
     // secrets": taking `dlpRedact` alone gave that file argument blocking and NO
     // output masking, which on a client that redacts in this hook is the whole
     // protection for a file read.
+    //
+    // dlpObserve is NOT here, and its absence is the detect mode. See
+    // loadDlpScan: detect scans the same patterns and records the same hit, and
+    // changes nothing the model sees.
     const d = (sec && sec.dlpRedact) || (sec && sec.dlpBlock);
+    return d && Array.isArray(d.patterns) ? d : null;
+  } catch { return null; }
+}
+
+// The patterns to SCAN with, whichever mode is on.
+//
+// Every mode scans; they differ only in what happens next. Reading the config
+// through one function keeps a mode from silently losing its scan because the
+// key it writes was not in somebody's `||` chain — which is how detect came to
+// record nothing while redacting everything.
+function loadDlpScan() {
+  try {
+    const sec = loadSecurity();
+    const d = (sec && sec.dlpRedact) || (sec && sec.dlpBlock) || (sec && sec.dlpObserve);
     return d && Array.isArray(d.patterns) ? d : null;
   } catch { return null; }
 }
@@ -318,20 +336,41 @@ function appendLocalLog(cfg, entry) {
   } catch { /* best-effort: never disturb the tool call */ }
 }
 
+// WHAT THE OUTPUT SCAN CAUGHT, so the row can carry it.
+//
+// The audit row's `dlp` field used to come from dlpScanArgs alone, which reads
+// the ARGUMENTS. For `Read secrets.txt` the arguments are a file path and
+// nothing else, so the scan correctly found nothing and the row said dlp:no —
+// while the redactor below masked an AWS key out of the file's contents on its
+// way to the model. The one place a secret was actually caught was the one
+// place nothing was written down, and the layers panel reported "no dlp hits in
+// last 7 days" over three reads it had just redacted.
+//
+// A security product's record is half the product. A hit nobody can see later
+// did not happen, as far as anyone reviewing the log is concerned.
+const OUTPUT_DLP_HITS = new Set();
+
 // dlpGlobToRe is in ./dlp.mjs too: three copies of one converter, and the reason it
 // collapses a run of stars is a HANG on a pattern somebody types.
-function dlpRedactText(text, cfg) {
+function dlpRedactText(text, cfg, found) {
   if (!cfg || typeof text !== "string" || !text) return text;
   const allow = new Set(Array.isArray(cfg.patterns) ? cfg.patterns : []);
   const NUL = String.fromCharCode(0);
   const labels = [];
   const stash = (label) => NUL + (labels.push(label) - 1) + NUL;
+  // `found` collects the pattern NAMES this call masked, so the audit row can
+  // say which secret was caught. Optional: callers that only want the text pass
+  // nothing and nothing changes for them.
+  const hit = (name) => { if (found) found.add(name); };
   let out = text;
   for (const p of DLP_PATTERNS) {
-    if (allow.has(p.name)) out = out.replace(p.re, () => stash("[REDACTED:" + p.name + "]"));
+    if (allow.has(p.name)) out = out.replace(p.re, () => { hit(p.name); return stash("[REDACTED:" + p.name + "]"); });
   }
   for (const c of Array.isArray(cfg.custom) ? cfg.custom : []) {
-    try { out = out.replace(dlpGlobToRe(c.re, "gi"), () => stash("[REDACTED:" + (c.name || "custom") + "]")); } catch {}
+    try {
+      const nm = c.name || "custom";
+      out = out.replace(dlpGlobToRe(c.re, "gi"), () => { hit(nm); return stash("[REDACTED:" + nm + "]"); });
+    } catch {}
   }
   return out.replace(new RegExp(NUL + "(\\d+)" + NUL, "g"), (_, i) => labels[+i] || "");
 }
@@ -481,7 +520,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
     // error leaves the original output untouched.
     try {
       const dlpCfg = loadDlpRedact();
-      const redactName = (s) => (dlpCfg && typeof s === 'string') ? dlpRedactText(s, dlpCfg) : s;
+      const redactName = (s) => (dlpCfg && typeof s === 'string') ? dlpRedactText(s, dlpCfg, OUTPUT_DLP_HITS) : s;
 
       // Glob (and Grep in files mode) deliver a STRUCTURED result:
       //   { filenames: string[], numFiles, truncated, totalMatches, ... }
@@ -507,7 +546,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
         if (dlpCfg) {
           const base = extractOutputText(toolResponse, toolOutput);
           if (typeof base === 'string') {
-            const redacted = dlpRedactText(base, dlpCfg);
+            const redacted = dlpRedactText(base, dlpCfg, OUTPUT_DLP_HITS);
             if (redacted !== base) out = redacted;
           }
         }
@@ -600,7 +639,28 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
     let dlpMatches = [];
     let rateLimitBurst = false;
     if (decision === 'ALLOW') {
-      try { dlpMatches = dlpScanArgs(argsSummary, loadDlpRedact()); } catch { dlpMatches = []; }
+      try { dlpMatches = dlpScanArgs(argsSummary, loadDlpScan()); } catch { dlpMatches = []; }
+      // Arguments and output are two places one call can carry a secret, and a
+      // row that names only the first is why a redacted read looked clean.
+      //
+      // In DETECT mode nothing above masked anything, so there is nothing in
+      // OUTPUT_DLP_HITS: the scan has to happen here instead. It reads the
+      // output and throws the text away, which is exactly what detect means.
+      try {
+        if (!OUTPUT_DLP_HITS.size) {
+          const scanCfg = loadDlpScan();
+          const sec = loadSecurity();
+          if (scanCfg && sec && sec.dlpObserve && !sec.dlpRedact && !sec.dlpBlock) {
+            const base = extractOutputText(toolResponse, toolOutput);
+            if (typeof base === 'string' && base) {
+              for (const n of dlpScanArgs(base, scanCfg)) OUTPUT_DLP_HITS.add(n);
+            }
+          }
+        }
+        for (const name of OUTPUT_DLP_HITS) {
+          if (!dlpMatches.includes(name)) dlpMatches.push(name);
+        }
+      } catch { /* the args hits still stand */ }
       try { rateLimitBurst = rateLimitObserveBurst(AGENT_ID, loadRateLimitObserve()); } catch { rateLimitBurst = false; }
     }
 

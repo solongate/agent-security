@@ -81,9 +81,17 @@ export interface ActivePolicy {
 
 export type LayerMode = 'off' | 'detect' | 'block';
 
+/**
+ * DLP has a step the rate limit does not: masking the secret and letting the
+ * call through. A rate limit either counts a call or refuses it, so `redact`
+ * belongs to this layer alone and is typed apart rather than widening
+ * LayerMode, which would make `ratelimit set --mode redact` typecheck.
+ */
+export type DlpMode = LayerMode | 'redact';
+
 export interface SecurityLayers {
   rateLimit: { mode: LayerMode; perMinute: number; perHour: number; perDay: number };
-  dlp: { mode: LayerMode; patterns: string[]; custom: { name: string; re: string }[] };
+  dlp: { mode: DlpMode; patterns: string[]; custom: { name: string; re: string }[] };
 }
 
 export interface RateLimitChange {

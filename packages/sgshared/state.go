@@ -48,7 +48,23 @@ type LocalLogs struct {
 type Security struct {
 	DLPBlock  *DLPConfig `json:"dlpBlock"`
 	DLPRedact *DLPConfig `json:"dlpRedact"`
-	RateLimit *RateLimit `json:"rateLimit"`
+
+	// THE DETECT-MODE PATTERNS: scan, record, change nothing. Written in place of
+	// DLPRedact when the mode is detect, so exactly one of the three shapes is
+	// ever on disk and a mode cannot accidentally do a stronger mode's work.
+	//
+	// There used to be two modes wearing three names. "detect" set DLPRedact, so
+	// it masked the model's view of every secret it found — which is redacting,
+	// not detecting — and "block" set both, so the only difference between them
+	// was whether an argument hit also refused the call. A read whose secret was
+	// in the FILE behaved identically in both: allowed, masked, and recorded as
+	// clean. Somebody asking for detect got redaction they did not ask for, and
+	// somebody asking for block got redaction where they expected a refusal.
+	//
+	// Each mode now does the thing its name is: detect observes, redact masks,
+	// block refuses.
+	DLPObserve *DLPConfig `json:"dlpObserve"`
+	RateLimit  *RateLimit `json:"rateLimit"`
 
 	// The DETECT-mode limits: count, do not block. Set by the API in place of
 	// RateLimit when the mode is detect, so exactly one of the two is ever

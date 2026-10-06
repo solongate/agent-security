@@ -23,6 +23,8 @@ export function decisionColor(decision: string): string {
 /** Ink `color` for a layer/agent mode/status. */
 export function modeColor(m: string): string {
   if (m === 'block' || m === 'active' || m === 'on') return theme.ok;
+  // redact acts, detect only watches, so they are not the same amber.
+  if (m === 'redact') return theme.accent;
   if (m === 'detect' || m === 'idle') return theme.warn;
   return theme.dim;
 }

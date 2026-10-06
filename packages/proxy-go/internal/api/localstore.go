@@ -93,12 +93,13 @@ type guardSecurity struct {
 	RateLimitObserve *rateLimitNumbers `json:"rateLimitObserve,omitempty"`
 	DLPBlock         *dlpRules         `json:"dlpBlock,omitempty"`
 	DLPRedact        *dlpRules         `json:"dlpRedact,omitempty"`
+	DLPObserve       *dlpRules         `json:"dlpObserve,omitempty"`
 	LocalLogs        *localLogsBlock   `json:"localLogs,omitempty"`
 }
 
 func (g *guardSecurity) empty() bool {
 	return g == nil || (g.RateLimit == nil && g.RateLimitObserve == nil &&
-		g.DLPBlock == nil && g.DLPRedact == nil && g.LocalLogs == nil)
+		g.DLPBlock == nil && g.DLPRedact == nil && g.DLPObserve == nil && g.LocalLogs == nil)
 }
 
 // stored is the file, plus which spelling it was in.
@@ -250,14 +251,21 @@ func toLayers(sec *guardSecurity) SecurityLayers {
 		l.RateLimit.PerMinute, l.RateLimit.PerHour, l.RateLimit.PerDay = nums.PerMinute, nums.PerHour, nums.PerDay
 	}
 
+	// The pattern list is the same whichever mode wrote it; only the key it sits
+	// under says which mode that was.
 	rules := sec.DLPBlock
 	if rules == nil {
 		rules = sec.DLPRedact
+	}
+	if rules == nil {
+		rules = sec.DLPObserve
 	}
 	switch {
 	case sec.DLPBlock != nil:
 		l.DLP.Mode = LayerBlock
 	case sec.DLPRedact != nil:
+		l.DLP.Mode = LayerRedact
+	case sec.DLPObserve != nil:
 		l.DLP.Mode = LayerDetect
 	}
 	if rules != nil {
@@ -299,8 +307,10 @@ func fromLayers(l SecurityLayers, keep *guardSecurity) *guardSecurity {
 	if l.DLP.Mode == LayerBlock {
 		out.DLPBlock = rules
 		out.DLPRedact = rules
-	} else if l.DLP.Mode == LayerDetect {
+	} else if l.DLP.Mode == LayerRedact {
 		out.DLPRedact = rules
+	} else if l.DLP.Mode == LayerDetect {
+		out.DLPObserve = rules
 	}
 	return out
 }

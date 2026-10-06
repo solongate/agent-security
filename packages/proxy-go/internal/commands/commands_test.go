@@ -139,7 +139,7 @@ func TestPolicyListHumanOutputStaysOffStdout(t *testing.T) {
 
 func TestRateLimitSetKeepsTheWindowsItWasNotGiven(t *testing.T) {
 	c := machine(t)
-	// The layers as the GUARD reads them: a detect-mode DLP config is `dlpRedact`
+	// The layers as the GUARD reads them: a redact-mode DLP config is `dlpRedact`
 	// with no `dlpBlock`, and a block-mode rate limit is `rateLimit`.
 	seedPolicy(t, `{"policy":{"id":"p1","name":"P","mode":"denylist","rules":[]},
 	  "security":{
@@ -167,7 +167,7 @@ func TestRateLimitSetKeepsTheWindowsItWasNotGiven(t *testing.T) {
 	if got.Layers.RateLimit.PerHour != 100 || got.Layers.RateLimit.PerDay != 1000 {
 		t.Fatalf("untouched windows were reset: %+v", got.Layers.RateLimit)
 	}
-	if got.Layers.DLP.Mode != api.LayerDetect || len(got.Layers.DLP.Patterns) != 1 {
+	if got.Layers.DLP.Mode != api.LayerRedact || len(got.Layers.DLP.Patterns) != 1 {
 		t.Fatalf("editing the rate limit disarmed DLP: %+v", got.Layers.DLP)
 	}
 }

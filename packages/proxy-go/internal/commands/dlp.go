@@ -10,7 +10,7 @@ import (
 func dlpUsage() string {
 	return usage("solongate dlp", "data-loss prevention", []usageRow{
 		row("dlp show", "current mode + enabled patterns"),
-		row("dlp mode <off|detect|block>", "set enforcement mode"),
+		row("dlp mode <off|detect|redact|block>", "detect records · redact masks · block refuses"),
 		row("dlp enable <pattern>", "enable a built-in pattern"),
 		row("dlp disable <pattern>", "disable a built-in pattern"),
 		row("dlp add-custom --name X --re <regex>", "add a custom pattern"),
@@ -74,8 +74,8 @@ func runDLP(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 
 	case "mode":
 		mode := p.positional(1)
-		if mode != "off" && mode != "detect" && mode != "block" {
-			return usageErr("Usage: dlp mode <off|detect|block>")
+		if mode != "off" && mode != "detect" && mode != "redact" && mode != "block" {
+			return usageErr("Usage: dlp mode <off|detect|redact|block>")
 		}
 		next := layers
 		next.DLP.Mode = api.LayerMode(mode)

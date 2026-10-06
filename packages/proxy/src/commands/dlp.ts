@@ -46,7 +46,7 @@ export async function run(argv: string[]): Promise<number> {
 
     case 'mode': {
       const mode = positionals[1] as LayerMode | undefined;
-      if (!mode || !['off', 'detect', 'block'].includes(mode)) return err('  Usage: dlp mode <off|detect|block>'), 1;
+      if (!mode || !['off', 'detect', 'redact', 'block'].includes(mode)) return err('  Usage: dlp mode <off|detect|redact|block>'), 1;
       const saved = await save({ ...layers, dlp: { ...layers.dlp, mode } });
       if (json) return printJson(saved.dlp), 0;
       return err(green(`  ✓ DLP mode → ${saved.dlp.mode}`)), 0;

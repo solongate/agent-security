@@ -140,7 +140,7 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 //
 // This number is how a machine compares the hook it has with the one in a
 // checkout, and a fix nobody picks up is not a fix.
-const HOOK_VERSION = 105;
+const HOOK_VERSION = 106;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -2428,6 +2428,11 @@ input += SG_STDIN;
     // before OPA (as it once was) let a redaction rewrite terminate the hook and
     // silently bypass the policy block. Fail-closed: a secret we can't redact
     // becomes a block.
+    // DETECT IS DELIBERATELY ABSENT from this condition. Masking a file's
+    // contents on the way to the model is redacting; a mode called detect that
+    // did it was doing a stronger mode's work under a weaker mode's name, and
+    // whoever chose detect never saw the value they had asked only to be told
+    // about. dlpObserve is scanned and recorded, never rewritten.
     if (!reason && !CLIENT.redactsOutput && securityCfg && (securityCfg.dlpBlock || securityCfg.dlpRedact)) {
       const dlpCfg = securityCfg.dlpBlock || securityCfg.dlpRedact;
       const plan = dlpRedactReadPlan(toolName, args, dlpCfg, hookCwd);

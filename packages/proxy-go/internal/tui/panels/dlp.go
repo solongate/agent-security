@@ -41,7 +41,12 @@ import (
 // The add editor is pinned at the TOP so what is being typed is always visible.
 // Self-protection lives in Settings, not here.
 
-var dlpModes = []api.LayerMode{api.LayerOff, api.LayerDetect, api.LayerBlock}
+// The three things a scan can do, plus off. They are separate modes because
+// they are separate outcomes: detect leaves the call exactly as it was, redact
+// changes what the model sees, block stops the call. Two of these used to share
+// one name — "detect" masked everything it found — so choosing the weakest mode
+// quietly applied the middle one.
+var dlpModes = []api.LayerMode{api.LayerOff, api.LayerDetect, api.LayerRedact, api.LayerBlock}
 
 // dlpCols is how many built-ins share a row. Fixed, not derived from the width:
 // the row is the ↑↓ stride, and a stride that changed with the terminal would
@@ -637,11 +642,13 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 	modeLine.put(string(p.dlp.DLP.Mode), modeStyle(string(p.dlp.DLP.Mode)).Bold(true))
 	switch p.dlp.DLP.Mode {
 	case api.LayerOff:
-		modeLine.put("  (scanning disabled)", stDim)
+		modeLine.put("  (nothing is scanned)", stDim)
 	case api.LayerDetect:
-		modeLine.put("  (flag dlp:yes, redact output)", stDim)
+		modeLine.put("  (record the hit, change nothing)", stDim)
+	case api.LayerRedact:
+		modeLine.put("  (mask the secret, let the call through)", stDim)
 	default:
-		modeLine.put("  (deny + redact secrets)", stDim)
+		modeLine.put("  (refuse the call)", stDim)
 	}
 	if p.dirty {
 		modeLine.put("   ● unsaved (s save · x discard)", stWarn)

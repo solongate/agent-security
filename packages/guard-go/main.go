@@ -180,6 +180,32 @@ func clientArgNames(patch map[string]interface{}) map[string]interface{} {
 
 func allow() { emit(decision{Type: "allow"}) }
 
+// observingDLP is the config of a mode that WATCHES rather than refuses, and
+// which of the two it is.
+//
+// Block is handled before this is ever reached, so only detect and redact get
+// here. Returning the name alongside the config keeps the recorded reason
+// honest: "DLP is in detect mode" and "DLP is in redact mode" are different
+// sentences about different outcomes, and one of them used to be printed for
+// both.
+type observingCfg struct {
+	cfg  *sgshared.DLPConfig
+	mode string
+}
+
+func observingDLP(sec *sgshared.Security) *observingCfg {
+	if sec == nil {
+		return nil
+	}
+	if sec.DLPRedact != nil {
+		return &observingCfg{cfg: sec.DLPRedact, mode: "redact"}
+	}
+	if sec.DLPObserve != nil {
+		return &observingCfg{cfg: sec.DLPObserve, mode: "detect"}
+	}
+	return nil
+}
+
 // hookVersion is the HOOK_VERSION from packages/proxy/hooks/guard.mjs that this
 // binary implements. It is what `--sg-version` prints and what the hook compares
 // itself against before handing a call over.
@@ -196,7 +222,7 @@ func allow() { emit(decision{Type: "allow"}) }
 //
 // TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
 // cannot drift without the build saying so.
-const hookVersion = 105
+const hookVersion = 106
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.
@@ -355,18 +381,19 @@ func main() {
 			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
-	} else if sec != nil && sec.DLPRedact != nil {
-		// DETECT mode. Same scan, no block: the whole point of the mode is that
-		// the call goes through and the match is written down.
+	} else if cfg := observingDLP(sec); cfg != nil {
+		// DETECT and REDACT both let the call through and both write the match
+		// down; what separates them is what the model ends up seeing, which is
+		// decided below and in the post-tool stage, not here.
 		//
 		// The write only happens on a client with no post-tool stage, where
 		// nothing else will do it — see recordObserved. Before this, detect mode
 		// on such a client observed nothing at all: reads were still redacted, so
 		// it looked like it was working, and an argument carrying a secret went
 		// out with no record anywhere that it had.
-		if hit := sgshared.DLPScan(argsText, sec.DLPRedact); hit != "" {
+		if hit := sgshared.DLPScan(argsText, cfg.cfg); hit != "" {
 			recordObserved(sec, hasSecurity, c, agentType, agentName,
-				"Security layer (DLP): detected - arguments contain a "+hit+". Allowed: DLP is in detect mode.",
+				"Security layer (DLP): detected - arguments contain a "+hit+". Allowed: DLP is in "+cfg.mode+" mode.",
 				started)
 		}
 	}
@@ -457,6 +484,11 @@ func main() {
 	// one without it has to be handed a redacted copy before the tool runs, and
 	// a secret we cannot redact becomes a block rather than a pass.
 	if sec != nil && !activeClient.RedactsOutput {
+		// DETECT IS NOT IN THIS LIST, and that is the whole of the mode. Masking
+		// a file's contents on the way to the model is redacting; a mode called
+		// detect that did it was doing a stronger mode's work under a weaker
+		// mode's name, and the person who chose it never saw the real value they
+		// had asked only to be told about.
 		dlpCfg := sec.DLPBlock
 		if dlpCfg == nil {
 			dlpCfg = sec.DLPRedact

@@ -33,6 +33,7 @@ import type {
   AuditEntry,
   AuditList,
   LayerMode,
+  DlpMode,
   PolicyRule,
   PolicySet,
   RateLimitChange,
@@ -122,6 +123,8 @@ export interface GuardSecurity {
   rateLimitObserve?: RateLimitNumbers | null;
   dlpBlock?: DlpRules | null;
   dlpRedact?: DlpRules | null;
+  /** The detect-mode patterns: scanned and recorded, never applied. */
+  dlpObserve?: DlpRules | null;
   localLogs?: { enabled: boolean; path: string } | null;
 }
 
@@ -219,7 +222,16 @@ export function write(s: Stored): void {
 // is the extra step over redacting; detect mode sets only `dlpRedact`.
 //
 // Which makes it invertible, and that is why there is one copy on disk: dlpBlock
-// present means block, dlpRedact alone means detect, neither means off.
+// present means block, dlpRedact alone means redact, dlpObserve alone means
+// detect, and none of them means off.
+//
+// `dlpRedact` alone used to be spelled "detect", which is what made the two
+// modes one: choosing detect masked every secret it found, and choosing block
+// masked them too and additionally refused an argument hit. A read whose secret
+// lived in the FILE was identical under both. The key kept its name because it
+// describes what it does; the MODE that writes it alone is now called the same
+// thing, and a file from before this reads back as redact — which is what it
+// was doing.
 
 const ZERO_LIMITS: RateLimitNumbers = { perMinute: 0, perHour: 0, perDay: 0 };
 
@@ -231,8 +243,14 @@ export const DEFAULT_LAYERS: SecurityLayers = {
 export function toLayers(sec: GuardSecurity | null): SecurityLayers {
   const nums = sec?.rateLimit ?? sec?.rateLimitObserve ?? ZERO_LIMITS;
   const rlMode: LayerMode = sec?.rateLimit ? 'block' : sec?.rateLimitObserve ? 'detect' : 'off';
-  const dlp = sec?.dlpBlock ?? sec?.dlpRedact ?? null;
-  const dlpMode: LayerMode = sec?.dlpBlock ? 'block' : sec?.dlpRedact ? 'detect' : 'off';
+  const dlp = sec?.dlpBlock ?? sec?.dlpRedact ?? sec?.dlpObserve ?? null;
+  const dlpMode: DlpMode = sec?.dlpBlock
+    ? 'block'
+    : sec?.dlpRedact
+      ? 'redact'
+      : sec?.dlpObserve
+        ? 'detect'
+        : 'off';
   return {
     rateLimit: {
       mode: rlMode,
@@ -269,8 +287,10 @@ export function fromLayers(layers: SecurityLayers, keep: GuardSecurity | null): 
   if (layers.dlp.mode === 'block') {
     out.dlpBlock = rules;
     out.dlpRedact = rules;
-  } else if (layers.dlp.mode === 'detect') {
+  } else if (layers.dlp.mode === 'redact') {
     out.dlpRedact = rules;
+  } else if (layers.dlp.mode === 'detect') {
+    out.dlpObserve = rules;
   }
   return out;
 }

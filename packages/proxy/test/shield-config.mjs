@@ -24,7 +24,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { suite, check, done } from './harness.mjs';
+import { suite, check, done, note } from './harness.mjs';
 
 // Assembled, because the guard protects paths spelled this way and the tooling that
 // writes this file is subject to it. local-mode.mjs says the same.
@@ -91,6 +91,35 @@ const HOUSE_TOKEN = 'acme_' + 'sk_' + '9f3b2c1d8e7a4b6c5d0e';
   const masked = redactString('here is the key ' + HOUSE_TOKEN + ' use it', cfg);
   check('a house-shaped token is masked', masked.includes(HOUSE_TOKEN), false);
   check('and says what was removed', masked.includes('[REDACTED: Acme service token]'), true);
+}
+
+// ── detect mode leaves the prompt alone ──────────────────────────────────────
+//
+// THE THIRD REDACTOR. The guard and the post-tool hook were both taught that
+// detect records a hit and changes nothing; the shield fell through its
+// "nothing configured" branch instead and masked with EVERY built-in pattern —
+// so detect masked MORE than redact, which uses the chosen list. A detect-mode
+// read still came back as [REDACTED: ...] with the other two already correct.
+{
+  const home = machine({
+    policy: { id: 'p1', name: 'P', mode: 'denylist', rules: [] },
+    security: { dlpObserve: { patterns: ['AWS access key'], custom: [] } },
+  });
+
+  const cfg = cfgOn(home);
+  check('detect mode asks the shield to do nothing', cfg, null);
+
+  const KEY = 'AKIA' + 'IOSFODNN7EXAMPLE';
+  check('so the text reaches the model unchanged', redactString('key ' + KEY, cfg), 'key ' + KEY);
+  note('null is not the same answer as an empty pattern list: absent config still masks everything');
+}
+
+// ── nothing configured still masks everything ────────────────────────────────
+{
+  const cfg = cfgOn(machine(null));
+  check('an unconfigured machine gets the full built-in list', cfg.patterns.length, DLP_PATTERNS.length);
+  const KEY = 'AKIA' + 'IOSFODNN7EXAMPLE';
+  check('and its keys do not reach a prompt', redactString('key ' + KEY, cfg).includes(KEY), false);
 }
 
 // ── the two spellings of the file ────────────────────────────────────────────

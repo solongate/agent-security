@@ -60,9 +60,19 @@ const DLP_PATTERNS = dlpPatterns('g');
 // redaction: a file written by hand usually carries only `dlpBlock`, which reads as
 // "refuse secrets", and taking `dlpRedact` alone gave that file no masking here.
 //
-// `dlpObserve` is deliberately NOT one of them. That key is detect mode, whose
-// whole content is that it records a hit and changes nothing anybody sees —
-// masking here would make it the redact mode it sits next to.
+// DETECT RETURNS NULL, and that is a different answer from "nothing configured".
+//
+// The fallback below masks with EVERY built-in pattern, and it is right for the
+// case it was written for. But `dlpObserve` is DLP CONFIGURED, in a mode whose
+// whole content is that it records a hit and changes nothing anybody sees, and
+// falling through to the default made detect mask MORE than redact does: every
+// built-in instead of the chosen list. That is the loudest possible way to get a
+// mode backwards, and it is why a detect-mode read still came back masked after
+// the guard and the post-tool hook had both been taught to leave it alone.
+// Three redactors, and the third had an opinion of its own.
+//
+// Null means "do not touch the text". Absent config still means "mask
+// everything": an unconfigured machine has made no choice to respect.
 //
 // The fallback is unchanged and deliberate: WITH NO POLICY AT ALL, every built-in
 // pattern is masked. The shield is the LLM path — there is no call to allow or deny,
@@ -80,7 +90,11 @@ function loadCfg() {
         : null;
     if (!sec) return defaults();
     const d = sec.dlpRedact || sec.dlpBlock;
-    if (!d || !Array.isArray(d.patterns)) return defaults();
+    if (!d || !Array.isArray(d.patterns)) {
+      // Configured, and the mode says do not rewrite anything.
+      if (sec.dlpObserve && Array.isArray(sec.dlpObserve.patterns)) return null;
+      return defaults();
+    }
     return { patterns: d.patterns, custom: Array.isArray(d.custom) ? d.custom : [] };
   } catch { return defaults(); }
 }

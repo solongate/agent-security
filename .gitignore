@@ -101,6 +101,20 @@ deploy-package/
 !TESTING.md
 !ENGINEERING.md
 !packages/proxy/test/README.md
+
+# The open source release set: the files people look for before they look at code.
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+!SECURITY.md
+!SUPPORT.md
+!GOVERNANCE.md
+!CHANGELOG.md
+!RELEASING.md
+
+# The docs themselves, and the GitHub templates that are markdown rather than YAML.
+!docs/*.md
+!.github/PULL_REQUEST_TEMPLATE.md
+!.github/ISSUE_TEMPLATE/*.md
 # Lock files (pnpm only)
 package-lock.json
 yarn.lock

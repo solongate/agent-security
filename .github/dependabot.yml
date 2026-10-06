@@ -1,0 +1,68 @@
+version: 2
+
+# The guard runs before every tool call, so a dependency on the decision path is
+# a liability rather than a convenience. sgshared deliberately has none, and
+# sgpolicy has one that matters (OPA). Updates are grouped per module so a bump
+# can be reviewed and tested against the conformance suite in one go, rather than
+# arriving as four pull requests that each need the full matrix run.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        dependency-type: development
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /packages/proxy
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        dependency-type: development
+        patterns: ['*']
+
+  - package-ecosystem: gomod
+    directory: /packages/guard-go
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ['*']
+
+  - package-ecosystem: gomod
+    directory: /packages/proxy-go
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ['*']
+
+  - package-ecosystem: gomod
+    directory: /packages/sgpolicy
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ['*']
+
+  - package-ecosystem: gomod
+    directory: /packages/sgshared
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ['*']

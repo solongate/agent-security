@@ -152,7 +152,7 @@ function printHelp() {
 
   head('DLP (secrets)');
   cmd('dlp show', 'current mode + enabled patterns');
-  cmd('dlp mode <off|detect|block>', 'set enforcement mode');
+  cmd('dlp mode <off|detect|redact|block>', 'detect records, redact masks, block refuses');
   cmd('dlp enable <pattern>', 'enable a built-in pattern');
   cmd('dlp disable <pattern>', 'disable a built-in pattern');
   cmd('dlp add-custom --name X --re <regex>', 'add a custom pattern');

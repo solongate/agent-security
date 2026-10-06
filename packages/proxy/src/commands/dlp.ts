@@ -6,7 +6,7 @@ import { cyan, dim, err, green, printJson, table, unknownSub, usage, yellow } fr
 
 const USAGE = usage('solongate dlp', 'data-loss prevention', [
   ['dlp show', 'current mode + enabled patterns'],
-  ['dlp mode <off|detect|block>', 'set enforcement mode'],
+  ['dlp mode <off|detect|redact|block>', 'detect records, redact masks, block refuses'],
   ['dlp enable <pattern>', 'enable a built-in pattern'],
   ['dlp disable <pattern>', 'disable a built-in pattern'],
   ['dlp add-custom --name X --re <regex>', 'add a custom pattern'],

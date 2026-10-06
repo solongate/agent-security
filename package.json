@@ -2,6 +2,16 @@
   "name": "solongate",
   "version": "0.0.0",
   "private": true,
+  "description": "A policy gate for AI coding agents: every tool call is decided on your machine, against rules you wrote.",
+  "license": "MIT",
+  "homepage": "https://github.com/codeyevsky/solongate-oss#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codeyevsky/solongate-oss.git"
+  },
+  "bugs": {
+    "url": "https://github.com/codeyevsky/solongate-oss/issues"
+  },
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",

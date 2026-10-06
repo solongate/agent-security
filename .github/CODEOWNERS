@@ -1,0 +1,23 @@
+# Every pull request gets a review from a maintainer.
+#
+# The paths listed separately below are the decision path: the code that decides
+# whether a tool call runs. They are not owned by someone different, they are
+# called out so that a change to them is never reviewed as an ordinary one. See
+# CONTRIBUTING.md for what that review asks.
+
+*                           @codeyevsky
+
+# The guard, the policy engine, and the shapes both implementations agree about.
+/packages/guard-go/         @codeyevsky
+/packages/sgpolicy/         @codeyevsky
+/packages/sgshared/         @codeyevsky
+/packages/proxy/hooks/      @codeyevsky
+
+# The contract. A change to an existing case needs a reason why the behaviour it
+# pinned was wrong.
+/packages/proxy/test/       @codeyevsky
+
+# Release and CI machinery.
+/.github/workflows/         @codeyevsky
+/install.sh                 @codeyevsky
+/RELEASING.md               @codeyevsky

@@ -1673,34 +1673,28 @@ func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) [
 	} else {
 		kv("custom", plain("none"))
 	}
+	// ONE LINE, AND NO BAR.
+	//
+	// This drew a bar per pattern, each scaled against the busiest, which makes
+	// the busiest full width by construction: a single pattern became a
+	// full-width red bar across the panel for seven hits. It read as an
+	// emergency and measured nothing, because a bar compares and there was
+	// nothing to compare against. Naming the pattern beside it did not help
+	// either — with one pattern the name sat next to what was really the total,
+	// so the row said "AWS access key" where it meant "all of them".
+	//
+	// The panel is a summary of the layers. How many hits, over what window, is
+	// the summary; which pattern fired is on the entry that fired it, where it
+	// belongs to one call and means something.
 	hits := p.insights.DLPByPattern
-	if len(hits) > 0 {
-		kv("pattern hits", sg("last 7 days", theme.Dim))
+	total := 0
+	for _, h := range hits {
+		total += h.Count
+	}
+	if total > 0 {
+		kv("pattern hits", seg{text: strconv.Itoa(total) + " in the last 7 days", fg: theme.Bad})
 	} else {
 		kv("pattern hits", sg("none in the last 7 days", theme.Dim))
-	}
-	// A BAR COMPARES THINGS. Scaling each pattern against the busiest one means
-	// the busiest is always full width, so a single pattern drew a full-width red
-	// bar across the panel for a count of seven — which reads as an alarm and
-	// carries no information at all, because there was nothing to compare it to.
-	//
-	// Two or more patterns, and the comparison is real. One, and the number is
-	// the whole of what there is to say.
-	maxHit := 1
-	if len(hits) > 0 && hits[0].Count > 0 {
-		maxHit = hits[0].Count
-	}
-	for _, h := range hits {
-		// 10 columns cut "AWS access key" to "AWS acces…", which names nothing.
-		label := "  " + truncate(h.Pattern, 22)
-		if len(hits) == 1 {
-			push(renderRow(width,
-				sg(padEnd(label, 25), theme.Dim),
-				sgb(strconv.Itoa(h.Count), theme.Bad),
-				sg(" hits", theme.Dim)))
-			continue
-		}
-		push(hbar(label, h.Count, maxHit, barW, theme.Bad, width))
 	}
 	push("")
 
@@ -1937,19 +1931,25 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		sg(padEnd("DLP", 10), theme.Dim),
 		sg(padEnd(modeOr(dl.mode()), 7), modeColor(dl.mode())),
 		sg(strconv.Itoa(builtinN)+" builtin · "+strconv.Itoa(customN)+" custom", theme.Dim)))
-	dlpBars := p.insights.DLPByPattern
-	if len(dlpBars) > 2 {
-		dlpBars = dlpBars[:2]
+	// ONE LINE, AND NO BAR. Each pattern was drawn as a bar scaled against the
+	// busiest, which makes the busiest full width by construction — so a single
+	// pattern was a full-width red bar across the panel for seven hits, reading
+	// as an emergency and measuring nothing, because a bar compares and there was
+	// nothing to compare against. Ten columns of label cut "AWS access key" to
+	// "AWS acces…" as well, so the name beside it named nothing, and with one
+	// pattern that name sat next to what was really the total.
+	//
+	// This column is a summary of the layers. How many hits over what window is
+	// the summary; WHICH pattern fired belongs on the entry that fired it.
+	dlpTotal := 0
+	for _, d2 := range p.insights.DLPByPattern {
+		dlpTotal += d2.Count
 	}
-	if len(dlpBars) > 0 {
-		maxDlpBar := 1
-		if dlpBars[0].Count > 0 {
-			maxDlpBar = dlpBars[0].Count
-		}
-		for _, d2 := range dlpBars {
-			layersCol = append(layersCol,
-				hbar(truncate(d2.Pattern, 10), d2.Count, maxDlpBar, maxInt(6, colW-16), theme.Bad, colW))
-		}
+	if dlpTotal > 0 {
+		layersCol = append(layersCol, renderRow(colW,
+			sg(padEnd("", 10), theme.Dim),
+			sgb(strconv.Itoa(dlpTotal), theme.Bad),
+			sg(" hits in last 7 days", theme.Dim)))
 	} else {
 		// 36 characters against a colW of about 31 at cols=100: without the
 		// truncation this wrapped onto a second line and pushed the column past

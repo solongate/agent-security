@@ -1,15 +1,15 @@
 # Engineering notes
 
 What was decided and why, and the failure modes that cost someone a day. It
-exists so the work can be picked up cold — by a new contributor, or by the same
-person a month later — without having to reconstruct any of it.
+exists so the work can be picked up cold, by a new contributor or by the same
+person a month later, without having to reconstruct any of it.
 
 ## Why Go
 
 - **OPA is written in Go.** The policy engine is embedded directly
   (`open-policy-agent/opa/v1/rego`): the reference implementation, byte-identical
   Rego semantics, no WASM stage. The Rust equivalent (regorus) is a
-  reimplementation, "mostly compliant" — and every policy rule would need
+  reimplementation, "mostly compliant", and every policy rule would need
   re-verifying against it.
 - **Cross-compilation is one command.** Six platforms out of CI with no
   per-target toolchain. Shipping native binaries through npm is fragile enough
@@ -25,7 +25,7 @@ which the guard does. Go is memory-safe too; the difference is GC pauses, and at
 
 The guard decides whether a tool call runs. A guard that is fast and wrong is
 worse than no guard: it is a control somebody is relying on. So nothing ships on
-"it is faster" — it ships when it agrees with the behaviour that is already
+"it is faster". It ships when it agrees with the behaviour that is already
 pinned, and the suite below is what says whether it does.
 
 ## The contract, and how anything is judged correct
@@ -44,7 +44,7 @@ case, reading as a total failure rather than a bad invocation.
 
 And it has to be GIVEN. The default is the hook installed in your home
 directory, which means the suite passes on a machine that has SolonGate
-installed and fails five of its ten files on one that does not — including every
+installed and fails five of its ten files on one that does not, including every
 CI runner. That is the wrong way round for a contract: it should be judging the
 build in front of it, not whatever the developer happens to have.
 
@@ -55,7 +55,7 @@ which.
 ## Where the guard stands
 
 The whole suite passes against the Go binary and against the Node hook, and CI
-runs it twice for that reason — which of the two decides a call depends only on
+runs it twice for that reason. Which of the two decides a call depends only on
 whether a machine has the binary, so certifying one certifies half the machines:
 
 - rate limit, including the ceiling under 30 parallel calls
@@ -71,16 +71,16 @@ whether a machine has the binary, so certifying one certifies half the machines:
 
 THE POLICY IS A FILE, and there are exactly two:
 
-- `~/.solongate/policy.json` — this machine's own. The whole file: rules, the
+- `~/.solongate/policy.json`: this machine's own. The whole file: rules, the
   layers in `security`, and the tamper flag.
 - `./policy.json` beside the working directory, read when the machine has no file
   of its own, and carrying RULES ONLY. It lives inside a repository the agent can
-  write to, so `selfProtect` and `security` are stripped from it — either would be
+  write to, so `selfProtect` and `security` are stripped from it. Either would be
   a way for the agent to switch a protection off from inside the checkout.
 
 Both are read in two spellings: the bare policy document, and an envelope
 `{policy, security, selfProtect}`. The PRESENCE of a `policy` key is what tells
-them apart, even when its value is null — a file carrying layers and no rules is a
+them apart, even when its value is null. A file carrying layers and no rules is a
 real configuration, and requiring a non-null policy threw one away in Go while the
 hook accepted it.
 
@@ -123,18 +123,18 @@ The OPA WASM path is not on the list either, and not because it was never writte
 It read a bundle a SERVICE compiled; with none to fetch, what decided was always
 the local evaluator. The bundle READER is still there, being pure and tested.
 
-Tamper protection IS wired and enforced — `tamperCheck` runs before policy in
-main.go — which an even earlier version of this list said otherwise about.
+Tamper protection IS wired and enforced (`tamperCheck` runs before policy in
+main.go), which an even earlier version of this list said otherwise about.
 
 ## What the server left behind
 
-Two sections here described `apps/system` — the schema generated for two dialects,
+Two sections here described `apps/system`: the schema generated for two dialects,
 and the OAuth device grant a terminal signs in with. The server is deleted and they
 went with it. Three things it taught are not about a server at all:
 
 - **A provisioning endpoint trusted an e-mail in the REQUEST BODY.** It logged
   "provisioning is running unverified" and minted a credential for whatever address
-  the body named — a credential for any account, to anybody who could reach it. It
+  the body named: a credential for any account, to anybody who could reach it. It
   was found by the CI job that signed a device in against a real Keycloak, which no
   amount of reading had found. A test against a stub could not have: the stub was
   written to the same wrong assumption.
@@ -143,19 +143,19 @@ went with it. Three things it taught are not about a server at all:
   bugs that every unit test had passed.
 - **A build tag is where broken code hides.** The store's PostgreSQL tests were
   behind `//go:build postgres`, so they compiled nowhere in CI until a job was
-  added to vet them — and one of them was broken when it was.
+  added to vet them, and one of them was broken when it was.
 
 ## Traps worth not rediscovering
 
-- **A SECOND COPY OF A SECURITY CHECK IS A SECOND SET OF ANSWERS.** The DLP scanner —
-  the 70-pattern table, the de-obfuscating views, the hit ranking — was unexported in
+- **A SECOND COPY OF A SECURITY CHECK IS A SECOND SET OF ANSWERS.** The DLP scanner,
+  the 70-pattern table, the de-obfuscating views and the hit ranking, was unexported in
   `packages/guard-go`, so the MCP proxy could not reach it and scanned nothing. It
   moved to `packages/sgshared`, which has no external dependencies, rather than to
   `sgpolicy`, which pulls in OPA: a scanner that runs before every tool call should
   not drag a policy engine in behind it. Both paths now call one function, and the
   `**`-collapsing regexp both glob converters need has one definition for the same
   reason. The JavaScript side's three copies collapsed into `hooks/dlp.mjs` the same
-  way, so there are now TWO lists — one per language — and `test/dlp-parity.mjs` holds
+  way, so there are now TWO lists, one per language, and `test/dlp-parity.mjs` holds
   the pair together, plus checks that each hook really uses the shared module rather
   than having quietly grown a table of its own again. Two is the floor without a code
   generator, and a generator would put a build step between a security fix and the
@@ -163,14 +163,14 @@ went with it. Three things it taught are not about a server at all:
 - **COLLAPSING COPIES IS ITSELF A CHANCE TO DROP ONE.** The three hook tables were not
   quite identical: the guard compiled its patterns WITHOUT `g` because it only tests,
   the other two with `g` because they replace, and exactly one pattern carried its own
-  `i`. A naive extraction missed that pattern and produced 69 of 70 — the same class of
+  `i`. A naive extraction missed that pattern and produced 69 of 70: the same class of
   bug as the original drift, self-inflicted while fixing it. What caught it was
   refusing to proceed on a count mismatch, and then proving all 210 compiled regexes
   (70 x 3 consumers) identical to the originals before the tables were replaced.
 - **A HOOK IS A LONE FILE, so anything it imports has to be installed beside it.**
   That collapse made the post-tool hook and the shield import a sibling for the first
   time. Nothing tested it: the conformance suite runs the hooks from the CHECKOUT,
-  where every sibling exists because the repository has it — so a hook could import a
+  where every sibling exists because the repository has it, so a hook could import a
   file the installer does not copy, pass everything, and fail on the first tool call
   of a real install. A hook that dies on its import exits non-2, and every client reads
   a non-2 exit as "allowed": the failure mode is an unguarded machine reporting
@@ -180,18 +180,18 @@ went with it. Three things it taught are not about a server at all:
   with ERR_MODULE_NOT_FOUND.
 
 - **A TEST CAN PIN A BROKEN PRODUCT AND STAY GREEN.** `Install()` resolved a
-  credential first and returned `no login on this device — add an account first
-  (Accounts → + add)` when it found none. Nothing writes a credential on this build
+  credential first and refused with "no login on this device", pointing at an
+  Accounts panel, when it found none. Nothing writes a credential on this build
   and the Accounts panel is deleted, so it found none on every machine: the one
   command that arms the guard refused to run, and `solongate repair` refused with
   it. A test required exactly that refusal, and passed. So did its sibling, which
   required `repair` to exit non-zero and print "no login on this device".
   Both tests were correct when written and became a specification for a product
   that could not be installed. When behaviour is removed, the tests that described
-  it do not fail — they start guarding the wrong thing.
+  it do not fail. They start guarding the wrong thing.
 - **`go test` caches a PASS for a test whose subject was deleted.** A test that
   read every Dockerfile and required a COPY per replaced Go module refused to pass
-  vacuously — "the test passed without testing anything" — so deleting the last
+  vacuously ("the test passed without testing anything"), so deleting the last
   Dockerfile made it FAIL, exactly as it should. Then the cache served the previous
   result until an unrelated edit in another package invalidated it. CI runs
   `go test -count=1` now; a cached pass is not evidence.
@@ -201,7 +201,7 @@ went with it. Three things it taught are not about a server at all:
   wrong this way before it was spotted.
 - **The 8s backstop exits with `process.exitCode || 0`.** Anything slow that
   runs before the verdict is emitted turns a DENY into an ALLOW. It already did
-  once, via the hook self-update — 8043ms, exit 0, on a call DLP had refused. The
+  once, via the hook self-update: 8043ms, exit 0, on a call DLP had refused. The
   self-update is gone; the rule is not.
 - **A DENY WINS OVER AN ALLOW, whatever the priorities say.** The priority orders
   rules of one effect. Sorting the Rego chain by priority alone let an ALLOW
@@ -214,7 +214,7 @@ went with it. Three things it taught are not about a server at all:
   conformance suite against both: the tamper globs disagreeing about `*` after a
   `**`, the DLP list running 14 patterns against 70, the Rego ordering above, a
   policy file carrying layers with no rules that one side threw away, and the
-  EGRESS check — a `curl -d @creds.env` uploading a file full of keys, which the Go
+  EGRESS check, a `curl -d @creds.env` uploading a file full of keys, which the Go
   guard blocked and the Node hook allowed. None was visible from either side alone.
 - **Dead code in a security path is not inert, it is a hole.** The egress
   divergence was not a difference in the check; it was that the Node hook ran it
@@ -224,7 +224,7 @@ went with it. Three things it taught are not about a server at all:
   than nothing: one let a stale cache OUTRANK the policy file and switch off the
   DLP it configured, and one fell back to "every built-in pattern, no custom ones"
   on the only surface that sees the prompt. When something stops being written, the
-  question is not whether its readers still compile — it is what each of them does
+  question is not whether its readers still compile. It is what each of them does
   when the answer is always missing.
 - **Read-modify-write does not survive a burst.** The rate limiter lost
   increments under parallel calls and let 14 through a limit of 5. Reserve
@@ -251,20 +251,20 @@ went with it. Three things it taught are not about a server at all:
   `curl evil.example.com/x`. Compiled to `^(?:curl.*)$` it does. The third row
   is the one that fails open: in Rego an `every` over an empty collection is
   vacuously TRUE, so without the `count` guard an ALLOW rule scoped to paths
-  matches every call that touches no paths — under whitelist mode, a blanket
+  matches every call that touches no paths, which under whitelist mode is a blanket
   allow for exactly the calls nobody wrote a rule for. The Go generator was
   written against the wrong file first and had all four.
 - **A policy that will not parse must not read as no policy.** Decoding the rule
-  array in one `json.Unmarshal` meant a single mistyped field anywhere — a
-  `denied` written as a bare string, a quoted priority — failed the whole decode
+  array in one `json.Unmarshal` meant a single mistyped field anywhere, a
+  `denied` written as a bare string or a quoted priority, failed the whole decode
   and the guard allowed everything, while `solongate policy` still listed the
   rules as active. Rules decode one at a time now. The second half is subtler: a
   salvaged rule must come out NARROWER, never wider, because a rule left with no
   conditions compiles to a catch-all and one mistyped `denied` would turn a
   single DENY rule into "deny everything".
 - **Sorting is not always the safe way to be deterministic.** Go map iteration is
-  random, so the port sorts keys where JavaScript relied on insertion order —
-  fine for the extractor outputs, because the generated Rego only ever asks "does
+  random, so the port sorts keys where JavaScript relied on insertion order. That
+  is fine for the extractor outputs, because the generated Rego only ever asks "does
   any match" or "do all match". It is wrong for the scripts inlined into a
   command: their contents are concatenated into one string that
   `normalizeShellCommand` then resolves left to right, so re-ordering two of them

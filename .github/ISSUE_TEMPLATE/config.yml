@@ -1,0 +1,21 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/codeyevsky/solongate-oss/security/advisories/new
+    about: >-
+      A guard bypass, a tamper protection hole, a DLP evasion or anything else
+      that defeats a control. Private, and never a public issue: a public report
+      tells every prompt injected agent how to switch the guard off.
+  - name: Ask a question
+    url: https://github.com/codeyevsky/solongate-oss/discussions
+    about: >-
+      Not sure whether it is a bug? Start here. Run `solongate doctor` first and
+      paste its output.
+  - name: Documentation
+    url: https://github.com/codeyevsky/solongate-oss/tree/main/docs
+    about: >-
+      Install, policy reference, DLP, rate limits, audit trail, CLI, clients,
+      MCP proxy, architecture and troubleshooting.
+  - name: Code of Conduct
+    url: https://github.com/codeyevsky/solongate-oss/blob/main/CODE_OF_CONDUCT.md
+    about: Reports go to hello@solongate.com.

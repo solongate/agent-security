@@ -1,0 +1,115 @@
+name: Bug report
+description: Something behaves differently than it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **If a tool call that should have been refused ran anyway, stop here.**
+        That is a bypass, and it belongs in a
+        [private advisory](https://github.com/codeyevsky/solongate-oss/security/advisories/new)
+        rather than a public issue. See
+        [SECURITY.md](https://github.com/codeyevsky/solongate-oss/blob/main/SECURITY.md).
+
+        For everything else, thanks for filing. The three fields below answer
+        most reports on their own.
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `solongate doctor`
+      description: >-
+        It checks the policy file, the guard, the hook registrations and the log
+        folder, and names the version of each. `--json` is fine too.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      multiple: true
+      options:
+        - Claude Code
+        - Codex
+        - OpenCode
+        - Antigravity
+        - An MCP server behind `solongate -- <command>`
+        - Something else (say which below)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+
+  - type: dropdown
+    id: decider
+    attributes:
+      label: Which implementation decided the call
+      description: >-
+        `solongate doctor` says whether the Go binary or the Node hook is in
+        use. It matters: they are separate implementations, and a bug in one is
+        not automatically a bug in the other.
+      options:
+        - The Go binary
+        - The bundled Node hook
+        - I do not know
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected instead
+      placeholder: >-
+        I asked the agent to run `git push --force`. It was refused, and the
+        reason named a rule I had disabled.
+    validations:
+      required: true
+
+  - type: textarea
+    id: policy
+    attributes:
+      label: The policy that was in force
+      description: >-
+        `solongate policy active` prints the resolved one. Remove any secrets
+        first. If a project policy file was involved, say so.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: call
+    attributes:
+      label: The tool call, or the prompt that produced it
+      description: >-
+        `solongate trace` shows what the guard saw in that directory, allows
+        included. Its line is usually the whole answer.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before filing
+      options:
+        - label: >-
+            I opened a new terminal after installing or updating. Hooks load
+            when a session starts, so an already open terminal is not guarded.
+          required: true
+        - label: >-
+            I am on the newest release, or I have said which version this is.
+            Only the newest gets fixes.
+          required: true
+        - label: >-
+            This is not a tool call that was wrongly allowed. Those go to a
+            private advisory.
+          required: true

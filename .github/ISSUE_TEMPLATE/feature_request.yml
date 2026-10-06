@@ -1,0 +1,66 @@
+name: Feature request
+description: Something it should be able to express or enforce
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful requests describe a call you want decided differently
+        and cannot currently write a rule for. Start there rather than with a
+        proposed field name.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to prevent or allow
+      placeholder: >-
+        I want the agent to be able to read files under `config/` but never
+        write them, and I cannot express that today because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: >-
+        The rule you wrote, and what it matched or missed.
+        [docs/policy.md](https://github.com/codeyevsky/solongate-oss/blob/main/docs/policy.md)
+        has the matching semantics, which are the usual surprise: path patterns
+        name directories, command patterns are globs.
+      render: json
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Which part of the product
+      options:
+        - Policy rules
+        - DLP, secret detection
+        - Egress, the upload check
+        - Rate limits
+        - The audit trail
+        - The CLI or the dataroom
+        - A client that is not supported yet
+        - The MCP proxy
+        - Documentation
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: shape
+    attributes:
+      label: What the configuration might look like
+      description: Optional. A sketch is useful even if it is wrong.
+      render: json
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: >-
+            This does not require sending anything off the machine. Nothing here
+            makes a network call on the decision path, and that is deliberate.
+          required: true

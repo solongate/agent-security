@@ -1,0 +1,68 @@
+name: New secret pattern
+description: A credential format that should be detected and is not
+labels: [enhancement, dlp]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        There are 70 built in patterns. Adding one is a small, welcome change.
+
+        **Never paste a real credential.** A synthetic example with the right
+        shape is what is needed, and a real one would be committed into this
+        repository's issue history forever.
+
+        You can add a pattern yourself without waiting:
+        `solongate dlp add-custom --name "Acme key" --re '<expression>'`.
+        This issue is for getting it into the built in list, where everyone
+        gets it.
+
+  - type: input
+    id: name
+    attributes:
+      label: Name of the credential
+      placeholder: Acme deploy token
+    validations:
+      required: true
+
+  - type: input
+    id: vendor-docs
+    attributes:
+      label: Link to the vendor's documentation of the format
+      description: >-
+        What makes a pattern safe to add is a distinctive prefix the vendor
+        documents. Without one, a match is a guess and a false positive blocks
+        somebody's work.
+      placeholder: the vendor page that documents the token prefix
+    validations:
+      required: true
+
+  - type: input
+    id: example
+    attributes:
+      label: A synthetic example, with the real characters replaced
+      placeholder: acme_pat_0000000000000000000000000000000000
+    validations:
+      required: true
+
+  - type: input
+    id: regex
+    attributes:
+      label: Proposed expression
+      description: Optional. Anchor on the prefix, and bound the length.
+      placeholder: acme_pat_[0-9A-Za-z]{32,}
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: The example above is synthetic. I have not pasted a real credential.
+          required: true
+        - label: >-
+            The format has a distinctive prefix, so a match is a credential
+            rather than a guess.
+          required: true
+        - label: >-
+            I checked `solongate dlp show` and this format is not already in the
+            list under another name.
+          required: true

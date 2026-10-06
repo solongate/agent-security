@@ -363,8 +363,9 @@ func securityFromDoc(policy PolicyDoc) docSecurity {
 		RateLimit *struct {
 			PerMinute int `json:"perMinute"`
 		} `json:"rateLimit"`
-		DLPBlock  json.RawMessage `json:"dlpBlock"`
-		DLPRedact json.RawMessage `json:"dlpRedact"`
+		DLPBlock   json.RawMessage `json:"dlpBlock"`
+		DLPRedact  json.RawMessage `json:"dlpRedact"`
+		DLPObserve json.RawMessage `json:"dlpObserve"`
 	}
 	if json.Unmarshal(raw, &sec) != nil {
 		return docSecurity{}
@@ -374,7 +375,7 @@ func securityFromDoc(policy PolicyDoc) docSecurity {
 		out.perMinute = sec.RateLimit.PerMinute
 	}
 	has := func(r json.RawMessage) bool { return len(r) > 0 && string(r) != "null" }
-	out.hasDLP = has(sec.DLPBlock) || has(sec.DLPRedact)
+	out.hasDLP = has(sec.DLPBlock) || has(sec.DLPRedact) || has(sec.DLPObserve)
 	// Egress reads the files a transfer command would upload, and it is driven by
 	// dlpBlock — the same block, the blocking half.
 	out.hasEgress = has(sec.DLPBlock)

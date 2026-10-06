@@ -60,6 +60,10 @@ const DLP_PATTERNS = dlpPatterns('g');
 // redaction: a file written by hand usually carries only `dlpBlock`, which reads as
 // "refuse secrets", and taking `dlpRedact` alone gave that file no masking here.
 //
+// `dlpObserve` is deliberately NOT one of them. That key is detect mode, whose
+// whole content is that it records a hit and changes nothing anybody sees —
+// masking here would make it the redact mode it sits next to.
+//
 // The fallback is unchanged and deliberate: WITH NO POLICY AT ALL, every built-in
 // pattern is masked. The shield is the LLM path — there is no call to allow or deny,
 // only text on its way to a model — so the safe default is to mask, and a machine

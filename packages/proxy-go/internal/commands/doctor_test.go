@@ -56,16 +56,35 @@ func TestDoctorReportsDetectModeRateLimit(t *testing.T) {
 		t.Fatalf("wording changed: %q", rl.Detail)
 	}
 
-	// The middle DLP state is stored as "redact" and called detect everywhere a
-	// user sees it. Printing the storage word made it look like a fourth mode.
+	// dlpRedact alone is REDACT, and saying so is the point: it was reported as
+	// "detect" on the grounds that redact was a storage word, which is how a mode
+	// that masked every secret it found passed for one that only watched.
 	dlp := findCheck(t, checks, "dlp")
-	if dlp.Detail != "detect · 2 patterns · masks secrets, never blocks" {
+	if dlp.Detail != "redact · 2 patterns · masks secrets, never blocks" {
 		t.Fatalf("wording changed: %q", dlp.Detail)
 	}
 
 	pol := findCheck(t, checks, "active policy")
 	if pol.Detail != "Default v1 · whitelist · matched by pinned" {
 		t.Fatalf("wording changed: %q", pol.Detail)
+	}
+}
+
+// DETECT IS ITS OWN MODE NOW, and the health check has to be able to say so.
+// Before this there was no shape it could print: detect and redact were one key.
+func TestDoctorReportsDetectModeDLP(t *testing.T) {
+	c := machine(t)
+	seedPolicy(t, `{
+		"policy":{"id":"pol-1","name":"Default","mode":"denylist","rules":[]},
+		"security":{"dlpObserve":{"patterns":["AWS access key"],"custom":[]}}
+	}`)
+
+	dlp := findCheck(t, CollectChecks(context.Background(), c), "dlp")
+	if dlp.OK != StateOK {
+		t.Fatalf("detect mode is configured, not off: %+v", dlp)
+	}
+	if dlp.Detail != "detect · 1 patterns · records hits, changes nothing" {
+		t.Fatalf("wording changed: %q", dlp.Detail)
 	}
 }
 
@@ -81,7 +100,7 @@ func TestDoctorReportsBlockingLayers(t *testing.T) {
 	if got := findCheck(t, checks, "rate limit").Detail; got != "block · 10/min · 200/hr" {
 		t.Fatalf("an unset window must be left out entirely, got %q", got)
 	}
-	if got := findCheck(t, checks, "dlp").Detail; got != "block · 1 patterns" {
+	if got := findCheck(t, checks, "dlp").Detail; got != "block · 1 patterns · refuses a call carrying one" {
 		t.Fatalf("wording changed: %q", got)
 	}
 	// A policy with no mode is a denylist; that is the fallback the guard uses.

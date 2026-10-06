@@ -215,8 +215,14 @@ export async function active(_agentId?: string): Promise<ActivePolicy> {
       rateLimit: layers.rateLimit.mode === 'block'
         ? { perMinute: layers.rateLimit.perMinute, perHour: layers.rateLimit.perHour, perDay: layers.rateLimit.perDay }
         : null,
+      // One key per mode, the same shape the guard reads off disk: detect writes
+      // dlpObserve, redact writes dlpRedact, block writes both. `mode !== 'off'`
+      // used to fill dlpRedact for every mode, which is how detect came to
+      // redact.
       dlpBlock: layers.dlp.mode === 'block' ? { patterns: layers.dlp.patterns, custom: layers.dlp.custom } : null,
-      dlpRedact: layers.dlp.mode !== 'off' ? { patterns: layers.dlp.patterns, custom: layers.dlp.custom } : null,
+      dlpRedact: layers.dlp.mode === 'block' || layers.dlp.mode === 'redact'
+        ? { patterns: layers.dlp.patterns, custom: layers.dlp.custom } : null,
+      dlpObserve: layers.dlp.mode === 'detect' ? { patterns: layers.dlp.patterns, custom: layers.dlp.custom } : null,
       localLogs: s.security?.localLogs ?? null,
     },
     hook_versions: { guard: 0, audit: 0, shield: 0 },

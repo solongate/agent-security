@@ -72,6 +72,8 @@ export interface ActivePolicy {
     rateLimit: { perMinute: number; perHour: number; perDay: number } | null;
     dlpBlock: { patterns: string[]; custom: unknown[] } | null;
     dlpRedact: { patterns: string[]; custom: unknown[] } | null;
+    /** The detect-mode patterns: scanned and recorded, never applied. */
+    dlpObserve: { patterns: string[]; custom: unknown[] } | null;
     localLogs: unknown;
   };
   hook_versions: { guard: number; audit: number; shield: number };

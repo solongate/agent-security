@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
-    <img src="assets/banner-light.svg" alt="SolonGate: a policy gate for AI coding agents" width="760">
-  </picture>
+  <img src="assets/banner.svg" alt="SolonGate: a policy gate for AI coding agents" width="760">
 </p>
 
 # SolonGate documentation

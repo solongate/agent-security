@@ -124,7 +124,7 @@ exempts anything from that.
 ## Documentation
 
 Source, issues and security reporting:
-[github.com/codeyevsky/solongate-oss](https://github.com/codeyevsky/solongate-oss)
+[github.com/solongate/solongate](https://github.com/solongate/solongate)
 
 ## Licence
 

@@ -83,7 +83,7 @@ jobs:
             echo
             echo '```'
             echo "git clone https://github.com/$GITHUB_REPOSITORY"
-            echo "cd solongate-oss && ./install.sh"
+            echo "cd solongate && ./install.sh"
             echo '```'
             echo
             echo "Already installed: \`solongate update\`"

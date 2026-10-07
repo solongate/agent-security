@@ -85,9 +85,8 @@ ideal), who was involved, and whether it is ongoing. You do not need to have a
 complete account to report something.
 
 All community leaders are obligated to respect the privacy and security of the
-reporter of any incident. Reports are handled by the maintainers listed in
-[GOVERNANCE.md](GOVERNANCE.md). If a report concerns a maintainer, that
-maintainer takes no part in handling it.
+reporter of any incident. Reports are handled by the maintainers. If a report
+concerns a maintainer, that maintainer takes no part in handling it.
 
 ## Enforcement guidelines
 

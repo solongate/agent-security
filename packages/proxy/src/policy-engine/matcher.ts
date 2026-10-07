@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { PolicyRule, ExecutionRequest } from '../core/index.js';
 import { TrustLevel } from '../core/index.js';
 import { isPathAllowed, extractPathArguments } from './path-matcher.js';

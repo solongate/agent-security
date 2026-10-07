@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // gobin.mjs — where the Go toolchain actually is on this machine.
 //
 // WHY THIS IS NOT JUST "go". Go installs itself in half a dozen shapes and only

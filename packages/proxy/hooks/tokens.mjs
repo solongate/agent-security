@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * SolonGate Token Hook (Stop)
  *

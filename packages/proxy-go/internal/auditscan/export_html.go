@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package auditscan
 
 // The HTML report is a user-facing artefact people keep and send on, so the

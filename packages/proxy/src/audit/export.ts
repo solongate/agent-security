@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { writeFileSync } from 'fs';
 import { resolve } from 'path';
 import chalk from 'chalk';

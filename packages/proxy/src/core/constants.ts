@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** Default policy effect when no rule matches: DENY */
 export const DEFAULT_POLICY_EFFECT = 'DENY' as const;
 

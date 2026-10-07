@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // OPA Evaluator: loads and evaluates WASM-compiled Rego policies at runtime.
 import { gunzipSync } from 'node:zlib';
 import type { PolicyDecision, PolicyEffect, ExecutionRequest } from '../../core/index.js';

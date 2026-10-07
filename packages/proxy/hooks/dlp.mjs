@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * THE BUILT-IN SECRET PATTERNS — one list, for the three hooks that scan.
  *

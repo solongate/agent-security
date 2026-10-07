@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Can an agent disarm the guard by running the CLI?
 //
 // `solongate policy delete`, `solongate dlp disable` and the rest change what is enforced,

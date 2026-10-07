@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Regenerates internal/install/launcher_script.go from the npm package's
  * hook-launcher.ts, which is the single source of truth for the launcher.

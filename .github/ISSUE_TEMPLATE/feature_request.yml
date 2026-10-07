@@ -24,10 +24,9 @@ body:
     attributes:
       label: What you tried
       description: >-
-        The rule you wrote, and what it matched or missed.
-        [docs/policy.md](https://github.com/codeyevsky/solongate-oss/blob/main/docs/policy.md)
-        has the matching semantics, which are the usual surprise: path patterns
-        name directories, command patterns are globs.
+        The rule you wrote, and what it matched or missed. The usual surprise is
+        the matching semantics: path patterns name directories, command patterns
+        are globs.
       render: json
 
   - type: dropdown

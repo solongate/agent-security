@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { PolicyRuleSchema, PolicySetSchema } from '../core/index.js';
 import {
   MAX_RULES_PER_POLICY_SET,

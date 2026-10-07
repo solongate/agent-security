@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package install writes the files that decide whether a machine is guarded at
 // all: the hook programs under ~/.solongate/hooks, the registration of those
 // hooks in every supported client's configuration, and the OS locks that keep

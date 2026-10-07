@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { AuditData, CheckResult, DeepAnalysis } from '../types.js';
 import { analyzeChains } from './chain-analysis.js';
 import { analyzeDataFlow } from './data-flow.js';

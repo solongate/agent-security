@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The guard's own per-agent state must be unreachable from a tool call, by every
  * route — not only from a shell command.

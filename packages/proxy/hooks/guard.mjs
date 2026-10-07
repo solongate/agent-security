@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The policy guard (PreToolUse) — the decision every tool call passes through.
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Request Adapter: converts ExecutionRequest into OPA input documents.
 import type { ExecutionRequest } from '../../core/index.js';
 import { extractPathArguments } from '../path-matcher.js';

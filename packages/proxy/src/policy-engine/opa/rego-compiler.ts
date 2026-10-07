@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Rego Compiler: compiles Rego source into WASM bundles using the opa CLI.
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';

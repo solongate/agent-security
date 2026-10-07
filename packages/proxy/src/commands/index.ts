@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Scriptable CLI command router. Invoked from src/index.ts for the human
  * management subcommands (policy / ratelimit / dlp / stats / audit).

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { SecurityContext } from './context.js';
 import type { Permission } from './permissions.js';
 import type { PolicyDecision } from './policy.js';

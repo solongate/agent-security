@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The store behind every command and every panel: two files on this machine.
  *

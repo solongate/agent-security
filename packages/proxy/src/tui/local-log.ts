@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** Shared access to the machine-local audit log written by the hooks. */
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { DEFAULT_LOG_FILE, localLogFile, policyPath } from '../api-client/local-store.js';

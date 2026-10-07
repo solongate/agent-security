@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Wire types for the SolonGate v1 API, as consumed by the CLI.
  *

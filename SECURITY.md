@@ -42,7 +42,7 @@ enough for us to try it ourselves.
 
 ## Response
 
-| | |
+| Stage | Target |
 | --- | --- |
 | Acknowledgement | within 3 working days |
 | First assessment, with a severity and a plan | within 10 working days |
@@ -72,7 +72,7 @@ fixes.
 
 | Version | Supported |
 | --- | --- |
-| Latest release (see [CHANGELOG.md](CHANGELOG.md)) | yes |
+| The [latest release](https://github.com/codeyevsky/solongate-oss/releases/latest) | yes |
 | Anything older | no, update first |
 
 `solongate update` pulls the newest source into the checkout it was installed
@@ -122,9 +122,6 @@ makes:
   Claude Code in front of the outbound prompt body. Anything the client swept
   into context before SolonGate was installed, and anything the model infers, is
   outside the path.
-- **Egress through the MCP proxy.** Documented and deliberate: the check reads
-  files relative to the agent's working directory, and a proxy in front of a tool
-  server has no such directory. The proxy prints this at startup.
 - **An attacker who already has your shell.** Everything here is a control over
   an agent's tool calls, running with your own privileges. Someone with
   unmediated local execution as your user can edit the policy, and that is the
@@ -145,7 +142,7 @@ Stated here so nobody has to find them the expensive way:
 - **Capabilities differ per client.** Masking a secret that is inside a file the
   agent reads needs a post tool stage that can rewrite the result. Clients that
   cannot do that get a block instead, which is the safe direction but a different
-  experience. See [docs/clients.md](docs/clients.md).
+  experience.
 - **`selfProtect: false` turns tamper protection off**, by design, and only from
   the machine's own policy file. Do not set it unless you know why you are
   setting it.

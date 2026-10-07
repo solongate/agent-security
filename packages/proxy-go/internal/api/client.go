@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package api
 
 // The Client is a handle onto THIS MACHINE, not a connection to anything.

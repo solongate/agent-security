@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The Node hook hands calls to the Go guard — and takes them back when it must.
  *

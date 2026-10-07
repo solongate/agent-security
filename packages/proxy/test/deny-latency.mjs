@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * A denial does not wait on the network — and is still recorded.
  *

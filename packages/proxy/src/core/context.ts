@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { TrustLevel } from './trust.js';
 import type { PermissionSet } from './permissions.js';
 

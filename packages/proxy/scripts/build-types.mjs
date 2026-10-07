@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Emits .d.ts for the package via `tsc --emitDeclarationOnly`.
 //
 // The proxy sources carry pre-existing type errors that the JS build (tsup,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { PolicySet, PolicyRule } from '../core/index.js';
 import { createHash } from 'node:crypto';
 

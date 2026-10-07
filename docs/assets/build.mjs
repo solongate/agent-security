@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // The diagrams, drawn in SolonGate's own design system.
 //
 // NOTHING HERE IS INVENTED. The mark is apps/onboarding/public/mark.svg from the
@@ -44,20 +46,6 @@ const DENY = '#dc5050';  // term.Red,   rgb(220 80 80)
 const SANS = "Geist,Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const MONO = "'Geist Mono',ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace";
 
-// THE MARK, from apps/onboarding/public/mark.svg. A cross with a vertical slot
-// cut out of it by a mask. Reproduced exactly: its rounding is the artwork's,
-// not the UI's, and redrawing it by eye is how a logo stops being the logo.
-const markBody = (id) => `<defs>
-      <mask id="${id}">
-        <rect width="96" height="96" fill="#fff"/>
-        <rect x="45" y="24" width="6" height="45" rx="3" fill="#000"/>
-      </mask>
-    </defs>
-    <g fill="${TEXT}" mask="url(#${id})">
-      <rect x="39" y="21" width="18" height="50" rx="3"/>
-      <rect x="29" y="37" width="38" height="18" rx="3"/>
-    </g>`;
-
 const arrowDefs = `
   <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
     <path d="M0 0 10 5 0 10z" fill="${LINE}"/>
@@ -69,52 +57,6 @@ const arrowDefs = `
 // A box is the surface with a hairline on it. Never a different fill.
 const box = (x, y, w, h, stroke = LINE) =>
   `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" fill="${SURFACE}" stroke="${stroke}"/>`;
-
-// ── the mark, on the brand surface ─────────────────────────────────────────
-const mark = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="SolonGate">
-  <title>SolonGate</title>
-  <rect width="96" height="96" fill="${SURFACE}"/>
-  ${markBody('slot')}
-</svg>
-`;
-
-// ── the README hero ────────────────────────────────────────────────────────
-//
-// The two rows on the right are an illustration of the product's one sentence,
-// not a screenshot of it: `git status` runs and `git push --force` does not.
-const banner = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-label="SolonGate: a policy gate for AI coding agents">
-  <title>SolonGate</title>
-  <rect x="0.5" y="0.5" width="1199" height="299" fill="${SURFACE}" stroke="${LINE}"/>
-
-  <g transform="translate(31.4 66.6) scale(1.4)">
-    ${markBody('slot')}
-  </g>
-
-  <text x="160" y="134" font-family="${SANS}" font-size="54" font-weight="600" letter-spacing="-0.8" fill="${TEXT}">SolonGate</text>
-  <text x="162" y="169" font-family="${SANS}" font-size="20" fill="${MUTED}">Guardrail of AI Agents</text>
-
-  <g font-family="${SANS}" font-size="13" fill="${MUTED}">
-    ${box(162, 194, 182, 28)}
-    <text x="253" y="213" text-anchor="middle">Runs on your machine</text>
-    ${box(352, 194, 112, 28)}
-    <text x="408" y="213" text-anchor="middle">No account</text>
-    ${box(472, 194, 124, 28)}
-    <text x="534" y="213" text-anchor="middle">No telemetry</text>
-    ${box(604, 194, 58, 28)}
-    <text x="633" y="213" text-anchor="middle">MIT</text>
-  </g>
-
-  ${box(756, 94, 382, 52)}
-  <rect x="756" y="94" width="3" height="52" fill="${ALLOW}"/>
-  <text x="778" y="126" font-family="${MONO}" font-size="15" fill="${TEXT}">git status</text>
-  <text x="1118" y="126" text-anchor="end" font-family="${SANS}" font-size="12.5" font-weight="600" fill="${ALLOW}">allowed</text>
-
-  ${box(756, 158, 382, 52)}
-  <rect x="756" y="158" width="3" height="52" fill="${DENY}"/>
-  <text x="778" y="190" font-family="${MONO}" font-size="15" fill="${TEXT}">git push --force</text>
-  <text x="1118" y="190" text-anchor="end" font-family="${SANS}" font-size="12.5" font-weight="600" fill="${DENY}">denied</text>
-</svg>
-`;
 
 // ── the five layers, in order ──────────────────────────────────────────────
 const LAYERS = [
@@ -210,7 +152,7 @@ const twoImplementations = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBo
 </svg>
 `;
 
-const DIAGRAMS = { mark, banner, 'decision-path': decisionPath, 'two-implementations': twoImplementations };
+const DIAGRAMS = { 'decision-path': decisionPath, 'two-implementations': twoImplementations };
 
 for (const [name, render] of Object.entries(DIAGRAMS)) {
   writeFileSync(join(here, `${name}.svg`), render());

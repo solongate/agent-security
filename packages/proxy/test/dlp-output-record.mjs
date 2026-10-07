@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * A SECRET THE GATE CAUGHT HAS TO APPEAR IN THE RECORD.
  *

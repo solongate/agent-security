@@ -1,25 +1,11 @@
 {
   "name": "@solongate/proxy",
   "version": "0.0.6",
-  "description": "AI tool security proxy: protect any AI tool server with customizable policies, path/command constraints, rate limiting, and audit logging. No code changes required.",
+  "description": "A policy gate for AI coding agents: every tool call is decided on your machine, against rules you wrote.",
   "type": "module",
   "bin": {
     "solongate": "./dist/cli-launch.js",
-    "solongate-proxy": "./dist/cli-launch.js",
-    "proxy": "./dist/cli-launch.js",
     "solongate-audit": "./dist/audit/index.js"
-  },
-  "main": "./dist/lib.js",
-  "types": "./dist/lib.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/lib.d.ts",
-      "import": "./dist/lib.js"
-    },
-    "./cli": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
   },
   "files": [
     "dist",
@@ -40,10 +26,7 @@
   },
   "keywords": [
     "ai-tool-security",
-    "ai-tool-proxy",
     "security",
-    "proxy",
-    "gateway",
     "firewall",
     "ai-security",
     "tool-security",
@@ -53,7 +36,7 @@
     "rate-limiting"
   ],
   "author": "SolonGate <hello@solongate.com>",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/codeyevsky/solongate-oss#readme",
   "repository": {
     "type": "git",
@@ -62,14 +45,6 @@
   },
   "engines": {
     "node": ">=20.0.0"
-  },
-  "optionalDependencies": {
-    "@solongate/guard-linux-x64": "0.0.6",
-    "@solongate/guard-linux-arm64": "0.0.6",
-    "@solongate/guard-darwin-x64": "0.0.6",
-    "@solongate/guard-darwin-arm64": "0.0.6",
-    "@solongate/guard-win32-x64": "0.0.6",
-    "@solongate/guard-win32-arm64": "0.0.6"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Engine: main PolicyEngine class that loads, validates, and evaluates policy sets.
 import type { PolicySet, PolicyDecision, PolicyEffect, ExecutionRequest } from '../core/index.js';
 import { POLICY_EVALUATION_TIMEOUT_MS } from '../core/index.js';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** `solongate stats …` - overview, timeseries sparklines, denial drift. */
 import { api } from '../api-client/index.js';
 import { flagBool, flagNum, flagStr, parse } from './args.js';

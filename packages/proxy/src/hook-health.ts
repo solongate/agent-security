@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Does the guard actually RUN? Not "is it registered" — that question was
  * already answered, and it answered yes the whole time nothing was enforced.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Types that bridge between the MCP protocol and SolonGate's type system.
  * Adapts MCP SDK types without creating a hard dependency.

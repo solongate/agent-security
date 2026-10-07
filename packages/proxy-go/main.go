@@ -1,11 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // The SolonGate CLI, in Go.
 //
-// This is the SECOND implementation of the CLI, standing beside the npm package
-// rather than replacing it. @solongate/proxy keeps its name, its install command
-// and its update path; nothing in this binary may require a change over there to
-// keep working, and both are installable at once, which is why every file under
-// ~/.solongate is read and written in the shapes the Node implementation already
-// uses (internal/config).
+// This is the SECOND implementation of the CLI, standing beside the one in
+// packages/proxy rather than replacing it. Nothing in this binary may require a
+// change over there to keep working, and both are installable at once, which is
+// why every file under ~/.solongate is read and written in the shapes the Node
+// implementation already uses (internal/config).
 //
 // What is here today is the foundation the other slices sit on: configuration,
 // the API client, the core security vocabulary, and this entry point. Every
@@ -26,7 +27,6 @@ import (
 	"github.com/codeyevsky/solongate/proxy/internal/api"
 	"github.com/codeyevsky/solongate/proxy/internal/commands"
 	"github.com/codeyevsky/solongate/proxy/internal/install"
-	"github.com/codeyevsky/solongate/proxy/internal/proxy"
 	"github.com/codeyevsky/solongate/proxy/internal/term"
 	"github.com/codeyevsky/solongate/proxy/internal/tui"
 	"github.com/codeyevsky/solongate/proxy/internal/tui/panels"
@@ -105,9 +105,6 @@ func run(args []string) int {
 	}
 	isHumanCLI := len(args) == 0 || cliSubcommands[sub] || cliInfoArgs[sub]
 
-	// The MCP proxy runtime is NOT gated: it is launched by a client, it never
-	// edits security configuration, and gating it would mean the guard cannot
-	// run under the agent it is guarding.
 	if isHumanCLI {
 		assertHumanTerminal()
 	}
@@ -177,24 +174,16 @@ func run(args []string) int {
 		return cmd.run(args[1:])
 	}
 
-	// An unrecognised token must NOT be spawned as an upstream program. It used
-	// to be: `solongate h` failed with "spawn h ENOENT" under a wall of proxy
-	// startup logs. Only an explicit `--` separator or a proxy flag enters the
-	// runtime below.
-	hasSeparator := false
-	for _, a := range args {
-		if a == "--" {
-			hasSeparator = true
-			break
-		}
-	}
-	if !hasSeparator && !strings.HasPrefix(sub, "-") {
-		fmt.Printf("\n  Unknown command: %s\n", sub)
-		fmt.Print("  Run `solongate --help` to see every command, or `solongate` for the dataroom.\n\n")
-		return 1
-	}
-
-	return runProxyRuntime(args)
+	// AN UNRECOGNISED TOKEN IS NOT A COMMAND, and there is nothing else for it to
+	// be any more.
+	//
+	// It used to fall through to an MCP proxy runtime, which meant `solongate h`
+	// was spawned as an upstream program and failed with "spawn h ENOENT" under a
+	// wall of startup logs. That runtime is gone: this binary guards tool calls
+	// and edits a policy, and it never stood in front of a tool server.
+	fmt.Printf("\n  Unknown command: %s\n", sub)
+	fmt.Print("  Run `solongate --help` to see every command, or `solongate` for the dataroom.\n\n")
+	return 1
 }
 
 // ── the human-only gate ────────────────────────────────────────────────────
@@ -329,20 +318,6 @@ func launchDataroom() int {
 		return 1
 	}
 	return 0
-}
-
-// runProxyRuntime is entered only for a genuine proxy invocation: an upstream
-// command after `--`, or proxy flags.
-//
-// internal/proxy is the port of packages/proxy/src/proxy.ts: both MCP ends, the
-// interception pipeline, the audit trail and the bidirectional policy sync. The
-// one thing it does not carry is the engine that decides ALLOW or DENY, which
-// lives in packages/guard-go and cannot be imported from this module yet — so
-// proxy.DefaultEvaluator returns nil, and the runtime refuses to start rather
-// than starting and denying everything. Replacing that one function is what
-// turns this on; see the comment on it.
-func runProxyRuntime(args []string) int {
-	return proxy.Run(args, proxy.DefaultEvaluator())
 }
 
 // ── banners ────────────────────────────────────────────────────────────────

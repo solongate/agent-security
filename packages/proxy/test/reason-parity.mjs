@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * THE TWO GUARDS WORD A DENIAL IDENTICALLY.
  *

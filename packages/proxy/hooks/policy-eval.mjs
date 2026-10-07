@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The decision itself: one policy, one set of extractors, one set of matchers.
  *

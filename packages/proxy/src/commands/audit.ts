@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** `solongate audit …` - browse audit logs, whitelist a denied call. */
 import { api } from '../api-client/index.js';
 import type { AuditQuery } from '../api-client/audit.js';

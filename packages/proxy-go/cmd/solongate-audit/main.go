@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // solongate-audit reads the AI transcripts already on this machine and grades
 // what they show against the OWASP Agentic Top 10.
 //

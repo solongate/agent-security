@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared CLI utilities for SolonGate proxy CLI commands.
  * Consolidates banner art, ANSI colors, and log helpers used by init, inject, and create.

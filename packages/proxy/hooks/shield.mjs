@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * SolonGate Shield (standalone hook) — secret redaction on the LLM request path.
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package sgpolicy
 
 // The policy compiler: a SolonGate policy (JSON, as the dashboard writes it)

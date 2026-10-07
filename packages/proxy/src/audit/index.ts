@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+
 import { collectLogs } from './collector.js';
 import { runAllChecks } from './checks/index.js';
 import { printHeader, printLogSummary, printCompactReport, printScore, printDetailedReport, printFooter, calcScore, printLogs, printToolCall } from './reporter.js';

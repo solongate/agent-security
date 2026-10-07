@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The launcher that stands between an agent client and a hook script.
  *

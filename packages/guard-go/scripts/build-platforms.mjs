@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Builds the guard for every platform we ship, and lays out the npm packages
  * that carry them.

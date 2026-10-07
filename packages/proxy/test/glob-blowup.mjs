@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * A glob with many stars must not be able to hang the guard.
  *

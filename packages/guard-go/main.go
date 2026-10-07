@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // SolonGate guard — the decision path, in Go.
 //
 // Same contract as the Node hook it is replacing, deliberately: the client

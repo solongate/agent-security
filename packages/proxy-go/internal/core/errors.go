@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package core
 
 import (
@@ -105,27 +107,6 @@ func NewUnsafeConfigurationError(message, field string) *UnsafeConfigurationErro
 	b := newBase("Unsafe configuration detected: "+message, "UNSAFE_CONFIGURATION", map[string]any{"field": field})
 	b.Name = "UnsafeConfigurationError"
 	return &UnsafeConfigurationError{b}
-}
-
-// InputGuardError — the input guard found something in the arguments.
-type InputGuardError struct{ Base }
-
-func NewInputGuardError(toolName string, threats []DetectedThreat) *InputGuardError {
-	descriptions := make([]string, 0, len(threats))
-	generic := make([]any, 0, len(threats))
-	for _, t := range threats {
-		descriptions = append(descriptions, t.Description)
-		generic = append(generic, map[string]any{
-			"type": string(t.Type), "field": t.Field, "description": t.Description,
-		})
-	}
-	b := newBase(
-		fmt.Sprintf("Input guard blocked tool %q: %s", toolName, strings.Join(descriptions, "; ")),
-		"INPUT_GUARD_BLOCKED",
-		map[string]any{"toolName": toolName, "threatCount": len(threats), "threats": generic},
-	)
-	b.Name = "InputGuardError"
-	return &InputGuardError{b}
 }
 
 // NetworkError — an API call or cloud sync failed.

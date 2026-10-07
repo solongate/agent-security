@@ -1,46 +1,16 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
 
 /**
- * SolonGate MCP Proxy — Security gateway for MCP servers.
+ * The SolonGate CLI.
  *
- * Wraps any MCP server with security policies, input validation,
- * rate limiting, and audit logging — without modifying the server's code.
- *
- * Usage:
- *   solongate-proxy [options] -- <command> [args...]
- *   solongate-proxy --config solongate.json
- *
- * Examples:
- *   solongate-proxy -- node my-server.js
- *   solongate-proxy --policy ./policy.json -- npx @playwright/mcp@latest
- *   solongate-proxy --config solongate.json
- *
- * Options:
- *   --policy <file>          Policy JSON file (default: policy.json or cloud fetch)
- *   --name <name>            Proxy display name
- *   --verbose                Show detailed error messages
- *   --no-input-guard         Disable input validation
- *   --rate-limit <n>         Per-tool rate limit (calls/min)
- *   --global-rate-limit <n>  Global rate limit (calls/min)
- *   --config <file>          Load full config from JSON file
- *   --api-key <key>          SolonGate Cloud API key (enables cloud policy sync + audit)
- *   --api-url <url>          SolonGate API URL (default: http://127.0.0.1:3002)
- *   --upstream-url <url>     Connect to upstream via URL (SSE or HTTP)
- *   --upstream-transport <t> Transport: stdio (default), sse, http
- *   --port <n>               Serve downstream on HTTP port (default: stdio)
- *   --policy-id <id>         Cloud policy ID to use (default: auto-select first)
- *
- * Subcommands:
- *   solongate-proxy list                          List all policies
- *   solongate-proxy list --policy-id <ID>         Show policy details
- *   solongate-proxy pull --policy-id <ID>         Pull policy to local file
- *   solongate-proxy push --policy-id <ID>         Push local file to cloud
+ * Every command here reads or changes a security posture, so the whole surface
+ * is gated to a real terminal. What it does NOT do any more is stand in front of
+ * a tool server: this file used to end in an MCP proxy runtime, and SolonGate is
+ * not an MCP gateway. The guard runs on a client's tool call hook, and the
+ * commands below are how a person configures it.
  */
 
-// Redirect console to stderr — MCP uses stdout for JSON-RPC. This ONLY applies
-// to the proxy runtime; the human-facing CLI subcommands (login/etc.) and
-// the bare-run welcome screen keep normal console output so their banners aren't
-// mangled with a [SolonGate] prefix.
 const CLI_SUBCOMMANDS = new Set(['repair', 'policy', 'ratelimit', 'dlp', 'stats', 'audit', 'doctor', 'trace', 'watch', 'dataroom']);
 // Human-facing flags/aliases that print a banner and must keep normal console
 // output (no [SolonGate] prefix): help, version, and the removed `login` alias.
@@ -61,8 +31,6 @@ if (!IS_HUMAN_CLI) {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { parseArgs } from './config.js';
-import { SolonGateProxy } from './proxy.js';
 import { c } from './cli-utils.js';
 
 // Package version for `solongate --version`, read from the shipped package.json
@@ -277,30 +245,15 @@ async function main() {
     process.exit(await runRepair());
   }
 
-  // Everything below is the MCP PROXY runtime. It is entered ONLY for a genuine
-  // proxy invocation: an explicit upstream command after `--`, or proxy flags
-  // (`--config`, `--upstream-url`, ...). A bare unrecognized token (e.g. a typo
-  // like `solongate h`) must NOT be spawned as an upstream program — that used
-  // to fail with "spawn h ENOENT" under a wall of proxy startup logs. Show the
-  // command list instead. Written via stdout directly so it is not wrapped in a
-  // [SolonGate] prefix (an unknown token isn't in the human-CLI set).
-  const hasProxySeparator = process.argv.includes('--');
-  const looksLikeProxyFlag = (subcommand ?? '').startsWith('-');
-  if (subcommand && !hasProxySeparator && !looksLikeProxyFlag) {
-    process.stdout.write(`\n  Unknown command: ${subcommand}\n`);
-    process.stdout.write(`  Run \`solongate --help\` to see every command, or \`solongate\` for the dataroom.\n\n`);
-    process.exit(1);
-  }
-
-  try {
-    const config = parseArgs(process.argv);
-    const proxy = new SolonGateProxy(config);
-    await proxy.start();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[SolonGate] Fatal: ${message}\n`);
-    process.exit(1);
-  }
+  // ANYTHING LEFT IS NOT A COMMAND. It used to fall through to an MCP proxy
+  // runtime, which spawned the token as an upstream program: `solongate h`
+  // failed with "spawn h ENOENT" under a wall of startup logs. That runtime is
+  // gone, so there is nothing to fall through to and nothing to guess at.
+  //
+  // Written to stdout directly so it is not wrapped in a [SolonGate] prefix.
+  process.stdout.write(`\n  Unknown command: ${subcommand}\n`);
+  process.stdout.write(`  Run \`solongate --help\` to see every command, or \`solongate\` for the dataroom.\n\n`);
+  process.exit(1);
 }
 
 main();

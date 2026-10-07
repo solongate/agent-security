@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * THE VIEWERS READ THE FILE THE HOOKS WRITE.
  *

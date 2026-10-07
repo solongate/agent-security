@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Trust model
 export { TrustLevel, isValidTrustLevel, assertValidTransition } from './trust.js';
 
@@ -80,29 +82,6 @@ export {
   type SchemaValidatorOptions,
 } from './schema-validator.js';
 
-// Input Guard
-export {
-  detectPathTraversal,
-  detectShellInjection,
-  detectWildcardAbuse,
-  detectSSRF,
-  detectSQLInjection,
-  detectExfiltration,
-  detectBoundaryEscape,
-  checkLengthLimits,
-  checkEntropyLimits,
-  sanitizeInput,
-  sanitizeInputAsync,
-  DEFAULT_INPUT_GUARD_CONFIG,
-  BOUNDARY_PREFIX,
-  BOUNDARY_SUFFIX,
-  type ThreatType,
-  type DetectedThreat,
-  type SanitizationResult,
-  type AsyncSanitizationResult,
-  type InputGuardConfig,
-} from './input-guard.js';
-
 // Response Scanner
 export {
   scanResponse,
@@ -113,13 +92,6 @@ export {
   type ResponseScanResult,
   type ResponseScanConfig,
 } from './response-scanner.js';
-
-// Context Boundary
-export {
-  tagUserInput,
-  stripBoundaryTags,
-  type TaggedArguments,
-} from './context-boundary.js';
 
 // Capability Token types
 export {

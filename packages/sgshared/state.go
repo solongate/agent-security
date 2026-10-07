@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package sgshared holds the shapes SolonGate keeps on disk, and the small
 // functions that decide where on disk they go.
 //

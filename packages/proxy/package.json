@@ -37,10 +37,10 @@
   ],
   "author": "SolonGate <hello@solongate.com>",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/codeyevsky/solongate-oss#readme",
+  "homepage": "https://github.com/solongate/solongate#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/codeyevsky/solongate-oss.git",
+    "url": "git+https://github.com/solongate/solongate.git",
     "directory": "packages/proxy"
   },
   "engines": {
@@ -66,6 +66,6 @@
     "typescript": "^5.7.0"
   },
   "bugs": {
-    "url": "https://github.com/codeyevsky/solongate-oss/issues"
+    "url": "https://github.com/solongate/solongate/issues"
   }
 }

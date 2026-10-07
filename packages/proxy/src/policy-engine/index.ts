@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 export { PolicyEngine } from './engine.js';
 export { evaluatePolicy } from './evaluator.js';
 export { ruleMatchesRequest, toolPatternMatches, trustLevelMeetsMinimum } from './matcher.js';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Optional TUI preferences, read once from ~/.solongate/tui-config.json:
  *   { "notifications": true, "accent": "cyan", "pollMs": 2000 }

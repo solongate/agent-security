@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package sgpolicy
 
 // The four extractors the policy input is built from, ported from the Node hook

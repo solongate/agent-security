@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { PolicySet } from '../core/index.js';
 import { PolicyEffect, Permission, TrustLevel } from '../core/index.js';
 

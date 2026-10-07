@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 // De-risks the one thing the whole port rests on: can this evaluate the same

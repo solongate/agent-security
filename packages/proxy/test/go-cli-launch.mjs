@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The `solongate` bin picks the Go CLI, and gives it back when it must.
  *

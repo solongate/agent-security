@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 export type CheckStatus = 'PROTECTED' | 'PARTIAL' | 'NOT_PROTECTED';
 
 export interface Evidence {

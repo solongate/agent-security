@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** Data-loading hooks shared by the TUI panels. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 

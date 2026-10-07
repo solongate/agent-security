@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 // The npm wrapper's list of commands it hands to this binary, and this binary's

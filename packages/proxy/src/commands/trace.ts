@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * `solongate trace …` - what the guard saw, locally, for THIS directory.
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { PolicySet } from './core/index.js';
 import { readFileSync, existsSync, mkdirSync, appendFileSync, chmodSync } from 'node:fs';
 import { resolve, join } from 'node:path';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { AuditData, CheckResult, Evidence } from '../types.js';
 
 // OWASP ASI04: Agentic Supply Chain Vulnerabilities

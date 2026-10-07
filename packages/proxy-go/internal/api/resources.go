@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package api
 
 // One type per namespace, each method the one the commands and the TUI were

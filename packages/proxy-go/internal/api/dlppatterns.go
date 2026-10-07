@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package api
 
 // The names of the built-in DLP patterns, in order.

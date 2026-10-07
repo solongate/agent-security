@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** `solongate policy …` - manage policies, rules and the active pin. */
 import { api } from '../api-client/index.js';
 import type { PolicySet } from '../api-client/index.js';

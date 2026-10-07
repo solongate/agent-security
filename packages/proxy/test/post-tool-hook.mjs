@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The PostToolUse hook on a machine with NO credential.
  *

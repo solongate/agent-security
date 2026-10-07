@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { PolicyRule, PolicySet } from '../core/index.js';
 import { UNSAFE_CONFIGURATION_WARNINGS } from '../core/index.js';
 

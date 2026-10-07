@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Minimal flag parser for the CLI commands. Supports:
  *   --flag value      → flags.flag = "value"

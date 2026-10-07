@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Cross-compile the Go guard and CLI, and lay them out as npm platform packages.
  *
@@ -159,30 +161,26 @@ for (const t of targets) {
   console.log(`  ${t.tag.padEnd(14)} ${built.map((b) => b.exe).join(', ').padEnd(34)} ${(total / 1048576).toFixed(1)} MB`);
 }
 
-// The optionalDependencies block, WRITTEN rather than printed.
+// THIS SCRIPT NO LONGER TOUCHES packages/proxy/package.json.
 //
-// It used to be printed with a note to copy it across, on the grounds that a
-// script editing package.json silently is how a version range nobody chose gets
-// published. That reasoning was wrong in the one way that matters: these six
-// entries are not a choice anybody makes. They are this package's own version,
-// six times, and the only value they can hold that is not a bug is pkg.version.
+// It used to write six optionalDependencies, one per platform package, each
+// pinned to pkg.version. That was right while this package was published to a
+// registry: npm installs only the entry whose os and cpu match the host, so a
+// user downloaded one binary rather than six, through the same lockfile and
+// integrity hash as everything else.
 //
-// Left to a person, they were bumped separately from the version — and a proxy
-// published at 0.83.53 whose optionalDependencies still say 0.83.52 installs the
-// PREVIOUS release's binaries beside the new JavaScript. Everything reports
-// success: npm installs cleanly, `update` prints the new version, and the
-// launcher then runs the old binary, so `--version` answers with the release the
-// user just left. Nothing in that chain is detectably broken from the outside.
-const deps = Object.fromEntries(TARGETS.map((t) => [`@solongate/guard-${t.tag}`, pkg.version]));
-const current = pkg.optionalDependencies || {};
-if (JSON.stringify(deps) === JSON.stringify(current)) {
-  console.log('\noptionalDependencies are up to date');
-} else {
-  pkg.optionalDependencies = deps;
-  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
-  console.log(`\noptionalDependencies rewritten to ${pkg.version} in packages/proxy/package.json`);
-}
+// This repository does not publish to a registry. It is distributed over git,
+// `solongate update` builds from source, and the layout below is what
+// install.sh and `repair` copy from. The six entries therefore named versions
+// that were never published, and that is not a dormant inconsistency: pnpm
+// cannot record an optional dependency it cannot resolve, so the lockfile never
+// held them, and `pnpm install --frozen-lockfile` could not pass on any machine.
+// It failed every CI run and every release job, which is why five pushed tags
+// produced no releases at all.
+//
+// If this package is ever published again, the entries come back WITH a
+// publishing step that puts the platform packages on the registry first. One
+// without the other is the state this comment is describing.
 
 console.log(`\nlaid out under ${outRoot}`);
-console.log('publish the platform packages BEFORE the proxy package, or an install');
-console.log('will resolve optionalDependencies that do not exist yet.');
+console.log('these are what install.sh and `repair` copy from; nothing here is published.');

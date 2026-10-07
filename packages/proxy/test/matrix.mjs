@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // THE POLICY MATRIX, swept rather than sampled.
 //
 // A rule has four constraint kinds, two effects, and two policy modes; the guard has four

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package tui is the SolonGate dataroom: the fullscreen terminal UI behind
 // `solongate` with no arguments.
 //

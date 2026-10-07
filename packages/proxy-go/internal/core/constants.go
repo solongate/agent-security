@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package core is the security vocabulary the rest of the CLI is written in:
 // trust levels, permissions, the policy shapes, the errors, and the input
 // guard.

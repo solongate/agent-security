@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** `solongate dlp …` - data-loss-prevention patterns (part of security layers). */
 import { api } from '../api-client/index.js';
 import type { LayerMode, SecurityLayers } from '../api-client/index.js';

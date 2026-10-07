@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * A PATH RULE HAS TO COVER THE FILE, NOT ONE WAY OF REACHING IT.
  *

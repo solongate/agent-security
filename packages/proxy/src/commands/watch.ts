@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * `solongate watch` - tail the guard's tool-call stream to the terminal, like
  * `tail -f`, without the full TUI. Merges the on-disk local log with the cloud

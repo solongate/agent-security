@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** Shared colors + small helpers for the Ink TUI. */
 import { loadConfig } from './config.js';
 

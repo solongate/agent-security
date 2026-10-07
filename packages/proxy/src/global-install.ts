@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Shared system-wide (global) install logic for the cloud guard hook.
 // Used by BOTH `init --global` and `login` so the two stay in lockstep.
 //

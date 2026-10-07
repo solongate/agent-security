@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package commands is the scriptable CLI: everything `solongate <verb>` does
 // outside the dataroom, ported from packages/proxy/src/commands.
 //

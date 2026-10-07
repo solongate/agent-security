@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** `solongate doctor` - health check: login, active policy, guard, local logs. */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';

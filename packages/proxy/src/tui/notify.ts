@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Best-effort desktop toast for Live security alerts (DENY / DLP / rate-limit /
  * idle). It only SHOWS a notification — clicking it does nothing. Every platform

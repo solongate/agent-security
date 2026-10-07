@@ -4,18 +4,9 @@ Thanks for being here. This is a security control: when it works, nothing
 happens, and a change that quietly weakens it looks exactly like a change that
 does nothing. Most of what follows exists to keep that from happening.
 
-Read this once before your first pull request. After that,
-[ENGINEERING.md](ENGINEERING.md) is the document you will want open.
-
-## The short version
-
-1. Open an issue before writing anything non trivial, so nobody duplicates work.
-2. Go 1.25 and Node 20+. `pnpm install`, then `pnpm build`.
-3. Run the conformance suite against **both** implementations. A change is
-   correct exactly when it passes against each.
-4. Behaviour changes need a case in the conformance suite that fails before your
-   change and passes after it.
-5. `gofmt`, `go vet`, `go test -count=1 ./...` in every Go module you touched.
+Read this once before your first pull request. The code comments carry the rest:
+they say what a piece is defending against and what broke before it was written
+that way.
 
 ## Setting up
 
@@ -32,103 +23,47 @@ that the build has not produced yet, and the next command produces them. Nothing
 is wrong and nothing needs rerunning.
 
 If you want the tool actually installed on your machine while you work on it,
-`./install.sh` does that from the checkout, and
-[docs/install.md](docs/install.md) explains what it writes. You do not need it
-installed to run the tests.
+`./install.sh` does that from the checkout. You do not need it installed to run
+the tests.
 
 ### What lives where
 
 | Package | What it is |
 | --- | --- |
 | `packages/guard-go` | The guard. Runs on every tool call and decides. |
-| `packages/proxy` | The CLI, the TUI and the hooks in TypeScript, published as `@solongate/proxy`. |
+| `packages/proxy` | The CLI, the TUI and the hooks, in TypeScript. |
 | `packages/proxy-go` | The same CLI in Go, which is what ships as the binary. |
 | `packages/sgpolicy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
 | `packages/sgshared` | Shapes more than one program has to agree about. |
 
-[docs/architecture.md](docs/architecture.md) is the map, including which process
-runs when.
-
-## The rule that shapes everything
-
-**There are two implementations of the guard, and they have to be
-indistinguishable.** A machine with the Go binary is decided by Go. A machine
-without it is decided by the bundled Node hook. Nothing else chooses, so a
-behaviour that exists in one of them and not the other is a policy that applies
-to some of your machines.
-
-So: a change to the decision path lands in both, in the same pull request, or it
-does not land. If you can only do one half, say so in the pull request and open
-an issue for the other, and expect the review to focus on whether the gap is
-safe in the meantime.
-
 ## Testing
 
-### The conformance suite is the contract
-
-`packages/proxy/test` runs the guard as a subprocess, feeds it a client payload,
-and asserts on the exit code, the files touched and what a stub server does NOT
-receive. Nothing in it imports any implementation's internals, which is why the
-same suite can judge both.
-
 ```bash
-cd packages/proxy
-pnpm build                    # the suite imports dist/, and drives the bundled hook
-
-node test/run-all.mjs                                   # the Node hook
-SG_HOOK=$PWD/../guard-go/solongate-guard \
-  node test/run-all.mjs                                 # and the Go binary
+./test.sh
 ```
 
-Two things about `SG_HOOK`:
-
-- **It has to be absolute.** The suite spawns the guard with `cwd` set to a
-  sandbox, so a relative path resolves against that and fails with ENOENT on
-  every case, which reads as a total failure rather than a bad invocation.
-- **Give it explicitly.** Otherwise the suite judges whatever is installed in
-  your home directory, which passes on a machine that has SolonGate installed
-  and fails on one that does not, including every CI runner.
-
-Build the Go guard first if you have not:
+gofmt, vet and tests over the four Go modules, the TypeScript types, then the
+conformance suite against both guards: the bundled JavaScript hook and the Go
+binary. Run it before you push.
 
 ```bash
-cd packages/guard-go && go build -o solongate-guard .
+./test.sh go       # the Go modules only
+./test.sh suite    # the suite only, against both guards
 ```
 
-### Use the real build, not `tsc`
+A suite that passes against one guard and fails against the other is a
+divergence, not an ordinary failure, and the script says so.
 
-`pnpm build` rather than `npx tsc`. `tsc` emits one JavaScript file per source
-file, which resolves every import the suite has and is **not what ships**: the
-package ships the bundler's output. A module the suite imports has to be an entry
-point to survive the real build. Two were not, and only a machine that had run
-`pnpm build` noticed.
+### What it cannot cover
 
-### The Go side
+The CLI needs a terminal on both stdin and stdout, and enforcement only happens
+on a real tool call, so neither can be driven by a script. If your change touches
+the CLI surface or a client adapter, exercise it by hand against a real agent and
+say in the pull request what you ran and on which clients.
 
-```bash
-for m in guard-go proxy-go sgpolicy sgshared; do
-  (cd packages/$m && gofmt -l . && go vet ./... && go test -count=1 ./...)
-done
-```
-
-`-count=1` is not a habit, it is a fix. Go serves a cached PASS for a test whose
-subject was deleted elsewhere in the repo, and one sat green that way for a
-while. CI is the place that should never read a cache, and so is your last run
-before pushing.
-
-### What you cannot automate
-
-Some of this product can only be tested by a person, and that is by design:
-
-- **The CLI** refuses to run without a terminal on both stdin and stdout, so no
-  script and no agent can drive it.
-- **Enforcement** only happens on a real tool call, so triggering it means asking
-  an agent to do something.
-
-[TESTING.md](TESTING.md) is the run sheet for both, including the matrix of every
-constraint type against every client. If your change touches the CLI surface or
-a client adapter, run the relevant rows and say in the pull request which ones
-you ran.
+Both directions, every time. A rule that blocks everything passes every "was it
+blocked?" check ever written, so the call that must go through is the half that
+finds walls.
 
 ## Adding a test
 
@@ -196,9 +131,23 @@ us not to.
 
 ## Licensing of contributions
 
-This project is MIT licensed. By submitting a pull request you agree that your
-contribution is licensed under the same terms. There is no CLA and no copyright
-assignment.
+This project is licensed under the **Apache License 2.0**, and that licence says
+what happens to your contribution without anybody signing anything. Section 5:
+unless you state otherwise in writing, anything you deliberately submit for
+inclusion is under the same terms as the licence itself.
+
+So there is no CLA and no copyright assignment. You keep the copyright in what
+you wrote.
+
+Two things Apache 2.0 carries that MIT did not, both worth knowing before you
+send a patch:
+
+- **A patent grant.** Contributing code grants everyone who uses this project a
+  licence to any of your patents that the contribution necessarily infringes. If
+  you are contributing on behalf of an employer who holds patents, that is their
+  decision to be aware of, not a formality.
+- **A patent retaliation clause.** Anybody who sues this project claiming it
+  infringes their patent loses their own licence to it.
 
 A `Signed-off-by` line is welcome and not required.
 

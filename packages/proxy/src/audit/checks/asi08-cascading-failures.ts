@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { AuditData, CheckResult, Evidence, DeepAnalysis } from '../types.js';
 
 // OWASP ASI08: Cascading Failures

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { z, type ZodTypeAny } from 'zod';
 import { MAX_ARGUMENT_DEPTH, MAX_ARGUMENTS_SIZE_BYTES } from './constants.js';
 

@@ -81,6 +81,11 @@ id_ed25519
 # the repository. The clone it was written for did not have it.
 !/install.sh
 
+# ...and the test runner, for the same reason and with the same failure waiting:
+# CONTRIBUTING.md tells every contributor to run `./test.sh`, and a clone without
+# it reads as the instructions being wrong.
+!/test.sh
+
 # Icon/Logo files (served from CDN)
 **/public/icon-*.png
 **/public/apple-icon.png
@@ -98,22 +103,14 @@ deploy-package/
 # refuses without being asked, `git status` does not list the file, and the first
 # anybody notices is a clone with no README in it.
 !README.md
-!TESTING.md
-!ENGINEERING.md
 !packages/proxy/test/README.md
 
 # The open source release set: the files people look for before they look at code.
 !CONTRIBUTING.md
 !CODE_OF_CONDUCT.md
 !SECURITY.md
-!SUPPORT.md
-!GOVERNANCE.md
-!CHANGELOG.md
-!RELEASING.md
 
-# The docs themselves, and the GitHub templates that are markdown rather than YAML.
-!docs/*.md
-!.github/PULL_REQUEST_TEMPLATE.md
+# The GitHub issue templates, for the markdown ones.
 !.github/ISSUE_TEMPLATE/*.md
 # Lock files (pnpm only)
 package-lock.json

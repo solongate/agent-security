@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Local storage and the cloud are EXCLUSIVE, and the SETTING decides — never a
  * marker left over from some earlier state.

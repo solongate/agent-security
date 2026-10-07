@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Response Scanner: detects indirect prompt injection in upstream tool responses.
  *

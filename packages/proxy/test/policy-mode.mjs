@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The policy MODE decides the default, and getting it backwards is silent.
  *

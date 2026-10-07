@@ -121,31 +121,11 @@ guard also refuses a tool call that invokes the CLI. A prompt injected agent mus
 not be able to switch off the thing watching it, and no environment variable
 exempts anything from that.
 
-## The MCP proxy
-
-```sh
-solongate -- <upstream command>
-```
-
-The same policy in front of an MCP server's tool calls, with the same evaluator.
-It enforces the policy rules, the rate limit and DLP, and prints which layers are
-in force every time it starts. Egress is the exception, because that check
-resolves file paths against the agent's working directory and a proxy in front of
-a tool server has none.
-
 ## Documentation
-
-- [Install](https://github.com/codeyevsky/solongate-oss/blob/main/docs/install.md)
-- [Quickstart](https://github.com/codeyevsky/solongate-oss/blob/main/docs/quickstart.md)
-- [Policy reference](https://github.com/codeyevsky/solongate-oss/blob/main/docs/policy.md)
-- [DLP and egress](https://github.com/codeyevsky/solongate-oss/blob/main/docs/dlp.md)
-- [CLI reference](https://github.com/codeyevsky/solongate-oss/blob/main/docs/cli.md)
-- [Clients](https://github.com/codeyevsky/solongate-oss/blob/main/docs/clients.md)
-- [Troubleshooting](https://github.com/codeyevsky/solongate-oss/blob/main/docs/troubleshooting.md)
 
 Source, issues and security reporting:
 [github.com/codeyevsky/solongate-oss](https://github.com/codeyevsky/solongate-oss)
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE).

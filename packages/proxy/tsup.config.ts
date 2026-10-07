@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
@@ -8,7 +10,6 @@ export default defineConfig({
     // module graph before it could decide not to use it.
     'src/cli-launch.ts',
     'src/index.ts',
-    'src/lib.ts',
     'src/global-install.ts',
     'src/audit/index.ts',
     // FIVE MORE ENTRIES USED TO BE LISTED HERE — inject, create, pull-push, login

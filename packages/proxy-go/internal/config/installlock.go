@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package config
 
 // The installer has to lift these locks around its own writes: a (re)install

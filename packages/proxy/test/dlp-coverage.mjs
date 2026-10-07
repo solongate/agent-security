@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The DLP patterns brought over from Go actually fire, in whichever
  * implementation is running.

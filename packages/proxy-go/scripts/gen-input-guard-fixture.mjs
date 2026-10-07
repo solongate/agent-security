@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Generates the differential fixture for the Go input-guard port.
 //
 //   node scripts/gen-input-guard-fixture.mjs internal/core/testdata/input-guard.json

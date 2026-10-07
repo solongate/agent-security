@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * A machine with NO credential still enforces, and the policy it enforces is a
  * file.

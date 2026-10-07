@@ -163,22 +163,23 @@ jobs:
 
       # AND THAT IT CHANGED NOTHING IT SHOULD NOT HAVE.
       #
-      # The script rewrites optionalDependencies to this package's own version — six
-      # entries whose only non-buggy value is pkg.version — and it writes all six
-      # whichever target was built, so one target is enough to check them.
+      # build:go used to rewrite six optionalDependencies into
+      # packages/proxy/package.json, and this step compared the file afterwards.
+      # It no longer writes them: this repository is distributed over git and
+      # publishes to no registry, so the entries named versions that did not
+      # exist, which is what broke `pnpm install --frozen-lockfile` in the first
+      # step of this job and of every release.
       #
-      # The failure this catches is the one the script's own comment describes: a
-      # version bumped without those entries following it publishes new JavaScript
-      # beside the PREVIOUS release's binaries. npm installs cleanly, `update` prints
-      # the new version, and the launcher runs the old binary. Nothing in that chain is
-      # detectably broken from the outside, which is why it needs a check here rather
-      # than someone remembering to run the script before publishing.
-      - name: optionalDependencies match the version
+      # A git diff here would now pass without checking anything, and a check
+      # that cannot fail is worse than no check: it reads as coverage. The
+      # property it was defending moved into the conformance suite, where
+      # release-shape.mjs asserts the lockfile and every manifest agree, and
+      # fails on exactly the state this repository was in.
+      - name: the build left the tree alone
         run: |
-          if ! git diff --exit-code -- packages/proxy/package.json; then
+          if ! git diff --exit-code -- packages/proxy/package.json pnpm-lock.yaml; then
             echo
-            echo "build:go rewrote optionalDependencies, so they did not match the version."
-            echo "Run \`pnpm build:go\` in packages/proxy and commit the result."
+            echo "build:go modified a manifest or the lockfile, which it must not do."
             exit 1
           fi
 

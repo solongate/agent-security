@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Base error class for all SolonGate security errors.
  * Every error includes a machine-readable code for programmatic handling.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { PolicyRule } from '../core/index.js';
 
 type FilenameConstraints = NonNullable<PolicyRule['filenameConstraints']>;

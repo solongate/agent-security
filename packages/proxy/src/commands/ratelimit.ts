@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /** `solongate ratelimit …` - view/set the rate-limit layer + history sparkline. */
 import { api } from '../api-client/index.js';
 import type { LayerMode } from '../api-client/index.js';

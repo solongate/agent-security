@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import chalk from 'chalk';
 import type { CheckResult, CheckStatus, Evidence, AuditData } from './types.js';
 

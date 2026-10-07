@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * SolonGate Audit Hook for Claude Code (PostToolUse)
  * Logs tool execution results to SolonGate Cloud.

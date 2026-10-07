@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The limit holds when calls arrive together — which is the only case that
  * matters, because a burst is exactly what a rate limit exists to stop.

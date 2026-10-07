@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 // Package auditscan is the `solongate-audit` tool: it reads the transcripts the
 // AI clients on this machine have already written, and grades what they show
 // against the OWASP Agentic Top 10.

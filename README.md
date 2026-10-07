@@ -3,8 +3,8 @@
 </div>
 
 <p align="center">
-  <a href="https://github.com/codeyevsky/solongate-oss/actions/workflows/ci.yml"><img src="https://github.com/codeyevsky/solongate-oss/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <a href="https://github.com/codeyevsky/solongate-oss/releases"><img src="https://img.shields.io/github/v/release/codeyevsky/solongate-oss?color=3ba9ee&label=release" alt="release"></a>
+  <a href="https://github.com/solongate/solongate/actions/workflows/ci.yml"><img src="https://github.com/solongate/solongate/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/solongate/solongate/releases"><img src="https://img.shields.io/github/v/release/solongate/solongate?color=3ba9ee&label=release" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.25-00ADD8.svg" alt="Go 1.25"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-20%2B-339933.svg" alt="Node 20+"></a>
@@ -34,8 +34,8 @@ Agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
 ## Install
 
 ```bash
-git clone https://github.com/codeyevsky/solongate-oss.git
-cd solongate-oss
+git clone https://github.com/solongate/solongate.git
+cd solongate
 ./install.sh
 ```
 
@@ -99,7 +99,7 @@ full tree.
     <td><a href="https://openclaw.ai"><img src="docs/assets/cells/openclaw.png" width="200" alt="OpenClaw (soon)"></a></td>
     <td><a href="https://hermes.nousresearch.com"><img src="docs/assets/cells/hermes.png" width="200" alt="Hermes (soon)"></a></td>
     <td><a href="https://chainabit.com"><img src="docs/assets/cells/chainabit.png" width="200" alt="Chainabit (soon)"></a></td>
-    <td><a href="https://github.com/codeyevsky/solongate-oss/issues"><img src="docs/assets/cells/yourtool.png" width="200" alt="Your tool"></a></td>
+    <td><a href="https://github.com/solongate/solongate/issues"><img src="docs/assets/cells/yourtool.png" width="200" alt="Your tool"></a></td>
   </tr>
 </table>
 

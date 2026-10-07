@@ -379,7 +379,7 @@ function evaluate(policy, args, toolName, cwd) {
 }
 
 // hooks/guard.mjs
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 // hooks/dlp.mjs
 var DLP_PATTERN_SOURCES = [
@@ -1628,20 +1628,30 @@ var RL_WINDOWS = [
   { key: "perHour", ms: 36e5, label: "hour" },
   { key: "perMinute", ms: 6e4, label: "minute" }
 ];
-var RL_REC = 14;
+var RL_STAMP = 13;
+var RL_TOKEN = 10;
+var RL_REC = RL_STAMP + RL_TOKEN + 1;
 var RL_MAX_READ = 1048576;
 var RL_MAX_FILE = 4194304;
+function rlNewToken() {
+  try {
+    return randomBytes(RL_TOKEN / 2).toString("hex");
+  } catch {
+    return "0".repeat(RL_TOKEN);
+  }
+}
 function rateLimitCheck(agentKey, limits) {
   try {
     const dir = resolve(homedir(), ".solongate");
-    const file = join(dir, ".ratelimit-" + agentKey + ".log");
+    const file = join(dir, ".ratelimit-" + agentKey + ".v2.log");
     const now = Date.now();
     try {
       mkdirSync(dir, { recursive: true });
     } catch {
     }
+    const token = rlNewToken();
     try {
-      appendFileSync(file, String(now).padStart(13, "0") + "\n");
+      appendFileSync(file, String(now).padStart(RL_STAMP, "0") + token + "\n");
     } catch {
       return null;
     }
@@ -1663,24 +1673,35 @@ function rateLimitCheck(agentKey, limits) {
     } catch {
       return null;
     }
-    const stamps = [];
+    const entries = [];
+    let mine = -1;
     for (let i = 0; i + RL_REC <= buf.length; i += RL_REC) {
-      const t = parseInt(buf.slice(i, i + 13), 10);
-      if (Number.isFinite(t) && now - t < 864e5)
-        stamps.push(t);
+      const t = parseInt(buf.slice(i, i + RL_STAMP), 10);
+      if (!Number.isFinite(t) || now - t >= 864e5)
+        continue;
+      const tok = buf.slice(i + RL_STAMP, i + RL_STAMP + RL_TOKEN);
+      if (tok === token && mine < 0)
+        mine = entries.length;
+      entries.push({ ms: t, token: tok });
     }
     for (const w of RL_WINDOWS) {
       const limit = limits[w.key];
-      if (limit > 0) {
-        const count = stamps.reduce((n, t) => now - t < w.ms ? n + 1 : n, 0);
-        if (count > limit)
+      if (!(limit > 0))
+        continue;
+      if (mine >= 0) {
+        const ahead = entries.slice(0, mine).reduce((n, e) => now - e.ms < w.ms ? n + 1 : n, 0);
+        if (ahead >= limit)
           return { window: w.label, limit };
+        continue;
       }
+      const count = entries.reduce((n, e) => now - e.ms < w.ms ? n + 1 : n, 0);
+      if (count > limit)
+        return { window: w.label, limit };
     }
     if (size > RL_MAX_FILE) {
       try {
         const tmp = file + "." + process.pid + ".tmp";
-        writeFileSync(tmp, stamps.map((t) => String(t).padStart(13, "0") + "\n").join(""));
+        writeFileSync(tmp, entries.map((e) => String(e.ms).padStart(RL_STAMP, "0") + e.token + "\n").join(""));
         renameSync(tmp, file);
       } catch {
       }

@@ -47,7 +47,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "ink": "^5.0.1",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",

@@ -189,7 +189,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # The whole history. A secret that was committed and then removed is
+          # still a secret, and scanning only the tip would miss every one of
+          # them.
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+
+      # THE BINARY, NOT gitleaks/gitleaks-action@v2.
+      #
+      # The action refuses to run for an organisation without a paid licence:
+      # "[solongate] is an organization. License key is required." It cost
+      # nothing while this repository belonged to a person and started failing
+      # the moment it moved, with no change to the code it scans.
+      #
+      # gitleaks itself is MIT and free. Only the wrapper is licensed, so the
+      # wrapper is what goes.
+      #
+      # PINNED AND VERIFIED. A step that downloads a binary and runs it over the
+      # whole repository is a supply chain, and a security scan that could be
+      # swapped underneath us is worth less than no scan: it would still report
+      # green. The version is fixed and the checksum is checked before the file
+      # is allowed to execute.
+      - name: gitleaks
         env:
-          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+
+          # `git` rather than `detect`: 8.19 deprecated detect and hid it from
+          # --help. It still runs today and will not forever.
+          #
+          # --redact so a finding names the rule and the file without printing
+          # the secret into a public build log, which is the one place a leak
+          # gets worse by being reported.
+          ./gitleaks git --config .gitleaks.toml --redact --exit-code 1 .

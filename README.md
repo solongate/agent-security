@@ -17,15 +17,12 @@
 
 ---
 
-# SolonGate Agent Security — Open-source AI Agent Security Gateway
-
-**SolonGate Agent Security** is SolonGate’s open-source, local-first security
+**SolonGate Agent Security** is SolonGate's open source, local first security
 gateway for AI coding agents. It checks tool calls against your policies before
-execution, with secret detection, rate limits, and local audit logs.
+they run, with secret detection, rate limits and a local audit trail.
 
-This repository contains the Agent Security gateway. Visit
-[solongate.com](https://solongate.com) to explore SolonGate’s broader product
-portfolio.
+This repository is the Agent Security gateway. The rest of the portfolio is at
+[solongate.com](https://solongate.com).
 
 Everything stays on the machine. The policy is a file, the audit trail is a
 file, and the guard contains no code that can open a socket. No account, no

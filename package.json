@@ -19,9 +19,9 @@
     "clean": "turbo run clean"
   },
   "devDependencies": {
-    "esbuild": "^0.19.12",
-    "turbo": "^2.3.0",
-    "typescript": "^5.7.0"
+    "esbuild": "^0.28.2",
+    "turbo": "^2.11.7",
+    "typescript": "^7.0.2"
   },
   "pnpm": {
     "neverBuiltDependencies": [

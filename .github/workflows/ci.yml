@@ -31,8 +31,8 @@ jobs:
           - packages/sgpolicy
           - packages/sgshared
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
           cache-dependency-path: ${{ matrix.module }}/go.sum
@@ -66,13 +66,13 @@ jobs:
     name: typescript
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # No `version` input: package.json's `packageManager` field is the one
       # source, and action-setup v4 REFUSES when both are set rather than
       # picking one. That refusal is what failed the two pnpm jobs on the first
       # run, five seconds in, before pnpm existed to report anything.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: pnpm
@@ -85,13 +85,13 @@ jobs:
     name: guard conformance suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # No `version` input: package.json's `packageManager` field is the one
       # source, and action-setup v4 REFUSES when both are set rather than
       # picking one. That refusal is what failed the two pnpm jobs on the first
       # run, five seconds in, before pnpm existed to report anything.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: pnpm
@@ -135,7 +135,7 @@ jobs:
       # It would not have run before now. tamper-path.mjs spawned `node $SG_HOOK`
       # itself, which handed an ELF file to node, and the failures that produced
       # read as the guard being broken.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.25'
           cache-dependency-path: packages/guard-go/go.sum
@@ -187,7 +187,7 @@ jobs:
     name: secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The whole history. A secret that was committed and then removed is
           # still a secret, and scanning only the tip would miss every one of

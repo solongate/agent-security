@@ -103,7 +103,7 @@ function sweepLegacyFlagDir() {
   } catch { /* never let cleanup disturb a tool call */ }
 }
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // Bump on every change to this file. An installed hook is replaced by the
@@ -1940,12 +1940,30 @@ const RL_WINDOWS = [
   { key: 'perHour', ms: 3600000, label: 'hour' },
   { key: 'perMinute', ms: 60000, label: 'minute' },
 ];
-// One call = one fixed-width record, appended. 13 digits of epoch ms + newline;
-// good until the year 2286, and fixed width is what lets the file be read by
-// offset without parsing it all.
-const RL_REC = 14;
-const RL_MAX_READ = 1_048_576; // tail we scan: ~74k calls, far past any window
+// One call = one fixed-width record, appended: 13 digits of epoch ms, a 10
+// character token that belongs to this call alone, and a newline. Fixed width is
+// what lets the file be read by offset without parsing it all.
+//
+// THE TOKEN IS WHAT MAKES THE COUNT EXACT. See rateLimitCheck.
+const RL_STAMP = 13;
+const RL_TOKEN = 10;
+const RL_REC = RL_STAMP + RL_TOKEN + 1;
+const RL_MAX_READ = 1_048_576; // tail we scan: ~43k calls, far past any window
 const RL_MAX_FILE = 4_194_304; // compact past this
+
+// This call's identity in the log. Random rather than pid-based: a burst is
+// often one parent spawning many children, and two of them starting in the same
+// millisecond with the same parent would otherwise collide.
+function rlNewToken() {
+  try {
+    return randomBytes(RL_TOKEN / 2).toString('hex');
+  } catch {
+    // Never hand out a free call because entropy was unavailable. A constant
+    // token degrades this to the old count-everything behaviour, which is
+    // conservative, rather than to no limit at all.
+    return '0'.repeat(RL_TOKEN);
+  }
+}
 
 /**
  * Rate limit, counted with an append-only log.
@@ -1957,24 +1975,43 @@ const RL_MAX_FILE = 4_194_304; // compact past this
  * calls through a limit of 5, from 30 fired at once.
  *
  * An O_APPEND write of a short record does not interleave, so no call can erase
- * another's. The reservation is made BEFORE the decision, which is what makes
- * the count exact under concurrency: every process appends, then counts what is
- * in the window, and the ones past the limit are the ones refused. A refused
- * call therefore also occupies a slot, which is the honest reading of a rate
- * limit — thirty attempts in a minute IS thirty calls a minute, whatever came
- * back. (This is the same trick the guest allowance used for the same reason.)
+ * another's, and the reservation is made BEFORE the decision.
+ *
+ * THE DECISION IS THIS CALL'S POSITION, NOT THE TOTAL. Appending and then
+ * counting everything in the window was the first fix, and it held the ceiling
+ * but not the floor: thirty processes append at once, and whichever one gets
+ * around to counting last sees all thirty and refuses itself, even though it was
+ * among the first five to reserve. How many got through depended on the
+ * interleaving. Measured: a limit of 5 let 3 through on a loaded machine, and the
+ * conformance case that asserts a useful number gets through failed on a run
+ * where nothing had changed.
+ *
+ * So each record carries a token, and a call is allowed when fewer than `limit`
+ * records inside the window sit AHEAD OF ITS OWN. The log is totally ordered by
+ * position, so every process computes the same answer whenever it happens to
+ * look: exactly the first `limit` records in a window are allowed, and the rest
+ * are not.
+ *
+ * A refused call still occupies a slot, which is the honest reading: thirty
+ * attempts in a minute IS thirty calls a minute, whatever came back.
  */
 function rateLimitCheck(agentKey, limits) {
   try {
     const dir = resolve(homedir(), '.solongate');
     // New name: the old .json holds an array this format cannot read, and one
     // window resetting on upgrade is better than parsing ambiguity.
-    const file = join(dir, '.ratelimit-' + agentKey + '.log');
+    // `.v2` because the record width changed. An older file parsed at this stride
+    // yields timestamps the day filter throws away, which is an empty window,
+    // which is an allow: the one upgrade behaviour this must not have.
+    const file = join(dir, '.ratelimit-' + agentKey + '.v2.log');
     const now = Date.now();
     try { mkdirSync(dir, { recursive: true }); } catch {}
     // Reserve first. A failed append must not hand out a free call, so treat it
     // as "cannot account for this" and fall open the same way the catch does.
-    try { appendFileSync(file, String(now).padStart(13, '0') + '\n'); } catch { return null; }
+    const token = rlNewToken();
+    try {
+      appendFileSync(file, String(now).padStart(RL_STAMP, '0') + token + '\n');
+    } catch { return null; }
 
     let size = 0;
     try { size = statSync(file).size; } catch { return null; }
@@ -1990,18 +2027,31 @@ function rateLimitCheck(agentKey, limits) {
       buf = b.toString('latin1');
     } catch { return null; }
 
-    const stamps = [];
+    const entries = [];
+    let mine = -1;
     for (let i = 0; i + RL_REC <= buf.length; i += RL_REC) {
-      const t = parseInt(buf.slice(i, i + 13), 10);
-      if (Number.isFinite(t) && now - t < 86400000) stamps.push(t);
+      const t = parseInt(buf.slice(i, i + RL_STAMP), 10);
+      if (!Number.isFinite(t) || now - t >= 86400000) continue;
+      const tok = buf.slice(i + RL_STAMP, i + RL_STAMP + RL_TOKEN);
+      if (tok === token && mine < 0) mine = entries.length;
+      entries.push({ ms: t, token: tok });
     }
-    // Our own record is in here, so the limit is crossed at > rather than >=.
+
     for (const w of RL_WINDOWS) {
       const limit = limits[w.key];
-      if (limit > 0) {
-        const count = stamps.reduce((n, t) => (now - t < w.ms ? n + 1 : n), 0);
-        if (count > limit) return { window: w.label, limit };
+      if (!(limit > 0)) continue;
+      if (mine >= 0) {
+        // How many are ahead of us inside this window.
+        const ahead = entries.slice(0, mine).reduce((n, e) => (now - e.ms < w.ms ? n + 1 : n), 0);
+        if (ahead >= limit) return { window: w.label, limit };
+        continue;
       }
+      // Our own record is not in the tail we read, which means the file was
+      // compacted or truncated under us. Fall back to counting everything in the
+      // window, ourselves included, and cross the limit at > rather than >=.
+      // Conservative, and the behaviour this had before.
+      const count = entries.reduce((n, e) => (now - e.ms < w.ms ? n + 1 : n), 0);
+      if (count > limit) return { window: w.label, limit };
     }
 
     // Compaction, rarely: keep the last 24h. Written beside and renamed, so a
@@ -2010,7 +2060,7 @@ function rateLimitCheck(agentKey, limits) {
     if (size > RL_MAX_FILE) {
       try {
         const tmp = file + '.' + process.pid + '.tmp';
-        writeFileSync(tmp, stamps.map((t) => String(t).padStart(13, '0') + '\n').join(''));
+        writeFileSync(tmp, entries.map((e) => String(e.ms).padStart(RL_STAMP, '0') + e.token + '\n').join(''));
         renameSync(tmp, file);
       } catch { /* keep growing rather than risk the file */ }
     }

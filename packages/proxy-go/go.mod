@@ -1,4 +1,4 @@
-module github.com/codeyevsky/solongate/proxy
+module github.com/solongate/agent-security/packages/proxy-go
 
 go 1.25.0
 
@@ -22,7 +22,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.10.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.6.0 // indirect
-	github.com/codeyevsky/solongate/sgshared v0.0.0
+	github.com/solongate/agent-security/packages/sgshared v0.0.0
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
@@ -36,11 +36,11 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 )
 
-replace github.com/codeyevsky/solongate/sgpolicy => ../sgpolicy
+replace github.com/solongate/agent-security/packages/sgpolicy => ../sgpolicy
 
 // The extension endpoint's address, so that whether the running agent can
 // answer a browser is asked of the one derivation rather than copied here. A
 // second copy of that rule is precisely the divergence that put the agent and
 // the native host on different pipes on Windows.
 
-replace github.com/codeyevsky/solongate/sgshared => ../sgshared
+replace github.com/solongate/agent-security/packages/sgshared => ../sgshared

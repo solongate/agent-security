@@ -9,10 +9,10 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
-	"github.com/codeyevsky/solongate/proxy/internal/commands"
-	"github.com/codeyevsky/solongate/proxy/internal/install"
-	"github.com/codeyevsky/solongate/proxy/internal/tui"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/commands"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/install"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/tui"
 )
 
 func testDeps() tui.Deps { return tui.Deps{API: api.New()} }

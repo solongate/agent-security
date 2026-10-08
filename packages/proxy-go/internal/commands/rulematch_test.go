@@ -5,7 +5,7 @@ package commands
 import (
 	"testing"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
 )
 
 // `policy show` LISTS WHAT IS ENFORCED, so it has to say what each rule matches.

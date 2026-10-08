@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
-	"github.com/codeyevsky/solongate/proxy/internal/config"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
 )
 
 // machine gives a command a machine of its own: an empty HOME, an empty working

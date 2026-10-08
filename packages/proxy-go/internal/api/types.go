@@ -5,7 +5,7 @@ package api
 import (
 	"encoding/json"
 
-	"github.com/codeyevsky/solongate/proxy/internal/core"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/core"
 )
 
 // Wire types for the SolonGate v1 API, as the CLI consumes them.

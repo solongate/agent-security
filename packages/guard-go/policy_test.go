@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/codeyevsky/solongate/sgpolicy"
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgpolicy"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // What is left here after the policy engine moved to packages/sgpolicy: the

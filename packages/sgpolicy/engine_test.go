@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 func policyFrom(t *testing.T, mode, rulesJSON string) *sgshared.Policy {

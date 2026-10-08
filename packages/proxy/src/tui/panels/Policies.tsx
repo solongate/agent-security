@@ -13,6 +13,7 @@
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { useEffect, useState } from 'react';
+import type { JSX } from 'react';
 import { api } from '../../api-client/index.js';
 import type { Constraint, Permission, PolicyEffect, PolicyMode, PolicyRule } from '../../api-client/index.js';
 import { DataView, Table } from '../components.js';

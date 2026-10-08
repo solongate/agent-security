@@ -11,6 +11,7 @@
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { useEffect, useRef, useState } from 'react';
+import type { JSX } from 'react';
 import { api } from '../../api-client/index.js';
 import { codexDetected, codexHooksStatus, guardHookOutdated, installedGuardVersion, installGlobalQuiet, isGuardInstalled, repairQuiet, uninstallGlobalQuiet } from '../../global-install.js';
 import { collectChecks } from '../../commands/doctor.js';

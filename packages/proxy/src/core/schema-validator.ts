@@ -81,7 +81,7 @@ export function validateToolInput(
  */
 export function createStrictSchema(
   shape: Record<string, ZodTypeAny>,
-): z.ZodObject<Record<string, ZodTypeAny>, 'strict'> {
+): z.ZodObject<Record<string, ZodTypeAny>> {
   return z.object(shape).strict();
 }
 

@@ -55,13 +55,13 @@
   "devDependencies": {
     "@open-policy-agent/opa-wasm": "^1.10.0",
     "@solongate/tsconfig": "workspace:*",
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.6.4",
     "@types/react": "^18.3.12",
-    "chalk": "^5.3.0",
-    "esbuild": "^0.19.12",
+    "chalk": "^6.0.1",
+    "esbuild": "^0.28.2",
     "tsup": "^8.3.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   },
   "bugs": {
     "url": "https://github.com/solongate/solongate/issues"

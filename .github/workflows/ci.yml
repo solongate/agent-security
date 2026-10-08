@@ -32,9 +32,18 @@ jobs:
           - packages/sgshared
     steps:
       - uses: actions/checkout@v7
+
+      # THE VERSION THE MODULE DECLARES, not a number typed into three files.
+      #
+      # OPA 1.21.1 requires go 1.26, so taking it raised the `go` line in
+      # guard-go and sgpolicy while this pin stayed at 1.25. setup-go sets
+      # GOTOOLCHAIN=local, so `go vet` refused to run rather than fetching what
+      # it needed, and every laptop with a newer toolchain built the same tree
+      # without a word. Reading go.mod is how the pin stops being able to drift
+      # from the thing it pins.
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.25'
+          go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
       # gofmt before the tests: a formatting failure is cheap to find and
@@ -135,9 +144,13 @@ jobs:
       # It would not have run before now. tamper-path.mjs spawned `node $SG_HOOK`
       # itself, which handed an ELF file to node, and the failures that produced
       # read as the guard being broken.
+      #
+      # go.mod rather than a number here too, for the reason given above the
+      # matrix: this step builds guard-go, and guard-go is one of the two
+      # modules the stale pin stopped compiling.
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.25'
+          go-version-file: packages/guard-go/go.mod
           cache-dependency-path: packages/guard-go/go.sum
       - name: build the go guard
         working-directory: packages/guard-go

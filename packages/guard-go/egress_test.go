@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // The egress check reads files the AGENT named in a transfer command, so their

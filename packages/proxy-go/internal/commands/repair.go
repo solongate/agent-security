@@ -6,7 +6,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/codeyevsky/solongate/proxy/internal/install"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/install"
 )
 
 // RunRepair is `solongate repair`: restore the guard after tampering or

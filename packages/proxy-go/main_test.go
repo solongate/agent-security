@@ -5,7 +5,7 @@ package main
 import (
 	"testing"
 
-	"github.com/codeyevsky/solongate/proxy/internal/commands"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/commands"
 )
 
 // TestAgentMarkerCatchesEveryClientFamily and TestAgentMarkerIgnoresAnOrdinaryShell

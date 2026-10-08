@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/codeyevsky/solongate/proxy/internal/config"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
 )
 
 // Result is what the callers that must not print report back. The dataroom owns

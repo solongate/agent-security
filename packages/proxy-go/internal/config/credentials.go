@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // DefaultAPIURL is where every command talks unless something says otherwise.

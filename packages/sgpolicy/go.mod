@@ -1,9 +1,9 @@
-module github.com/codeyevsky/solongate/sgpolicy
+module github.com/solongate/agent-security/packages/sgpolicy
 
 go 1.26.0
 
 require (
-	github.com/codeyevsky/solongate/sgshared v0.0.0
+	github.com/solongate/agent-security/packages/sgshared v0.0.0
 	github.com/open-policy-agent/opa v1.21.1
 )
 
@@ -37,4 +37,4 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/codeyevsky/solongate/sgshared => ../sgshared
+replace github.com/solongate/agent-security/packages/sgshared => ../sgshared

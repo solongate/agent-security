@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/codeyevsky/solongate/proxy/internal/config"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
 )
 
 // One guard, registered in every client that can run one. Only the response

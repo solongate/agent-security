@@ -24,12 +24,12 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
-	"github.com/codeyevsky/solongate/proxy/internal/commands"
-	"github.com/codeyevsky/solongate/proxy/internal/install"
-	"github.com/codeyevsky/solongate/proxy/internal/term"
-	"github.com/codeyevsky/solongate/proxy/internal/tui"
-	"github.com/codeyevsky/solongate/proxy/internal/tui/panels"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/commands"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/install"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/term"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/tui"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/tui/panels"
 )
 
 // buildVersion is stamped at build time:

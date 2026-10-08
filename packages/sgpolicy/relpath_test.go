@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // THE SAME FILE, TWO WAYS OF NAMING IT.

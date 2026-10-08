@@ -3,7 +3,7 @@
 package main
 
 import (
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 	"regexp"
 	"strings"
 	"testing"

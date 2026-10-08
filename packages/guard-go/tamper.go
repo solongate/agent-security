@@ -22,7 +22,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/codeyevsky/solongate/sgpolicy"
+	"github.com/solongate/agent-security/packages/sgpolicy"
 )
 
 // Kept from the original even though nothing reads it: the write/exec split is

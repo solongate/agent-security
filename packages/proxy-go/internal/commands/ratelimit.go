@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
 )
 
 func ratelimitUsage() string {

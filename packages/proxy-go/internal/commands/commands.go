@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
 )
 
 // Names is the subcommand set this router owns. main.go uses it to decide what

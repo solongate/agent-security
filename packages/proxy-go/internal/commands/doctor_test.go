@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
 )
 
 func findCheck(t *testing.T, checks []Check, name string) Check {

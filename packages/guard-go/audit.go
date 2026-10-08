@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // Where a decision gets recorded. Local storage and the cloud are EXCLUSIVE:

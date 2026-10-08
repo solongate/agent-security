@@ -5,7 +5,7 @@ package panels
 import (
 	"testing"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
 )
 
 // CHANGING WHAT A RULE MATCHES ON MUST NOT THROW AWAY WHAT IT MATCHES.

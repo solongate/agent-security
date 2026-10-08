@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
-	"github.com/codeyevsky/solongate/proxy/internal/config"
-	"github.com/codeyevsky/solongate/proxy/internal/install"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/install"
 )
 
 // CheckState is a check's verdict, and it has three values rather than two.

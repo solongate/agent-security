@@ -3,8 +3,8 @@
 </div>
 
 <p align="center">
-  <a href="https://github.com/solongate/solongate/actions/workflows/ci.yml"><img src="https://github.com/solongate/solongate/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <a href="https://github.com/solongate/solongate/releases"><img src="https://img.shields.io/github/v/release/solongate/solongate?color=3ba9ee&label=release" alt="release"></a>
+  <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.25-00ADD8.svg" alt="Go 1.25"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-20%2B-339933.svg" alt="Node 20+"></a>
@@ -17,9 +17,12 @@
 
 ---
 
-SolonGate sits in front of every tool call an AI coding agent makes, every shell
-command, every file read and every write, and decides whether it runs against
-rules you wrote.
+**SolonGate Agent Security** is SolonGate's open source, local first security
+gateway for AI coding agents. It checks tool calls against your policies before
+they run, with secret detection, rate limits and a local audit trail.
+
+This repository is the Agent Security gateway. The rest of the portfolio is at
+[solongate.com](https://solongate.com).
 
 Everything stays on the machine. The policy is a file, the audit trail is a
 file, and the guard contains no code that can open a socket. No account, no
@@ -34,8 +37,8 @@ Agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
 ## Install
 
 ```bash
-git clone https://github.com/solongate/solongate.git
-cd solongate
+git clone https://github.com/solongate/agent-security.git
+cd agent-security
 ./install.sh
 ```
 
@@ -99,7 +102,7 @@ full tree.
     <td><a href="https://openclaw.ai"><img src="docs/assets/cells/openclaw.png" width="200" alt="OpenClaw (soon)"></a></td>
     <td><a href="https://hermes.nousresearch.com"><img src="docs/assets/cells/hermes.png" width="200" alt="Hermes (soon)"></a></td>
     <td><a href="https://chainabit.com"><img src="docs/assets/cells/chainabit.png" width="200" alt="Chainabit (soon)"></a></td>
-    <td><a href="https://github.com/solongate/solongate/issues"><img src="docs/assets/cells/yourtool.png" width="200" alt="Your tool"></a></td>
+    <td><a href="https://github.com/solongate/agent-security/issues"><img src="docs/assets/cells/yourtool.png" width="200" alt="Your tool"></a></td>
   </tr>
 </table>
 

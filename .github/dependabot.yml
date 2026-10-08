@@ -15,18 +15,13 @@ updates:
       actions:
         patterns: ['*']
 
+  # ONE npm ENTRY, NOT TWO. There used to be a second for /packages/proxy, and in a
+  # pnpm workspace the root entry already resolves every member's manifest, so
+  # each bump arrived twice: "Bump ink" and "Bump ink in /packages/proxy", two
+  # branches, two full CI runs, two things to review that were the same thing.
+  # Three of seven open pull requests were the duplicate half.
   - package-ecosystem: npm
     directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      dev-tooling:
-        dependency-type: development
-        patterns: ['*']
-
-  - package-ecosystem: npm
-    directory: /packages/proxy
     schedule:
       interval: weekly
     open-pull-requests-limit: 5

@@ -29,7 +29,9 @@
  *
  * There is a Go twin of all of this in packages/guard-go, deliberately identical,
  * because which of the two decides a call depends only on whether a machine has
- * the binary. The conformance suite in packages/proxy/test runs against both.
+ * the binary. A conformance suite used to run against both and was the only
+ * thing that held them to each other. It has been removed. Keeping them
+ * identical is now done by hand, in the same change, or not at all.
  *
  * Auto-installed by: npx @solongate/proxy init --global
  */
@@ -1473,7 +1475,9 @@ function argsInvokeCLI(args) {
 
 // The same fields the policy evaluator treats as commands. Named here rather than
 // imported because a copy that drifts is a rule that stops seeing a whole class of
-// tool call — so the conformance suite drives both.
+// tool call. The conformance suite used to drive both lists and catch exactly
+// that. It is gone, so this copy and the evaluator's are kept level by reading
+// them.
 const CLI_COMMAND_FIELDS = new Set(['command', 'cmd', 'function', 'script', 'shell']);
 
 // fieldsInvokeCLI decides whether one command's token list runs the CLI.

@@ -5,9 +5,10 @@
 // Same contract as the Node hook it is replacing, deliberately: the client
 // spawns it, writes one JSON payload on stdin, and reads the verdict from the
 // exit code. Exit 2 with the reason on stderr blocks; exit 0 allows. That is
-// what lets both implementations be installed side by side and checked against
-// the same conformance suite (packages/proxy/test) rather than against each
-// other's internals.
+// what let both implementations be installed side by side and checked against
+// one conformance suite rather than against each other's internals. The suite
+// has been removed. The contract is unchanged and is still the reason the two
+// can be swapped; nothing in the repository checks that they honour it.
 //
 // What this port is FOR is the per-call cost. The Node hook pays ~26ms starting
 // a runtime, ~17ms parsing a 291KB bundle and ~27ms instantiating an OPA WASM

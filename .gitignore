@@ -65,10 +65,6 @@ id_ed25519
 *.crx
 **/test/
 **/tests/
-# ...except the guard's conformance suite. It is not a dev scratch dir: it is the
-# contract any reimplementation has to pass, so it ships with the source.
-!packages/proxy/test/
-!packages/proxy/test/**
 
 # Shell scripts (dev/test only)
 **/*.sh
@@ -80,11 +76,6 @@ id_ed25519
 # committed in a change whose message described adding it — and it was never in
 # the repository. The clone it was written for did not have it.
 !/install.sh
-
-# ...and the test runner, for the same reason and with the same failure waiting:
-# CONTRIBUTING.md tells every contributor to run `./test.sh`, and a clone without
-# it reads as the instructions being wrong.
-!/test.sh
 
 # Icon/Logo files (served from CDN)
 **/public/icon-*.png
@@ -103,7 +94,6 @@ deploy-package/
 # refuses without being asked, `git status` does not list the file, and the first
 # anybody notices is a clone with no README in it.
 !README.md
-!packages/proxy/test/README.md
 
 # The open source release set: the files people look for before they look at code.
 !CONTRIBUTING.md

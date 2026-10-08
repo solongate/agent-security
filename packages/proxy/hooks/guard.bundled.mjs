@@ -12,43 +12,34 @@ import { createRequire } from "node:module";
 
 // hooks/policy-eval.mjs
 function matchGlob(str, pattern) {
-  if (pattern === "*")
-    return true;
+  if (pattern === "*") return true;
   const s0 = str.toLowerCase();
   const p = pattern.toLowerCase();
-  if (s0 === p)
-    return true;
-  if (!p.includes("*"))
-    return false;
+  if (s0 === p) return true;
+  if (!p.includes("*")) return false;
   const parts = p.split("*");
   let s = s0;
   if (parts[0] !== "") {
-    if (!s.startsWith(parts[0]))
-      return false;
+    if (!s.startsWith(parts[0])) return false;
     s = s.slice(parts[0].length);
   }
   for (const part of parts.slice(1, -1)) {
-    if (part === "")
-      continue;
+    if (part === "") continue;
     const i = s.indexOf(part);
-    if (i < 0)
-      return false;
+    if (i < 0) return false;
     s = s.slice(i + part.length);
   }
   const last = parts[parts.length - 1];
-  if (last !== "")
-    return s.endsWith(last);
+  if (last !== "") return s.endsWith(last);
   return true;
 }
 function matchPathGlob(path, pattern) {
   const p = path.replace(/\\/g, "/").toLowerCase();
   const g = pattern.replace(/\\/g, "/").toLowerCase();
-  if (p === g)
-    return true;
+  if (p === g) return true;
   if (g.includes("**")) {
     const parts = g.split("**").filter((s) => s.length > 0);
-    if (parts.length === 0)
-      return true;
+    if (parts.length === 0) return true;
     return parts.every((segment) => p.includes(segment));
   }
   return matchGlob(p, g);
@@ -56,27 +47,21 @@ function matchPathGlob(path, pattern) {
 function scanStrings(obj) {
   const strings = [];
   function walk(v) {
-    if (typeof v === "string" && v.trim())
-      strings.push(v.trim());
-    else if (Array.isArray(v))
-      v.forEach(walk);
-    else if (v && typeof v === "object")
-      Object.values(v).forEach(walk);
+    if (typeof v === "string" && v.trim()) strings.push(v.trim());
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
   }
   walk(obj);
   return strings;
 }
 function looksLikeFilename(s) {
-  if (s.startsWith("."))
-    return true;
-  if (/\.\w+$/.test(s))
-    return true;
+  if (s.startsWith(".")) return true;
+  if (/\.\w+$/.test(s)) return true;
   const known = ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "authorized_keys", "known_hosts", "makefile", "dockerfile"];
   return known.includes(s.toLowerCase());
 }
 function normalizeShellCommand(cmd) {
-  if (typeof cmd !== "string" || !cmd)
-    return cmd;
+  if (typeof cmd !== "string" || !cmd) return cmd;
   const vars = {};
   const out = [];
   for (const rawPart of cmd.split(/\s*(?:;|&&|\|\|)\s*/)) {
@@ -94,8 +79,7 @@ function normalizeShellCommand(cmd) {
   return out.join("; ");
 }
 function normalizeArgs(args) {
-  if (!args || typeof args !== "object")
-    return args;
+  if (!args || typeof args !== "object") return args;
   const fields = ["command", "cmd", "function", "script", "shell"];
   const copy = { ...args };
   for (const [k, v] of Object.entries(copy)) {
@@ -110,18 +94,15 @@ function extractFilenames(args) {
   const names = /* @__PURE__ */ new Set();
   const dequote = (t) => t.replace(/^["'`]+/, "").replace(/["'`]+$/, "");
   for (const s of scanTargetStrings(args)) {
-    if (/^https?:\/\//i.test(s))
-      continue;
+    if (/^https?:\/\//i.test(s)) continue;
     const tokens = s.includes(" ") ? s.split(/\s+/) : [s];
     const single = tokens.length === 1;
     for (let tok of tokens) {
       tok = dequote(tok);
-      if (!tok || /^https?:\/\//i.test(tok))
-        continue;
+      if (!tok || /^https?:\/\//i.test(tok)) continue;
       if (tok.includes("/") || tok.includes("\\")) {
         const b = dequote(tok.replace(/\\/g, "/").split("/").pop() || "");
-        if (b && (single || looksLikeFilename(b)))
-          names.add(b);
+        if (b && (single || looksLikeFilename(b))) names.add(b);
       } else if (looksLikeFilename(tok)) {
         names.add(tok);
       }
@@ -138,8 +119,7 @@ function extractUrls(args) {
     }
     if (s.includes(" ")) {
       for (const tok of s.split(/\s+/)) {
-        if (/^https?:\/\//i.test(tok))
-          urls.add(tok);
+        if (/^https?:\/\//i.test(tok)) urls.add(tok);
       }
     }
   }
@@ -154,8 +134,7 @@ function extractPipelines(args) {
       if (fields.includes(k.toLowerCase()) && typeof v === "string") {
         for (const part of v.split(/\s*(?:&&|\|\||;)\s*/)) {
           const trimmed = part.trim();
-          if (trimmed)
-            out.push(trimmed);
+          if (trimmed) out.push(trimmed);
         }
       }
     }
@@ -171,8 +150,7 @@ function extractCommands(args) {
       if (fields.includes(k.toLowerCase()) && typeof v === "string") {
         for (const part of v.split(/\s*(?:&&|\|\||;|\|)\s*/)) {
           const trimmed = part.trim();
-          if (trimmed)
-            cmds.push(trimmed);
+          if (trimmed) cmds.push(trimmed);
         }
       }
     }
@@ -198,19 +176,16 @@ function scanTargetStrings(v) {
   const walk = (x) => {
     if (typeof x === "string") {
       const s = x.trim();
-      if (s)
-        out.push(s);
+      if (s) out.push(s);
       return;
     }
     if (Array.isArray(x)) {
-      for (const item of x)
-        walk(item);
+      for (const item of x) walk(item);
       return;
     }
     if (x && typeof x === "object") {
       for (const k of Object.keys(x).sort()) {
-        if (CONTENT_FIELDS.has(k.toLowerCase()))
-          continue;
+        if (CONTENT_FIELDS.has(k.toLowerCase())) continue;
         walk(x[k]);
       }
     }
@@ -221,17 +196,13 @@ function scanTargetStrings(v) {
 function extractPaths(args, isExec) {
   const paths = [];
   const add = (t) => {
-    if (!t || /^https?:\/\//i.test(t))
-      return;
-    if (t.includes("/") || t.includes("\\") || t.startsWith("."))
-      paths.push(t.replace(/\\/g, "/"));
+    if (!t || /^https?:\/\//i.test(t)) return;
+    if (t.includes("/") || t.includes("\\") || t.startsWith(".")) paths.push(t.replace(/\\/g, "/"));
   };
   for (const s of scanTargetStrings(args)) {
-    if (/^https?:\/\//i.test(s))
-      continue;
+    if (/^https?:\/\//i.test(s)) continue;
     if (isExec && /\s/.test(s)) {
-      for (const tok of s.split(/[\s;|&><()`'"]+/))
-        add(tok);
+      for (const tok of s.split(/[\s;|&><()`'"]+/)) add(tok);
     } else {
       add(s);
     }
@@ -240,16 +211,13 @@ function extractPaths(args, isExec) {
 }
 function absolutizePaths(paths, cwd) {
   const base = (cwd || "").replace(/\\/g, "/").replace(/\/+$/, "");
-  if (!base)
-    return [];
+  if (!base) return [];
   const out = [];
   const seen = /* @__PURE__ */ new Set();
   for (const p of paths) {
-    if (!p || p.startsWith("/") || p.startsWith("~") || /^[A-Za-z]:[\\/]/.test(p))
-      continue;
+    if (!p || p.startsWith("/") || p.startsWith("~") || /^[A-Za-z]:[\\/]/.test(p)) continue;
     const abs = normalizeSlashPath(base + "/" + p);
-    if (!abs || abs === p || seen.has(abs))
-      continue;
+    if (!abs || abs === p || seen.has(abs)) continue;
     seen.add(abs);
     out.push(abs);
   }
@@ -259,46 +227,35 @@ function normalizeSlashPath(p) {
   const absolute = p.startsWith("/");
   const parts = [];
   for (const seg of p.split("/")) {
-    if (seg === "" || seg === ".")
-      continue;
+    if (seg === "" || seg === ".") continue;
     if (seg === "..") {
-      if (parts.length && parts[parts.length - 1] !== "..")
-        parts.pop();
-      else if (!absolute)
-        parts.push("..");
+      if (parts.length && parts[parts.length - 1] !== "..") parts.pop();
+      else if (!absolute) parts.push("..");
       continue;
     }
     parts.push(seg);
   }
   const joined = parts.join("/");
-  if (absolute)
-    return "/" + joined;
+  if (absolute) return "/" + joined;
   return joined || ".";
 }
 function guessPermission(toolName) {
   const name = (toolName || "").toLowerCase();
-  if (name === "apply_patch" || name === "applypatch")
-    return "WRITE";
-  if (name.includes("exec") || name.includes("shell") || name.includes("run") || name.includes("eval") || name === "bash")
-    return "EXECUTE";
-  if (name.includes("fetch") || name.includes("http") || name.includes("request") || name.includes("curl") || name.includes("network") || name.includes("download") || name.includes("upload") || name === "websearch")
-    return "NETWORK";
-  if (name.includes("write") || name.includes("create") || name.includes("delete") || name.includes("update") || name.includes("set") || name.includes("edit") || name.includes("remove") || name.includes("insert") || name.includes("replace") || name.includes("patch") || name.includes("modify") || name.includes("append") || name.includes("overwrite") || name.includes("rename") || name.includes("move") || name.includes("mkdir") || name.includes("touch"))
-    return "WRITE";
+  if (name === "apply_patch" || name === "applypatch") return "WRITE";
+  if (name.includes("exec") || name.includes("shell") || name.includes("run") || name.includes("eval") || name === "bash") return "EXECUTE";
+  if (name.includes("fetch") || name.includes("http") || name.includes("request") || name.includes("curl") || name.includes("network") || name.includes("download") || name.includes("upload") || name === "websearch") return "NETWORK";
+  if (name.includes("write") || name.includes("create") || name.includes("delete") || name.includes("update") || name.includes("set") || name.includes("edit") || name.includes("remove") || name.includes("insert") || name.includes("replace") || name.includes("patch") || name.includes("modify") || name.includes("append") || name.includes("overwrite") || name.includes("rename") || name.includes("move") || name.includes("mkdir") || name.includes("touch")) return "WRITE";
   return "READ";
 }
 function patternsOf(constraint) {
-  if (!constraint)
-    return null;
+  if (!constraint) return null;
   const list = constraint.denied || constraint.allowed;
   return Array.isArray(list) && list.length > 0 ? list : null;
 }
 function permissionApplies(rule, toolName) {
-  if (!rule.permission)
-    return true;
+  if (!rule.permission) return true;
   const perms = Array.isArray(rule.permission) ? rule.permission : [rule.permission];
-  if (perms.length === 0)
-    return true;
+  if (perms.length === 0) return true;
   const guessed = guessPermission(toolName);
   return perms.includes(guessed);
 }
@@ -308,8 +265,7 @@ function ruleMatches(rule, args, isExec, cwd) {
     const filenames = extractFilenames(args);
     for (const fn of filenames) {
       for (const pat of fnPats) {
-        if (matchGlob(fn, pat))
-          return { kind: "filename", value: fn, pattern: pat };
+        if (matchGlob(fn, pat)) return { kind: "filename", value: fn, pattern: pat };
       }
     }
   }
@@ -318,8 +274,7 @@ function ruleMatches(rule, args, isExec, cwd) {
     const urls = extractUrls(args);
     for (const url of urls) {
       for (const pat of urlPats) {
-        if (matchGlob(url, pat))
-          return { kind: "URL", value: url, pattern: pat };
+        if (matchGlob(url, pat)) return { kind: "URL", value: url, pattern: pat };
       }
     }
   }
@@ -328,36 +283,31 @@ function ruleMatches(rule, args, isExec, cwd) {
     const cmds = extractCommands(args);
     for (const cmd of cmds) {
       for (const pat of cmdPats) {
-        if (matchGlob(cmd, pat))
-          return { kind: "command", value: cmd.slice(0, 60), pattern: pat };
+        if (matchGlob(cmd, pat)) return { kind: "command", value: cmd.slice(0, 60), pattern: pat };
       }
     }
   }
   const pathPats = patternsOf(rule.pathConstraints);
   if (pathPats) {
     const paths = extractPaths(args, isExec);
-    for (const abs of absolutizePaths(paths, cwd))
-      paths.push(abs);
+    for (const abs of absolutizePaths(paths, cwd)) paths.push(abs);
     for (const p of paths) {
       for (const pat of pathPats) {
-        if (matchPathGlob(p, pat))
-          return { kind: "path", value: p, pattern: pat };
+        if (matchPathGlob(p, pat)) return { kind: "path", value: p, pattern: pat };
       }
     }
   }
   return null;
 }
 function evaluate(policy, args, toolName, cwd) {
-  if (!policy || !policy.rules)
-    return null;
+  if (!policy || !policy.rules) return null;
   const enabledRules = policy.rules.filter((r) => r.enabled !== false);
   const mode = policy.mode === "whitelist" ? "whitelist" : "denylist";
   const isExec = /bash|shell|exec|powershell|cmd|run|eval/.test((toolName || "").toLowerCase());
   const denyRules = enabledRules.filter((r) => r.effect === "DENY" && permissionApplies(r, toolName)).sort((a, b) => (a.priority || 100) - (b.priority || 100));
   for (const rule of denyRules) {
     const m = ruleMatches(rule, args, isExec, cwd);
-    if (m)
-      return "Blocked by policy: " + m.kind + ' "' + m.value + '" matches "' + m.pattern + '"';
+    if (m) return "Blocked by policy: " + m.kind + ' "' + m.value + '" matches "' + m.pattern + '"';
   }
   if (mode === "whitelist") {
     const allowRules = enabledRules.filter((r) => r.effect === "ALLOW" && permissionApplies(r, toolName));
@@ -464,12 +414,9 @@ function dlpPatterns(extra) {
 function dlpGlobToRe(glob, flags = "i") {
   let re = "";
   for (const ch of String(glob || "").replace(/\*{2,}/g, "*")) {
-    if (ch === "*")
-      re += "[^\\s]*";
-    else if (".+?^${}()|[]\\".indexOf(ch) !== -1)
-      re += "\\" + ch;
-    else
-      re += ch;
+    if (ch === "*") re += "[^\\s]*";
+    else if (".+?^${}()|[]\\".indexOf(ch) !== -1) re += "\\" + ch;
+    else re += ch;
   }
   return new RegExp(re, flags);
 }
@@ -489,13 +436,11 @@ function projectFlagDir() {
 }
 var _legacySwept = false;
 function sweepLegacyFlagDir() {
-  if (_legacySwept)
-    return;
+  if (_legacySwept) return;
   _legacySwept = true;
   try {
     const dir = resolve(process.cwd(), ".solongate");
-    if (!existsSync(dir))
-      return;
+    if (!existsSync(dir)) return;
     const ours = /* @__PURE__ */ new Set([".eval-ring.jsonl", ".last-eval", ".last-deny", ".last-tool-call", ".debug-guard-log"]);
     const left = [];
     for (const f of readdirSync(dir)) {
@@ -505,8 +450,7 @@ function sweepLegacyFlagDir() {
         } catch {
           left.push(f);
         }
-      } else
-        left.push(f);
+      } else left.push(f);
     }
     if (left.length === 0) {
       try {
@@ -536,8 +480,7 @@ var SG_ORIGIN_MS = (() => {
 })();
 function sgGuardCandidates() {
   const out = [];
-  if (process.env.SOLONGATE_GUARD_BIN)
-    out.push(process.env.SOLONGATE_GUARD_BIN);
+  if (process.env.SOLONGATE_GUARD_BIN) out.push(process.env.SOLONGATE_GUARD_BIN);
   const exe = process.platform === "win32" ? "solongate-guard.exe" : "solongate-guard";
   const os_ = process.platform === "win32" ? "win32" : process.platform;
   const cpu = process.arch === "x64" ? "x64" : process.arch;
@@ -552,24 +495,20 @@ function sgGuardCandidates() {
 function sgTryGoGuard() {
   for (const bin of sgGuardCandidates()) {
     try {
-      if (!existsSync(bin))
-        continue;
-      if (process.platform !== "win32")
-        accessSync(bin, constants.X_OK);
+      if (!existsSync(bin)) continue;
+      if (process.platform !== "win32") accessSync(bin, constants.X_OK);
     } catch {
       continue;
     }
     let version;
     try {
       const v = spawnSync(bin, ["--sg-version"], { encoding: "utf-8", timeout: 2e3 });
-      if (v.error || v.status !== 0)
-        continue;
+      if (v.error || v.status !== 0) continue;
       version = String(v.stdout || "").trim();
     } catch {
       continue;
     }
-    if (version !== String(HOOK_VERSION))
-      continue;
+    if (version !== String(HOOK_VERSION)) continue;
     let r;
     try {
       r = spawnSync(bin, process.argv.slice(2), {
@@ -590,19 +529,14 @@ function sgTryGoGuard() {
     } catch {
       return;
     }
-    if (!r || r.error || r.signal)
-      return;
+    if (!r || r.error || r.signal) return;
     const status = r.status;
     const stdout = r.stdout || "";
-    if (status !== 0 && status !== 2)
-      return;
-    if (status === 2 && stdout.trim() === "")
-      return;
+    if (status !== 0 && status !== 2) return;
+    if (status === 2 && stdout.trim() === "") return;
     try {
-      if (stdout)
-        process.stdout.write(stdout);
-      if (r.stderr)
-        process.stderr.write(r.stderr);
+      if (stdout) process.stdout.write(stdout);
+      if (r.stderr) process.stderr.write(r.stderr);
     } catch {
       return;
     }
@@ -620,12 +554,10 @@ function loadLocalPolicyFile(cwd) {
     join(resolve(homedir(), ".solongate"), "policy.json"),
     cwd ? resolve(cwd, "policy.json") : ""
   ]) {
-    if (!p || !existsSync(p))
-      continue;
+    if (!p || !existsSync(p)) continue;
     try {
       const obj = JSON.parse(readFileSync(p, "utf-8"));
-      if (!obj || typeof obj !== "object")
-        continue;
+      if (!obj || typeof obj !== "object") continue;
       const own = !cwd || p !== resolve(cwd, "policy.json");
       const inner = own && obj.policy && typeof obj.policy === "object" ? obj.policy.security : void 0;
       if (obj.policy && typeof obj.policy === "object") {
@@ -658,10 +590,8 @@ function writeLocalLog(security, entry) {
       return;
     }
     let dir = String(l.path).trim().replace(/[\\/]+$/, "");
-    if (!dir)
-      return;
-    if (!isAbsolute(dir))
-      dir = resolve(homedir(), ".solongate", "local-logs");
+    if (!dir) return;
+    if (!isAbsolute(dir)) dir = resolve(homedir(), ".solongate", "local-logs");
     const line = JSON.stringify(entry) + "\n";
     const payload = Buffer.from(JSON.stringify({ dir, line }), "utf-8").toString("base64");
     spawn(process.execPath, [process.argv[1], "--sg-log-write", payload], { detached: true, stdio: "ignore" }).unref();
@@ -717,7 +647,7 @@ var AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TY
     process.exit(0);
   }
 }
-var SG_DONE = Symbol("sg-done");
+var SG_DONE = /* @__PURE__ */ Symbol("sg-done");
 var _sgDone = false;
 var _decisionEmitted = false;
 function sgFinish(code) {
@@ -740,11 +670,9 @@ function neutralizeArgs(a, drop = []) {
   const out = {};
   for (const [k, v] of Object.entries(a && typeof a === "object" ? a : {})) {
     const lk = k.toLowerCase();
-    if (drop.includes(lk))
-      continue;
+    if (drop.includes(lk)) continue;
     const nk = ARG_ALIASES[lk] || k;
-    if (out[nk] === void 0)
-      out[nk] = v;
+    if (out[nk] === void 0) out[nk] = v;
   }
   return out;
 }
@@ -821,10 +749,8 @@ var CLIENTS = {
       const args = neutralizeArgs(a, ["cwd"]);
       let cwd = raw.cwd || "";
       if (!cwd) {
-        if (typeof a.Cwd === "string" && a.Cwd)
-          cwd = a.Cwd;
-        else if (Array.isArray(raw.workspacePaths) && typeof raw.workspacePaths[0] === "string")
-          cwd = raw.workspacePaths[0];
+        if (typeof a.Cwd === "string" && a.Cwd) cwd = a.Cwd;
+        else if (Array.isArray(raw.workspacePaths) && typeof raw.workspacePaths[0] === "string") cwd = raw.workspacePaths[0];
       }
       return {
         tool: raw.tool_name || tc.name || "",
@@ -843,10 +769,8 @@ var CLIENTS = {
       }
       if (d.type === "rewrite") {
         const overwrite = {};
-        if (d.patch && typeof d.patch.command === "string")
-          overwrite.CommandLine = d.patch.command;
-        else
-          Object.assign(overwrite, d.patch || {});
+        if (d.patch && typeof d.patch.command === "string") overwrite.CommandLine = d.patch.command;
+        else Object.assign(overwrite, d.patch || {});
         process.stdout.write(JSON.stringify({ decision: "allow", overwrite, allow_tool: true }));
         return 0;
       }
@@ -1036,32 +960,23 @@ function normTamperPath(p) {
   return String(p || "").replace(/\\/g, "/").toLowerCase();
 }
 function isProtectedPath(p) {
-  if (!p)
-    return false;
+  if (!p) return false;
   const np = normTamperPath(p);
   for (const abs of TAMPER_PROTECTED_ABS) {
-    if (np === abs || np.startsWith(abs + "/"))
-      return abs;
+    if (np === abs || np.startsWith(abs + "/")) return abs;
   }
   for (const g of TAMPER_PROTECTED_GLOBS) {
-    if (matchPathGlob(np, g))
-      return g;
+    if (matchPathGlob(np, g)) return g;
   }
-  if (/\/\.claude\/settings(\.local)?\.json$/.test(np))
-    return "settings.json";
-  if (/\/\.solongate\/hooks(\/|$)/.test(np))
-    return "solongate-hooks";
-  if (/\/\.solongate\/bin(\/|$)/.test(np))
-    return "solongate-bin";
-  if (/\/\.codex\/(hooks\.json|config\.toml)$/.test(np))
-    return "codex-hooks";
-  if (/\/\.gemini\/config\/hooks\.json$/.test(np))
-    return "antigravity-hooks";
+  if (/\/\.claude\/settings(\.local)?\.json$/.test(np)) return "settings.json";
+  if (/\/\.solongate\/hooks(\/|$)/.test(np)) return "solongate-hooks";
+  if (/\/\.solongate\/bin(\/|$)/.test(np)) return "solongate-bin";
+  if (/\/\.codex\/(hooks\.json|config\.toml)$/.test(np)) return "codex-hooks";
+  if (/\/\.gemini\/config\/hooks\.json$/.test(np)) return "antigravity-hooks";
   if (/(^|\/)\.solongate\//.test(np)) {
     const base = np.slice(np.lastIndexOf("/") + 1);
     for (const b of TAMPER_BASENAMES) {
-      if (base.startsWith(b.toLowerCase()))
-        return b;
+      if (base.startsWith(b.toLowerCase())) return b;
     }
   }
   return false;
@@ -1160,8 +1075,7 @@ function commandInvokesCLI(cmd) {
 }
 function commandInvokesCLIDepth(cmd, depth) {
   for (const fields of splitCLICommands(String(cmd || ""))) {
-    if (fieldsInvokeCLI(fields, depth))
-      return true;
+    if (fieldsInvokeCLI(fields, depth)) return true;
   }
   return false;
 }
@@ -1186,16 +1100,12 @@ function splitCLICommands(cmd) {
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
     if (quote) {
-      if (ch === quote)
-        quote = "";
-      else if (ch === "\\" && quote === '"' && i + 1 < cmd.length)
-        tok += cmd[++i];
-      else
-        tok += ch;
+      if (ch === quote) quote = "";
+      else if (ch === "\\" && quote === '"' && i + 1 < cmd.length) tok += cmd[++i];
+      else tok += ch;
       continue;
     }
-    if (ch === "'" || ch === '"')
-      quote = ch;
+    if (ch === "'" || ch === '"') quote = ch;
     else if (ch === "$" && (cmd[i + 1] === "(" || cmd[i + 1] === "{")) {
       i++;
       endCommand();
@@ -1207,65 +1117,50 @@ function splitCLICommands(cmd) {
         endCommand();
         i = skipHeredocBody(cmd, after, delim) - 1;
       }
-    } else if ("|&;\n\r`".includes(ch))
-      endCommand();
-    else if (ch === " " || ch === "	")
-      endToken();
-    else
-      tok += ch;
+    } else if ("|&;\n\r`".includes(ch)) endCommand();
+    else if (ch === " " || ch === "	") endToken();
+    else tok += ch;
   }
   endCommand();
   return out;
 }
 function readHeredocDelimiter(cmd, i) {
-  if (cmd[i] === "-")
-    i++;
-  while (i < cmd.length && (cmd[i] === " " || cmd[i] === "	"))
-    i++;
-  if (i >= cmd.length)
-    return { delim: "", quoted: false, after: i };
+  if (cmd[i] === "-") i++;
+  while (i < cmd.length && (cmd[i] === " " || cmd[i] === "	")) i++;
+  if (i >= cmd.length) return { delim: "", quoted: false, after: i };
   const q = cmd[i];
   if (q === "'" || q === '"') {
     i++;
     const start2 = i;
-    while (i < cmd.length && cmd[i] !== q)
-      i++;
+    while (i < cmd.length && cmd[i] !== q) i++;
     const delim = cmd.slice(start2, i);
-    if (i < cmd.length)
-      i++;
+    if (i < cmd.length) i++;
     return { delim, quoted: true, after: i };
   }
   const start = i;
-  while (i < cmd.length && !" 	\n\r;|&".includes(cmd[i]))
-    i++;
+  while (i < cmd.length && !" 	\n\r;|&".includes(cmd[i])) i++;
   return { delim: cmd.slice(start, i), quoted: false, after: i };
 }
 function skipHeredocBody(cmd, i, delim) {
-  if (!delim)
-    return cmd.length;
+  if (!delim) return cmd.length;
   const nl = cmd.indexOf("\n", i);
-  if (nl < 0)
-    return cmd.length;
+  if (nl < 0) return cmd.length;
   i = nl + 1;
   while (i < cmd.length) {
     const end = cmd.indexOf("\n", i);
     const line = end < 0 ? cmd.slice(i) : cmd.slice(i, end);
     const next = end < 0 ? cmd.length : end + 1;
-    if (line.replace(/^[ \t]+/, "").replace(/[ \t\r]+$/, "") === delim)
-      return next;
+    if (line.replace(/^[ \t]+/, "").replace(/[ \t\r]+$/, "") === delim) return next;
     i = next;
   }
   return cmd.length;
 }
 function argsInvokeCLI(args) {
-  if (!args || typeof args !== "object")
-    return false;
+  if (!args || typeof args !== "object") return false;
   for (const k of Object.keys(args)) {
-    if (!CLI_COMMAND_FIELDS.has(k.toLowerCase()))
-      continue;
+    if (!CLI_COMMAND_FIELDS.has(k.toLowerCase())) continue;
     const v = args[k];
-    if (typeof v === "string" && commandInvokesCLI(v))
-      return true;
+    if (typeof v === "string" && commandInvokesCLI(v)) return true;
   }
   return false;
 }
@@ -1274,48 +1169,38 @@ function fieldsInvokeCLI(fields, depth) {
   let wrapped = false;
   for (let i = 0; i < fields.length; i++) {
     const tok = fields[i].replace(/^[(){}"']+/, "").replace(/[(){}"']+$/, "");
-    if (!tok)
-      continue;
+    if (!tok) continue;
     if (CLI_ASSIGNMENT.test(tok)) {
       wrapped = true;
       continue;
     }
     if (wrapped) {
       if (tok.startsWith("-")) {
-        if (CLI_FLAG_TAKES_VALUE.has(tok.toLowerCase()))
-          i++;
+        if (CLI_FLAG_TAKES_VALUE.has(tok.toLowerCase())) i++;
         continue;
       }
-      if (CLI_NUMBERISH.test(tok))
-        continue;
+      if (CLI_NUMBERISH.test(tok)) continue;
     }
     if (wrapped && depth < 8 && /[ \t]/.test(tok)) {
-      if (commandInvokesCLIDepth(tok, depth + 1))
-        return true;
+      if (commandInvokesCLIDepth(tok, depth + 1)) return true;
     }
     const base = tok.replace(/\\/g, "/").split("/").pop().toLowerCase();
     if (CLI_WRAPPERS.has(base)) {
       wrapped = true;
       continue;
     }
-    if (CLI_BASENAMES.has(base))
-      return true;
-    if (CLI_ALWAYS_RUNNERS.has(base))
-      return restRunsCLIPackage(fields.slice(i + 1));
-    if (CLI_MAYBE_RUNNERS.has(base))
-      return maybeRunnerRunsCLI(fields.slice(i + 1));
-    if (/[/\\]/.test(tok))
-      continue;
+    if (CLI_BASENAMES.has(base)) return true;
+    if (CLI_ALWAYS_RUNNERS.has(base)) return restRunsCLIPackage(fields.slice(i + 1));
+    if (CLI_MAYBE_RUNNERS.has(base)) return maybeRunnerRunsCLI(fields.slice(i + 1));
+    if (/[/\\]/.test(tok)) continue;
     return false;
   }
   return false;
 }
 function maybeRunnerRunsCLI(rest) {
   for (let j = 0; j < rest.length; j++) {
-    if (rest[j].startsWith("-"))
-      continue;
-    if (CLI_RUN_SUBCOMMANDS.has(rest[j].toLowerCase()))
-      return restRunsCLIPackage(rest.slice(j + 1));
+    if (rest[j].startsWith("-")) continue;
+    if (CLI_RUN_SUBCOMMANDS.has(rest[j].toLowerCase())) return restRunsCLIPackage(rest.slice(j + 1));
     return false;
   }
   return false;
@@ -1328,43 +1213,31 @@ function restRunsCLIPackage(rest) {
 }
 function commandTargetsProtected(cmd) {
   const c = String(cmd || "").toLowerCase();
-  if (!c)
-    return false;
+  if (!c) return false;
   for (const b of TAMPER_BASENAMES) {
-    if (c.includes(b.toLowerCase()))
-      return b;
+    if (c.includes(b.toLowerCase())) return b;
   }
-  if (/\.claude[\\/]+settings(\.local)?\.json/.test(c))
-    return "settings.json";
-  if (/\.solongate[\\/]+hooks/.test(c))
-    return "solongate-hooks";
-  if (/\.solongate[\\/]+bin/.test(c))
-    return "solongate-bin";
-  if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c))
-    return "codex-hooks";
-  if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c))
-    return "antigravity-hooks";
-  if (/[\\/]solongate[\\/]+(compose|data|images|helm)[\\/]/.test(c))
-    return "solongate-install";
+  if (/\.claude[\\/]+settings(\.local)?\.json/.test(c)) return "settings.json";
+  if (/\.solongate[\\/]+hooks/.test(c)) return "solongate-hooks";
+  if (/\.solongate[\\/]+bin/.test(c)) return "solongate-bin";
+  if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c)) return "codex-hooks";
+  if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c)) return "antigravity-hooks";
+  if (/[\\/]solongate[\\/]+(compose|data|images|helm)[\\/]/.test(c)) return "solongate-install";
   const mutating = /\b(post|put|delete|patch)\b/.test(c) || /(-x|--request|-method)\s+(post|put|delete|patch)\b/.test(c);
-  if (mutating && /api\/v1\/(policies|audit-logs)/.test(c))
-    return "api-policies-mutation";
+  if (mutating && /api\/v1\/(policies|audit-logs)/.test(c)) return "api-policies-mutation";
   return false;
 }
 function extractTargetPaths(args) {
   const out = [];
-  if (typeof args !== "object" || !args)
-    return out;
+  if (typeof args !== "object" || !args) return out;
   for (const [k, v] of Object.entries(args)) {
     const lk = k.toLowerCase();
-    if (TAMPER_PATH_FIELDS.has(lk) && typeof v === "string")
-      out.push(v);
+    if (TAMPER_PATH_FIELDS.has(lk) && typeof v === "string") out.push(v);
     if (Array.isArray(v)) {
       for (const item of v) {
         if (item && typeof item === "object") {
           for (const [k2, v2] of Object.entries(item)) {
-            if (TAMPER_PATH_FIELDS.has(k2.toLowerCase()) && typeof v2 === "string")
-              out.push(v2);
+            if (TAMPER_PATH_FIELDS.has(k2.toLowerCase()) && typeof v2 === "string") out.push(v2);
           }
         }
       }
@@ -1377,14 +1250,12 @@ function tamperCheck(toolName, args) {
   const isExec = TAMPER_GUARD_TOOLS_EXEC.has(tn) || /bash|shell|exec|powershell|cmd|run|eval/.test(tn);
   for (const p of extractTargetPaths(args)) {
     const hit = isProtectedPath(p);
-    if (hit)
-      return 'Tamper protection: access to "' + p + '" is blocked (protected: ' + hit + ")";
+    if (hit) return 'Tamper protection: access to "' + p + '" is blocked (protected: ' + hit + ")";
   }
   if (isExec) {
     for (const cmd of extractCommands(args)) {
       const hit = commandTargetsProtected(cmd);
-      if (hit)
-        return 'Tamper protection: command references protected resource "' + hit + '" \u2014 blocked';
+      if (hit) return 'Tamper protection: command references protected resource "' + hit + '" \u2014 blocked';
     }
     if (argsInvokeCLI(args)) {
       return 'Tamper protection: command references protected resource "solongate-cli" \u2014 blocked';
@@ -1398,28 +1269,24 @@ function dlpViews(text) {
   const views = [text];
   try {
     const dequoted = text.replace(/[`'"\\]/g, "");
-    if (dequoted !== text)
-      views.push(dequoted);
+    if (dequoted !== text) views.push(dequoted);
     const src = dequoted !== text ? text + "\n" + dequoted : text;
     const toks = src.match(/[A-Za-z0-9+/]{16,}={0,2}/g) || [];
     let decoded = "";
     for (const t of toks.slice(0, 60)) {
       try {
         const d = Buffer.from(t, "base64").toString("latin1");
-        if (/[ -~]{8,}/.test(d))
-          decoded += d + "\n";
+        if (/[ -~]{8,}/.test(d)) decoded += d + "\n";
       } catch {
       }
     }
-    if (decoded)
-      views.push(decoded);
+    if (decoded) views.push(decoded);
   } catch {
   }
   return views;
 }
 function dlpScan(args, cfg) {
-  if (!cfg)
-    return null;
+  if (!cfg) return null;
   let text = "";
   try {
     text = JSON.stringify(args || {});
@@ -1430,14 +1297,12 @@ function dlpScan(args, cfg) {
   const views = dlpViews(text);
   const allow = new Set(Array.isArray(cfg.patterns) ? cfg.patterns : []);
   for (const p of DLP_PATTERNS) {
-    if (allow.has(p.name) && views.some((v) => p.re.test(v)))
-      return p.name;
+    if (allow.has(p.name) && views.some((v) => p.re.test(v))) return p.name;
   }
   for (const c of Array.isArray(cfg.custom) ? cfg.custom : []) {
     try {
       const re = dlpGlobToRe(c.re);
-      if (views.some((v) => re.test(v)))
-        return c.name || "custom pattern";
+      if (views.some((v) => re.test(v))) return c.name || "custom pattern";
     } catch {
     }
   }
@@ -1446,16 +1311,13 @@ function dlpScan(args, cfg) {
 function egressSecretCheck(args, sec, cwd) {
   try {
     const dlp = sec && sec.dlpBlock;
-    if (!dlp)
-      return null;
+    if (!dlp) return null;
     const base = cwd || process.cwd();
     for (const cmd of extractPipelines(args)) {
       const c = String(cmd || "");
       const lc = c.toLowerCase();
-      if (!/\b(curl|wget|scp|rsync|sftp|ftp|nc|netcat)\b/.test(lc))
-        continue;
-      if (!/https?:\/\//.test(lc) && !/@[\w.-]+:/.test(c) && !/\b\S+:\S/.test(c))
-        continue;
+      if (!/\b(curl|wget|scp|rsync|sftp|ftp|nc|netcat)\b/.test(lc)) continue;
+      if (!/https?:\/\//.test(lc) && !/@[\w.-]+:/.test(c) && !/\b\S+:\S/.test(c)) continue;
       const files = /* @__PURE__ */ new Set();
       let m;
       for (const re of [
@@ -1466,24 +1328,19 @@ function egressSecretCheck(args, sec, cwd) {
       ]) {
         while (m = re.exec(c)) {
           const f = m[1];
-          if (f && f !== "-" && !/^https?:\/\//.test(f) && !/^[@{[]/.test(f))
-            files.add(f);
+          if (f && f !== "-" && !/^https?:\/\//.test(f) && !/^[@{[]/.test(f)) files.add(f);
         }
       }
       if (/\b(scp|rsync|sftp)\b/.test(lc)) {
         for (const tok of c.split(/\s+/).slice(1)) {
-          if (!tok || tok.startsWith("-"))
-            continue;
-          if (/^[\w.-]*@?[\w.-]+:/.test(tok))
-            continue;
-          if (/^https?:\/\//.test(tok))
-            continue;
+          if (!tok || tok.startsWith("-")) continue;
+          if (/^[\w.-]*@?[\w.-]+:/.test(tok)) continue;
+          if (/^https?:\/\//.test(tok)) continue;
           files.add(tok.replace(/^@/, ""));
         }
       }
       for (let f of files) {
-        if (f.startsWith("~"))
-          f = homedir() + f.slice(1);
+        if (f.startsWith("~")) f = homedir() + f.slice(1);
         let abs;
         try {
           abs = isAbsolute(f) ? f : resolve(base, f);
@@ -1493,8 +1350,7 @@ function egressSecretCheck(args, sec, cwd) {
         let content = null;
         try {
           const st = statSync(abs);
-          if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES)
-            continue;
+          if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES) continue;
         } catch {
           continue;
         }
@@ -1503,11 +1359,9 @@ function egressSecretCheck(args, sec, cwd) {
         } catch {
           continue;
         }
-        if (!content)
-          continue;
+        if (!content) continue;
         const hit = dlpScan(content, dlp);
-        if (hit)
-          return 'DLP: outbound transfer of "' + f + '" is blocked - it contains a ' + hit + " (egress protection)";
+        if (hit) return 'DLP: outbound transfer of "' + f + '" is blocked - it contains a ' + hit + " (egress protection)";
       }
     }
   } catch {
@@ -1515,13 +1369,11 @@ function egressSecretCheck(args, sec, cwd) {
   return null;
 }
 function dlpRedactText(text, cfg) {
-  if (!cfg || typeof text !== "string")
-    return text;
+  if (!cfg || typeof text !== "string") return text;
   let out = text;
   const allow = new Set(Array.isArray(cfg.patterns) ? cfg.patterns : []);
   for (const p of DLP_PATTERNS) {
-    if (!allow.has(p.name))
-      continue;
+    if (!allow.has(p.name)) continue;
     const g = p.re.flags.includes("g") ? p.re.flags : p.re.flags + "g";
     try {
       out = out.replace(new RegExp(p.re.source, g), `[REDACTED:${p.name}]`);
@@ -1539,27 +1391,23 @@ function dlpRedactText(text, cfg) {
 }
 function dlpRedactReadPlan(toolName, args, dlp, cwd) {
   try {
-    if (!dlp || !args)
-      return null;
+    if (!dlp || !args) return null;
     const base = cwd || process.cwd();
     const abends = (f) => {
       let x = f;
-      if (x.startsWith("~"))
-        x = homedir() + x.slice(1);
+      if (x.startsWith("~")) x = homedir() + x.slice(1);
       return isAbsolute(x) ? x : resolve(base, x);
     };
     const redactCopy = (abs) => {
       let content;
       try {
         const st = statSync(abs);
-        if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES)
-          return "SKIP";
+        if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES) return "SKIP";
         content = readFileSync(abs, "utf-8");
       } catch {
         return "SKIP";
       }
-      if (dlpScan(content, dlp) == null)
-        return "CLEAN";
+      if (dlpScan(content, dlp) == null) return "CLEAN";
       try {
         const dir = join(resolve(homedir(), ".solongate"), ".redacted");
         mkdirSync(dir, { recursive: true });
@@ -1571,13 +1419,10 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
       }
     };
     for (const [k, v] of Object.entries(args)) {
-      if (k === "command" || typeof v !== "string" || !v || !/[./]/.test(v))
-        continue;
+      if (k === "command" || typeof v !== "string" || !v || !/[./]/.test(v)) continue;
       const r = redactCopy(abends(v));
-      if (r === "SKIP" || r === "CLEAN")
-        continue;
-      if (r === "FAILED")
-        return { block: true };
+      if (r === "SKIP" || r === "CLEAN") continue;
+      if (r === "FAILED") return { block: true };
       return { rewrite: { [k]: r } };
     }
     const GLOB_META = /[*?\[]/;
@@ -1585,8 +1430,7 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
       try {
         const dir = dirname(absGlob);
         const base2 = absGlob.slice(dir.length + 1);
-        if (!GLOB_META.test(base2))
-          return [absGlob];
+        if (!GLOB_META.test(base2)) return [absGlob];
         const re = new RegExp("^" + base2.replace(/\*{2,}/g, "*").replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]") + "$");
         return readdirSync(dir).filter((f) => re.test(f)).map((f) => join(dir, f));
       } catch {
@@ -1597,26 +1441,21 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
     if (cmd && /\b(cat|less|more|head|tail|bat|nl|od|xxd|hexdump|strings|grep|egrep|fgrep|rg|ag|cut|awk|gawk|sed|tr|sort|uniq|paste|join|comm|column|fold|tac|rev|pr|expand|unexpand|base64|base32|dd|mapfile|readarray)\b/.test(cmd.toLowerCase())) {
       let newCmd = cmd, changed = false;
       for (const tok of cmd.split(/[\s'"|<>;&()]+/)) {
-        if (!tok || tok.startsWith("-") || !/[./]/.test(tok))
-          continue;
+        if (!tok || tok.startsWith("-") || !/[./]/.test(tok)) continue;
         if (GLOB_META.test(tok)) {
           for (const f of expandGlob(abends(tok))) {
             const rg = redactCopy(f);
-            if (rg !== "SKIP" && rg !== "CLEAN")
-              return { block: true };
+            if (rg !== "SKIP" && rg !== "CLEAN") return { block: true };
           }
           continue;
         }
         const r = redactCopy(abends(tok));
-        if (r === "SKIP" || r === "CLEAN")
-          continue;
-        if (r === "FAILED")
-          return { block: true };
+        if (r === "SKIP" || r === "CLEAN") continue;
+        if (r === "FAILED") return { block: true };
         newCmd = newCmd.split(tok).join(r);
         changed = true;
       }
-      if (changed)
-        return { rewrite: { command: newCmd } };
+      if (changed) return { rewrite: { command: newCmd } };
     }
   } catch {
     return { block: true };
@@ -1677,26 +1516,21 @@ function rateLimitCheck(agentKey, limits) {
     let mine = -1;
     for (let i = 0; i + RL_REC <= buf.length; i += RL_REC) {
       const t = parseInt(buf.slice(i, i + RL_STAMP), 10);
-      if (!Number.isFinite(t) || now - t >= 864e5)
-        continue;
+      if (!Number.isFinite(t) || now - t >= 864e5) continue;
       const tok = buf.slice(i + RL_STAMP, i + RL_STAMP + RL_TOKEN);
-      if (tok === token && mine < 0)
-        mine = entries.length;
+      if (tok === token && mine < 0) mine = entries.length;
       entries.push({ ms: t, token: tok });
     }
     for (const w of RL_WINDOWS) {
       const limit = limits[w.key];
-      if (!(limit > 0))
-        continue;
+      if (!(limit > 0)) continue;
       if (mine >= 0) {
         const ahead = entries.slice(0, mine).reduce((n, e) => now - e.ms < w.ms ? n + 1 : n, 0);
-        if (ahead >= limit)
-          return { window: w.label, limit };
+        if (ahead >= limit) return { window: w.label, limit };
         continue;
       }
       const count = entries.reduce((n, e) => now - e.ms < w.ms ? n + 1 : n, 0);
-      if (count > limit)
-        return { window: w.label, limit };
+      if (count > limit) return { window: w.label, limit };
     }
     if (size > RL_MAX_FILE) {
       try {
@@ -1712,13 +1546,11 @@ function rateLimitCheck(agentKey, limits) {
   }
 }
 function securityLayerCheck(toolName, args, cfg, agentKey) {
-  if (!cfg)
-    return null;
+  if (!cfg) return null;
   try {
     if (cfg.dlpBlock) {
       const hit = dlpScan(args, cfg.dlpBlock);
-      if (hit)
-        return "Security layer (DLP): blocked - arguments contain a " + hit + ". Blocked by SolonGate (DLP). Edit ~/.solongate/policy.json to change what is refused.";
+      if (hit) return "Security layer (DLP): blocked - arguments contain a " + hit + ". Blocked by SolonGate (DLP). Edit ~/.solongate/policy.json to change what is refused.";
     }
     if (cfg.rateLimit) {
       const hit = rateLimitCheck(agentKey, cfg.rateLimit);
@@ -1733,31 +1565,22 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
 var OPA_WASM_TTL_MS = 24 * 60 * 60 * 1e3;
 function applyPatchTargets(patch) {
   const out = [];
-  if (typeof patch !== "string" || !patch.includes("*** "))
-    return out;
+  if (typeof patch !== "string" || !patch.includes("*** ")) return out;
   const re = /^\*\*\*\s+(?:Add|Update|Delete)\s+File:\s*(.+?)\s*$/gm;
   let m;
-  while (m = re.exec(patch))
-    if (m[1])
-      out.push(m[1]);
+  while (m = re.exec(patch)) if (m[1]) out.push(m[1]);
   const mv = /^\*\*\*\s+Move\s+to:\s*(.+?)\s*$/gm;
-  while (m = mv.exec(patch))
-    if (m[1])
-      out.push(m[1]);
+  while (m = mv.exec(patch)) if (m[1]) out.push(m[1]);
   return out;
 }
 function liftFreeformPatchPaths(call) {
   const cmd = call.command;
-  if (call.tool !== "apply_patch" && !(typeof cmd === "string" && cmd.startsWith("*** Begin Patch")))
-    return;
+  if (call.tool !== "apply_patch" && !(typeof cmd === "string" && cmd.startsWith("*** Begin Patch"))) return;
   const targets = applyPatchTargets(cmd);
-  if (!targets.length)
-    return;
+  if (!targets.length) return;
   call.args = { ...call.args };
-  if (!call.args.file_path)
-    call.args.file_path = targets[0];
-  if (!Array.isArray(call.args.edits))
-    call.args.edits = targets.map((f) => ({ file_path: f }));
+  if (!call.args.file_path) call.args.file_path = targets[0];
+  if (!Array.isArray(call.args.edits)) call.args.edits = targets.map((f) => ({ file_path: f }));
 }
 function normalizeToolCall(raw) {
   const parsed = CLIENT.parse(raw) || {};
@@ -1837,10 +1660,8 @@ input += SG_STDIN;
           const local = loadLocalPolicyFile(hookCwd);
           if (local) {
             policy = local.policy;
-            if (local.security !== void 0)
-              securityCfg = local.security;
-            if (local.selfProtect !== void 0)
-              selfProtectEnabled = local.selfProtect;
+            if (local.security !== void 0) securityCfg = local.security;
+            if (local.selfProtect !== void 0) selfProtectEnabled = local.selfProtect;
           }
         }
       } catch {
@@ -1857,10 +1678,8 @@ input += SG_STDIN;
       if (process.env.SOLONGATE_DEBUG) {
       }
       let reason = selfProtectEnabled ? tamperCheck(toolName, args) : null;
-      if (!reason)
-        reason = egressSecretCheck(args, securityCfg, call.cwd);
-      if (!reason)
-        reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
+      if (!reason) reason = egressSecretCheck(args, securityCfg, call.cwd);
+      if (!reason) reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
       if (process.env.SOLONGATE_DEBUG) {
       }
       let opaRoute = "white";
@@ -1886,8 +1705,7 @@ input += SG_STDIN;
           rewriteTool(plan.rewrite);
         }
       }
-      if (AGENT_TYPE !== "codex")
-        process.stderr.write(`[SolonGate ROUTE] ${opaRoute.toUpperCase()} (${reason ? "block" : "allow"})
+      if (AGENT_TYPE !== "codex") process.stderr.write(`[SolonGate ROUTE] ${opaRoute.toUpperCase()} (${reason ? "block" : "allow"})
 `);
       try {
         const _fd = projectFlagDir();
@@ -1899,8 +1717,7 @@ input += SG_STDIN;
           const ring = join(_fd, ".eval-ring.jsonl");
           appendFileSync(ring, JSON.stringify(_rec) + "\n");
           try {
-            if (statSync(ring).size > 16384)
-              writeFileSync(ring, readFileSync(ring, "utf-8").split("\n").filter(Boolean).slice(-50).join("\n") + "\n");
+            if (statSync(ring).size > 16384) writeFileSync(ring, readFileSync(ring, "utf-8").split("\n").filter(Boolean).slice(-50).join("\n") + "\n");
           } catch {
           }
         } catch {

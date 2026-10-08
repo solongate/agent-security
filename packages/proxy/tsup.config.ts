@@ -59,7 +59,6 @@ export default defineConfig({
   // Keep these as external — users install them via package.json dependencies.
   // react/ink stay external so they load only when the TUI entry runs.
   external: [
-    '@modelcontextprotocol/sdk',
     'zod',
     'react',
     'ink',

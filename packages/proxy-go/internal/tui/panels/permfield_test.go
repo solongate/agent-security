@@ -5,7 +5,7 @@ package panels
 import (
 	"testing"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
 )
 
 // PERMISSIONS ARE ONLY A QUESTION FOR A RULE ABOUT FILES.

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/codeyevsky/solongate/proxy/internal/install"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/install"
 )
 
 // `solongate update` — fetch the newest source and reinstall from it.

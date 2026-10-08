@@ -16,8 +16,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
-	"github.com/codeyevsky/solongate/proxy/internal/config"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
 )
 
 // Live — the fullscreen realtime ops console.

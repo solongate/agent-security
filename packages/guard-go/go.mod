@@ -1,4 +1,4 @@
-module github.com/codeyevsky/solongate/guard
+module github.com/solongate/agent-security/packages/guard-go
 
 go 1.26.0
 
@@ -7,8 +7,8 @@ require github.com/open-policy-agent/opa v1.21.1
 require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/codeyevsky/solongate/sgpolicy v0.0.0
-	github.com/codeyevsky/solongate/sgshared v0.0.0
+	github.com/solongate/agent-security/packages/sgpolicy v0.0.0
+	github.com/solongate/agent-security/packages/sgshared v0.0.0
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/gobwas/glob v1.0.0 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
@@ -36,6 +36,6 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/codeyevsky/solongate/sgshared => ../sgshared
+replace github.com/solongate/agent-security/packages/sgshared => ../sgshared
 
-replace github.com/codeyevsky/solongate/sgpolicy => ../sgpolicy
+replace github.com/solongate/agent-security/packages/sgpolicy => ../sgpolicy

@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
 )
 
 // A grid cursor, built by hand so the test does not need a loaded panel: these

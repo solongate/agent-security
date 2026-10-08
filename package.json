@@ -4,13 +4,13 @@
   "private": true,
   "description": "A policy gate for AI coding agents: every tool call is decided on your machine, against rules you wrote.",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/solongate/solongate#readme",
+  "homepage": "https://github.com/solongate/agent-security#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/solongate/solongate.git"
+    "url": "git+https://github.com/solongate/agent-security.git"
   },
   "bugs": {
-    "url": "https://github.com/solongate/solongate/issues"
+    "url": "https://github.com/solongate/agent-security/issues"
   },
   "scripts": {
     "build": "turbo run build",

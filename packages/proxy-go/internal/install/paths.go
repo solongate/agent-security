@@ -31,7 +31,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/codeyevsky/solongate/proxy/internal/config"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
 )
 
 // The programs the installer lays down under ~/.solongate/hooks. Names rather

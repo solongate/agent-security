@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // Everything on disk the guard reads, in the shapes the Node hook already

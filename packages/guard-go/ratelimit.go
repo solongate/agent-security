@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // One call = one fixed-width record, appended: 13 digits of epoch ms, a 10

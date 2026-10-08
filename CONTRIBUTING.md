@@ -11,8 +11,8 @@ that way.
 ## Setting up
 
 ```bash
-git clone https://github.com/solongate/solongate.git
-cd solongate
+git clone https://github.com/solongate/agent-security.git
+cd agent-security
 pnpm install
 pnpm build
 ```

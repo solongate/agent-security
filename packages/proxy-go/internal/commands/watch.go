@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
-	"github.com/codeyevsky/solongate/proxy/internal/config"
-	"github.com/codeyevsky/solongate/proxy/internal/term"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/term"
 )
 
 // `solongate watch` tails the guard's tool-call stream like `tail -f`, without

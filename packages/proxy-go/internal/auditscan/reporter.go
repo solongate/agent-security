@@ -10,7 +10,7 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/codeyevsky/solongate/proxy/internal/term"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/term"
 )
 
 // The report's colours are the 4-bit ANSI set rather than the CLI's truecolor

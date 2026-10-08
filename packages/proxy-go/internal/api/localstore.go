@@ -38,8 +38,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codeyevsky/solongate/proxy/internal/config"
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // policyFile is assembled: the guard protects paths spelled this way, and the

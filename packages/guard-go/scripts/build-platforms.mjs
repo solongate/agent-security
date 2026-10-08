@@ -82,8 +82,8 @@ function writePackage(t, dest) {
     os: [t.npmOs],
     cpu: [t.npmCpu],
     files: [binName(t)],
-    license: 'SEE LICENSE IN LICENSE',
-    repository: { type: 'git', url: 'git+https://github.com/codeyevsky/solongate.git' },
+    license: 'Apache-2.0',
+    repository: { type: 'git', url: 'git+https://github.com/solongate/agent-security.git' },
   }, null, 2) + '\n');
 
   const license = resolve(goDir, '..', '..', 'LICENSE');

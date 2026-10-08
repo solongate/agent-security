@@ -124,7 +124,7 @@ exempts anything from that.
 ## Documentation
 
 Source, issues and security reporting:
-[github.com/solongate/solongate](https://github.com/solongate/solongate)
+[github.com/solongate/agent-security](https://github.com/solongate/agent-security)
 
 ## Licence
 

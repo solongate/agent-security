@@ -49,9 +49,12 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
+      # go.mod rather than a number, for the reason given in ci.yml. A release
+      # built by a toolchain older than the modules declare does not build at
+      # all, and this is the job where that produces no binaries and no release.
       - uses: actions/setup-go@v7
         with:
-          go-version: '1.25'
+          go-version-file: packages/guard-go/go.mod
           cache-dependency-path: packages/guard-go/go.sum
 
       - run: pnpm install --frozen-lockfile

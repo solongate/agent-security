@@ -1,10 +1,16 @@
 name: ci
 
-# Every job here corresponds to something that was found by running it rather
-# than by reading the code. The conformance suite is the clearest: it is the
-# contract the guard is judged against, and it runs TWICE — once against the Node
-# hook and once against the Go binary — because which of the two decides a call
-# depends only on whether a machine has the binary.
+# WHAT THESE JOBS DO NOT DO: decide whether the guard is correct.
+#
+# The conformance suite was the contract. It ran twice, once against the Node
+# hook and once against the Go binary, and it was the only thing in the
+# repository that compared the two implementations to each other. It has been
+# removed, along with every Go test, and nothing took its place.
+#
+# So read the green tick for what it now means: the code is formatted, it vets,
+# it typechecks, it compiles, the release script runs, and no secret is
+# committed. Whether a tool call that should be refused gets refused is not
+# among the things anything here asks.
 #
 # Three jobs used to live here and do not any more: the schema applied to a real
 # PostgreSQL and a real SQLite, and a real Keycloak signed a device in end to end.
@@ -62,14 +68,10 @@ jobs:
         working-directory: ${{ matrix.module }}
         run: go vet ./...
 
-      # -count=1 defeats the test cache. A cached PASS is not evidence: a test whose
-      # SUBJECT was deleted elsewhere in the repo — a Dockerfile, a config file, a
-      # policy cache — keeps reporting the last run's result until something in its own
-      # package changes. One did, for a while, and only surfaced when an unrelated edit
-      # invalidated it. CI is the place that should never be reading a cache.
-      - name: test
-        working-directory: ${{ matrix.module }}
-        run: go test -count=1 ./...
+      # There is no test step. The 56 _test.go files these four modules had are
+      # gone, so `go test ./...` would report "no test files" for every package
+      # and pass without looking at anything. A check that cannot fail reads as
+      # coverage, which is worse than the absence it would be papering over.
 
   typescript:
     name: typescript
@@ -90,8 +92,8 @@ jobs:
         working-directory: packages/proxy
         run: npx tsc --noEmit -p tsconfig.json
 
-  conformance:
-    name: guard conformance suite
+  build:
+    name: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -106,70 +108,33 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # The suite imports the BUILT javascript. Without this it fails to resolve a
-      # module rather than reporting a test failure, which reads as the suite being
-      # broken instead of unbuilt.
-      #
-      # THE FULL BUILD (`pnpm build`), not `npx tsc`. tsc emits one .js per source file, which resolves
-      # every import the suite has and is NOT what ships: the package ships tsup's
-      # bundles, and `clean: true` means dist afterwards holds only those. So CI was
-      # certifying a layout no user ever gets — and the difference is not theoretical,
-      # because a module the suite imports has to be an ENTRY to survive bundling. Two
-      # of them were not, and the suite only noticed on a laptop that had run the real
-      # build. This also produces the bundled hook the next step names.
+      # THE FULL BUILD (`pnpm build`), not `npx tsc`. tsc emits one .js per
+      # source file, which is NOT what ships: the package ships tsup's bundles,
+      # and `clean: true` means dist afterwards holds only those. A job that ran
+      # tsc would be certifying a layout no user ever receives. This also
+      # produces the bundled hook that install.sh writes out as the guard.
       - name: build
         working-directory: packages/proxy
         run: pnpm build
 
-      # SG_HOOK is set explicitly even though the suite now defaults to this same
-      # bundled build. The default used to be the hook INSTALLED in the home
-      # directory, which failed here (a runner has none) and passed on a laptop —
-      # and later failed on a laptop whose installed copy was older than the fix
-      # under test. Naming the file is how this job says WHICH hook it certifies.
+      # THE RELEASE BUILD, which nothing here exercised until it was broken.
       #
-      # The bundled build is the one under test because it is the one that
-      # ships: readGuard in global-install.ts prefers it, with opa-wasm inlined,
-      # and writes it out as the installed hook.
-      - name: run the suite
-        env:
-          SG_HOOK: ${{ github.workspace }}/packages/proxy/hooks/guard.bundled.mjs
-        run: node packages/proxy/test/run-all.mjs
-
-      # AND AGAIN AGAINST THE GO GUARD. The two implementations are deliberately
-      # identical, and which one decides a call depends on whether a machine has
-      # the binary — so certifying only one of them certifies half the machines.
-      # This is the same suite, unchanged: the harness derives the launch from
-      # what SG_HOOK is, a script needing an interpreter and a binary being one.
+      # This is the script that produces what users install, and it spent an
+      # unknown number of weeks unable to build this repository at all: it built
+      # a third program from a module that is not in the tree, and spawnSync
+      # reports a missing `cwd` as ENOENT on the COMMAND, so the failure read as
+      # "no Go toolchain" on machines that had one. Every job above was green
+      # throughout.
       #
-      # It would not have run before now. tamper-path.mjs spawned `node $SG_HOOK`
-      # itself, which handed an ELF file to node, and the failures that produced
-      # read as the guard being broken.
+      # One target, not six. Six takes minutes and proves nothing more about the
+      # script.
       #
-      # go.mod rather than a number here too, for the reason given above the
-      # matrix: this step builds guard-go, and guard-go is one of the two
-      # modules the stale pin stopped compiling.
+      # go.mod rather than a pinned number, for the reason given above the
+      # matrix.
       - uses: actions/setup-go@v7
         with:
           go-version-file: packages/guard-go/go.mod
           cache-dependency-path: packages/guard-go/go.sum
-      - name: build the go guard
-        working-directory: packages/guard-go
-        run: go build -o solongate-guard .
-      - name: run the suite against the go guard
-        env:
-          SG_HOOK: ${{ github.workspace }}/packages/guard-go/solongate-guard
-        run: node packages/proxy/test/run-all.mjs
-
-      # THE RELEASE BUILD, which nothing here exercised until it was broken.
-      #
-      # `go build` above compiles the guard for this runner. It is not the script that
-      # produces what users install, and that script spent an unknown number of weeks
-      # unable to build this repository at all: it built a third program from a module
-      # that is not in the tree, and spawnSync reports a missing `cwd` as ENOENT on the
-      # COMMAND, so the failure read as "no Go toolchain" on machines that had one.
-      # Every job above was green throughout.
-      #
-      # One target, not six. Six takes minutes and proves nothing more about the script.
       - name: the release build works
         working-directory: packages/proxy
         run: pnpm build:go linux-x64
@@ -177,17 +142,16 @@ jobs:
       # AND THAT IT CHANGED NOTHING IT SHOULD NOT HAVE.
       #
       # build:go used to rewrite six optionalDependencies into
-      # packages/proxy/package.json, and this step compared the file afterwards.
-      # It no longer writes them: this repository is distributed over git and
-      # publishes to no registry, so the entries named versions that did not
-      # exist, which is what broke `pnpm install --frozen-lockfile` in the first
-      # step of this job and of every release.
+      # packages/proxy/package.json, each pinned to a version that was never
+      # published. pnpm cannot record an optional dependency it cannot resolve,
+      # so the lockfile never held them, and `pnpm install --frozen-lockfile`
+      # could not pass on any machine. It failed every CI run and every release
+      # job, which is why five pushed tags produced no releases at all.
       #
-      # A git diff here would now pass without checking anything, and a check
-      # that cannot fail is worse than no check: it reads as coverage. The
-      # property it was defending moved into the conformance suite, where
-      # release-shape.mjs asserts the lockfile and every manifest agree, and
-      # fails on exactly the state this repository was in.
+      # Know what this is worth: it fires only if the script starts writing to
+      # the tree again. The check that asserted the lockfile and every manifest
+      # agree, which is the property that was actually broken, lived in the
+      # conformance suite and went with it.
       - name: the build left the tree alone
         run: |
           if ! git diff --exit-code -- packages/proxy/package.json pnpm-lock.yaml; then

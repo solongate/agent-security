@@ -31,9 +31,10 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { BEAT_DIR, LAUNCHER_NAME, launcherScript } from './hook-launcher.js';
-// Re-exported so the conformance suite can reach them: tsup bundles
-// hook-launcher.ts into this entry rather than emitting it separately, so
-// ../dist/hook-launcher.js does not exist to import.
+// Re-exported because tsup bundles hook-launcher.ts into this entry rather
+// than emitting it separately, so ../dist/hook-launcher.js does not exist to
+// import. The conformance suite reached them this way; it is gone, and the
+// re-export stays because the bundling has not.
 export { BEAT_DIR, LAUNCHER_NAME, launcherScript } from './hook-launcher.js';
 export { agoLabel, guardBeat, hookBeats, hookCanStart } from './hook-health.js';
 import { hookCanStart } from './hook-health.js';
@@ -861,8 +862,8 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     // has to be copied beside them or the hook dies on its import. A hook that fails to
     // start exits non-2, and every client reads a non-2 exit as "allowed": forgetting
     // this file would mean no post-tool masking and no prompt masking, reported as
-    // nothing at all. internal/install does the same, and
-    // internal/install/installed_hooks_test.go runs each installed hook to prove it.
+    // nothing at all. internal/install does the same, and a test used to run each
+    // installed hook to prove it could start. Nothing does now.
     writeFileSync(join(p.hooksDir, 'dlp.mjs'), readHook('dlp.mjs'));
     writeLauncher(p.hooksDir);
 
@@ -873,8 +874,8 @@ export function installGlobalQuiet(): { ok: boolean; message: string } {
     //
     // Best-effort. It does nothing when Claude Code is not on PATH (nothing to wrap),
     // and the block is written between markers so running twice replaces it rather
-    // than defining `claude` twice. internal/install/install.go does the same, and
-    // internal/install/shim_install_test.go holds both to it.
+    // than defining `claude` twice. internal/install/install.go does the same,
+    // and nothing holds the two to each other any more.
     try { installClaudeShim(join(p.hooksDir, 'shield.mjs')); } catch { /* best-effort */ }
 
     let existing: Record<string, unknown> = {};

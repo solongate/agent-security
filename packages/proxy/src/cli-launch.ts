@@ -19,11 +19,11 @@
  * looking at a terminal who can read an error and try again.
  *
  * The MCP PROXY RUNTIME stays on TypeScript. A Go implementation exists and is
- * wired to the same policy engine, but it has no conformance suite the way the
- * guard hook does, and it sits in front of every tool call an agent makes. "It
- * compiles and the tests pass" is not evidence about a protocol surface nobody
- * has driven end to end. Moving this line is a decision to make on purpose, with
- * a suite to back it, not a side effect of shipping the CLI.
+ * wired to the same policy engine, and it sits in front of every tool call an
+ * agent makes. "It compiles" is not evidence about a protocol surface nobody has
+ * driven end to end, and since this repository now has no suite at all, it is
+ * the only thing on offer. Moving this line is a decision to make on purpose,
+ * with something to back it, not a side effect of shipping the CLI.
  *
  * Failure here is not a security event — a CLI that will not start is visible,
  * unlike a guard that quietly stops guarding — but it still falls through to the
@@ -45,8 +45,8 @@ const GO_SUBCOMMANDS = new Set([
   'stats', 'audit', 'doctor', 'watch', 'dataroom',
   // The `browser` command is gone on purpose: the agent installs, arranges and
   // restarts itself, and everything a person manages is on the dashboard. There
-  // is no subcommand to delegate, and the proxy-go test that reads this list
-  // enforces that the two halves agree.
+  // is no subcommand to delegate. A proxy-go test used to read this list and
+  // enforce that the two halves agree; it is gone, so they agree by inspection.
 ]);
 const GO_INFO_ARGS = new Set(['login', 'help', '--help', '-h', '--version', '-v', 'version']);
 

@@ -5,8 +5,8 @@
 // The source is packages/proxy/src/hook-launcher.ts. Both implementations write
 // the same ~/.solongate/hooks/sg-run.sh and whichever ran last wins, so a byte
 // of difference would have each rewriting the other's copy on every install —
-// and the two node search orders drifting apart unnoticed. npmparity_test.go
-// compares the files; regenerate this one rather than editing it.
+// and the two node search orders drifting apart unnoticed. Nothing compares the
+// files any more, so regenerate this one rather than editing it.
 
 package install
 

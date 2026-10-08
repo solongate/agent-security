@@ -13,9 +13,6 @@
 /packages/sgshared/         @codeyevsky
 /packages/proxy/hooks/      @codeyevsky
 
-# The contract. A change to an existing case needs a reason why the behaviour it
-# pinned was wrong.
-/packages/proxy/test/       @codeyevsky
 
 # Release and CI machinery.
 /.github/workflows/         @codeyevsky

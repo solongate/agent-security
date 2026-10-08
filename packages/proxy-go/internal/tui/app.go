@@ -203,8 +203,8 @@ func (p *notPortedPanel) View(ctx PanelContext) string {
 	return strings.Join([]string{
 		renderRow(ctx.Cols, sgb(strings.ToUpper(p.label), theme.AccentBright)),
 		"",
-		renderRow(ctx.Cols, sg("This section is not ported to Go yet.", theme.Warn)),
-		renderRow(ctx.Cols, sg("Use the npm CLI meanwhile: npx @solongate/proxy", theme.Dim)),
+		renderRow(ctx.Cols, sg("This section did not register a panel.", theme.Warn)),
+		renderRow(ctx.Cols, sg("That is a bug in this build, not something you can work around.", theme.Dim)),
 	}, "\n")
 }
 

@@ -43,13 +43,7 @@ import (
 // answers depends on install order.
 var buildVersion = "dev"
 
-// exitNotPorted is what an unported command returns. Deliberately neither 0 nor
-// 1: 0 would tell a script the command succeeded, and 1 is indistinguishable
-// from the command running and failing. A script that sees 69 knows it asked
-// this binary for something it does not have yet.
-const exitNotPorted = 69
-
-// The human-facing subcommand set, matching packages/proxy/src/index.ts. It
+// The human-facing subcommand set. It
 // decides two things: whether output is a banner or MCP protocol traffic, and
 // whether the human-only gate applies.
 var cliSubcommands = map[string]bool{
@@ -276,23 +270,6 @@ func lookup(name string) (command, bool) {
 		}
 	}
 	return command{}, false
-}
-
-// notPorted is the stub the next slices replace. It names the TypeScript it
-// comes from so the replacement has somewhere to start, and it points at the
-// implementation that does work today rather than leaving the user stuck.
-func notPorted(name string) func([]string) int {
-	return func([]string) int {
-		w := func(s string) { fmt.Fprintln(os.Stderr, s) }
-		w("")
-		w("  " + term.Yellow + "not ported yet" + term.Reset + ": " + term.Bold + "solongate " + name + term.Reset)
-		w("  " + term.Dim + "This Go build has configuration, the API client and the core in place;" + term.Reset)
-		w("  " + term.Dim + "this command still lives in packages/proxy/src (TypeScript)." + term.Reset)
-		w("")
-		w("  " + term.Dim + "Use the npm CLI meanwhile:" + term.Reset + " " + term.Cyan + "npx @solongate/proxy " + name + term.Reset)
-		w("")
-		return exitNotPorted
-	}
 }
 
 // launchDataroom starts the Bubble Tea program.

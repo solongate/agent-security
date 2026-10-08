@@ -3,25 +3,16 @@
   "version": "0.0.6",
   "description": "A policy gate for AI coding agents: every tool call is decided on your machine, against rules you wrote.",
   "type": "module",
-  "bin": {
-    "solongate": "./dist/cli-launch.js",
-    "solongate-audit": "./dist/audit/index.js"
-  },
   "files": [
-    "dist",
     "hooks/*.mjs",
     "hooks/*.d.mts",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup && pnpm build:types && pnpm build:hooks",
-    "build:types": "node scripts/build-types.mjs",
-    "build:hooks": "node scripts/bundle-hooks.mjs",
-    "dev": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo platforms",
-    "build:go": "node scripts/build-go-binaries.mjs"
+    "build": "node scripts/bundle-hooks.mjs",
+    "build:go": "node scripts/build-go-binaries.mjs",
+    "clean": "rm -rf .turbo platforms hooks/guard.bundled.mjs"
   },
   "keywords": [
     "ai-tool-security",
@@ -46,22 +37,10 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "ink": "^8.0.0",
-    "ink-text-input": "^6.0.0",
-    "react": "^19.3.0",
-    "react-devtools-core": "^6.1.2",
-    "zod": "^4.6.5"
+    "@open-policy-agent/opa-wasm": "^1.10.0"
   },
   "devDependencies": {
-    "@open-policy-agent/opa-wasm": "^1.10.0",
-    "@solongate/tsconfig": "workspace:*",
-    "@types/node": "^26.6.4",
-    "@types/react": "^19.3.0",
-    "chalk": "^6.0.1",
-    "esbuild": "^0.28.2",
-    "tsup": "^8.3.0",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "esbuild": "^0.28.2"
   },
   "bugs": {
     "url": "https://github.com/solongate/agent-security/issues"

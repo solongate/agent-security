@@ -7,10 +7,15 @@ name: ci
 # repository that compared the two implementations to each other. It has been
 # removed, along with every Go test, and nothing took its place.
 #
-# So read the green tick for what it now means: the code is formatted, it vets,
-# it typechecks, it compiles, the release script runs, and no secret is
+# So read the green tick for what it now means: the Go code is formatted, it
+# vets, it compiles, the hooks bundle, the release script runs, and no secret is
 # committed. Whether a tool call that should be refused gets refused is not
 # among the things anything here asks.
+#
+# There is no TypeScript job either, because there is no TypeScript left to
+# check. The CLI and the TUI were removed once the Go port replaced them and
+# distribution stopped going through npm. What remains in packages/proxy is
+# .mjs hook programs, which run under node and are typechecked by nothing.
 #
 # Three jobs used to live here and do not any more: the schema applied to a real
 # PostgreSQL and a real SQLite, and a real Keycloak signed a device in end to end.
@@ -73,25 +78,6 @@ jobs:
       # and pass without looking at anything. A check that cannot fail reads as
       # coverage, which is worse than the absence it would be papering over.
 
-  typescript:
-    name: typescript
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      # No `version` input: package.json's `packageManager` field is the one
-      # source, and action-setup v4 REFUSES when both are set rather than
-      # picking one. That refusal is what failed the two pnpm jobs on the first
-      # run, five seconds in, before pnpm existed to report anything.
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: typecheck
-        working-directory: packages/proxy
-        run: npx tsc --noEmit -p tsconfig.json
-
   build:
     name: build
     runs-on: ubuntu-latest
@@ -108,11 +94,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # THE FULL BUILD (`pnpm build`), not `npx tsc`. tsc emits one .js per
-      # source file, which is NOT what ships: the package ships tsup's bundles,
-      # and `clean: true` means dist afterwards holds only those. A job that ran
-      # tsc would be certifying a layout no user ever receives. This also
-      # produces the bundled hook that install.sh writes out as the guard.
+      # This bundles hooks/guard.mjs into hooks/guard.bundled.mjs, which is
+      # the file that installs as the guard: readGuard prefers it, with opa-wasm
+      # inlined. The unbundled hook imports two siblings and an npm package, and
+      # whether those resolve on a stranger's machine is not a thing to find out
+      # on the decision path.
       - name: build
         working-directory: packages/proxy
         run: pnpm build

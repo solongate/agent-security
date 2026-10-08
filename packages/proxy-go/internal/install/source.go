@@ -24,7 +24,7 @@ import (
 // that points at a file this install cannot produce is the half-install the
 // whole package exists to avoid.
 var ErrNoHookSource = errors.New(
-	"the packaged hook files were not found next to this binary — run `npx @solongate/proxy repair` (the npm package carries them)")
+	"the hook files were not found next to this binary. They are built by `pnpm build` in packages/proxy and this binary is meant to run from, or beside, that checkout")
 
 // ErrNoNode means no node binary could be found. The hooks are .mjs programs;
 // without node they cannot run at all, so a registration naming one would be a

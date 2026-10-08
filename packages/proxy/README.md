@@ -12,7 +12,7 @@ Agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
 
 ## Install
 
-Node.js 20 or newer. Nothing to sign in to.
+Node.js 22 or newer. Nothing to sign in to.
 
 ```sh
 npm i -g @solongate/proxy

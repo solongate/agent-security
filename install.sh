@@ -150,16 +150,17 @@ bin="$repo/packages/proxy/platforms/$tag/solongate"
 step "Checking the toolchain"
 
 command -v node >/dev/null 2>&1 || die "node was not found on PATH." \
-	"SolonGate's hooks are .mjs programs and run under node. Install Node 20 or newer."
+	"SolonGate's hooks are .mjs programs and run under node. Install Node 22 or newer."
 
-# The major version, from `v22.4.0`. Checked because the failure otherwise arrives
-# much later as a syntax error inside a bundled hook, which reads as the product
-# being broken rather than the runtime being old.
+# The major version, from `v22.4.0`. Checked here because every failure further
+# down is worse to read: a dependency that refuses to install, or a syntax error
+# inside a bundled hook, both of which look like the product being broken rather
+# than the runtime being old.
 node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-if [ "$node_major" -lt 20 ]; then
-	die "node $(node -v) is too old; SolonGate needs 20 or newer." \
-		"The hooks use syntax that older versions cannot parse, and the error they" \
-		"produce names a bundled file rather than the version."
+if [ "$node_major" -lt 22 ]; then
+	die "node $(node -v) is too old; SolonGate needs 22 or newer." \
+		"Node 20 reached end of life in April 2026 and no longer receives security" \
+		"patches, which is not a runtime to put a security tool on."
 fi
 note "node $(node -v)"
 

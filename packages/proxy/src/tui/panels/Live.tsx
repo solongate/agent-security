@@ -20,6 +20,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { localLogsSetting, tailLines, type LocalLogSetting } from '../local-log.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { JSX } from 'react';
 import { api } from '../../api-client/index.js';
 import { ruleSpecFor } from '../../api-client/audit.js';
 import type { Stats } from '../../api-client/index.js';

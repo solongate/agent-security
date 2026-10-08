@@ -9,7 +9,7 @@
  */
 import { Box, Text, useInput } from 'ink';
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { api } from '../../api-client/index.js';
 import type { LayerMode, SecurityLayers } from '../../api-client/index.js';
 import { DataView, Table } from '../components.js';

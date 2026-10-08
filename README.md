@@ -7,7 +7,7 @@
   <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.25-00ADD8.svg" alt="Go 1.25"></a>
-  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-20%2B-339933.svg" alt="Node 20+"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-22%2B-339933.svg" alt="Node 22+"></a>
 </p>
 
 <p align="center">
@@ -108,7 +108,7 @@ full tree.
 
 ## Contributing
 
-Go 1.25 and Node 20+.
+Go 1.25 and Node 22+.
 
 ```bash
 pnpm install

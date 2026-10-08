@@ -74,7 +74,7 @@ export const PolicyRuleSchema = z.object({
   toolPattern: z.string().min(1).max(512),
   permission: z.enum(['READ', 'WRITE', 'EXECUTE', 'NETWORK']).optional(),
   minimumTrustLevel: z.enum(['UNTRUSTED', 'VERIFIED', 'TRUSTED']),
-  argumentConstraints: z.record(z.unknown()).optional(),
+  argumentConstraints: z.record(z.string(), z.unknown()).optional(),
   pathConstraints: z
     .object({
       allowed: z.array(z.string()).optional(),

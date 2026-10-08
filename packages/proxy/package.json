@@ -37,10 +37,10 @@
   ],
   "author": "SolonGate <hello@solongate.com>",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/solongate/solongate#readme",
+  "homepage": "https://github.com/solongate/agent-security#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/solongate/solongate.git",
+    "url": "git+https://github.com/solongate/agent-security.git",
     "directory": "packages/proxy"
   },
   "engines": {
@@ -65,6 +65,6 @@
     "typescript": "^7.0.2"
   },
   "bugs": {
-    "url": "https://github.com/solongate/solongate/issues"
+    "url": "https://github.com/solongate/agent-security/issues"
   }
 }

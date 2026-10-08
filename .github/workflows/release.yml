@@ -86,7 +86,11 @@ jobs:
             echo
             echo '```'
             echo "git clone https://github.com/$GITHUB_REPOSITORY"
-            echo "cd solongate && ./install.sh"
+            # The directory clone makes, derived from the same variable as the
+            # clone itself. It was the literal "solongate" and stayed that way
+            # through a rename, so the two lines of a three line install told
+            # the reader to enter a directory the line above had not made.
+            echo "cd ${GITHUB_REPOSITORY#*/} && ./install.sh"
             echo '```'
             echo
             echo "Already installed: \`solongate update\`"

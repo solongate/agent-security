@@ -7,9 +7,9 @@ body:
       value: |
         **If a tool call that should have been refused ran anyway, stop here.**
         That is a bypass, and it belongs in a
-        [private advisory](https://github.com/solongate/solongate/security/advisories/new)
+        [private advisory](https://github.com/solongate/agent-security/security/advisories/new)
         rather than a public issue. See
-        [SECURITY.md](https://github.com/solongate/solongate/blob/main/SECURITY.md).
+        [SECURITY.md](https://github.com/solongate/agent-security/blob/main/SECURITY.md).
 
         For everything else, thanks for filing. The three fields below answer
         most reports on their own.

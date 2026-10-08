@@ -20,4 +20,3 @@
 # Release and CI machinery.
 /.github/workflows/         @codeyevsky
 /install.sh                 @codeyevsky
-/RELEASING.md               @codeyevsky

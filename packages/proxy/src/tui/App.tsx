@@ -5,6 +5,7 @@
  */
 import { Box, Text, useApp, useInput } from 'ink';
 import { useEffect, useState } from 'react';
+import type { JSX } from 'react';
 import { BANNER_FULL } from '../cli-utils.js';
 import { KeyHints } from './components.js';
 import { theme } from './theme.js';

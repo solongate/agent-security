@@ -20,6 +20,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { useState } from 'react';
+import type { JSX } from 'react';
 import { api } from '../../api-client/index.js';
 import type { AuditQuery } from '../../api-client/audit.js';
 import type { AuditEntry } from '../../api-client/index.js';

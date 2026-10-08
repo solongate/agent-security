@@ -50,11 +50,10 @@ import (
 // "fired but enforcing nothing" are different faults with different fixes, and
 // from the outside they looked identical.
 //
-// This file is the twin of packages/proxy/src/hook-launcher.ts. The two must
-// generate the same script: a launcher that differed between them would have one
-// implementation rewriting the other's on every run. A test used to check that
-// the registrations agree. It was removed, so the two are held level by reading
-// them.
+// This file used to be the twin of a TypeScript installer that wrote the same
+// script, and the two had to agree byte for byte or each would rewrite the
+// other's copy on every run. That installer has been removed. This is the only
+// one left.
 
 // LauncherName is the launcher, under HooksDir.
 const LauncherName = "sg-run.sh"

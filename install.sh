@@ -8,7 +8,7 @@
 # replace is never typed again.
 #
 # WHY A SCRIPT RATHER THAN FOUR COMMANDS IN THE README. The four were: install the
-# workspace, build the TypeScript, build this host's binaries, then run the freshly
+# workspace, bundle the hooks, build this host's binaries, then run the freshly
 # built binary BY PATH — `./packages/proxy/platforms/linux-x64/solongate repair` —
 # because the `solongate` on PATH still pointed at an older install. That last one
 # is not a command anybody should have to know, it names a directory that depends
@@ -212,13 +212,13 @@ pnpm install
 
 plain "Downloaded the code libraries the build needs. The warnings above are expected."
 
-# ── 3. the TypeScript half ────────────────────────────────────────────
+# ── 3. the hooks ──────────────────────────────────────────────────────
 
-step "Building the CLI, the TUI and the hooks"
+step "Bundling the hooks"
 cd "$repo/packages/proxy"
 pnpm build
 
-plain "Built the \`solongate\` command and the hooks that watch what your AI agents do."
+plain "Bundled the hooks that watch what your AI agents do."
 
 # ── 4. this host's binaries ───────────────────────────────────────────
 

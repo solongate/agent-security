@@ -159,12 +159,11 @@ func noSourceToUpdateFrom() int {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "  This install did not come from a checkout, so there is nothing to pull.")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "  If you installed with npm:")
-	fmt.Fprintln(w, "      npm install -g @solongate/proxy")
+	fmt.Fprintln(w, "  SolonGate is distributed over git and builds from source. Clone it and run")
+	fmt.Fprintln(w, "  the install script once; `update` will remember where it is:")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "  If you have a checkout, run its install script once and `update` will")
-	fmt.Fprintln(w, "  remember where it is:")
-	fmt.Fprintln(w, "      ./install.sh")
+	fmt.Fprintln(w, "      git clone https://github.com/solongate/agent-security")
+	fmt.Fprintln(w, "      cd agent-security && ./install.sh")
 	fmt.Fprintln(w)
 	return 1
 }

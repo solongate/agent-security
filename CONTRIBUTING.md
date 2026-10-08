@@ -31,8 +31,8 @@ the tests.
 | Package | What it is |
 | --- | --- |
 | `packages/guard-go` | The guard. Runs on every tool call and decides. |
-| `packages/proxy` | The CLI, the TUI and the hooks, in TypeScript. |
-| `packages/proxy-go` | The same CLI in Go, which is what ships as the binary. |
+| `packages/proxy` | The hook programs, and the scripts that build what ships. |
+| `packages/proxy-go` | The CLI and the TUI, in Go. This is what ships as the binary. |
 | `packages/sgpolicy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
 | `packages/sgshared` | Shapes more than one program has to agree about. |
 
@@ -40,8 +40,7 @@ the tests.
 
 ```bash
 pnpm install
-pnpm build
-pnpm -C packages/proxy exec tsc --noEmit -p tsconfig.json
+pnpm build          # bundles the hooks
 
 for m in guard-go proxy-go sgpolicy sgshared; do
   (cd "packages/$m" && gofmt -l . && go vet ./...)
@@ -69,8 +68,9 @@ on which clients.
 ## Code style
 
 - **Go**: `gofmt`, and `go vet` clean. No lint config beyond that.
-- **TypeScript**: `npx tsc --noEmit -p tsconfig.json` in `packages/proxy` has to
-  pass. Formatting follows what is already in the file.
+- **The hooks** are plain `.mjs`, node builtins only, no build step beyond the
+  bundler and nothing typechecking them. Edit `guard.mjs`, never the bundled
+  output, and run `pnpm build` so the two match. Formatting follows the file.
 - **Comments carry the reasoning.** This repository comments heavily and
   deliberately: not what the code does, but what it is defending against, what
   was tried before, and what broke. If you remove a guard clause, the comment
@@ -101,10 +101,9 @@ No prefixes are required.
   fix cannot be reverted on its own.
 - Say what you ran, in detail. With no suite behind the change, a vague "tested
   locally" is not reviewable. Name the client, the calls, and the outcome.
-- CI runs gofmt and vet over the Go modules, the TypeScript typecheck, the
-  build, the release build, and a secret scan. All of it has to be green, and
-  all of it together still says nothing about whether the guard decides
-  correctly.
+- CI runs gofmt and vet over the four Go modules, the hook bundle, the release
+  build, and a secret scan. All of it has to be green, and all of it together
+  still says nothing about whether the guard decides correctly.
 - If your change alters what a policy means, say so in the pull request title.
   Somebody's live policy will behave differently, and that is a release note.
 

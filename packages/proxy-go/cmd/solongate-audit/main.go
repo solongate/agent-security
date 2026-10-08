@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codeyevsky/solongate/proxy/internal/auditscan"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/auditscan"
 )
 
 func main() { os.Exit(run(os.Args[1:])) }

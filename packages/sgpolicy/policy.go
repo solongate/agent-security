@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codeyevsky/solongate/sgshared"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // The fallback evaluator reads a missing priority as 100, not as 0 — an

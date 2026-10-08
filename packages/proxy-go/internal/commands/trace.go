@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codeyevsky/solongate/proxy/internal/api"
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 // `solongate trace` — what the guard saw, locally, for THIS directory.

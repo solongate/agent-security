@@ -3,7 +3,7 @@
 package commands
 
 import (
-	"github.com/codeyevsky/solongate/proxy/internal/install"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/install"
 )
 
 // What `doctor` asks about this machine's own installation.

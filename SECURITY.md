@@ -8,7 +8,7 @@ there. Reports are welcome, taken seriously, and never held against the reporter
 
 **Use GitHub private vulnerability reporting:**
 
-[Report a vulnerability](https://github.com/solongate/solongate/security/advisories/new)
+[Report a vulnerability](https://github.com/solongate/agent-security/security/advisories/new)
 
 That link opens a private advisory, visible only to you and the maintainers. It
 is the preferred route because the discussion, the fix and the credit all live in
@@ -72,7 +72,7 @@ fixes.
 
 | Version | Supported |
 | --- | --- |
-| The [latest release](https://github.com/solongate/solongate/releases/latest) | yes |
+| The [latest release](https://github.com/solongate/agent-security/releases/latest) | yes |
 | Anything older | no, update first |
 
 `solongate update` pulls the newest source into the checkout it was installed

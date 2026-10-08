@@ -35,7 +35,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/codeyevsky/solongate/proxy/internal/config"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/config"
 )
 
 // Version is the CLI's own version, shown in the Settings UPDATES section.

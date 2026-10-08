@@ -26,8 +26,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codeyevsky/solongate/sgpolicy"
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgpolicy"
+	"github.com/solongate/agent-security/packages/sgshared"
 )
 
 type call struct {

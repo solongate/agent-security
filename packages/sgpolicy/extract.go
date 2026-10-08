@@ -19,7 +19,7 @@ package sgpolicy
 // buys determinism at no behavioural cost.
 
 import (
-	"github.com/codeyevsky/solongate/sgshared"
+	"github.com/solongate/agent-security/packages/sgshared"
 	"io/fs"
 	"os"
 	"path/filepath"

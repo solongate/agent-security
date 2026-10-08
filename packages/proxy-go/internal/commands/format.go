@@ -26,7 +26,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/codeyevsky/solongate/proxy/internal/term"
+	"github.com/solongate/agent-security/packages/proxy-go/internal/term"
 )
 
 // The two streams, as variables so a test can prove the separation rather than

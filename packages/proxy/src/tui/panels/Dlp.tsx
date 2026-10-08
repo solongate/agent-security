@@ -19,6 +19,7 @@
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import { useEffect, useState } from 'react';
+import type { JSX } from 'react';
 import { api } from '../../api-client/index.js';
 import type { DlpMode, SecurityLayers } from '../../api-client/index.js';
 import { DataView } from '../components.js';

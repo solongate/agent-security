@@ -1,6 +1,6 @@
 /** Reusable Ink building blocks: Panel, Table, Bar, DataView, KeyHints, StreamLine. */
 import { Box, Text } from 'ink';
-import type { ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { decisionColor, theme, truncate } from './theme.js';
 
 /** HH:MM:SS for a timestamp (ms or ISO); `--:--:--` when unparseable. */

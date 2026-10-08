@@ -9,9 +9,9 @@ package api
 // EXPRESSIONS live in packages/guard-go/dlp.go and in the three hooks; only the
 // names are a user-facing menu, so only the names are here.
 //
-// packages/proxy/test/dlp-parity.mjs holds this list against those, name for name
-// and in order. A name here that no implementation carries would offer somebody a
-// pattern that enforces nothing.
+// A parity case used to hold this list against those, name for name and in order.
+// It was removed. A name here that no implementation carries offers somebody a
+// pattern that enforces nothing, and nothing will say so.
 var dlpPatternNames = []string{
 	"AWS access key",
 	"Private key block",

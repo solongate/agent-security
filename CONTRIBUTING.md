@@ -36,48 +36,35 @@ the tests.
 | `packages/sgpolicy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
 | `packages/sgshared` | Shapes more than one program has to agree about. |
 
-## Testing
+## Checking your change
 
 ```bash
-./test.sh
+pnpm install
+pnpm build
+pnpm -C packages/proxy exec tsc --noEmit -p tsconfig.json
+
+for m in guard-go proxy-go sgpolicy sgshared; do
+  (cd "packages/$m" && gofmt -l . && go vet ./...)
+done
 ```
 
-gofmt, vet and tests over the four Go modules, the TypeScript types, then the
-conformance suite against both guards: the bundled JavaScript hook and the Go
-binary. Run it before you push.
+That is all of it. There is no test suite in this repository. The conformance
+suite that used to judge both guards against each other was removed, and so was
+every Go test, and nothing replaced them. The commands above tell you the code
+compiles. They do not tell you it still decides the way it did yesterday.
 
-```bash
-./test.sh go       # the Go modules only
-./test.sh suite    # the suite only, against both guards
-```
-
-A suite that passes against one guard and fails against the other is a
-divergence, not an ordinary failure, and the script says so.
-
-### What it cannot cover
-
-The CLI needs a terminal on both stdin and stdout, and enforcement only happens
-on a real tool call, so neither can be driven by a script. If your change touches
-the CLI surface or a client adapter, exercise it by hand against a real agent and
-say in the pull request what you ran and on which clients.
+Which puts the burden on the pull request. Run your change against a real agent
+and write down what you did: which client, which tool calls, what you expected,
+what happened. That description is the only evidence a reviewer has.
 
 Both directions, every time. A rule that blocks everything passes every "was it
-blocked?" check ever written, so the call that must go through is the half that
-finds walls.
+blocked?" check anybody can think of, so the call that must go through is the
+half that finds walls.
 
-## Adding a test
-
-Every case in the conformance suite exists because the behaviour it pins was once
-wrong, and the comment on it says which. Keep that property:
-
-- Name the behaviour, not the function. `a denial is answered without waiting for
-  anything` beats `test deny path`.
-- Write the comment that explains **why the case is there**, in terms of what
-  went wrong or could go wrong. A reader six months from now has to be able to
-  tell whether your assertion is still the thing worth asserting.
-- A pass and a failure must look different. "Nothing was blocked" is never
-  evidence on its own, so assert on the exit code, the recorded entry, or the
-  file that should not have changed.
+Some of this was never scriptable anyway. The CLI needs a terminal on both
+stdin and stdout, and enforcement only happens on a real tool call. If your
+change touches the CLI surface or a client adapter, exercise it by hand and say
+on which clients.
 
 ## Code style
 
@@ -112,10 +99,12 @@ No prefixes are required.
 
 - One concern per pull request. A refactor and a fix in the same diff means the
   fix cannot be reverted on its own.
-- Say what you ran. "Both implementations, full suite, plus rows 3 and 7 of the
-  run sheet on Claude Code and Codex" is a complete answer.
-- CI runs the Go matrix, the TypeScript typecheck, the conformance suite twice,
-  the release build, and a secret scan. All of it has to be green.
+- Say what you ran, in detail. With no suite behind the change, a vague "tested
+  locally" is not reviewable. Name the client, the calls, and the outcome.
+- CI runs gofmt and vet over the Go modules, the TypeScript typecheck, the
+  build, the release build, and a secret scan. All of it has to be green, and
+  all of it together still says nothing about whether the guard decides
+  correctly.
 - If your change alters what a policy means, say so in the pull request title.
   Somebody's live policy will behave differently, and that is a release note.
 

@@ -46,8 +46,9 @@ function projectFlagDir() {
 // HANG fix, so an installed hook must pick it up: see dlpGlobToRe.
 // 33: the DLP pattern list moved to ./dlp.mjs, shared with the guard and the shield.
 // This hook now IMPORTS a sibling, so an install that does not copy that file leaves this
-// one unable to start -- which is why internal/install/installed_hooks_test.go runs every
-// installed hook from the directory it was installed into.
+// one unable to start. A test used to run every installed hook from the directory it
+// was installed into, for exactly this. It was removed, so a missed sibling now shows
+// up as a hook that does nothing on somebody's machine.
 const HOOK_VERSION = 33;
 
 // loadEnvKey and loadGlobalCloudConfig lived here, and between them they resolved an

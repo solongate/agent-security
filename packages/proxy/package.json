@@ -21,7 +21,6 @@
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo platforms",
-    "test": "node test/run-all.mjs",
     "build:go": "node scripts/build-go-binaries.mjs"
   },
   "keywords": [

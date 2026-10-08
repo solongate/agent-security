@@ -51,9 +51,10 @@ import (
 // from the outside they looked identical.
 //
 // This file is the twin of packages/proxy/src/hook-launcher.ts. The two must
-// generate the same script — npmparity_test.go checks that the registrations
-// agree, and a launcher that differed between them would have one implementation
-// rewriting the other's on every run.
+// generate the same script: a launcher that differed between them would have one
+// implementation rewriting the other's on every run. A test used to check that
+// the registrations agree. It was removed, so the two are held level by reading
+// them.
 
 // LauncherName is the launcher, under HooksDir.
 const LauncherName = "sg-run.sh"

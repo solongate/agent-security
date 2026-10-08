@@ -434,10 +434,11 @@ func tamperCheck(toolName string, args map[string]interface{}) string {
 //     changes nothing enforced. The subcommand is the difference.
 //
 // The twin of commandInvokesCLI in the Node hook. The tables below are the same tables, in
-// the same order, and a name added to one belongs in the other. Both are driven by the same
-// cases in packages/proxy/test/cli-invocation.mjs, whose second half is the half that
-// matters: every command there is one a person would reasonably ask an agent for while
-// working on this repository.
+// the same order, and a name added to one belongs in the other. One set of cases used to
+// drive both, and the half that mattered was the one listing commands a person would
+// reasonably ask an agent for while working on this repository: the allowed half, not the
+// blocked half. Those cases are gone, so adding a name to one table and not the other is
+// now a silent divergence.
 
 var cliBasenames = map[string]bool{
 	"solongate": true, "solongate.exe": true,

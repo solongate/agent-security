@@ -3,8 +3,11 @@ version: 2
 # The guard runs before every tool call, so a dependency on the decision path is
 # a liability rather than a convenience. sgshared deliberately has none, and
 # sgpolicy has one that matters (OPA). Updates are grouped per module so a bump
-# can be reviewed and tested against the conformance suite in one go, rather than
-# arriving as four pull requests that each need the full matrix run.
+# arrives as one pull request to review rather than four.
+#
+# Review them by hand. There is no conformance suite behind these any more, so
+# a green tick on a dependency bump means it compiles, not that the guard still
+# decides the way it did before.
 
 updates:
   - package-ecosystem: github-actions

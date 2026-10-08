@@ -6,7 +6,7 @@
   <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
   <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
-  <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.25-00ADD8.svg" alt="Go 1.25"></a>
+  <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26-00ADD8.svg" alt="Go 1.26"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-22%2B-339933.svg" alt="Node 22+"></a>
 </p>
 
@@ -108,17 +108,19 @@ full tree.
 
 ## Contributing
 
-Go 1.25 and Node 22+.
+Go 1.26 and Node 22+.
 
 ```bash
 pnpm install
-./test.sh
+pnpm build
 ```
 
 There are two implementations of the guard, in Go and in bundled JavaScript, and
 which one decides a call depends only on whether a machine has the binary. They
-have to agree, so the conformance suite runs against both and a change to the
-decision path lands in both. [CONTRIBUTING.md](CONTRIBUTING.md) is the rest.
+have to agree, so a change to the decision path lands in both. Nothing in the
+repository checks that they still do: there is no test suite here, and a change
+to the guard is only as good as what you ran it against by hand.
+[CONTRIBUTING.md](CONTRIBUTING.md) is the rest.
 
 Reporting a vulnerability: [SECURITY.md](SECURITY.md), privately, never a public
 issue. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies everywhere.

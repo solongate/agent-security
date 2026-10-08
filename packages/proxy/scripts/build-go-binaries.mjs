@@ -148,14 +148,12 @@ for (const t of targets) {
   writeFileSync(join(dir, 'README.md'),
     `# @solongate/guard-${t.tag}\n\n`
     + `Prebuilt SolonGate binaries for \`${t.os}\`/\`${t.cpu}\`.\n\n`
-    + 'Installed automatically as an optional dependency of\n'
-    + '[`@solongate/proxy`](https://www.npmjs.com/package/@solongate/proxy). There is no\n'
-    + 'reason to depend on it directly, and nothing in it to import: it contains two\n'
-    + 'executables and this file.\n\n'
-    + 'If npm skipped it — an unsupported platform, `--no-optional`, a restricted\n'
-    + 'registry — SolonGate still works. The guard falls back to its Node\n'
-    + 'implementation, which enforces the same policy more slowly. A missing binary\n'
-    + 'costs speed and never protection.\n');
+    + 'There is nothing in it to import: it contains two executables and this\n'
+    + 'file. This layout is what install.sh and `solongate repair` copy from, and\n'
+    + 'what a release archive is made of.\n\n'
+    + 'Without the binary, SolonGate still enforces. The guard falls back to its\n'
+    + 'bundled Node implementation, which applies the same policy more slowly. A\n'
+    + 'missing binary costs speed and never protection.\n');
 
   const total = built.reduce((n, b) => n + b.bytes, 0);
   console.log(`  ${t.tag.padEnd(14)} ${built.map((b) => b.exe).join(', ').padEnd(34)} ${(total / 1048576).toFixed(1)} MB`);

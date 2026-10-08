@@ -14,13 +14,11 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "typecheck": "turbo run typecheck",
     "clean": "turbo run clean"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
-    "turbo": "^2.11.7",
-    "typescript": "^7.0.2"
+    "turbo": "^2.11.7"
   },
   "pnpm": {
     "neverBuiltDependencies": [

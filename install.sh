@@ -9,7 +9,7 @@
 #
 # WHY A SCRIPT RATHER THAN FOUR COMMANDS IN THE README. The four were: install the
 # workspace, bundle the hooks, build this host's binaries, then run the freshly
-# built binary BY PATH — `./packages/proxy/platforms/linux-x64/solongate repair` —
+# built binary BY PATH — `./packages/hooks/platforms/linux-x64/solongate repair` —
 # because the `solongate` on PATH still pointed at an older install. That last one
 # is not a command anybody should have to know, it names a directory that depends
 # on the machine, and getting it wrong looks like the product being broken rather
@@ -131,7 +131,7 @@ Linux) os=linux ;;
 Darwin) os=darwin ;;
 *)
 	die "this script covers Linux and macOS; found $(uname -s)." \
-		"On Windows, build with: pnpm install && cd packages/proxy && pnpm build && pnpm build:go win32-x64" \
+		"On Windows, build with: pnpm install && cd packages/hooks && pnpm build && pnpm build:go win32-x64" \
 		"then run platforms\\win32-x64\\solongate.exe repair from a terminal."
 	;;
 esac
@@ -143,7 +143,7 @@ arm64 | aarch64) cpu=arm64 ;;
 esac
 
 tag="$os-$cpu"
-bin="$repo/packages/proxy/platforms/$tag/solongate"
+bin="$repo/packages/hooks/platforms/$tag/solongate"
 
 # ── 1. the tools this needs ───────────────────────────────────────────
 
@@ -215,7 +215,7 @@ plain "Downloaded the code libraries the build needs. The warnings above are exp
 # ── 3. the hooks ──────────────────────────────────────────────────────
 
 step "Bundling the hooks"
-cd "$repo/packages/proxy"
+cd "$repo/packages/hooks"
 pnpm build
 
 plain "Bundled the hooks that watch what your AI agents do."
@@ -227,7 +227,7 @@ plain "Bundled the hooks that watch what your AI agents do."
 step "Building the Go guard and CLI for $tag"
 GO_BIN="$go_bin" pnpm build:go "$tag"
 [ -x "$bin" ] || die "the build reported success but $bin is not there." \
-	"Run \`pnpm build:go $tag\` in packages/proxy and read what it says."
+	"Run \`pnpm build:go $tag\` in packages/hooks and read what it says."
 
 plain "Built the guard: the program that checks every action an AI agent takes."
 

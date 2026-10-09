@@ -25,20 +25,20 @@ the tests.
 
 | Package | What it is |
 | --- | --- |
-| `packages/guard-go` | The guard. Runs on every tool call and decides. |
-| `packages/sgpolicy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
-| `packages/sgshared` | Shapes more than one program has to agree about. No dependencies, on purpose. |
-| `packages/sgcore` | What both surfaces stand on: config, the local store, install state, health. |
-| `packages/sgcli` | The subcommands. Prints and exits. |
-| `packages/sgtui` | The dataroom. Full screen, stays open. |
-| `packages/proxy-go` | The binary: dispatch, the human-only gate, and the audit scanner. |
-| `packages/proxy` | The hook programs, and the scripts that build what ships. |
+| `packages/guard` | The guard. Runs on every tool call and decides. |
+| `packages/policy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
+| `packages/shared` | Shapes more than one program has to agree about. No dependencies, on purpose. |
+| `packages/core` | What both surfaces stand on: config, the local store, install state, health. |
+| `packages/cli` | The subcommands. Prints and exits. |
+| `packages/tui` | The dataroom. Full screen, stays open. |
+| `packages/app` | The binary. 409 lines: dispatch, the human-only gate, and `--help`. |
+| `packages/hooks` | The hook programs, and the scripts that build what ships. |
 
-`sgcli` and `sgtui` are siblings and neither imports the other. They are two
+`cli` and `tui` are siblings and neither imports the other. They are two
 surfaces onto the same thing, and when one reaches into the other what follows
 is a check a person reads differently depending on which they opened. The one
 edge that existed, the dataroom calling the CLI for `doctor`, is why
-`sgcore/health` is its own package.
+`core/health` is its own package.
 
 ## Checking your change
 
@@ -46,7 +46,7 @@ edge that existed, the dataroom calling the CLI for `doctor`, is why
 pnpm install
 pnpm build          # bundles the hooks
 
-for m in guard-go sgpolicy sgshared sgcore sgcli sgtui proxy-go; do
+for m in guard policy shared core cli tui app; do
   (cd "packages/$m" && gofmt -l . && go vet ./...)
 done
 ```
@@ -81,7 +81,7 @@ on which clients.
   explaining why it was there is part of what you are removing, so make the pull
   request say what replaced it.
 - **No new dependency on the decision path** without a reason in the pull
-  request. The guard runs before every tool call, and `packages/sgshared` has no
+  request. The guard runs before every tool call, and `packages/shared` has no
   external dependencies on purpose.
 
 ## Commit messages

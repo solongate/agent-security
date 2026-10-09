@@ -14,7 +14,7 @@ name: ci
 #
 # There is no TypeScript job either, because there is no TypeScript left to
 # check. The CLI and the TUI were removed once the Go port replaced them and
-# distribution stopped going through npm. What remains in packages/proxy is
+# distribution stopped going through npm. What remains in packages/hooks is
 # .mjs hook programs, which run under node and are typechecked by nothing.
 #
 # Three jobs used to live here and do not any more: the schema applied to a real
@@ -37,20 +37,20 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - packages/guard-go
-          - packages/sgpolicy
-          - packages/sgshared
-          - packages/sgcore
-          - packages/sgcli
-          - packages/sgtui
-          - packages/proxy-go
+          - packages/guard
+          - packages/policy
+          - packages/shared
+          - packages/core
+          - packages/cli
+          - packages/tui
+          - packages/app
     steps:
       - uses: actions/checkout@v7
 
       # THE VERSION THE MODULE DECLARES, not a number typed into three files.
       #
       # OPA 1.21.1 requires go 1.26, so taking it raised the `go` line in
-      # guard-go and sgpolicy while this pin stayed at 1.25. setup-go sets
+      # guard and policy while this pin stayed at 1.25. setup-go sets
       # GOTOOLCHAIN=local, so `go vet` refused to run rather than fetching what
       # it needed, and every laptop with a newer toolchain built the same tree
       # without a word. Reading go.mod is how the pin stops being able to drift
@@ -103,7 +103,7 @@ jobs:
       # whether those resolve on a stranger's machine is not a thing to find out
       # on the decision path.
       - name: build
-        working-directory: packages/proxy
+        working-directory: packages/hooks
         run: pnpm build
 
       # THE RELEASE BUILD, which nothing here exercised until it was broken.
@@ -122,16 +122,16 @@ jobs:
       # matrix.
       - uses: actions/setup-go@v7
         with:
-          go-version-file: packages/guard-go/go.mod
-          cache-dependency-path: packages/guard-go/go.sum
+          go-version-file: packages/guard/go.mod
+          cache-dependency-path: packages/guard/go.sum
       - name: the release build works
-        working-directory: packages/proxy
+        working-directory: packages/hooks
         run: pnpm build:go linux-x64
 
       # AND THAT IT CHANGED NOTHING IT SHOULD NOT HAVE.
       #
       # build:go used to rewrite six optionalDependencies into
-      # packages/proxy/package.json, each pinned to a version that was never
+      # packages/hooks/package.json, each pinned to a version that was never
       # published. pnpm cannot record an optional dependency it cannot resolve,
       # so the lockfile never held them, and `pnpm install --frozen-lockfile`
       # could not pass on any machine. It failed every CI run and every release
@@ -143,7 +143,7 @@ jobs:
       # conformance suite and went with it.
       - name: the build left the tree alone
         run: |
-          if ! git diff --exit-code -- packages/proxy/package.json pnpm-lock.yaml; then
+          if ! git diff --exit-code -- packages/hooks/package.json pnpm-lock.yaml; then
             echo
             echo "build:go modified a manifest or the lockfile, which it must not do."
             exit 1

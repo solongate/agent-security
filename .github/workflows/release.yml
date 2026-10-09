@@ -2,7 +2,7 @@ name: release
 
 # A TAG IS THE ONLY THING THAT MAKES A VERSION VISIBLE.
 #
-# The version lives in packages/proxy/package.json and is stamped into the
+# The version lives in packages/hooks/package.json and is stamped into the
 # binaries with -ldflags, so `solongate doctor` can print it. That was the whole
 # of it: nothing on GitHub showed the number, there were no tags and no releases,
 # and the only way to learn what 0.91.31 meant was to read the commit that typed
@@ -36,9 +36,9 @@ jobs:
       - name: the tag matches the version it claims
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          pkg="$(node -p "require('./packages/proxy/package.json').version")"
+          pkg="$(node -p "require('./packages/hooks/package.json').version")"
           if [ "$tag" != "$pkg" ]; then
-            echo "tag v$tag, but packages/proxy/package.json says $pkg" >&2
+            echo "tag v$tag, but packages/hooks/package.json says $pkg" >&2
             echo "bump the manifest and the tag together, or the binaries lie about which one they are" >&2
             exit 1
           fi
@@ -54,8 +54,8 @@ jobs:
       # all, and this is the job where that produces no binaries and no release.
       - uses: actions/setup-go@v7
         with:
-          go-version-file: packages/guard-go/go.mod
-          cache-dependency-path: packages/guard-go/go.sum
+          go-version-file: packages/guard/go.mod
+          cache-dependency-path: packages/guard/go.sum
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
@@ -63,12 +63,12 @@ jobs:
       # All six targets cross-compile from here: CGO is off, so there is no
       # per-platform toolchain to install.
       - name: build every platform
-        working-directory: packages/proxy
+        working-directory: packages/hooks
         run: pnpm build:go
 
       - name: one archive per platform
         run: |
-          cd packages/proxy/platforms
+          cd packages/hooks/platforms
           for d in */; do
             t="${d%/}"
             tar -czf "$GITHUB_WORKSPACE/solongate-${GITHUB_REF_NAME}-${t}.tar.gz" -C "$t" .

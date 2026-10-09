@@ -84,7 +84,18 @@ func CollectChecks(ctx context.Context, c *api.Client) []Check {
 	// your account in the Accounts panel". Everything below it was skipped on that
 	// failure, so a machine with no service reported nothing about itself at all.
 	// The first check is the file everything else comes from.
-	add("policy file", StateOK, api.PolicyPath())
+	//
+	// AND WHETHER IT IS THERE. This was StateOK unconditionally: it printed the
+	// path and said nothing about whether anything was at it. On a machine that
+	// had just been installed, the one check that could have said "you have no
+	// policy yet" reported a tick instead, above a row saying no policy resolves.
+	// A guard with no policy allows every call, so this is the difference between
+	// a machine that is enforcing and one that is only watching.
+	if _, err := os.Stat(api.PolicyPath()); err != nil {
+		add("policy file", StateWarn, "none yet · "+api.PolicyPath()+" · run `solongate` to write one")
+	} else {
+		add("policy file", StateOK, api.PolicyPath())
+	}
 	checks = append(checks, policyChecks(ctx, c)...)
 	checks = append(checks, guardHookCheck(ctx, c)...)
 
@@ -151,8 +162,12 @@ func policyChecks(ctx context.Context, c *api.Client) []Check {
 			Detail: active.Policy.Name + " v" + strconv.Itoa(active.Version) + " · " + mode +
 				" · matched by " + active.MatchedBy})
 	} else {
+		// NOT "falls back to default". There is no default to fall back to: a nil
+		// policy evaluates to the empty string and the call is allowed, which is
+		// the opposite of what the old wording implied to anyone who read it as a
+		// safe default being in force.
 		checks = append(checks, Check{Name: "active policy", OK: StateWarn,
-			Detail: "no policy resolves - every call falls back to default"})
+			Detail: "none · every call is allowed, and recorded"})
 	}
 
 	var rlBlock *api.RateLimitSettings

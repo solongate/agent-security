@@ -839,7 +839,7 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 		if p.diagBusy {
 			l.put(spinFrames[p.spin%len(spinFrames)]+" running health check…", stAccent)
 		} else {
-			l.put("health check: login, policy, guard, hooks, local logs · enter runs it", stDim)
+			l.put("health check: policy, guard, hooks, local logs · enter runs it", stDim)
 		}
 
 	case "repair":

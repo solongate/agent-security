@@ -5,7 +5,7 @@
 // NOTHING HERE IS INVENTED. The mark is apps/onboarding/public/mark.svg from the
 // product repository, copied path for path. The palette is that app's design
 // tokens. The two status colours are the CLI's own, from
-// packages/proxy-go/internal/term/color.go, which is the red and green a person
+// packages/app/internal/term/color.go, which is the red and green a person
 // actually sees when a call is refused or allowed.
 //
 //   node docs/assets/build.mjs
@@ -135,7 +135,7 @@ const twoImplementations = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBo
   <text x="868" y="182" text-anchor="end" font-family="${SANS}" font-size="13" font-weight="600" fill="${MUTED}">no</text>
 
   ${box(130, 216, 380, 72)}
-  <text x="320" y="248" text-anchor="middle" font-family="${MONO}" font-size="15" fill="${TEXT}">packages/guard-go</text>
+  <text x="320" y="248" text-anchor="middle" font-family="${MONO}" font-size="15" fill="${TEXT}">packages/guard</text>
   <text x="320" y="270" text-anchor="middle" font-family="${SANS}" font-size="13" fill="${MUTED}">the Go binary decides</text>
 
   ${box(690, 216, 380, 72)}

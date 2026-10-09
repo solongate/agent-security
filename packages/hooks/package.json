@@ -1,0 +1,48 @@
+{
+  "name": "@solongate/hooks",
+  "version": "0.0.6",
+  "description": "The hook programs SolonGate installs into an agent's client, and the scripts that build what ships.",
+  "type": "module",
+  "files": [
+    "*.mjs",
+    "*.d.mts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/bundle-hooks.mjs",
+    "build:go": "node scripts/build-go-binaries.mjs",
+    "clean": "rm -rf .turbo platforms hooks/guard.bundled.mjs"
+  },
+  "keywords": [
+    "ai-tool-security",
+    "security",
+    "firewall",
+    "ai-security",
+    "tool-security",
+    "claude",
+    "solongate",
+    "path-traversal",
+    "rate-limiting"
+  ],
+  "author": "SolonGate <hello@solongate.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/solongate/agent-security#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solongate/agent-security.git",
+    "directory": "packages/hooks"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@open-policy-agent/opa-wasm": "^1.10.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "bugs": {
+    "url": "https://github.com/solongate/agent-security/issues"
+  }
+}

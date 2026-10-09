@@ -1,8 +1,8 @@
 version: 2
 
 # The guard runs before every tool call, so a dependency on the decision path is
-# a liability rather than a convenience. sgshared deliberately has none, and
-# sgpolicy has one that matters (OPA). Updates are grouped per module so a bump
+# a liability rather than a convenience. shared deliberately has none, and
+# policy has one that matters (OPA). Updates are grouped per module so a bump
 # arrives as one pull request to review rather than four.
 #
 # Review them by hand. There is no conformance suite behind these any more, so
@@ -18,9 +18,9 @@ updates:
       actions:
         patterns: ['*']
 
-  # ONE npm ENTRY, NOT TWO. There used to be a second for /packages/proxy, and in a
+  # ONE npm ENTRY, NOT TWO. There used to be a second for /packages/hooks, and in a
   # pnpm workspace the root entry already resolves every member's manifest, so
-  # each bump arrived twice: "Bump ink" and "Bump ink in /packages/proxy", two
+  # each bump arrived twice: "Bump ink" and "Bump ink in /packages/hooks", two
   # branches, two full CI runs, two things to review that were the same thing.
   # Three of seven open pull requests were the duplicate half.
   - package-ecosystem: npm
@@ -34,7 +34,7 @@ updates:
         patterns: ['*']
 
   - package-ecosystem: gomod
-    directory: /packages/guard-go
+    directory: /packages/guard
     schedule:
       interval: weekly
     groups:
@@ -42,7 +42,7 @@ updates:
         patterns: ['*']
 
   - package-ecosystem: gomod
-    directory: /packages/proxy-go
+    directory: /packages/app
     schedule:
       interval: weekly
     groups:
@@ -50,7 +50,7 @@ updates:
         patterns: ['*']
 
   - package-ecosystem: gomod
-    directory: /packages/sgpolicy
+    directory: /packages/policy
     schedule:
       interval: weekly
     groups:
@@ -58,7 +58,7 @@ updates:
         patterns: ['*']
 
   - package-ecosystem: gomod
-    directory: /packages/sgshared
+    directory: /packages/shared
     schedule:
       interval: weekly
     groups:
@@ -66,7 +66,7 @@ updates:
         patterns: ['*']
 
   - package-ecosystem: gomod
-    directory: /packages/sgcore
+    directory: /packages/core
     schedule:
       interval: weekly
     groups:
@@ -74,7 +74,7 @@ updates:
         patterns: ['*']
 
   - package-ecosystem: gomod
-    directory: /packages/sgcli
+    directory: /packages/cli
     schedule:
       interval: weekly
     groups:
@@ -86,7 +86,7 @@ updates:
   # cannot reach the guard or the policy engine, and the pull request says so by
   # naming this module.
   - package-ecosystem: gomod
-    directory: /packages/sgtui
+    directory: /packages/tui
     schedule:
       interval: weekly
     groups:

@@ -165,13 +165,21 @@ const twoImplementations = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBo
 // the authoritative answer and one click away, so a stale badge is checkable
 // rather than merely wrong.
 //
-// TWO FILES FOR ONE PICTURE, which needs a reason. openssf-mark.png is the
-// source: the foundation's logo with the wordmark cropped off, because the
-// badge says OpenSSF in text already and the wordmark at 14 pixels tall is a
-// grey smear. openssf-mark-14.png is that file scaled to the height the badge
-// uses, scaled once and committed because node has no image resizer here and
-// adding a dependency to draw two rectangles and some text would be a poor
-// trade. Rescale it if the badge height ever changes.
+// THE EMBLEM, NOT THE FOUNDATION LOGO. The first attempt cropped the duck out
+// of the OpenSSF logo, and the duck is 86 wide by 138 tall: at the 14 pixels a
+// badge gives a logo it came out 9 wide, which is a sliver rather than a mark.
+// This is the Best Practices emblem from bestpractices.dev, which is square and
+// still reads as a shield with a trophy in it at that size.
+//
+// openssf-bestpractices.svg is the source, verbatim from the site.
+// openssf-mark-14.png is it rasterised at TWICE the display size and shown at
+// half, so it is not soft on a retina screen. Rasterised rather than embedded
+// as SVG because an <image> holding an svg+xml data URI is not something every
+// renderer handles, and GitHub proxies this file.
+//
+// Both are committed because node has no image resizer in this repo, and adding
+// a dependency to draw two rectangles and some text would be a poor trade.
+// Re-run the convert if the badge height ever changes.
 const LEVEL = 'baseline-1';
 const OPENSSF_NAVY = '#04335f'; // sampled from the wordmark in the source logo
 const BADGE_GREY = '#555'; // the shields.io label colour, so the row matches
@@ -194,8 +202,8 @@ const advance = (text, px) => {
 
 const openssfBadge = () => {
   const H = 20, LOGO_H = 14, FS = 11, PAD = 6, GAP = 4;
-  // The mark is 86x138 after cropping, so at 14 tall it is 9 wide.
-  const LOGO_W = Math.max(1, Math.round((LOGO_H * 86) / 138));
+  // The emblem is square.
+  const LOGO_W = LOGO_H;
   const b64 = readFileSync(join(here, 'openssf-mark-14.png')).toString('base64');
 
   const left = 'OpenSSF';

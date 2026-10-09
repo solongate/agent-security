@@ -11,6 +11,10 @@
 </p>
 
 <p align="center">
+  <a href="https://www.bestpractices.dev/en/projects/15333/baseline-1"><img src="https://www.bestpractices.dev/projects/15333/baseline" alt="OpenSSF Security Baseline level 1, 24 of 24 controls"></a>
+</p>
+
+<p align="center">
   <a href="CONTRIBUTING.md"><b>Contributing</b></a> ·
   <a href="SECURITY.md"><b>Security</b></a>
 </p>
@@ -167,17 +171,6 @@ to the guard is only as good as what you ran it against by hand.
 
 Reporting a vulnerability: [SECURITY.md](SECURITY.md), privately, never a public
 issue. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies everywhere.
-
-## Standards
-
-<a href="https://www.bestpractices.dev/projects/15333"><img src="docs/assets/openssf-baseline.svg" alt="OpenSSF Best Practices baseline-1" height="20"></a>
-
-The [OpenSSF Security Baseline](https://baseline.openssf.org/), level 1: a set
-of controls a project has to meet rather than a set it ought to, awarded on
-2026-10-09. The criteria and this project's answers against them are on
-[bestpractices.dev](https://www.bestpractices.dev/projects/15333), which is the
-authoritative copy; the badge above is drawn in this repository, so if the two
-ever disagree, believe the site.
 
 ## Licence
 

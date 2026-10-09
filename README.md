@@ -67,9 +67,50 @@ and the agent says so rather than quietly working around it.
 | **Rate limits** | A cap per minute, hour or day. |
 | **The prompt** | A shim masks the outbound request body on Claude Code, which no tool call hook can reach. |
 | **Tamper protection** | The guard's own state is unreachable from a tool call, and a policy in a repository cannot switch it off. |
+| **Protected paths** | A path the OS itself refuses the agent, rather than a rule matched against the words in a tool call. |
 
 Every decision lands in `~/.solongate/local-logs/solongate-audit.jsonl`, owner
 only, one JSON object per line.
+
+## Protected paths
+
+Every layer above reads the strings in a tool call. That stops `rm game.c`. It
+does not stop a script the agent writes and then runs, a path assembled at
+runtime, or a program the agent compiles that calls `unlink` itself, and no
+amount of pattern-adding closes that: the ways to name a file without typing
+its name do not run out.
+
+So a protected path is handed to the operating system.
+
+```bash
+solongate protect ~/game/game.c   # lock it, and say what the lock is worth
+solongate protect list            # what is actually holding each path, read from disk
+solongate run -- claude           # start the agent with those paths out of reach
+```
+
+`protect` puts a permanent lock on the file: `chflags uchg` on macOS, an
+`icacls` deny plus an OWNER_RIGHTS ACE on Windows, `chattr +i` on Linux. The
+first two need no privilege. Linux has no unprivileged equivalent, so it asks
+for one `sudo chattr +i`, shows the exact command first, and falls back to
+`chmod 0444` if you decline. That fallback stops the write and does not stop
+`rm`, and `protect list` says so rather than printing the word "protected".
+
+`run` is the other half, and the only command that changes what SolonGate is.
+Everywhere else SolonGate is a child of the agent, answering questions about
+calls the agent chose to declare. Started this way the confinement goes on
+before the agent's first instruction, every process it starts inherits it, and
+nothing it runs can remove it. Linux uses Landlock, macOS uses Seatbelt,
+Windows uses a run-scoped deny. `solongate run --explain` says what each
+actually gets and what it does not.
+
+Measured on Linux with one file protected: `cat`, `rm`, `find -delete`,
+`os.unlink`, `open(..., 'w')`, a script written to `/tmp` and run, and a C
+program compiled on the spot all succeed when the agent is started normally and
+all fail inside `solongate run`. Reading `/etc`, writing to `/tmp` and making a
+new project directory keep working.
+
+`solongate protect require-sandbox on` refuses every call from an agent that
+was not started this way. It fails closed, so it is off until you turn it on.
 
 ## The CLI
 
@@ -78,6 +119,8 @@ solongate              the dataroom: policies, audit, settings
 solongate policy       list, create and edit the policy
 solongate dlp          secret detection
 solongate ratelimit    the rate limit
+solongate protect      paths the agent may not touch
+solongate run          start an agent inside OS-level confinement
 solongate audit        browse the audit trail
 solongate watch        live tail tool calls
 solongate trace        what the guard saw in this directory

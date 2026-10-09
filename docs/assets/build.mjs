@@ -23,7 +23,7 @@
 //      derived light palette would be a second brand nobody approved, and the
 //      pair would drift the first time one of them got a corrected label.
 
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -152,7 +152,96 @@ const twoImplementations = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBo
 </svg>
 `;
 
-const DIAGRAMS = { 'decision-path': decisionPath, 'two-implementations': twoImplementations };
+// ── the OpenSSF badge ──────────────────────────────────────────────────────
+//
+// A STATIC COPY OF A LIVE CLAIM, and that is a trade worth naming.
+// bestpractices.dev serves its own badge for project 15333 and it carries no
+// logo at all: grey "openssf baseline v2026.08.28" against a blue "1". This one
+// is drawn here from the foundation's own mark so the badge row has something
+// recognisable in it.
+//
+// The cost is that the LEVEL IS FROZEN at the moment this ran. Change LEVEL
+// below and re-run when it moves. The badge links to the project page, which is
+// the authoritative answer and one click away, so a stale badge is checkable
+// rather than merely wrong.
+//
+// THE EMBLEM, NOT THE FOUNDATION LOGO. The first attempt cropped the duck out
+// of the OpenSSF logo, and the duck is 86 wide by 138 tall: at the 14 pixels a
+// badge gives a logo it came out 9 wide, which is a sliver rather than a mark.
+// This is the Best Practices emblem from bestpractices.dev, which is square and
+// still reads as a shield with a trophy in it at that size.
+//
+// openssf-bestpractices.svg is the source, verbatim from the site.
+// openssf-mark-14.png is it rasterised at TWICE the display size and shown at
+// half, so it is not soft on a retina screen. Rasterised rather than embedded
+// as SVG because an <image> holding an svg+xml data URI is not something every
+// renderer handles, and GitHub proxies this file.
+//
+// Both are committed because node has no image resizer in this repo, and adding
+// a dependency to draw two rectangles and some text would be a poor trade.
+// Re-run the convert if the badge height ever changes.
+const LEVEL = 'baseline-1';
+const OPENSSF_NAVY = '#04335f'; // sampled from the wordmark in the source logo
+const BADGE_GREY = '#555'; // the shields.io label colour, so the row matches
+
+// Verdana advances, near enough for a badge and checked by eye. textLength
+// pins the run to exactly this width afterwards, so a renderer with a slightly
+// different Verdana cannot push the text out of its own section.
+const advance = (text, px) => {
+  const wide = new Set([...'MWmw@']);
+  const narrow = new Set([...'iljtfr.,:;!|I ']);
+  let total = 0;
+  for (const ch of text) {
+    if (wide.has(ch)) total += 0.82;
+    else if (narrow.has(ch)) total += 0.36;
+    else if (ch !== ch.toLowerCase()) total += 0.70;
+    else total += 0.58;
+  }
+  return total * px;
+};
+
+const openssfBadge = () => {
+  const H = 20, LOGO_H = 14, FS = 11, PAD = 6, GAP = 4;
+  // The emblem is square.
+  const LOGO_W = LOGO_H;
+  const b64 = readFileSync(join(here, 'openssf-mark-14.png')).toString('base64');
+
+  const left = 'OpenSSF';
+  const lw = advance(left, FS);
+  const rw = advance(LEVEL, FS);
+  const lSec = PAD + LOGO_W + GAP + lw + PAD;
+  const rSec = PAD + rw + PAD;
+  const total = lSec + rSec;
+
+  const text = (x, body, width) =>
+    `<text x="${(x * 10).toFixed(0)}" y="${((H / 2 + FS * 0.35) * 10).toFixed(0)}" transform="scale(.1)" fill="#fff" textLength="${(width * 10).toFixed(0)}">${body}</text>`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total.toFixed(0)}" height="${H}" role="img" aria-label="OpenSSF: ${LEVEL}">
+  <title>OpenSSF: ${LEVEL}</title>
+  <linearGradient id="g" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r"><rect width="${total.toFixed(0)}" height="${H}" rx="3" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="${lSec.toFixed(0)}" height="${H}" fill="${BADGE_GREY}"/>
+    <rect x="${lSec.toFixed(0)}" width="${rSec.toFixed(0)}" height="${H}" fill="${OPENSSF_NAVY}"/>
+    <rect width="${total.toFixed(0)}" height="${H}" fill="url(#g)"/>
+  </g>
+  <image x="${PAD}" y="${(H - LOGO_H) / 2}" width="${LOGO_W}" height="${LOGO_H}" xlink:href="data:image/png;base64,${b64}"/>
+  <g font-family="Verdana,DejaVu Sans,Geneva,sans-serif" font-size="${FS * 10}" text-rendering="geometricPrecision" text-anchor="middle">
+    ${text(PAD + LOGO_W + GAP + lw / 2, left, lw)}
+    ${text(lSec + rSec / 2, LEVEL, rw)}
+  </g>
+</svg>
+`;
+};
+
+const DIAGRAMS = {
+  'decision-path': decisionPath,
+  'two-implementations': twoImplementations,
+  'openssf-baseline': openssfBadge,
+};
 
 for (const [name, render] of Object.entries(DIAGRAMS)) {
   writeFileSync(join(here, `${name}.svg`), render());

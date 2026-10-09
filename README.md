@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.bestpractices.dev/en/projects/15333/baseline-1"><img src="https://www.bestpractices.dev/projects/15333/baseline" alt="OpenSSF Security Baseline level 1, 24 of 24 controls"></a>
+  <a href="https://www.bestpractices.dev/en/projects/15333/baseline-1"><img src="docs/assets/openssf-baseline.svg" alt="OpenSSF Security Baseline level 1, 24 of 24 controls" height="28"></a>
 </p>
 
 <p align="center">

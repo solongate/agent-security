@@ -102,7 +102,74 @@ func CollectChecks(ctx context.Context, c *api.Client) []Check {
 	checks = append(checks, nativeGuardCheck()...)
 	checks = append(checks, clientChecks()...)
 	checks = append(checks, localLogCheck()...)
+	checks = append(checks, protectedCheck(ctx, c)...)
 	return checks
+}
+
+// protectedCheck reports the protected paths and, more importantly, whether
+// what is holding them is the operating system or a string match.
+//
+// THE TWO LOOK IDENTICAL FROM EVERYWHERE ELSE. A protected path with an OS
+// lock and a sandboxed agent is a promise the kernel keeps. The same path with
+// neither is a promise that holds until the agent writes a two-line script.
+// Both print the word "protected" in the config file, so this is the row that
+// has to say which.
+func protectedCheck(ctx context.Context, c *api.Client) []Check {
+	paths, err := c.Settings.ProtectedPaths(ctx)
+	if err != nil || len(paths) == 0 {
+		return nil
+	}
+
+	weakest := ""
+	locked := 0
+	for _, p := range paths {
+		l := config.CheckLock(p)
+		if l.Immutable {
+			locked++
+			continue
+		}
+		if weakest == "" {
+			weakest = p + " · " + l.Summary()
+		}
+	}
+
+	var out []Check
+	switch {
+	case locked == len(paths):
+		out = append(out, Check{Name: "protected paths", OK: StateOK,
+			Detail: plural(len(paths), "path", "paths") + " · all locked against write and delete"})
+	default:
+		out = append(out, Check{Name: "protected paths", OK: StateWarn,
+			Detail: strconv.Itoa(locked) + " of " + strconv.Itoa(len(paths)) +
+				" fully locked · " + weakest})
+	}
+
+	// And whether the last agent to make a call was actually inside a sandbox.
+	required, _ := c.Settings.RequireSandbox(ctx)
+	rec := config.NewestEvalRecord()
+	switch {
+	case required:
+		out = append(out, Check{Name: "confinement", OK: StateOK,
+			Detail: "required · a call from outside `solongate run` is refused"})
+	case rec == nil:
+		out = append(out, Check{Name: "confinement", OK: StateWarn,
+			Detail: "no tool call recorded yet, so nothing is known about it"})
+	case rec.Sandbox != "":
+		out = append(out, Check{Name: "confinement", OK: StateOK,
+			Detail: "the last call came from inside `solongate run`"})
+	default:
+		out = append(out, Check{Name: "confinement", OK: StateWarn,
+			Detail: "the last call came from an agent started outside `solongate run`, " +
+				"so the kernel was not enforcing these paths for it"})
+	}
+	return out
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
 }
 
 // activeWithObserve decodes /policies/active twice out of one response.

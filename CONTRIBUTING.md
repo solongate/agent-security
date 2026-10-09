@@ -31,10 +31,19 @@ the tests.
 | Package | What it is |
 | --- | --- |
 | `packages/guard-go` | The guard. Runs on every tool call and decides. |
-| `packages/proxy` | The hook programs, and the scripts that build what ships. |
-| `packages/proxy-go` | The CLI and the TUI, in Go. This is what ships as the binary. |
 | `packages/sgpolicy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
-| `packages/sgshared` | Shapes more than one program has to agree about. |
+| `packages/sgshared` | Shapes more than one program has to agree about. No dependencies, on purpose. |
+| `packages/sgcore` | What both surfaces stand on: config, the local store, install state, health. |
+| `packages/sgcli` | The subcommands. Prints and exits. |
+| `packages/sgtui` | The dataroom. Full screen, stays open. |
+| `packages/proxy-go` | The binary: dispatch, the human-only gate, and the audit scanner. |
+| `packages/proxy` | The hook programs, and the scripts that build what ships. |
+
+`sgcli` and `sgtui` are siblings and neither imports the other. They are two
+surfaces onto the same thing, and when one reaches into the other what follows
+is a check a person reads differently depending on which they opened. The one
+edge that existed, the dataroom calling the CLI for `doctor`, is why
+`sgcore/health` is its own package.
 
 ## Checking your change
 
@@ -42,7 +51,7 @@ the tests.
 pnpm install
 pnpm build          # bundles the hooks
 
-for m in guard-go proxy-go sgpolicy sgshared; do
+for m in guard-go sgpolicy sgshared sgcore sgcli sgtui proxy-go; do
   (cd "packages/$m" && gofmt -l . && go vet ./...)
 done
 ```
@@ -101,7 +110,7 @@ No prefixes are required.
   fix cannot be reverted on its own.
 - Say what you ran, in detail. With no suite behind the change, a vague "tested
   locally" is not reviewable. Name the client, the calls, and the outcome.
-- CI runs gofmt and vet over the four Go modules, the hook bundle, the release
+- CI runs gofmt and vet over the seven Go modules, the hook bundle, the release
   build, and a secret scan. All of it has to be green, and all of it together
   still says nothing about whether the guard decides correctly.
 - If your change alters what a policy means, say so in the pull request title.

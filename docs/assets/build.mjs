@@ -152,41 +152,34 @@ const twoImplementations = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBo
 </svg>
 `;
 
-// ── the OpenSSF badge ──────────────────────────────────────────────────────
+// ── the OpenSSF baseline badge ─────────────────────────────────────────────
 //
-// A STATIC COPY OF A LIVE CLAIM, and that is a trade worth naming.
-// bestpractices.dev serves its own badge for project 15333 and it carries no
-// logo at all: grey "openssf baseline v2026.08.28" against a blue "1". This one
-// is drawn here from the foundation's own mark so the badge row has something
-// recognisable in it.
+// THE OFFICIAL BADGE, REDRAWN, and the two differences are the only reasons to
+// redraw it: the emblem is inside it, and it is 28 pixels rather than 20.
+// Everything else is bestpractices.dev's own badge, down to the two colours and
+// the wording: grey label, #007ec6 value, "openssf baseline v2026.08.28" and
+// "1". A badge that says something different from the one the issuer serves is
+// not a styled copy, it is a different claim.
 //
-// The cost is that the LEVEL IS FROZEN at the moment this ran. Change LEVEL
-// below and re-run when it moves. The badge links to the project page, which is
-// the authoritative answer and one click away, so a stale badge is checkable
-// rather than merely wrong.
+// WHICH MAKES THE LEVEL A STATIC COPY of a live fact. Move LEVEL and SPEC_DATE
+// when the badge on the site moves, and re-run this. The link goes to the page
+// listing the 24 controls, so a stale badge is one click from being caught.
 //
-// THE EMBLEM, NOT THE FOUNDATION LOGO. The first attempt cropped the duck out
-// of the OpenSSF logo, and the duck is 86 wide by 138 tall: at the 14 pixels a
-// badge gives a logo it came out 9 wide, which is a sliver rather than a mark.
-// This is the Best Practices emblem from bestpractices.dev, which is square and
-// still reads as a shield with a trophy in it at that size.
-//
-// openssf-bestpractices.svg is the source, verbatim from the site.
-// openssf-mark-14.png is it rasterised at TWICE the display size and shown at
-// half, so it is not soft on a retina screen. Rasterised rather than embedded
-// as SVG because an <image> holding an svg+xml data URI is not something every
-// renderer handles, and GitHub proxies this file.
-//
-// Both are committed because node has no image resizer in this repo, and adding
-// a dependency to draw two rectangles and some text would be a poor trade.
-// Re-run the convert if the badge height ever changes.
-const LEVEL = 'baseline-1';
-const OPENSSF_NAVY = '#04335f'; // sampled from the wordmark in the source logo
-const BADGE_GREY = '#555'; // the shields.io label colour, so the row matches
+// The emblem is docs/assets/openssf-bestpractices.svg, verbatim from the site,
+// rasterised at twice the display size into openssf-emblem-44.png and shown at
+// half so it is not soft on a retina screen. Rasterised rather than left as SVG
+// because an <image> holding an svg+xml data URI is not something every
+// renderer handles, and GitHub proxies this file. Both are committed because
+// node has no image resizer here, and adding one to draw two rectangles and
+// some text would be a poor trade.
+const LEVEL = '1';
+const SPEC_DATE = 'v2026.08.28';
+const BADGE_GREY = '#555';
+const BADGE_BLUE = '#007ec6';
 
-// Verdana advances, near enough for a badge and checked by eye. textLength
-// pins the run to exactly this width afterwards, so a renderer with a slightly
-// different Verdana cannot push the text out of its own section.
+// Verdana advances, near enough for a badge. textLength pins each run to
+// exactly this width afterwards, so a renderer with a slightly different
+// Verdana cannot push the text out of its own section.
 const advance = (text, px) => {
   const wide = new Set([...'MWmw@']);
   const narrow = new Set([...'iljtfr.,:;!|I ']);
@@ -201,36 +194,34 @@ const advance = (text, px) => {
 };
 
 const openssfBadge = () => {
-  const H = 20, LOGO_H = 14, FS = 11, PAD = 6, GAP = 4;
-  // The emblem is square.
-  const LOGO_W = LOGO_H;
-  const b64 = readFileSync(join(here, 'openssf-mark-14.png')).toString('base64');
+  const H = 28, LOGO = 22, FS = 14, PAD = 8, GAP = 6;
+  const b64 = readFileSync(join(here, 'openssf-emblem-44.png')).toString('base64');
 
-  const left = 'OpenSSF';
+  const left = `openssf baseline ${SPEC_DATE}`;
   const lw = advance(left, FS);
   const rw = advance(LEVEL, FS);
-  const lSec = PAD + LOGO_W + GAP + lw + PAD;
+  const lSec = PAD + LOGO + GAP + lw + PAD;
   const rSec = PAD + rw + PAD;
   const total = lSec + rSec;
 
   const text = (x, body, width) =>
     `<text x="${(x * 10).toFixed(0)}" y="${((H / 2 + FS * 0.35) * 10).toFixed(0)}" transform="scale(.1)" fill="#fff" textLength="${(width * 10).toFixed(0)}">${body}</text>`;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total.toFixed(0)}" height="${H}" role="img" aria-label="OpenSSF: ${LEVEL}">
-  <title>OpenSSF: ${LEVEL}</title>
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total.toFixed(0)}" height="${H}" role="img" aria-label="${left}: ${LEVEL}">
+  <title>${left}: ${LEVEL}</title>
   <linearGradient id="g" x2="0" y2="100%">
     <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
     <stop offset="1" stop-opacity=".1"/>
   </linearGradient>
-  <clipPath id="r"><rect width="${total.toFixed(0)}" height="${H}" rx="3" fill="#fff"/></clipPath>
+  <clipPath id="r"><rect width="${total.toFixed(0)}" height="${H}" rx="4" fill="#fff"/></clipPath>
   <g clip-path="url(#r)">
     <rect width="${lSec.toFixed(0)}" height="${H}" fill="${BADGE_GREY}"/>
-    <rect x="${lSec.toFixed(0)}" width="${rSec.toFixed(0)}" height="${H}" fill="${OPENSSF_NAVY}"/>
+    <rect x="${lSec.toFixed(0)}" width="${rSec.toFixed(0)}" height="${H}" fill="${BADGE_BLUE}"/>
     <rect width="${total.toFixed(0)}" height="${H}" fill="url(#g)"/>
   </g>
-  <image x="${PAD}" y="${(H - LOGO_H) / 2}" width="${LOGO_W}" height="${LOGO_H}" xlink:href="data:image/png;base64,${b64}"/>
+  <image x="${PAD}" y="${(H - LOGO) / 2}" width="${LOGO}" height="${LOGO}" xlink:href="data:image/png;base64,${b64}"/>
   <g font-family="Verdana,DejaVu Sans,Geneva,sans-serif" font-size="${FS * 10}" text-rendering="geometricPrecision" text-anchor="middle">
-    ${text(PAD + LOGO_W + GAP + lw / 2, left, lw)}
+    ${text(PAD + LOGO + GAP + lw / 2, left, lw)}
     ${text(lSec + rSec / 2, LEVEL, rw)}
   </g>
 </svg>

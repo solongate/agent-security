@@ -77,6 +77,32 @@ type Security struct {
 	// detect-mode burst that is not counted here is not counted anywhere.
 	RateLimitObserve *RateLimit `json:"rateLimitObserve"`
 	LocalLogs        *LocalLogs `json:"localLogs"`
+
+	// ProtectedPaths are paths the agent may not read, write or delete, by any
+	// route.
+	//
+	// NOT A POLICY RULE, and the difference is the whole reason this field
+	// exists. A rule is matched against the strings in a tool call, and a
+	// string match is a game with no end: `rm game.c` is caught and
+	// `x=gam; y=e; rm "$x$y.c"` is not, nor is a script written and then run,
+	// nor is a program the agent writes that calls unlink itself. This list is
+	// handed to the operating system instead, by `solongate protect`, and the
+	// guard's own check on it is the weakest of the three things enforcing it
+	// rather than the only one.
+	//
+	// What actually holds per platform, and the honest version of each, is in
+	// core/config/protectpaths.go. `solongate protect list` prints it rather
+	// than implying the strongest case everywhere.
+	ProtectedPaths []string `json:"protectedPaths,omitempty"`
+
+	// RequireSandbox refuses every tool call from an agent that was not started
+	// through `solongate run`.
+	//
+	// FAILS CLOSED, which is why it is opt-in. Without it the protected list is
+	// enforced by the OS for agents SolonGate started and by a string match for
+	// the rest, and the difference is invisible from inside the agent. With it,
+	// an agent outside the sandbox gets nothing at all.
+	RequireSandbox bool `json:"requireSandbox,omitempty"`
 }
 
 // Rules stays raw. The guard compiles it to Rego and the CLI passes it through;

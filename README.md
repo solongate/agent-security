@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://www.bestpractices.dev/projects/15333"><img src="https://www.bestpractices.dev/projects/15333/baseline" alt="OpenSSF Best Practices baseline level 1"></a>
   <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26-00ADD8.svg" alt="Go 1.26"></a>

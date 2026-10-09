@@ -94,9 +94,8 @@ const PROGRAMS = [
 //
 // `pkg` — the package to build inside a module, defaulting to its root — is kept
 // even though both programs now build from theirs. It is what lets a module ship
-// more than one command, and packages/proxy-go/cmd/solongate-audit is one such
-// command sitting unbuilt: a Go main package reaches nobody by existing, and a
-// build script that could only build a module root is why.
+// more than one command, which is a thing this repository has needed before and
+// will again.
 
 function build(target, program) {
   const exe = program.bin + (target.os === 'win32' ? '.exe' : '');

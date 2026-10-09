@@ -17,11 +17,6 @@ pnpm install
 pnpm build
 ```
 
-`pnpm install` warns four times that it could not create a bin: `solongate`,
-`solongate-proxy`, `proxy`, `solongate-audit`. It is linking commands at files
-that the build has not produced yet, and the next command produces them. Nothing
-is wrong and nothing needs rerunning.
-
 If you want the tool actually installed on your machine while you work on it,
 `./install.sh` does that from the checkout. You do not need it installed to run
 the tests.

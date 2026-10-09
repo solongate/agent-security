@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="146" height="20" role="img" aria-label="OpenSSF: baseline-1">
+  <title>OpenSSF: baseline-1</title>
+  <linearGradient id="g" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r"><rect width="146" height="20" rx="3" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="75" height="20" fill="#555"/>
+    <rect x="75" width="71" height="20" fill="#04335f"/>
+    <rect width="146" height="20" fill="url(#g)"/>
+  </g>
+  <image x="6" y="3" width="9" height="14" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAkAAAAOCAYAAAD9lDaoAAACCklEQVR42i3Q30tTYRwH4M/3fY/ZXKZCc6ttxRZNnFSYaBcVXVX0A7owhxVlFI3yxgWFBUsTuvCiIgJDDEKiLjxbNQqLAlvE+jGKrHDWyCxdU9vUqVuzbcfzduPzJzwAAFmWeZXTmbd634Xu9t73qUs9/g4AXAjBAIDV1cnc4XAsjERslkqLpuHdm4/adTZro3XvOSsRqa2trUyS5ZBovNhefnj3Wl+ZfhJXHsYXPI/fhoZ//hoXQhARCUbUpjI+rw8NjcgHmnwOb2Aq8+zJCzcGPSlyeBgAQRCCQCQAgKpPtRVp2fGZlzfNDECf3y/F43FBWFTbcutMKp27JlR1LJbMNnzyfgkj0R0BACpaf6jkyOn6u9U1G/ZMxmLq+NgfZtEXo5CnpgdGk77haCJMZ28/DeoMK2sWMmnlW/gHv3xsF8x6Dii/CdJydD74nGGmVbri8FAk++p+F20xzqFAs5REJkbZtBBQM0pJYb7CE1rbzhWlejsRQ/KfKraaokKbl2TIzYMxhQUHpxNcWlPVn56d0WzaXLMx32CXDMnnzGxQBSNVQXaK3wvM+vnc18BktL/v0TJjGZ+IRozfJ3JBO++3FSij/M5rxDoDuhOLAYKA/cXnmw/2ABxHm91XXS1NvdjeZQIAqnW5KypL527E/7KinGlHRWhgeFv5kg/SVLbE5e24Xn/S6cz7D7Ye4X/uTJOBAAAAAElFTkSuQmCC"/>
+  <g font-family="Verdana,DejaVu Sans,Geneva,sans-serif" font-size="110" text-rendering="geometricPrecision" text-anchor="middle">
+    <text x="440" y="139" transform="scale(.1)" fill="#fff" textLength="499">OpenSSF</text>
+    <text x="1104" y="139" transform="scale(.1)" fill="#fff" textLength="590">baseline-1</text>
+  </g>
+</svg>

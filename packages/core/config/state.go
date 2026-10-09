@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"time"
 
 	"github.com/solongate/agent-security/packages/shared"
 )
@@ -70,6 +71,11 @@ type TUIConfig struct {
 	Notifications bool   `json:"notifications"`
 	Accent        string `json:"accent,omitempty"`
 	PollMs        int    `json:"pollMs,omitempty"`
+
+	// SetupDoneAt is when the first run finished, RFC3339, empty until it has.
+	// A TIMESTAMP RATHER THAN A BOOL because the question people ask later is
+	// when this machine was set up, and a bool cannot answer it.
+	SetupDoneAt string `json:"setupDoneAt,omitempty"`
 }
 
 // LoadTUIConfig defaults notifications ON. The file says `false` to turn them
@@ -85,6 +91,7 @@ func LoadTUIConfig() TUIConfig {
 		Notifications *bool  `json:"notifications"`
 		Accent        string `json:"accent"`
 		PollMs        *int   `json:"pollMs"`
+		SetupDoneAt   string `json:"setupDoneAt"`
 	}
 	if json.Unmarshal(b, &raw) != nil {
 		return cfg
@@ -96,7 +103,34 @@ func LoadTUIConfig() TUIConfig {
 	if raw.PollMs != nil {
 		cfg.PollMs = *raw.PollMs
 	}
+	cfg.SetupDoneAt = raw.SetupDoneAt
 	return cfg
+}
+
+// MarkSetupDone records that the first run finished.
+//
+// READ, MERGE, WRITE, over a map rather than over TUIConfig. The struct models
+// the fields this build knows about; a future one will know more, and writing
+// the struct back would silently drop whatever it did not model. The same
+// reasoning as api.Rules keeping its Raw: a writer that cannot round-trip an
+// unknown field is a writer that deletes it.
+//
+// Best effort. Failing to record this costs one extra first-run screen, which
+// is not worth refusing to open the dataroom over.
+func MarkSetupDone() {
+	if EnsureDir() != nil {
+		return
+	}
+	doc := map[string]any{}
+	if b, err := os.ReadFile(TUIConfigPath()); err == nil {
+		_ = json.Unmarshal(b, &doc)
+	}
+	doc["setupDoneAt"] = time.Now().UTC().Format(time.RFC3339)
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(TUIConfigPath(), append(out, '\n'), FileMode)
 }
 
 // BrowserAgentState and SelfUpdateState lived here, with their loaders and savers.

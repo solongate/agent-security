@@ -46,11 +46,36 @@ func InstallClaudeShim(shieldPath string) bool {
 	node = filepath.ToSlash(node)
 	shield := filepath.ToSlash(shieldPath)
 
-	block := `claude() { "` + node + `" "` + shield + `" -- "` + real + `" "$@"; }`
+	// THROUGH `solongate run` WHEN THERE IS ONE, because this is the only
+	// moment SolonGate can become the agent's parent, and being its parent is
+	// the only way the protected paths are enforced by the kernel rather than
+	// by matching strings in a tool call.
+	//
+	// The order is run -> shield -> claude. The confinement goes on outermost,
+	// so it covers the shield and everything the agent starts; the shield sits
+	// between because it has to be the thing holding the HTTP connection.
+	//
+	// `|| exec` is the fallback and it is deliberate: an install whose CLI has
+	// gone missing should still get the prompt shield rather than losing the
+	// `claude` command altogether. `solongate run` refuses to start anything
+	// unconfined on its own account, so the weaker path is only ever taken when
+	// the strong one is not on the machine at all. And with nothing protected,
+	// `run` prints nothing and costs one exec.
+	sg := filepath.ToSlash(filepath.Join(BinDir(), "solongate"))
+	block := `claude() {
+  if [ -x "` + sg + `" ]; then
+    "` + sg + `" run -- "` + node + `" "` + shield + `" -- "` + real + `" "$@"
+  else
+    "` + node + `" "` + shield + `" -- "` + real + `" "$@"
+  fi
+}`
 	if runtime.GOOS == "windows" {
 		// PowerShell needs the call operator to run a quoted path, the same reason
 		// the hook commands carry one.
-		block = `function claude { & "` + node + `" "` + shield + `" -- "` + real + `" @args }`
+		block = `function claude {
+  if (Test-Path "` + sg + `.exe") { & "` + sg + `.exe" run -- "` + node + `" "` + shield + `" -- "` + real + `" @args }
+  else { & "` + node + `" "` + shield + `" -- "` + real + `" @args }
+}`
 	}
 	block = shimBegin + "\n" + block + "\n" + shimEnd
 

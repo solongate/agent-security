@@ -50,7 +50,7 @@ var buildVersion = "dev"
 var cliSubcommands = map[string]bool{
 	"repair": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
-	"doctor": true, "trace": true, "watch": true,
+	"doctor": true, "trace": true, "watch": true, "protect": true, "run": true,
 	"dataroom": true,
 }
 
@@ -100,7 +100,20 @@ func run(args []string) int {
 	}
 	isHumanCLI := len(args) == 0 || cliSubcommands[sub] || cliInfoArgs[sub]
 
-	if isHumanCLI {
+	// THE BARE INVOCATION IS GATED BY THE DATAROOM ITSELF, not here, and that is
+	// what makes printWelcome reachable.
+	//
+	// It was in this condition, so a piped `solongate` was refused with
+	// "SolonGate is human-only" and the welcome text three branches below could
+	// never run: the only path to it required a non-interactive terminal, and a
+	// non-interactive terminal had already exited. Everything that reads this
+	// program's output without a tty, a README, a CI log, `solongate | less`,
+	// got a refusal where an explanation was written and waiting.
+	//
+	// Nothing is loosened. The dataroom is opened only `if isInteractive()`
+	// twenty lines down, and every command that changes a security posture is
+	// still in cliSubcommands and still asserts here.
+	if isHumanCLI && len(args) > 0 {
 		assertHumanTerminal()
 	}
 
@@ -154,9 +167,9 @@ func run(args []string) int {
 		install.InstallGoBinaries()
 	}
 
-	// Bare invocation. On an interactive terminal this opens the dataroom even
-	// when the device is unpaired, because logging in happens inside it; a
-	// piped or CI run gets the plain welcome instead.
+	// Bare invocation. On an interactive terminal this opens the dataroom, which
+	// starts with the first run until the first run has happened; a piped or CI
+	// run gets the plain welcome instead.
 	if len(args) == 0 {
 		if isInteractive() {
 			return launchDataroom()
@@ -247,15 +260,21 @@ type command struct {
 // single `run` field each rather than editing a dispatch chain.
 func table() []command {
 	return []command{
-		{"dataroom", "open the dataroom UI (login, policies, audit, settings)",
+		{"dataroom", "open the dataroom UI (policies, audit, settings)",
 			func([]string) int { return launchDataroom() }},
 
 		{"policy", "list, create, edit and activate policies", cli.Runner("policy")},
 		{"ratelimit", "show and edit rate limits", cli.Runner("ratelimit")},
 		{"dlp", "show and edit secret detection", cli.Runner("dlp")},
+		{"protect", "paths the agent may not touch, locked by the OS", cli.Runner("protect")},
+
+		// NOT cli.Runner, and not in the parsed-argument path: everything after
+		// `--` belongs to the agent, including flags this CLI also understands.
+		// A parser here would eat `--json` out of `solongate run -- claude --json`.
+		{"run", "start an agent with the protected paths out of its reach", cli.RunAgent},
 		{"stats", "traffic and security statistics", cli.Runner("stats")},
 		{"audit", "browse the audit log", cli.Runner("audit")},
-		{"doctor", "health check: login, policy, guard, local logs", cli.Runner("doctor")},
+		{"doctor", "health check: policy, guard, hooks, local logs", cli.Runner("doctor")},
 		{"trace", "what the guard saw in this directory", cli.Runner("trace")},
 		{"watch", "live-tail tool calls", cli.Runner("watch")},
 
@@ -311,14 +330,21 @@ func printWelcome() {
 	fmt.Println("")
 	fmt.Println("  Get started with one command:")
 	fmt.Println("")
-	fmt.Printf("    %ssolongate%s             %sopen the dataroom (login, policies, audit, settings)%s\n",
+	fmt.Printf("    %ssolongate%s             %sopen the dataroom (policies, audit, settings)%s\n",
 		term.Cyan, term.Reset, term.Dim, term.Reset)
 	fmt.Printf("    %ssolongate --help%s      %slist every command%s\n",
 		term.Cyan, term.Reset, term.Dim, term.Reset)
 	fmt.Println("")
-	fmt.Printf("  %sOpen the dataroom to install the guard and write a policy. The%s\n", term.Dim, term.Reset)
-	fmt.Printf("  %spolicy is a file on this machine: %s%s~/.solongate/%s%s\n",
+	fmt.Printf("  %sRunning it in a terminal walks you through three things: that the%s\n", term.Dim, term.Reset)
+	fmt.Printf("  %sguard is registered, that this machine has a policy, and that the%s\n", term.Dim, term.Reset)
+	fmt.Printf("  %sguard has judged a real tool call. The last one is the only proof%s\n", term.Dim, term.Reset)
+	fmt.Printf("  %sany of it works here, so it waits for one.%s\n", term.Dim, term.Reset)
+	fmt.Println("")
+	fmt.Printf("  %sThe policy is a file on this machine: %s%s~/.solongate/%s%s\n",
 		term.Dim, term.Reset, term.Cyan, policyFileName, term.Reset)
+	fmt.Println("")
+	fmt.Printf("  %sWith no policy file the guard allows every call and records it.%s\n", term.Dim, term.Reset)
+	fmt.Printf("  %s`solongate doctor` says which of those this machine is doing.%s\n", term.Dim, term.Reset)
 	fmt.Println("")
 }
 
@@ -375,6 +401,14 @@ func printHelp() {
 	cmd("policy rule <id> <ruleId> <enable|disable>", "turn one rule on or off without deleting it")
 	cmd("policy revoke <id> <ruleId>", "remove a rule")
 	cmd("policy activate <id> | --off", "pin the active policy, or enforce nothing")
+
+	head("Protected paths")
+	cmd("protect <path>", "put a path out of the agent's reach, with the OS")
+	cmd("protect list", "every protected path, and what is actually holding it")
+	cmd("protect remove <path>", "drop a path and lift its lock")
+	cmd("protect require-sandbox on|off", "refuse calls from agents not started by `solongate run`")
+	cmd("run -- <agent>", "start an agent inside OS-level confinement")
+	cmd("run --explain", "what this machine's confinement can and cannot do")
 	cmd("policy active", "show the resolved active policy")
 
 	head("Rate limits")

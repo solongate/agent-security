@@ -22,6 +22,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,6 +45,21 @@ func out(s string) { fmt.Fprintln(stdout, s) }
 // Named errln rather than err so it cannot be shadowed by the error variable
 // that exists in nearly every function here.
 func errln(s string) { fmt.Fprintln(stderr, s) }
+
+// errPrint writes without a newline, for a prompt the answer is typed after.
+func errPrint(s string) { fmt.Fprint(stderr, s) }
+
+// runInteractive runs a command with the user's own terminal attached.
+//
+// `sudo -v` is the only caller: it has to be able to draw a password prompt
+// and read the reply, which a command whose streams are captured cannot do.
+// Every other command this CLI runs has its output taken, because the output
+// is the thing being inspected rather than shown.
+func runInteractive(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stderr, stderr
+	return cmd.Run()
+}
 
 // printJSON writes a value as pretty JSON to stdout: the machine contract.
 //

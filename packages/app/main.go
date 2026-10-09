@@ -50,7 +50,7 @@ var buildVersion = "dev"
 var cliSubcommands = map[string]bool{
 	"repair": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
-	"doctor": true, "trace": true, "watch": true,
+	"doctor": true, "trace": true, "watch": true, "protect": true,
 	"dataroom": true,
 }
 
@@ -266,6 +266,7 @@ func table() []command {
 		{"policy", "list, create, edit and activate policies", cli.Runner("policy")},
 		{"ratelimit", "show and edit rate limits", cli.Runner("ratelimit")},
 		{"dlp", "show and edit secret detection", cli.Runner("dlp")},
+		{"protect", "paths the agent may not touch, locked by the OS", cli.Runner("protect")},
 		{"stats", "traffic and security statistics", cli.Runner("stats")},
 		{"audit", "browse the audit log", cli.Runner("audit")},
 		{"doctor", "health check: policy, guard, hooks, local logs", cli.Runner("doctor")},
@@ -395,6 +396,12 @@ func printHelp() {
 	cmd("policy rule <id> <ruleId> <enable|disable>", "turn one rule on or off without deleting it")
 	cmd("policy revoke <id> <ruleId>", "remove a rule")
 	cmd("policy activate <id> | --off", "pin the active policy, or enforce nothing")
+
+	head("Protected paths")
+	cmd("protect <path>", "put a path out of the agent's reach, with the OS")
+	cmd("protect list", "every protected path, and what is actually holding it")
+	cmd("protect remove <path>", "drop a path and lift its lock")
+	cmd("protect require-sandbox on|off", "refuse calls from agents not started by `solongate run`")
 	cmd("policy active", "show the resolved active policy")
 
 	head("Rate limits")

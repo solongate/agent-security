@@ -485,6 +485,11 @@ func main() {
 		"paths": len(policy.ExtractPaths(c.Args, shared.GuessPermission(c.Tool) == "EXECUTE")),
 		"cmds":  len(policy.ExtractCommands(c.Args)),
 		"urls":  len(policy.ExtractURLs(c.Args)),
+		// Whether the agent was started by `solongate run`. Without it, a
+		// machine enforcing protected paths with the kernel and one enforcing
+		// them with a string match produce identical records, and `doctor`
+		// cannot tell the user which one they are on.
+		"sandbox": os.Getenv(shared.SandboxEnv),
 	})
 	writeEvalRecord(shared.ProjectFlagDir(), rec)
 	sweepLegacyScratch()

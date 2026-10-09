@@ -23,10 +23,7 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"io"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -181,20 +178,10 @@ type setupModel struct {
 	abandoned bool
 }
 
-// setupCall is one record out of the guard's eval ring, which is the only
-// artefact written on EVERY call rather than only on a denial.
-type setupCall struct {
-	Ms      float64 `json:"ms"`
-	Ts      int64   `json:"ts"`
-	Tool    string  `json:"tool"`
-	Client  string  `json:"client"`
-	Cwd     string  `json:"cwd"`
-	Perm    string  `json:"perm"`
-	Paths   int     `json:"paths"`
-	Cmds    int     `json:"cmds"`
-	URLs    int     `json:"urls"`
-	Session string  `json:"session"`
-}
+// setupCall is one record out of the guard's eval ring. The reader lives in
+// core/config because `doctor` needs the same answer, and two readers of one
+// file is how two surfaces end up disagreeing about what happened.
+type setupCall = config.EvalRecord
 
 type setupTickMsg struct{}
 type setupProbeMsg struct {
@@ -256,43 +243,9 @@ func (m *setupModel) probe() tea.Cmd {
 			out.hasPolicy = true
 		}
 
-		out.call = newestEvalRecord()
+		out.call = config.NewestEvalRecord()
 		return out
 	}
-}
-
-// newestEvalRecord returns the most recent call the guard judged, from ANY
-// project.
-//
-// NOT config.ProjectFlagDir(). The record is filed under a hash of the
-// directory the HOOK process was spawned in, and a client is free to spawn it
-// anywhere; Antigravity does. Reading only this dataroom's own project would
-// have the last step wait forever while the guard was working perfectly, three
-// directories away. cli/trace.go reaches the same conclusion for the same
-// reason.
-func newestEvalRecord() *setupCall {
-	root := filepath.Join(config.Dir(), "projects")
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil
-	}
-	var best *setupCall
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		for _, line := range tailLines(filepath.Join(root, e.Name(), ".eval-ring.jsonl"), 8192) {
-			var rec setupCall
-			if json.Unmarshal([]byte(line), &rec) != nil || rec.Ts == 0 {
-				continue
-			}
-			if best == nil || rec.Ts > best.Ts {
-				c := rec
-				best = &c
-			}
-		}
-	}
-	return best
 }
 
 func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

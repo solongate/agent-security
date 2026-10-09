@@ -23,7 +23,7 @@
   <text x="868" y="182" text-anchor="end" font-family="Geist,Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="13" font-weight="600" fill="#8c8c8c">no</text>
 
   <rect x="130.5" y="216.5" width="379" height="71" fill="#1a1a1a" stroke="#383838"/>
-  <text x="320" y="248" text-anchor="middle" font-family="'Geist Mono',ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="15" fill="#f2f2f2">packages/guard-go</text>
+  <text x="320" y="248" text-anchor="middle" font-family="'Geist Mono',ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace" font-size="15" fill="#f2f2f2">packages/guard</text>
   <text x="320" y="270" text-anchor="middle" font-family="Geist,Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="13" fill="#8c8c8c">the Go binary decides</text>
 
   <rect x="690.5" y="216.5" width="379" height="71" fill="#1a1a1a" stroke="#383838"/>

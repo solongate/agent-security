@@ -64,3 +64,31 @@ updates:
     groups:
       go:
         patterns: ['*']
+
+  - package-ecosystem: gomod
+    directory: /packages/sgcore
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ['*']
+
+  - package-ecosystem: gomod
+    directory: /packages/sgcli
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ['*']
+
+  # Where the terminal UI dependencies are. Bubble Tea, Bubbles and Lipgloss
+  # live here and nowhere else now, which is the point: a bump to any of them
+  # cannot reach the guard or the policy engine, and the pull request says so by
+  # naming this module.
+  - package-ecosystem: gomod
+    directory: /packages/sgtui
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        patterns: ['*']

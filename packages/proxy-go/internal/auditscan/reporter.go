@@ -10,11 +10,11 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/solongate/agent-security/packages/proxy-go/internal/term"
+	"github.com/solongate/agent-security/packages/sgcore/term"
 )
 
 // The report's colours are the 4-bit ANSI set rather than the CLI's truecolor
-// palette in internal/term. That is deliberate and it is what the npm tool
+// palette in sgcore/term. That is deliberate and it is what the npm tool
 // does: a terminal remaps the sixteen basic colours to the user's own theme, so
 // "green" stays readable on a light background, where a fixed RGB green does
 // not. The reset, bold and dim codes are shared with term because those are the

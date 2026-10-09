@@ -37,10 +37,13 @@ jobs:
       fail-fast: false
       matrix:
         module:
-          - packages/proxy-go
           - packages/guard-go
           - packages/sgpolicy
           - packages/sgshared
+          - packages/sgcore
+          - packages/sgcli
+          - packages/sgtui
+          - packages/proxy-go
     steps:
       - uses: actions/checkout@v7
 

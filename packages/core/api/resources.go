@@ -524,6 +524,65 @@ func (s SettingsAPI) SetSelfProtection(ctx context.Context, enabled bool) (bool,
 	return enabled, nil
 }
 
+// ProtectedPaths is the list `solongate protect` maintains.
+//
+// THE LIST IS THE RECORD, NOT THE ENFORCEMENT. What is actually in force on
+// each path is a question for the filesystem, and config.CheckLock asks it.
+// Reading this and reporting "protected" would be reporting an intention.
+func (s SettingsAPI) ProtectedPaths(ctx context.Context) ([]string, error) {
+	st, err := readStore()
+	if err != nil {
+		return nil, err
+	}
+	if st.Security == nil {
+		return nil, nil
+	}
+	return st.Security.ProtectedPaths, nil
+}
+
+// SetProtectedPaths replaces the list.
+//
+// It creates the security block when there is none, which is the common case:
+// most people reach `protect` before they reach DLP or a rate limit.
+func (s SettingsAPI) SetProtectedPaths(ctx context.Context, paths []string) error {
+	st, err := readStore()
+	if err != nil {
+		return err
+	}
+	if st.Security == nil {
+		st.Security = &guardSecurity{}
+	}
+	st.Security.ProtectedPaths = paths
+	st.absent = false
+	return writeStore(st)
+}
+
+// RequireSandbox is the fail-closed switch: refuse every call from an agent
+// that was not started by `solongate run`.
+func (s SettingsAPI) RequireSandbox(ctx context.Context) (bool, error) {
+	st, err := readStore()
+	if err != nil {
+		return false, err
+	}
+	if st.Security == nil {
+		return false, nil
+	}
+	return st.Security.RequireSandbox, nil
+}
+
+func (s SettingsAPI) SetRequireSandbox(ctx context.Context, on bool) error {
+	st, err := readStore()
+	if err != nil {
+		return err
+	}
+	if st.Security == nil {
+		st.Security = &guardSecurity{}
+	}
+	st.Security.RequireSandbox = on
+	st.absent = false
+	return writeStore(st)
+}
+
 // LocalLogsConfig is where the hooks write the record. On a machine with no
 // service this is the only destination there is, so it reads as ON with the
 // default folder unless somebody named another — the FOLDER is the part worth

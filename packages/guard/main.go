@@ -352,6 +352,24 @@ func main() {
 		}
 	}
 
+	// THE USER'S OWN PROTECTED PATHS, and they are NOT inside the selfProtect
+	// branch. Self-protection is about keeping the guard armed and a person is
+	// allowed to switch it off; this list is a promise somebody made about
+	// their own files. Switching off the first must not silently cancel the
+	// second.
+	//
+	// Here rather than with the policy layer for the same reason tamper is
+	// here: it must not be reachable only through the path that successfully
+	// read and compiled a policy.
+	if reason := sandboxRequired(sec); reason != "" {
+		record(sec, hasSecurity, c, agentType, agentName, reason, started)
+		deny(reason)
+	}
+	if reason := userProtectedCheck(c.Tool, c.Args, sec); reason != "" {
+		record(sec, hasSecurity, c, agentType, agentName, reason, started)
+		deny(reason)
+	}
+
 	// A rewrite is HELD rather than emitted, so no layer decides a call on its
 	// own: emitting ends the process, and everything below -- the DLP argument
 	// scan, the rate limit and the POLICY -- would never run for a call the
@@ -467,6 +485,11 @@ func main() {
 		"paths": len(policy.ExtractPaths(c.Args, shared.GuessPermission(c.Tool) == "EXECUTE")),
 		"cmds":  len(policy.ExtractCommands(c.Args)),
 		"urls":  len(policy.ExtractURLs(c.Args)),
+		// Whether the agent was started by `solongate run`. Without it, a
+		// machine enforcing protected paths with the kernel and one enforcing
+		// them with a string match produce identical records, and `doctor`
+		// cannot tell the user which one they are on.
+		"sandbox": os.Getenv(shared.SandboxEnv),
 	})
 	writeEvalRecord(shared.ProjectFlagDir(), rec)
 	sweepLegacyScratch()

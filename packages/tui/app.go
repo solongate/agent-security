@@ -701,7 +701,27 @@ func Run() error {
 		}
 	}
 
-	app := New(Deps{API: api.New(), Cfg: cfg})
+	deps := Deps{API: api.New(), Cfg: cfg}
+
+	// THE FIRST RUN COMES FIRST, and the dataroom does not open behind it. See
+	// setup.go for why this is a gate rather than a section in the nav: the
+	// state it is about is the one where everything looks fine and nothing is
+	// enforced. A user who leaves it gets no dataroom and no record, so the
+	// next run starts there again.
+	if needsSetup(cfg) {
+		carryOn, err := runSetup(deps, os.Stdout)
+		if err != nil {
+			return err
+		}
+		if !carryOn {
+			return nil
+		}
+		// Re-read: the first run just wrote a policy and the completion stamp,
+		// and the shell's header line is built from the config it was handed.
+		deps.Cfg = config.LoadTUIConfig()
+	}
+
+	app := New(deps)
 	_, err := tea.NewProgram(app, tea.WithAltScreen()).Run()
 	return err
 }

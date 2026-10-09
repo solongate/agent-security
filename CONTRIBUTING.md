@@ -28,7 +28,7 @@ the tests.
 | `packages/guard` | The guard. Runs on every tool call and decides. |
 | `packages/policy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
 | `packages/shared` | Shapes more than one program has to agree about. No dependencies, on purpose. |
-| `packages/core` | What both surfaces stand on: config, the local store, install state, health. |
+| `packages/core` | What both surfaces stand on: config, the local store, install state, health, the sandbox. |
 | `packages/cli` | The subcommands. Prints and exits. |
 | `packages/tui` | The dataroom. Full screen, stays open. |
 | `packages/app` | The binary. 409 lines: dispatch, the human-only gate, and `--help`. |

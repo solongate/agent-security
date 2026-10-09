@@ -97,11 +97,22 @@ type guardSecurity struct {
 	DLPRedact        *dlpRules         `json:"dlpRedact,omitempty"`
 	DLPObserve       *dlpRules         `json:"dlpObserve,omitempty"`
 	LocalLogs        *localLogsBlock   `json:"localLogs,omitempty"`
+
+	// Mirrors shared.Security. omitempty on both, so a machine that has never
+	// used `solongate protect` keeps the file it had.
+	ProtectedPaths []string `json:"protectedPaths,omitempty"`
+	RequireSandbox bool     `json:"requireSandbox,omitempty"`
 }
 
+// empty decides whether the security block is written at all, so EVERY field
+// has to be named here. A field missing from this list is a field that can be
+// set, reported as set, and then dropped on the next write by a function that
+// never heard of it. ProtectedPaths was exactly that for one build of this
+// change: `protect` printed a tick and the file came back `{"policy": null}`.
 func (g *guardSecurity) empty() bool {
 	return g == nil || (g.RateLimit == nil && g.RateLimitObserve == nil &&
-		g.DLPBlock == nil && g.DLPRedact == nil && g.DLPObserve == nil && g.LocalLogs == nil)
+		g.DLPBlock == nil && g.DLPRedact == nil && g.DLPObserve == nil && g.LocalLogs == nil &&
+		len(g.ProtectedPaths) == 0 && !g.RequireSandbox)
 }
 
 // stored is the file, plus which spelling it was in.

@@ -84,14 +84,92 @@ func CollectChecks(ctx context.Context, c *api.Client) []Check {
 	// your account in the Accounts panel". Everything below it was skipped on that
 	// failure, so a machine with no service reported nothing about itself at all.
 	// The first check is the file everything else comes from.
-	add("policy file", StateOK, api.PolicyPath())
+	//
+	// AND WHETHER IT IS THERE. This was StateOK unconditionally: it printed the
+	// path and said nothing about whether anything was at it. On a machine that
+	// had just been installed, the one check that could have said "you have no
+	// policy yet" reported a tick instead, above a row saying no policy resolves.
+	// A guard with no policy allows every call, so this is the difference between
+	// a machine that is enforcing and one that is only watching.
+	if _, err := os.Stat(api.PolicyPath()); err != nil {
+		add("policy file", StateWarn, "none yet · "+api.PolicyPath()+" · run `solongate` to write one")
+	} else {
+		add("policy file", StateOK, api.PolicyPath())
+	}
 	checks = append(checks, policyChecks(ctx, c)...)
 	checks = append(checks, guardHookCheck(ctx, c)...)
 
 	checks = append(checks, nativeGuardCheck()...)
 	checks = append(checks, clientChecks()...)
 	checks = append(checks, localLogCheck()...)
+	checks = append(checks, protectedCheck(ctx, c)...)
 	return checks
+}
+
+// protectedCheck reports the protected paths and, more importantly, whether
+// what is holding them is the operating system or a string match.
+//
+// THE TWO LOOK IDENTICAL FROM EVERYWHERE ELSE. A protected path with an OS
+// lock and a sandboxed agent is a promise the kernel keeps. The same path with
+// neither is a promise that holds until the agent writes a two-line script.
+// Both print the word "protected" in the config file, so this is the row that
+// has to say which.
+func protectedCheck(ctx context.Context, c *api.Client) []Check {
+	paths, err := c.Settings.ProtectedPaths(ctx)
+	if err != nil || len(paths) == 0 {
+		return nil
+	}
+
+	weakest := ""
+	locked := 0
+	for _, p := range paths {
+		l := config.CheckLock(p)
+		if l.Immutable {
+			locked++
+			continue
+		}
+		if weakest == "" {
+			weakest = p + " · " + l.Summary()
+		}
+	}
+
+	var out []Check
+	switch {
+	case locked == len(paths):
+		out = append(out, Check{Name: "protected paths", OK: StateOK,
+			Detail: plural(len(paths), "path", "paths") + " · all locked against write and delete"})
+	default:
+		out = append(out, Check{Name: "protected paths", OK: StateWarn,
+			Detail: strconv.Itoa(locked) + " of " + strconv.Itoa(len(paths)) +
+				" fully locked · " + weakest})
+	}
+
+	// And whether the last agent to make a call was actually inside a sandbox.
+	required, _ := c.Settings.RequireSandbox(ctx)
+	rec := config.NewestEvalRecord()
+	switch {
+	case required:
+		out = append(out, Check{Name: "confinement", OK: StateOK,
+			Detail: "required · a call from outside `solongate run` is refused"})
+	case rec == nil:
+		out = append(out, Check{Name: "confinement", OK: StateWarn,
+			Detail: "no tool call recorded yet, so nothing is known about it"})
+	case rec.Sandbox != "":
+		out = append(out, Check{Name: "confinement", OK: StateOK,
+			Detail: "the last call came from inside `solongate run`"})
+	default:
+		out = append(out, Check{Name: "confinement", OK: StateWarn,
+			Detail: "the last call came from an agent started outside `solongate run`, " +
+				"so the kernel was not enforcing these paths for it"})
+	}
+	return out
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return strconv.Itoa(n) + " " + many
 }
 
 // activeWithObserve decodes /policies/active twice out of one response.
@@ -151,8 +229,12 @@ func policyChecks(ctx context.Context, c *api.Client) []Check {
 			Detail: active.Policy.Name + " v" + strconv.Itoa(active.Version) + " · " + mode +
 				" · matched by " + active.MatchedBy})
 	} else {
+		// NOT "falls back to default". There is no default to fall back to: a nil
+		// policy evaluates to the empty string and the call is allowed, which is
+		// the opposite of what the old wording implied to anyone who read it as a
+		// safe default being in force.
 		checks = append(checks, Check{Name: "active policy", OK: StateWarn,
-			Detail: "no policy resolves - every call falls back to default"})
+			Detail: "none · every call is allowed, and recorded"})
 	}
 
 	var rlBlock *api.RateLimitSettings

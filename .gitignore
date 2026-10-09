@@ -151,24 +151,24 @@ apps/api/data/*.db-wal
 .gemini/**
 .openclaw/**
 fs/
-packages/proxy/hooks/.solongate/
+packages/hooks/.solongate/
 
 # Cross-compiled npm platform packages (built by scripts/build-go-binaries.mjs).
 # ~45 MB per target x 6; the Go source is what is tracked.
-packages/proxy/platforms/
+packages/hooks/platforms/
 
 # Go guard build output (the source is tracked, the binary is not)
-packages/guard-go/solongate-guard
-packages/guard-go/solongate-guard.exe
+packages/guard/solongate-guard
+packages/guard/solongate-guard.exe
 # A bare `go build` names its output after the module, which is `guard`.
-packages/guard-go/guard
-packages/guard-go/guard.exe
-packages/guard-go/dist-platforms/
+packages/guard/guard
+packages/guard/guard.exe
+packages/guard/dist-platforms/
 
-# The same, for the CLI module, whose name is `proxy`. This one WAS committed:
-# 9.3 MB of x86-64 ELF that no Dockerfile, script or package.json ever named.
-packages/proxy-go/proxy
-packages/proxy-go/proxy.exe
+# The same, for the binary module, whose name is `app`. One of these WAS
+# committed once: 9.3 MB of x86-64 ELF that no script or manifest ever named.
+packages/app/app
+packages/app/app.exe
 
 # tools/dev-go.mjs builds each Go app to <app>/.dev-server before running it
 # (dev-go.mjs:96). Also committed once, 11 MB, and rebuilt on every dev run.

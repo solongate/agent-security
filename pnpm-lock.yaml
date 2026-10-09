@@ -23,7 +23,7 @@ importers:
         specifier: ^2.11.7
         version: 2.11.7
 
-  packages/proxy:
+  packages/hooks:
     dependencies:
       '@open-policy-agent/opa-wasm':
         specifier: ^1.10.0

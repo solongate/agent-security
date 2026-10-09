@@ -8,12 +8,12 @@
 *                           @codeyevsky
 
 # The guard, the policy engine, and the shapes both implementations agree about.
-/packages/guard-go/         @codeyevsky
-/packages/sgpolicy/         @codeyevsky
-/packages/sgshared/         @codeyevsky
-/packages/proxy/hooks/      @codeyevsky
+/packages/guard/      @codeyevsky
+/packages/policy/     @codeyevsky
+/packages/shared/     @codeyevsky
+/packages/hooks/      @codeyevsky
 
 
 # Release and CI machinery.
-/.github/workflows/         @codeyevsky
-/install.sh                 @codeyevsky
+/.github/workflows/   @codeyevsky
+/install.sh           @codeyevsky

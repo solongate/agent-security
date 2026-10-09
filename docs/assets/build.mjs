@@ -23,7 +23,7 @@
 //      derived light palette would be a second brand nobody approved, and the
 //      pair would drift the first time one of them got a corrected label.
 
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -152,7 +152,87 @@ const twoImplementations = () => `<svg xmlns="http://www.w3.org/2000/svg" viewBo
 </svg>
 `;
 
-const DIAGRAMS = { 'decision-path': decisionPath, 'two-implementations': twoImplementations };
+// ── the OpenSSF baseline badge ─────────────────────────────────────────────
+//
+// THE OFFICIAL BADGE, REDRAWN, and the two differences are the only reasons to
+// redraw it: the emblem is inside it, and it is 28 pixels rather than 20.
+// Everything else is bestpractices.dev's own badge, down to the two colours and
+// the wording: grey label, #007ec6 value, "openssf baseline v2026.08.28" and
+// "1". A badge that says something different from the one the issuer serves is
+// not a styled copy, it is a different claim.
+//
+// WHICH MAKES THE LEVEL A STATIC COPY of a live fact. Move LEVEL and SPEC_DATE
+// when the badge on the site moves, and re-run this. The link goes to the page
+// listing the 24 controls, so a stale badge is one click from being caught.
+//
+// The emblem is docs/assets/openssf-bestpractices.svg, verbatim from the site,
+// rasterised at twice the display size into openssf-emblem-44.png and shown at
+// half so it is not soft on a retina screen. Rasterised rather than left as SVG
+// because an <image> holding an svg+xml data URI is not something every
+// renderer handles, and GitHub proxies this file. Both are committed because
+// node has no image resizer here, and adding one to draw two rectangles and
+// some text would be a poor trade.
+const LEVEL = '1';
+const SPEC_DATE = 'v2026.08.28';
+const BADGE_GREY = '#555';
+const BADGE_BLUE = '#007ec6';
+
+// Verdana advances, near enough for a badge. textLength pins each run to
+// exactly this width afterwards, so a renderer with a slightly different
+// Verdana cannot push the text out of its own section.
+const advance = (text, px) => {
+  const wide = new Set([...'MWmw@']);
+  const narrow = new Set([...'iljtfr.,:;!|I ']);
+  let total = 0;
+  for (const ch of text) {
+    if (wide.has(ch)) total += 0.82;
+    else if (narrow.has(ch)) total += 0.36;
+    else if (ch !== ch.toLowerCase()) total += 0.70;
+    else total += 0.58;
+  }
+  return total * px;
+};
+
+const openssfBadge = () => {
+  const H = 28, LOGO = 22, FS = 14, PAD = 8, GAP = 6;
+  const b64 = readFileSync(join(here, 'openssf-emblem-44.png')).toString('base64');
+
+  const left = `openssf baseline ${SPEC_DATE}`;
+  const lw = advance(left, FS);
+  const rw = advance(LEVEL, FS);
+  const lSec = PAD + LOGO + GAP + lw + PAD;
+  const rSec = PAD + rw + PAD;
+  const total = lSec + rSec;
+
+  const text = (x, body, width) =>
+    `<text x="${(x * 10).toFixed(0)}" y="${((H / 2 + FS * 0.35) * 10).toFixed(0)}" transform="scale(.1)" fill="#fff" textLength="${(width * 10).toFixed(0)}">${body}</text>`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total.toFixed(0)}" height="${H}" role="img" aria-label="${left}: ${LEVEL}">
+  <title>${left}: ${LEVEL}</title>
+  <linearGradient id="g" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r"><rect width="${total.toFixed(0)}" height="${H}" rx="4" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="${lSec.toFixed(0)}" height="${H}" fill="${BADGE_GREY}"/>
+    <rect x="${lSec.toFixed(0)}" width="${rSec.toFixed(0)}" height="${H}" fill="${BADGE_BLUE}"/>
+    <rect width="${total.toFixed(0)}" height="${H}" fill="url(#g)"/>
+  </g>
+  <image x="${PAD}" y="${(H - LOGO) / 2}" width="${LOGO}" height="${LOGO}" xlink:href="data:image/png;base64,${b64}"/>
+  <g font-family="Verdana,DejaVu Sans,Geneva,sans-serif" font-size="${FS * 10}" text-rendering="geometricPrecision" text-anchor="middle">
+    ${text(PAD + LOGO + GAP + lw / 2, left, lw)}
+    ${text(lSec + rSec / 2, LEVEL, rw)}
+  </g>
+</svg>
+`;
+};
+
+const DIAGRAMS = {
+  'decision-path': decisionPath,
+  'two-implementations': twoImplementations,
+  'openssf-baseline': openssfBadge,
+};
 
 for (const [name, render] of Object.entries(DIAGRAMS)) {
   writeFileSync(join(here, `${name}.svg`), render());

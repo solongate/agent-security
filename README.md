@@ -4,10 +4,8 @@
 
 <p align="center">
   <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <a href="https://www.bestpractices.dev/projects/15333"><img src="https://www.bestpractices.dev/projects/15333/baseline" alt="OpenSSF Best Practices baseline level 1"></a>
   <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
-  <a href="https://www.bestpractices.dev/projects/15333"><img src="docs/assets/openssf-baseline.svg" alt="OpenSSF Best Practices baseline-1" height="20"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26-00ADD8.svg" alt="Go 1.26"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-22%2B-339933.svg" alt="Node 22+"></a>
 </p>
@@ -169,6 +167,17 @@ to the guard is only as good as what you ran it against by hand.
 
 Reporting a vulnerability: [SECURITY.md](SECURITY.md), privately, never a public
 issue. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies everywhere.
+
+## Standards
+
+<a href="https://www.bestpractices.dev/projects/15333"><img src="docs/assets/openssf-baseline.svg" alt="OpenSSF Best Practices baseline-1" height="20"></a>
+
+The [OpenSSF Security Baseline](https://baseline.openssf.org/), level 1: a set
+of controls a project has to meet rather than a set it ought to, awarded on
+2026-10-09. The criteria and this project's answers against them are on
+[bestpractices.dev](https://www.bestpractices.dev/projects/15333), which is the
+authoritative copy; the badge above is drawn in this repository, so if the two
+ever disagree, believe the site.
 
 ## Licence
 

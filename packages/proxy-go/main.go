@@ -6,7 +6,7 @@
 // packages/proxy rather than replacing it. Nothing in this binary may require a
 // change over there to keep working, and both are installable at once, which is
 // why every file under ~/.solongate is read and written in the shapes the Node
-// implementation already uses (internal/config).
+// implementation already uses (sgcore/config).
 //
 // What is here today is the foundation the other slices sit on: configuration,
 // the API client, the core security vocabulary, and this entry point. Every
@@ -24,12 +24,12 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/solongate/agent-security/packages/proxy-go/internal/api"
-	"github.com/solongate/agent-security/packages/proxy-go/internal/commands"
-	"github.com/solongate/agent-security/packages/proxy-go/internal/install"
-	"github.com/solongate/agent-security/packages/proxy-go/internal/term"
-	"github.com/solongate/agent-security/packages/proxy-go/internal/tui"
-	"github.com/solongate/agent-security/packages/proxy-go/internal/tui/panels"
+	"github.com/solongate/agent-security/packages/sgcli/commands"
+	"github.com/solongate/agent-security/packages/sgcore/api"
+	"github.com/solongate/agent-security/packages/sgcore/install"
+	"github.com/solongate/agent-security/packages/sgcore/term"
+	"github.com/solongate/agent-security/packages/sgtui/panels"
+	"github.com/solongate/agent-security/packages/sgtui/tui"
 )
 
 // buildVersion is stamped at build time:
@@ -65,7 +65,7 @@ var policyFileName = "poli" + "cy.json"
 
 func main() { os.Exit(run(os.Args[1:])) }
 
-// WHO KNOWS THE GUARD'S VERSION NUMBERS. internal/api declares GuardVersions as a
+// WHO KNOWS THE GUARD'S VERSION NUMBERS. sgcore/api declares GuardVersions as a
 // function variable, with a comment saying the install layer fills it in, and nothing
 // ever did — so it kept its default of (0, nil) on every machine. Everything reading
 // it therefore believed the installed guard was unknown and the newest available was
@@ -78,8 +78,8 @@ func main() { os.Exit(run(os.Args[1:])) }
 // over it by reading the local file itself, which is why this survived: the command
 // whose job is to say whether the guard is healthy had its own copy of the answer.
 //
-// Wired here rather than in an init() because internal/install does not import
-// internal/api, and main imports both. One assignment, before anything can read it.
+// Wired here rather than in an init() because sgcore/install does not import
+// sgcore/api, and main imports both. One assignment, before anything can read it.
 func wireGuardVersions() {
 	api.GuardVersions = func() (int, *int) {
 		latest := 0
@@ -277,13 +277,13 @@ func lookup(name string) (command, bool) {
 // The one constraint, already paid for once: a frame must be no taller than
 // (terminal rows - 1). Ink repainted the entire screen on every render as soon
 // as a frame reached full height and it read as a glitch; Bubble Tea has the
-// same failure mode. internal/tui enforces it by clipping every frame rather
+// same failure mode. sgtui/tui enforces it by clipping every frame rather
 // than by trusting each panel's arithmetic.
 //
 // The gate above has already run: the dataroom is the command that both reveals
 // and changes a security posture, so it is human-only like every other one.
 //
-// internal/tui/panels is imported for its side effects: each panel registers
+// sgtui/panels is imported for its side effects: each panel registers
 // its own section from init(), and without something importing the package the
 // nav would list five sections that exist and report every one of them as not
 // ported. The version is stamped in here because it is stamped into main at

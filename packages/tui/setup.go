@@ -46,10 +46,19 @@ const (
 	stepFinished
 )
 
-// How often the last step looks for evidence of a tool call. Fast enough that
-// the user does not wonder whether it is working, slow enough that it is two
-// stats and a directory listing per tick.
-const setupPollEvery = 900 * time.Millisecond
+// TWO CLOCKS, because they answer to different things.
+//
+// The probe reads the disk: two stats and a directory listing, and 900ms is
+// fast enough that nobody wonders whether it noticed. Running it at animation
+// speed would be forty directory listings a second to move a dot.
+//
+// The frame clock is what the eye is on. Below about 100ms a sweep reads as a
+// jump rather than a movement, and the whole point of the waiting screen is
+// that it looks like it is listening rather than like it has hung.
+const (
+	setupPollEvery  = 900 * time.Millisecond
+	setupFrameEvery = 80 * time.Millisecond
+)
 
 // setupPosture is one of the starting points offered in step two.
 //
@@ -157,6 +166,13 @@ type setupModel struct {
 	cols, rows int
 	tick       int
 
+	// frame drives everything that moves. started is when this screen opened,
+	// and arrived is when the call landed, which is what the reveal counts from:
+	// the payoff is worth a moment of staging and the rest of the screen is not.
+	frame   int
+	started time.Time
+	arrived time.Time
+
 	// step one
 	guardReady  bool
 	guardDetail string
@@ -184,6 +200,7 @@ type setupModel struct {
 type setupCall = config.EvalRecord
 
 type setupTickMsg struct{}
+type setupFrameMsg struct{}
 type setupProbeMsg struct {
 	guardReady  bool
 	guardDetail string
@@ -200,13 +217,19 @@ func newSetup(deps Deps) *setupModel {
 	in.Prompt = ""
 	in.Placeholder = "/home/you/game"
 	in.CharLimit = 4096
-	return &setupModel{deps: deps, cols: 100, rows: 30, input: in}
+	return &setupModel{deps: deps, cols: 100, rows: 30, input: in, started: time.Now()}
 }
 
-func (m *setupModel) Init() tea.Cmd { return tea.Batch(setupTick(), m.probe()) }
+func (m *setupModel) Init() tea.Cmd {
+	return tea.Batch(setupTick(), setupFrame(), m.probe())
+}
 
 func setupTick() tea.Cmd {
 	return tea.Tick(setupPollEvery, func(time.Time) tea.Msg { return setupTickMsg{} })
+}
+
+func setupFrame() tea.Cmd {
+	return tea.Tick(setupFrameEvery, func(time.Time) tea.Msg { return setupFrameMsg{} })
 }
 
 // probe asks the disk the three questions the steps are about. All of it is a
@@ -258,6 +281,10 @@ func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tick++
 		return m, tea.Batch(setupTick(), m.probe())
 
+	case setupFrameMsg:
+		m.frame++
+		return m, setupFrame()
+
 	case setupProbeMsg:
 		m.guardReady, m.guardDetail = msg.guardReady, msg.guardDetail
 		m.hadPolicy = msg.hasPolicy
@@ -303,6 +330,7 @@ func (m *setupModel) advance() {
 	case stepFirstCall:
 		if m.call != nil {
 			m.step = stepFinished
+			m.arrived = time.Now()
 		}
 	}
 }
@@ -387,45 +415,89 @@ func (m *setupModel) write(path string) tea.Cmd {
 
 // ── rendering ──────────────────────────────────────────────────────────────
 
+// ── rendering ──────────────────────────────────────────────────────────────
+
+// The block is built as plain lines and centred as a whole, horizontally and
+// vertically.
+//
+// CENTRED BECAUSE THERE IS NOTHING ELSE ON THE SCREEN. The dataroom pins to the
+// top left because it is a dense layout a person navigates; this is one thing
+// at a time, and one thing at a time in the top left corner of a 200 column
+// terminal reads as an error message.
 func (m *setupModel) View() string {
-	w := m.cols - 4
-	if w < 40 {
-		w = 40
+	w := m.cols - 8
+	if w < 44 {
+		w = 44
 	}
-	if w > 96 {
-		w = 96
+	if w > 74 {
+		w = 74
 	}
 
-	var b []string
-	push := func(s string) { b = append(b, "  "+s) }
+	var body []string
+	push := func(s string) { body = append(body, s) }
 
+	push(sgb("SolonGate", theme.AccentBright).render() + plain("   ").render() +
+		sg("first run", theme.Dim).render())
+	push(sg("Three things, and the last one needs your agent.", theme.Dim).render())
 	push("")
-	push(renderRow(w, sgb("SolonGate", theme.AccentBright), plain("  "),
-		sg("first run", theme.Dim)))
-	push(renderRow(w, sg("Three things, and the last one needs your agent.", theme.Dim)))
-	push("")
-	b = append(b, m.rail(w)...)
+	body = append(body, m.rail(w)...)
 	push("")
 
 	switch m.step {
 	case stepGuard:
-		b = append(b, m.viewGuard(w)...)
+		body = append(body, m.viewGuard(w)...)
 	case stepPolicy:
-		b = append(b, m.viewPolicy(w)...)
+		body = append(body, m.viewPolicy(w)...)
 	case stepFirstCall:
-		b = append(b, m.viewWaiting(w)...)
+		body = append(body, m.viewWaiting(w)...)
 	case stepFinished:
-		b = append(b, m.viewDone(w)...)
+		body = append(body, m.viewDone(w)...)
 	}
 
 	push("")
-	push(m.footer(w))
-	return clampBlock(strings.Join(b, "\n"), m.cols, m.rows)
+	push(m.footer())
+	return centreBlock(body, m.cols, m.rows)
 }
 
-// rail is the three-step progress list, in the grammar the doctor panel
-// already uses: a tick for done, a spinner for the one in hand, dim for what
-// has not been reached.
+// centreBlock puts the block in the middle of the terminal.
+//
+// The left margin is computed from the WIDEST line rather than per line, so
+// the block keeps its own left edge and the text does not ragged-centre into
+// a diamond. Vertical centring leans a third above rather than half, because
+// an exactly centred block of text reads as low on a tall terminal.
+func centreBlock(lines []string, cols, rows int) string {
+	width := 0
+	for _, l := range lines {
+		if n := lipgloss.Width(l); n > width {
+			width = n
+		}
+	}
+	left := (cols - width) / 2
+	if left < 2 {
+		left = 2
+	}
+	pad := strings.Repeat(" ", left)
+
+	out := make([]string, 0, rows)
+	top := (rows - len(lines)) / 3
+	for i := 0; i < top; i++ {
+		out = append(out, "")
+	}
+	for _, l := range lines {
+		if l == "" {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, pad+l)
+	}
+	return clampBlock(strings.Join(out, "\n"), cols, rows)
+}
+
+// rail is the three-step progress list.
+//
+// The current step's spinner runs off the FRAME clock rather than the poll
+// clock. On the poll clock it advanced once a second, which does not read as a
+// spinner; it reads as a character that keeps changing for no reason.
 func (m *setupModel) rail(w int) []string {
 	names := []string{
 		"the guard is registered and firing",
@@ -439,7 +511,7 @@ func (m *setupModel) rail(w int) []string {
 		case setupStep(i) < m.step:
 			mark = sg("✓", theme.OK)
 		case setupStep(i) == m.step:
-			mark = sg(spinFrames[m.tick%len(spinFrames)], theme.Warn)
+			mark = sg(spinFrames[m.frame%len(spinFrames)], theme.Warn)
 		default:
 			mark = sg("·", theme.Dim)
 		}
@@ -447,14 +519,14 @@ func (m *setupModel) rail(w int) []string {
 		if setupStep(i) <= m.step {
 			fg = theme.White
 		}
-		out = append(out, "  "+renderRow(w, mark, plain("  "), sg(name, fg)))
+		out = append(out, renderRow(w, mark, plain("  "), sg(name, fg)))
 	}
 	return out
 }
 
 func (m *setupModel) viewGuard(w int) []string {
 	var out []string
-	push := func(segs ...seg) { out = append(out, "  "+renderRow(w, segs...)) }
+	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
 
 	if m.guardReady {
 		push(sg("The guard is registered. "+m.guardDetail, theme.OK))
@@ -462,8 +534,8 @@ func (m *setupModel) viewGuard(w int) []string {
 	}
 	push(sgb("No client has the guard registered.", theme.Bad))
 	push(plain(""))
-	push(sg("Nothing is being checked on this machine. Run the installer from the", theme.Dim))
-	push(sg("checkout, in your own terminal, and this screen will notice:", theme.Dim))
+	push(sg("Nothing is being checked on this machine. Run the installer from", theme.Dim))
+	push(sg("the checkout, in your own terminal, and this screen will notice:", theme.Dim))
 	push(plain(""))
 	push(sg("    ./install.sh", theme.AccentBright))
 	if m.guardDetail != "" {
@@ -475,10 +547,10 @@ func (m *setupModel) viewGuard(w int) []string {
 
 func (m *setupModel) viewPolicy(w int) []string {
 	var out []string
-	push := func(segs ...seg) { out = append(out, "  "+renderRow(w, segs...)) }
+	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
 
 	push(sgb("This machine has no policy, so every tool call is allowed.", theme.Warn))
-	push(sg("It is being recorded. It is not being refused. Pick a starting point:", theme.Dim))
+	push(sg("It is being recorded. It is not being refused. Pick a start:", theme.Dim))
 	push(plain(""))
 
 	postures := setupPostures()
@@ -497,12 +569,12 @@ func (m *setupModel) viewPolicy(w int) []string {
 
 	if m.askingPath {
 		push(plain(""))
-		out = append(out, "  "+sgb("the path: ", theme.Warn).render()+m.input.View())
+		out = append(out, sgb("the path: ", theme.Warn).render()+m.input.View())
 		push(sg("enter writes it · esc goes back", theme.Dim))
 	}
 	if m.writing {
 		push(plain(""))
-		push(sg(spinFrames[m.tick%len(spinFrames)]+" writing "+config.PolicyFilePath(), theme.Warn))
+		push(sg(spinFrames[m.frame%len(spinFrames)]+" writing "+config.PolicyFilePath(), theme.Warn))
 	}
 	if m.writeErr != "" {
 		push(plain(""))
@@ -511,55 +583,129 @@ func (m *setupModel) viewPolicy(w int) []string {
 	return out
 }
 
+// listenBar is the animation on the waiting screen.
+//
+// A SWEEP RATHER THAN A SPINNER, and the difference is what it says. A spinner
+// means "this is working on something"; a sweep across a fixed track means
+// "this is watching that". The screen is doing the second thing, and it may be
+// doing it for a minute while somebody opens another terminal.
+//
+// It bounces rather than wrapping, because a sweep that jumps back to the start
+// reads as a frame being dropped.
+func listenBar(width, frame int) seg {
+	if width < 8 {
+		width = 8
+	}
+	span := width - 1
+	pos := frame % (2 * span)
+	if pos > span {
+		pos = 2*span - pos
+	}
+	runes := make([]rune, width)
+	for i := range runes {
+		switch {
+		case i == pos:
+			runes[i] = '●'
+		case i == pos-1 || i == pos+1:
+			runes[i] = '·'
+		default:
+			runes[i] = ' '
+		}
+	}
+	return sg(string(runes), theme.AccentBright)
+}
+
 func (m *setupModel) viewWaiting(w int) []string {
 	var out []string
-	push := func(segs ...seg) { out = append(out, "  "+renderRow(w, segs...)) }
+	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
 
 	if m.wrote != "" {
 		push(sg("✓ wrote "+m.wrote+" to "+config.PolicyFilePath(), theme.OK))
 		push(plain(""))
 	}
-	push(sgb(spinFrames[m.tick%len(spinFrames)]+" Waiting for the first tool call.", theme.Warn))
+	push(sgb("Waiting for the first tool call.", theme.Warn))
 	push(plain(""))
-	push(sg("Everything above is a claim about what happens when your agent acts.", theme.Dim))
-	push(sg("None of it is proven on this machine until one has. Leave this open,", theme.Dim))
-	push(sg("and in another terminal:", theme.Dim))
+	push(listenBar(min(w, 34), m.frame))
 	push(plain(""))
-	push(sg("    1. ", theme.Dim), sg("start your agent", theme.White),
-		sg("  (claude, codex, opencode, antigravity)", theme.Dim))
-	push(sg("    2. ", theme.Dim), sg("ask it to read a file", theme.White),
-		sg("  anything at all, a README will do", theme.Dim))
+	push(sg("Everything above is a claim about what happens when your agent", theme.Dim))
+	push(sg("acts. None of it is proven on this machine until one has. Leave", theme.Dim))
+	push(sg("this open, and in another terminal:", theme.Dim))
 	push(plain(""))
-	push(sg("This screen will say so within a second of the guard seeing it.", theme.Dim))
+	push(sg("  1. ", theme.Dim), sg("start your agent", theme.White),
+		sg("   claude, codex, opencode, antigravity", theme.Dim))
+	push(sg("  2. ", theme.Dim), sg("ask it to read a file", theme.White),
+		sg("   anything, a README will do", theme.Dim))
+	push(plain(""))
+	push(sg("listening · "+elapsed(m.started), theme.Dim))
 	return out
 }
 
+// elapsed is m:ss, so a long wait reads as a wait rather than as a hang.
+func elapsed(since time.Time) string {
+	if since.IsZero() {
+		return "0:00"
+	}
+	d := int(time.Since(since).Seconds())
+	return strconv.Itoa(d/60) + ":" + pad2(d%60)
+}
+
+func pad2(n int) string {
+	if n < 10 {
+		return "0" + strconv.Itoa(n)
+	}
+	return strconv.Itoa(n)
+}
+
+// viewDone reveals the record a line at a time.
+//
+// STAGED ON PURPOSE, and only here. This is the one moment the product stops
+// being a description and becomes a thing that happened, and a screen that
+// paints all of it between two frames gives the eye nothing to land on. Four
+// lines at 110ms is under half a second: long enough to read as arriving,
+// short enough that nobody is waiting for it.
 func (m *setupModel) viewDone(w int) []string {
 	var out []string
-	push := func(segs ...seg) { out = append(out, "  "+renderRow(w, segs...)) }
+	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
 	c := m.call
 	if c == nil {
 		push(sg("done", theme.OK))
 		return out
 	}
 
+	shown := 99
+	if !m.arrived.IsZero() {
+		shown = int(time.Since(m.arrived)/(110*time.Millisecond)) + 1
+	}
+	line := 0
+	step := func(fn func()) {
+		line++
+		if line <= shown {
+			fn()
+		}
+	}
+
 	push(sgb("✓ The guard judged a real tool call.", theme.OK))
 	push(plain(""))
 
 	kv := func(k, v string) {
-		push(sg("    "+padEnd(k, 10), theme.Dim), sg(v, theme.White))
+		step(func() { push(sg("  "+padEnd(k, 10), theme.Dim), sg(v, theme.White)) })
 	}
 	kv("tool", orSetupDash(c.Tool))
 	kv("client", orSetupDash(c.Client))
 	kv("where", orSetupDash(c.Cwd))
 	kv("asked for", setupSaw(c))
 	kv("took", strconv.FormatFloat(c.Ms, 'f', 1, 64)+" ms")
-	push(plain(""))
-	push(sg("That is the whole product: a decision, on this machine, before the", theme.Dim))
-	push(sg("call ran. Nothing left it.", theme.Dim))
-	push(plain(""))
-	push(sg("A policy rule matches STRINGS, which is worth knowing before you", theme.Dim))
-	push(sg("rely on one. `solongate doctor` says what is actually in force.", theme.Dim))
+
+	if shown > 5 {
+		push(plain(""))
+		push(sg("That is the whole product: a decision, on this machine, before", theme.Dim))
+		push(sg("the call ran. Nothing left it.", theme.Dim))
+	}
+	if shown > 6 {
+		push(plain(""))
+		push(sg("A policy rule matches STRINGS, which is worth knowing before", theme.Dim))
+		push(sg("you rely on one. `solongate doctor` says what is in force.", theme.Dim))
+	}
 	return out
 }
 
@@ -595,26 +741,25 @@ func orSetupDash(s string) string {
 	return s
 }
 
-func (m *setupModel) footer(w int) string {
+func (m *setupModel) footer() string {
+	seg2 := func(k, meaning string) string {
+		return sg(k, theme.AccentBright).render() + sg(" "+meaning, theme.Dim).render()
+	}
 	switch m.step {
 	case stepPolicy:
 		if m.askingPath {
-			return renderRow(w, sg("enter", theme.AccentBright), sg(" write  ", theme.Dim),
-				sg("esc", theme.AccentBright), sg(" back", theme.Dim))
+			return seg2("enter", "write  ") + seg2("esc", "back")
 		}
-		return renderRow(w, sg("↑↓", theme.AccentBright), sg(" choose  ", theme.Dim),
-			sg("enter", theme.AccentBright), sg(" write it  ", theme.Dim),
-			sg("q", theme.AccentBright), sg(" leave", theme.Dim))
+		return seg2("↑↓", "choose  ") + seg2("enter", "write it  ") + seg2("q", "leave")
 	case stepFinished:
-		return renderRow(w, sg("enter", theme.AccentBright), sg(" open the dataroom", theme.Dim))
+		return seg2("enter", "open the dataroom")
 	default:
-		return renderRow(w, sg("q", theme.AccentBright),
-			sg(" leave  (the first run starts here again next time)", theme.Dim))
+		return seg2("q", "leave  (the first run starts here again next time)")
 	}
 }
 
-// render turns a single seg into a styled string, for the one place a seg has
-// to be concatenated with a widget that renders itself.
+// render turns a single seg into a styled string, for the places a seg has to
+// be concatenated with something that renders itself.
 func (s seg) render() string {
 	st := lipgloss.NewStyle()
 	if s.fg != nil {

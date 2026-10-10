@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/install"
 )
 
@@ -68,15 +69,22 @@ func RunUpdate(args []string) int {
 	}
 
 	head, _ := gitOutput(root, "rev-parse", "HEAD")
-	if code := step(root, "Fetching the newest version", "git", "pull", "--ff-only"); code != 0 {
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  The pull failed. Most often that is a local change in the checkout:")
-		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")
-		fmt.Fprintln(os.Stderr)
-		return 1
-	}
-	after, _ := gitOutput(root, "rev-parse", "HEAD")
 
+	rng := config.UpdateRangeOf(config.LoadTUIConfig())
+	fmt.Println("  Update range: " + rng + " · " + rangeOneLiner(rng))
+	fmt.Println()
+
+	var code int
+	if rng == config.UpdateRangeShort {
+		code = moveToBranchTip(root)
+	} else {
+		code = moveToNewestRelease(root)
+	}
+	if code != 0 {
+		return code
+	}
+
+	after, _ := gitOutput(root, "rev-parse", "HEAD")
 	if head != "" && head == after {
 		fmt.Println("  Already on the newest version.")
 	}
@@ -182,6 +190,90 @@ var installArtifacts = []string{
 	"pnpm-lock.yaml",
 	"packages/hooks/package.json",
 	"packages/hooks/guard.bundled.mjs",
+}
+
+// rangeOneLiner is the sentence printed on every update, so the choice is
+// visible at the moment it is acting rather than only in a settings panel.
+func rangeOneLiner(rng string) string {
+	if rng == config.UpdateRangeShort {
+		return "every commit on the branch, including ones no release has covered"
+	}
+	return "tagged releases only"
+}
+
+// moveToBranchTip is the short range: whatever is on the branch now.
+//
+// It also comes BACK from a detached head, which is the state the long range
+// leaves the checkout in. Without that, switching short and then updating
+// would pull nothing and report success, because a detached head has no
+// upstream to pull from.
+func moveToBranchTip(root string) int {
+	if detached(root) {
+		branch := defaultBranch(root)
+		if c := step(root, "Returning to "+branch, "git", "checkout", branch); c != 0 {
+			return c
+		}
+	}
+	if c := step(root, "Fetching the newest commit", "git", "pull", "--ff-only"); c != 0 {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "  The pull failed. Most often that is a local change in the checkout:")
+		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr)
+		return 1
+	}
+	return 0
+}
+
+// moveToNewestRelease is the long range: the highest v-tag there is.
+//
+// --force on the fetch because a tag can be moved. That is rare and it is also
+// exactly the case where not following it leaves a machine pinned to bytes
+// nobody is serving any more.
+//
+// The checkout is DETACHED on purpose. Putting a branch on a tag would make
+// the next `git pull` quietly a different operation, and this command is not
+// the only thing that runs git in this directory.
+func moveToNewestRelease(root string) int {
+	if c := step(root, "Fetching releases", "git", "fetch", "--tags", "--force", "origin"); c != 0 {
+		return c
+	}
+	tag, _ := gitOutput(root, "tag", "-l", "v*", "--sort=-v:refname")
+	tag = strings.TrimSpace(strings.SplitN(tag, "\n", 2)[0])
+	if tag == "" {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "  There are no release tags in this checkout, so the long range has")
+		fmt.Fprintln(os.Stderr, "  nothing to move to. `solongate range short` follows the branch instead.")
+		fmt.Fprintln(os.Stderr)
+		return 1
+	}
+	if c := step(root, "Checking out "+tag, "git", "checkout", "--detach", tag); c != 0 {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "  The checkout failed. Most often that is a local change:")
+		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr)
+		return 1
+	}
+	return 0
+}
+
+func detached(root string) bool {
+	out, ok := gitOutput(root, "symbolic-ref", "-q", "HEAD")
+	return !ok || strings.TrimSpace(out) == ""
+}
+
+// defaultBranch asks the remote rather than assuming "main". A fork or a
+// mirror is free to call it something else, and guessing wrong here strands
+// somebody on a detached head with an error about a branch they never had.
+func defaultBranch(root string) string {
+	out, ok := gitOutput(root, "symbolic-ref", "refs/remotes/origin/HEAD")
+	if ok {
+		if i := strings.LastIndex(strings.TrimSpace(out), "/"); i >= 0 {
+			if name := strings.TrimSpace(out)[i+1:]; name != "" {
+				return name
+			}
+		}
+	}
+	return "main"
 }
 
 // restoreInstallArtifacts puts the generated files back so the pull can run.

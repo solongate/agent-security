@@ -47,7 +47,22 @@ cd agent-security
 ```
 
 Then open a new terminal: hooks load when a session starts, so an already open
-one is not guarded yet. `solongate update` pulls and reinstalls later.
+one is not guarded yet.
+
+## Updates
+
+```bash
+solongate update          # move this checkout and reinstall from it
+solongate range           # how far an update is allowed to move
+solongate range short     # every commit on the branch
+solongate range long      # tagged releases only  (the default)
+```
+
+**long** takes only tagged releases: somebody decided a state was worth naming
+and the release job agreed. **short** takes whatever is on the branch, so a fix
+reaches you the day it lands and so does whatever the next commit fixes. Both
+are reasonable, for different people. The default is the cautious one, and the
+TUI shows which one this machine is on under Settings.
 
 The installer refuses to run from an agent, by design.
 

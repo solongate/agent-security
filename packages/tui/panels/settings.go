@@ -444,7 +444,7 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 
 func (p *Settings) allRows() []setRow {
 	rows := make([]setRow, 0, 6)
-	for _, k := range []string{"guard", "self", "doctor", "repair", "ll-enabled", "ll-path"} {
+	for _, k := range []string{"guard", "self", "doctor", "repair", "ll-enabled", "ll-path", "range"} {
 		rows = append(rows, setRow{kind: k})
 	}
 	return rows
@@ -525,6 +525,27 @@ func (p *Settings) beginInput(value string) {
 // activate is what enter does to the row under the cursor.
 func (p *Settings) activate(r setRow) tea.Cmd {
 	switch r.kind {
+	case "range":
+		// A toggle rather than a prompt: there are exactly two values and one
+		// of them is always the other one. Written through the same setter the
+		// CLI uses, and read back into Deps so the row redraws from the file
+		// rather than from what this panel believes it just wrote.
+		next := config.UpdateRangeLong
+		if config.UpdateRangeOf(p.deps.Cfg) == config.UpdateRangeLong {
+			next = config.UpdateRangeShort
+		}
+		if err := config.SetUpdateRange(next); err != nil {
+			p.msg = &setMessage{text: "✗ " + errText(err), bad: true}
+			return nil
+		}
+		p.deps.Cfg = config.LoadTUIConfig()
+		if next == config.UpdateRangeShort {
+			p.msg = &setMessage{text: "✓ short · updates take every commit on the branch"}
+		} else {
+			p.msg = &setMessage{text: "✓ long · updates take tagged releases only"}
+		}
+		return nil
+
 	case "guard":
 		if p.installBusy {
 			return nil
@@ -850,6 +871,8 @@ func sectionOf(r setRow) string {
 	switch r.kind {
 	case "guard", "self", "doctor", "repair":
 		return "PROTECTION"
+	case "range":
+		return "UPDATES"
 	}
 	return "LOCAL LOGS"
 }
@@ -858,6 +881,8 @@ func (p *Settings) sectionDesc(sec string) string {
 	switch sec {
 	case "PROTECTION":
 		return "guard hook, self-protection, doctor and repair"
+	case "UPDATES":
+		return "how far `solongate update` may move this machine"
 	}
 	return "where the hooks write this machine's audit trail"
 }
@@ -873,6 +898,19 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 	_ = spin
 
 	switch r.kind {
+	case "range":
+		l.put(pad("range", 11), stDim)
+		if config.UpdateRangeOf(p.deps.Cfg) == config.UpdateRangeShort {
+			// Warn rather than OK. It is a supported choice and it is the one
+			// that installs code no release has covered, and the colour is the
+			// only part of this row somebody reads at a glance.
+			l.put("short", stWarn)
+			l.put("  every commit on the branch", stDim)
+		} else {
+			l.put("long", stOK)
+			l.put("   tagged releases only", stDim)
+		}
+
 	case "guard":
 		l.put(pad("guard", 11), stDim)
 		if !p.haveGuard {

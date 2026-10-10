@@ -38,7 +38,7 @@ for arg in "$@"; do
 Install SolonGate from this checkout.
 
   ./install.sh         walk through it, pausing between steps
-  ./install.sh --yes   run it straight through, no pauses
+  ./install.sh --yes   assume yes; there is nothing to prompt for today
 
 Afterwards "solongate" is a command. Open a new terminal before testing it:
 hooks load when a session starts, so sessions already open are not guarded.
@@ -62,93 +62,53 @@ else
 	B=''; DIM=''; RED=''; GREEN=''; OFF=''
 fi
 
-# WHY THIS STOPS BETWEEN STEPS. Five steps produce several hundred lines — two of
-# them are a package manager and a bundler reporting at their own volume — and the
-# few lines this script prints itself are the ones worth reading. Run straight
-# through, all of it arrives at once and the only thing a person can do afterwards
-# is scroll back and hope the terminal kept enough.
+# ONE LINE PER THING, IN THE SHAPE A LINUX BOOT USES.
 #
-# So each step holds at its end, with what it did still on screen.
+# This script drives a package manager, a bundler and a Go build, and each
+# reports at its own volume and in its own vocabulary. Several hundred lines go
+# past, somebody installing a security tool for the first time cannot tell a
+# warning from a failure in any of it, and the only question they have is
+# whether each part worked.
 #
-# IT WAITS RATHER THAN ASKING. This used to print "Enter to continue" and block on
-# a keypress, which turns a five-step install into five decisions nobody has the
-# information to make: the question is never whether to continue, it is only
-# whether the last four lines have been read. A timed hold does that and gets out
-# of the way, and the bar is there so the hold reads as deliberate rather than as
-# the script having stalled on something.
+# So each part announces itself, its output is CAPTURED, and it ends as one
+# line that answers that question:
 #
-# ONLY WHERE SOMETHING WILL DRAW IT. A pipe, a CI job and an agent get no hold at
-# all: there is nobody reading, and four unexplained pauses in a build log is a
-# worse outcome than a wall of text. --yes is the same for a person in a hurry.
-HOLD_TENTHS=22
+#            Installing workspace dependencies...
+#   [  OK  ] Installed workspace dependencies.
+#
+# The captured output is not thrown away. It is printed in full under a
+# [FAILED] line when something fails: silence is only acceptable while nothing
+# is wrong.
+#
+# THERE IS NO PAUSE AND NO SPINNER ANY MORE. The pause existed because the
+# output was unreadable, and the spinner existed because the pause looked like
+# a stall. Neither problem is left, and both were solving the first one badly.
+say() { printf '         %b%s%b\n' "$DIM" "$1" "$OFF"; }
+mark_ok() { printf '%b[  OK  ]%b %s\n' "$GREEN" "$OFF" "$1"; }
+mark_no() { printf '%b[FAILED]%b %s\n' "$RED" "$OFF" "$1"; }
 
-# Fractional sleep is not in POSIX, it is just in every sleep anybody has. Asked
-# once rather than per frame, because a shell that cannot do it would otherwise
-# spend twenty-two SECONDS per step finding that out.
-if sleep 0.01 2>/dev/null; then HAS_SUBSECOND=1; else HAS_SUBSECOND=0; fi
+# A FILE RATHER THAN A VARIABLE. `pnpm install` emits more than a shell is
+# comfortable holding in a command substitution, and a substitution would also
+# miss anything the child writes straight to the terminal.
+RUNLOG=$(mktemp 2>/dev/null || echo /tmp/solongate-install.log)
+trap 'rm -f "$RUNLOG"' EXIT
 
-pause() {
-	[ "$AUTO" = 1 ] && return 0
-	[ -t 1 ] || return 0
-
-	if [ "$HAS_SUBSECOND" != 1 ]; then
-		printf '\n      %b…%b\n' "$DIM" "$OFF"
-		sleep 2
+# run: announce, capture, and say one line about how it went.
+run() {
+	_doing=$1
+	_done=$2
+	shift 2
+	say "$_doing..."
+	if "$@" >"$RUNLOG" 2>&1; then
+		mark_ok "$_done"
 		return 0
 	fi
-
-	# THE CURSOR IS PART OF THE PICTURE whether you want it to be. Parked at the
-	# end of a bar that is not moving yet, a block cursor reads as a sixth segment
-	# of the bar in the wrong colour. Hidden for the hold and put back after, and
-	# put back by the trap as well, because a script that exits on Ctrl+C with the
-	# cursor still hidden leaves the person's shell looking broken.
-	trap 'printf "\033[?25h"' INT TERM EXIT
-	printf '\033[?25l'
-
-	# A SPINNER RATHER THAN A BAR. A bar that fills is a claim about progress,
-	# and nothing here is making progress: the step finished, this is a pause so
-	# its last four lines can be read. A spinner says only that the script is
-	# alive, which is the true thing and the only thing worth saying.
-	i=0
+	mark_no "$_doing"
 	printf '\n'
-	while [ "$i" -le "$HOLD_TENTHS" ]; do
-		case $(( i % 10 )) in
-		0) f='⠋' ;; 1) f='⠙' ;; 2) f='⠹' ;; 3) f='⠸' ;; 4) f='⠼' ;;
-		5) f='⠴' ;; 6) f='⠦' ;; 7) f='⠧' ;; 8) f='⠇' ;; *) f='⠏' ;;
-		esac
-		printf '\r      %b%s%b' "$DIM" "$f" "$OFF"
-		sleep 0.1
-		i=$((i + 1))
-	done
-	# Wiped rather than left behind: it was pacing, not a result, and a stopped
-	# spinner above every step is four lines of nothing.
-	printf '\r                                                            \r'
-	printf '\033[?25h'
-	trap - INT TERM EXIT
+	sed 's/^/         /' "$RUNLOG" >&2
+	printf '\n'
+	exit 1
 }
-
-step=0
-step() {
-	# Before the header rather than after the work: the pause belongs at the end of
-	# the step that just finished, while its output is still what you are looking at.
-	[ "$step" -gt 0 ] && pause
-	step=$((step + 1))
-	printf '\n%b[%d/%d]%b %s\n' "$B" "$step" "$TOTAL" "$OFF" "$1"
-}
-note() { printf '      %b%s%b\n' "$DIM" "$1" "$OFF"; }
-
-# WHAT JUST HAPPENED, IN WORDS SOMEBODY CAN USE.
-#
-# Four of these five steps print output this script does not control — a package
-# manager, a bundler and a Go build, each reporting at its own volume and in its own
-# vocabulary. A person installing a security tool for the first time reads a few
-# hundred lines of that and has no way to tell a warning from a failure, or to answer
-# the only question they actually have: did that work, and what was it for.
-#
-# So every step ends with one sentence, in plain language, after the noise and before
-# the pause. It is the last thing on screen while they decide whether to continue.
-plain() { printf '\n      %b✓%b %s\n' "$GREEN" "$OFF" "$1"; }
-ok() { printf '      %b%s%b\n' "$GREEN" "$1" "$OFF"; }
 
 # die prints the problem AND what to do about it. A one-line failure that leaves
 # somebody searching is the thing this script is meant to stop producing.
@@ -159,7 +119,6 @@ die() {
 	exit 1
 }
 
-TOTAL=5
 
 cd "$(dirname "$0")"
 repo=$(pwd)
@@ -192,7 +151,7 @@ bin="$repo/packages/hooks/platforms/$tag/solongate"
 
 # ── 1. the tools this needs ───────────────────────────────────────────
 
-step "Checking the toolchain"
+say "Checking the toolchain..."
 
 command -v node >/dev/null 2>&1 || die "node was not found on PATH." \
 	"SolonGate's hooks are .mjs programs and run under node. Install Node 22 or newer."
@@ -207,7 +166,6 @@ if [ "$node_major" -lt 22 ]; then
 		"Node 20 reached end of life in April 2026 and no longer receives security" \
 		"patches, which is not a runtime to put a security tool on."
 fi
-note "node $(node -v)"
 
 command -v pnpm >/dev/null 2>&1 || die "pnpm was not found on PATH." \
 	"This repository is a pnpm workspace — npm and yarn cannot resolve the" \
@@ -215,7 +173,6 @@ command -v pnpm >/dev/null 2>&1 || die "pnpm was not found on PATH." \
 	"    corepack enable pnpm" \
 	"  or" \
 	"    npm install -g pnpm"
-note "pnpm $(pnpm --version)"
 
 # Go is found the same way the build script finds it, which is not just PATH: a
 # toolchain fetched by `go` itself for a newer go.mod lives in the module cache,
@@ -227,15 +184,11 @@ if ! "$go_bin" version >/dev/null 2>&1; then
 		"The guard and the CLI are Go programs. Install Go 1.25 or newer, or set" \
 		"GO_BIN to the binary if it is somewhere this did not look."
 fi
-note "$("$go_bin" version | cut -d' ' -f3) at $go_bin"
 
-plain "Your machine has the three tools needed to build SolonGate."
+mark_ok "Toolchain: node $(node -v), pnpm $(pnpm --version), $("$go_bin" version | cut -d' ' -f3)."
 
 # ── 2. the workspace ──────────────────────────────────────────────────
 
-step "Installing workspace dependencies"
-note "pnpm warns here that it could not create a bin — it is linking commands at"
-note "files the next step has not produced yet. Nothing is wrong."
 
 # AND NOT pnpm's OWN UPGRADE AD, which it draws in a box in the middle of this:
 #
@@ -253,28 +206,23 @@ note "files the next step has not produced yet. Nothing is wrong."
 # npm's, which pnpm honours.
 export npm_config_update_notifier=false
 
-pnpm install
-
-plain "Downloaded the code libraries the build needs. The warnings above are expected."
+run "Installing workspace dependencies" "Installed workspace dependencies." \
+	pnpm install
 
 # ── 3. the hooks ──────────────────────────────────────────────────────
 
-step "Bundling the hooks"
 cd "$repo/packages/hooks"
-pnpm build
-
-plain "Bundled the hooks that watch what your AI agents do."
+run "Bundling the hooks" "Bundled the hooks that watch your agents." \
+	pnpm build
 
 # ── 4. this host's binaries ───────────────────────────────────────────
 
 # One target, not all six. Six is what a release needs and takes minutes; this is
 # the machine in front of us.
-step "Building the Go guard and CLI for $tag"
-GO_BIN="$go_bin" pnpm build:go "$tag"
+GO_BIN="$go_bin" run "Building the guard and CLI for $tag" "Built the guard and the CLI." \
+	pnpm build:go "$tag"
 [ -x "$bin" ] || die "the build reported success but $bin is not there." \
 	"Run \`pnpm build:go $tag\` in packages/hooks and read what it says."
-
-plain "Built the guard: the program that checks every action an AI agent takes."
 
 # ── 5. the install ────────────────────────────────────────────────────
 
@@ -284,8 +232,6 @@ plain "Built the guard: the program that checks every action an AI agent takes."
 # would install the old version over the new one. So the freshly built binary is
 # the one that arranges the machine, exactly once, and every run after this is
 # plain `solongate`.
-step "Installing the guard, the hooks and the client registrations"
-
 if [ ! -t 0 ] || [ ! -t 1 ]; then
 	die "no interactive terminal (stdin and stdout are not both a tty)." \
 		"Everything above this point succeeded: the build is done." \
@@ -297,9 +243,8 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
 		"Run ./install.sh yourself, in your own terminal."
 fi
 
-"$bin" repair
-
-plain "SolonGate is installed. Your AI agents now have to ask it before they act."
+run "Registering the guard with your agents" "SolonGate is installed. Your agents ask it before they act." \
+	"$bin" repair
 
 # ── and a command called solongate ────────────────────────────────────
 
@@ -319,7 +264,7 @@ plain "SolonGate is installed. Your AI agents now have to ask it before they act
 # symlink, it is reversible, and anything that was not a symlink is kept.
 store_bin="$HOME/.solongate/bin/solongate"
 [ -x "$store_bin" ] || die "the install finished but $store_bin is not there." \
-	"Nothing was added to your PATH. Run ./install.sh again and read step 5."
+	"Nothing was added to your PATH. Run ./install.sh again and read the last lines."
 
 linked=''
 for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
@@ -332,7 +277,7 @@ for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
 	# it — renamed, not deleted — so the change can be undone by hand.
 	if [ -e "$dir/solongate" ] && [ ! -L "$dir/solongate" ]; then
 		mv "$dir/solongate" "$dir/solongate.before-solongate-install" || continue
-		note "moved an existing $dir/solongate aside (renamed to solongate.before-solongate-install)"
+		say "moved an existing $dir/solongate aside as solongate.before-solongate-install"
 	fi
 
 	if ln -sf "$store_bin" "$dir/solongate" 2>/dev/null; then
@@ -341,22 +286,22 @@ for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
 	fi
 done
 
+printf '\n'
 if [ -n "$linked" ]; then
-	printf '\n%b✓%b solongate is ready\n' "$GREEN" "$OFF"
-	note "$linked → $store_bin"
+	mark_ok "solongate is on your PATH: $linked"
 else
-	printf '\n%b✓%b installed, but not on your PATH yet\n' "$GREEN" "$OFF"
-	note "Add this to your shell profile:"
-	printf '\n    export PATH="$HOME/.solongate/bin:$PATH"\n'
+	mark_ok "Installed, but not on your PATH yet."
+	say 'add to your shell profile:'
+	printf '\n    export PATH="$HOME/.solongate/bin:$PATH"\n\n'
 fi
 
-# Hooks are read when a client starts, so a session that is already open is still
-# running under whatever was registered when it launched — including none.
+# Hooks are read when a client starts, so a session that is already open is
+# still running under whatever was registered when it launched, including none.
 printf '\n%bOpen a new terminal before you test it.%b\n' "$B" "$OFF"
-note "Hooks load when a session starts, so sessions already open are not guarded."
+say "hooks load when a session starts, so open sessions are not guarded yet"
 printf '\n'
-ok "solongate              the TUI"
-ok "solongate policy       what is enforced here"
-ok "solongate doctor       whether it is working"
-ok "solongate update       pull the newest version and reinstall"
+say "solongate              the TUI"
+say "solongate policy       what is enforced here"
+say "solongate doctor       whether it is working"
+say "solongate update       pull the newest version and reinstall"
 printf '\n'

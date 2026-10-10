@@ -97,6 +97,14 @@ pause() {
 		return 0
 	fi
 
+	# THE CURSOR IS PART OF THE PICTURE whether you want it to be. Parked at the
+	# end of a bar that is not moving yet, a block cursor reads as a sixth segment
+	# of the bar in the wrong colour. Hidden for the hold and put back after, and
+	# put back by the trap as well, because a script that exits on Ctrl+C with the
+	# cursor still hidden leaves the person's shell looking broken.
+	trap 'printf "\033[?25h"' INT TERM EXIT
+	printf '\033[?25l'
+
 	width=26
 	i=0
 	printf '\n'
@@ -115,6 +123,8 @@ pause() {
 	# Wiped rather than left behind: it was pacing, not a result, and a finished
 	# progress bar above every step is four lines of nothing.
 	printf '\r                                                            \r'
+	printf '\033[?25h'
+	trap - INT TERM EXIT
 }
 
 step=0
@@ -345,7 +355,7 @@ fi
 printf '\n%bOpen a new terminal before you test it.%b\n' "$B" "$OFF"
 note "Hooks load when a session starts, so sessions already open are not guarded."
 printf '\n'
-ok "solongate              the dataroom"
+ok "solongate              the TUI"
 ok "solongate policy       what is enforced here"
 ok "solongate doctor       whether it is working"
 ok "solongate update       pull the newest version and reinstall"

@@ -21,9 +21,9 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // anyone who found one, which is a different setting entirely.
 //
 // They now live under the user's own ~/.solongate, in a directory named by a
-// hash of the project path, so the per-project separation the dataroom relies
+// hash of the project path, so the per-project separation the TUI relies
 // on survives while nothing is written where the user works. The hash is
-// duplicated in guard.mjs, audit.mjs and the dataroom: all three must agree for
+// duplicated in guard.mjs, audit.mjs and the TUI: all three must agree for
 // a call's flags to be found, so keep them identical if any one is touched.
 function projectKey(dir) {
   let h = 0x811c9dc5;

@@ -50,7 +50,7 @@ var buildVersion = "dev"
 var cliSubcommands = map[string]bool{
 	"repair": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
-	"doctor": true, "trace": true, "watch": true, "protect": true,
+	"doctor": true, "trace": true, "watch": true, "protect": true, "range": true,
 	"tui": true,
 }
 
@@ -301,6 +301,7 @@ func table() []command {
 
 		{"repair", "restore the guard, hooks and settings files", cli.RunRepair},
 		{"update", "pull the newest version and reinstall it", cli.RunUpdate},
+		{"range", "how far an update may move: releases only, or every commit", cli.Runner("range")},
 	}
 }
 
@@ -405,6 +406,7 @@ func printHelp() {
 	head("Setup & status")
 	cmd("solongate", "open the terminal UI: policies, audit, settings")
 	cmd("update", "pull the newest version and reinstall it")
+	cmd("range [long|short]", "how far an update may move: releases only, or every commit")
 	cmd("repair", "restore the guard + hook + settings files if they were deleted or disarmed")
 	cmd("doctor", "health check: policy, guard, hooks, local logs")
 	cmd("doctor --json", "the same health check as machine-readable JSON")

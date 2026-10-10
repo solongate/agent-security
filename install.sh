@@ -68,18 +68,53 @@ fi
 # through, all of it arrives at once and the only thing a person can do afterwards
 # is scroll back and hope the terminal kept enough.
 #
-# So each step stops at its end, with what it did still on screen.
+# So each step holds at its end, with what it did still on screen.
 #
-# ONLY WHEN SOMEBODY IS THERE TO PRESS A KEY. A pipe, a CI job and an agent have no
-# tty, and a prompt there is not a pause but a hang with nothing explaining it.
-# --yes is for the person who wants it straight through anyway.
+# IT WAITS RATHER THAN ASKING. This used to print "Enter to continue" and block on
+# a keypress, which turns a five-step install into five decisions nobody has the
+# information to make: the question is never whether to continue, it is only
+# whether the last four lines have been read. A timed hold does that and gets out
+# of the way, and the bar is there so the hold reads as deliberate rather than as
+# the script having stalled on something.
+#
+# ONLY WHERE SOMETHING WILL DRAW IT. A pipe, a CI job and an agent get no hold at
+# all: there is nobody reading, and four unexplained pauses in a build log is a
+# worse outcome than a wall of text. --yes is the same for a person in a hurry.
+HOLD_TENTHS=22
+
+# Fractional sleep is not in POSIX, it is just in every sleep anybody has. Asked
+# once rather than per frame, because a shell that cannot do it would otherwise
+# spend twenty-two SECONDS per step finding that out.
+if sleep 0.01 2>/dev/null; then HAS_SUBSECOND=1; else HAS_SUBSECOND=0; fi
+
 pause() {
 	[ "$AUTO" = 1 ] && return 0
-	[ -t 0 ] && [ -t 1 ] || return 0
-	printf '\n      %bEnter to continue · Ctrl+C to stop%b ' "$DIM" "$OFF"
-	# `|| true` because EOF on stdin is not a failure, and set -e would treat it as
-	# one — ending the install at a prompt rather than at a problem.
-	read -r _ || true
+	[ -t 1 ] || return 0
+
+	if [ "$HAS_SUBSECOND" != 1 ]; then
+		printf '\n      %b…%b\n' "$DIM" "$OFF"
+		sleep 2
+		return 0
+	fi
+
+	width=26
+	i=0
+	printf '\n'
+	while [ "$i" -le "$HOLD_TENTHS" ]; do
+		filled=$(( i * width / HOLD_TENTHS ))
+		bar=''
+		j=0
+		while [ "$j" -lt "$width" ]; do
+			if [ "$j" -lt "$filled" ]; then bar="${bar}━"; else bar="${bar}·"; fi
+			j=$((j + 1))
+		done
+		printf '\r      %b%s%b' "$DIM" "$bar" "$OFF"
+		sleep 0.1
+		i=$((i + 1))
+	done
+	# Wiped rather than left behind: it was pacing, not a result, and a finished
+	# progress bar above every step is four lines of nothing.
+	printf '\r                                                            \r'
 }
 
 step=0

@@ -9,7 +9,7 @@
 // in the other. That hash names a DIRECTORY and is computed independently in
 // four places that never compare it, so the two implementations quietly used
 // different folders for anyone whose home directory was not in English. Nothing
-// errored. The dataroom just showed an empty ring.
+// errored. The TUI just showed an empty ring.
 //
 // So the rule for this package is narrow and worth keeping: it holds only what
 // MORE THAN ONE program must agree about. A type that one binary reads and
@@ -18,7 +18,7 @@
 // thing that has to stay expensive.
 //
 // The JavaScript side is still the reference. guard.mjs, audit.mjs and the
-// dataroom write these files today and will keep writing them for as long as
+// TUI write these files today and will keep writing them for as long as
 // the npm package is the entry point, so where this package and the JavaScript
 // disagree, the JavaScript is right and this is a bug.
 package shared

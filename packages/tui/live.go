@@ -394,7 +394,7 @@ func (p *Live) shouldPoll(kind int) bool {
 }
 
 // The eval ring the guard writes per project. Same directory the hooks use, so
-// the dataroom reads what this machine actually produced.
+// the TUI reads what this machine actually produced.
 func ringPath() string { return filepath.Join(config.ProjectFlagDir(), ".eval-ring.jsonl") }
 
 func (p *Live) pollLocal() tea.Cmd {
@@ -1432,7 +1432,7 @@ var liveHelp = []helpGroup{
 		{"e", "export visible rows → ~/.solongate/live-export.jsonl"},
 		{"space", "copy mode: freeze screen for mouse selection"},
 		{"esc", "back to menu"},
-		{"q", "quit dataroom"},
+		{"q", "quit TUI"},
 	}},
 	{"Entry (full content)", [][2]string{
 		{"↑↓ / PgUp PgDn", "scroll the content"},
@@ -2014,7 +2014,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 
 	body := []string{p.searchRow(width, len(visible))}
 	switch {
-	// A "local logs off — enable: dataroom → Settings or dashboard → Settings" row stood
+	// A "local logs off — enable: TUI → Settings or dashboard → Settings" row stood
 	// first here. Recording is unconditional: the setting chooses the folder and nothing
 	// else, so `off` is a state the writers cannot be in and the row could not appear.
 	case p.localOn != nil && *p.localOn && !p.localSetting.UsableHere:

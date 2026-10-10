@@ -67,9 +67,9 @@ import { gunzipSync } from 'node:zlib';
 // anyone who found one, which is a different setting entirely.
 //
 // They now live under the user's own ~/.solongate, in a directory named by a
-// hash of the project path, so the per-project separation the dataroom relies
+// hash of the project path, so the per-project separation the TUI relies
 // on survives while nothing is written where the user works. The hash is
-// duplicated in guard.mjs, audit.mjs and the dataroom: all three must agree for
+// duplicated in guard.mjs, audit.mjs and the TUI: all three must agree for
 // a call's flags to be found, so keep them identical if any one is touched.
 function projectKey(dir) {
   let h = 0x811c9dc5;
@@ -113,6 +113,11 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // replacement hooks from a service and swap its own file, and there is no service
 // to serve them. The number is still how `doctor` and the Settings panel say an
 // installation is behind the package.
+// 108 makes the eval-ring record the same shape the Go guard writes. It had
+// four fields where that one has eleven, which nothing noticed while the only
+// reader wanted the timing — and then the first-run screen read it to show
+// somebody their first judged call and printed four dashes.
+//
 // 92 closes a disarm: this hook's own per-agent state — the policy cache above
 // all — was writable through a path-taking tool, because matchPathGlob does not
 // treat `*` as a wildcard after a `**`. See isProtectedPath.
@@ -144,7 +149,7 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 //
 // This number is how a machine compares the hook it has with the one in a
 // checkout, and a fix nobody picks up is not a fix.
-const HOOK_VERSION = 107;
+const HOOK_VERSION = 108;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -2308,7 +2313,7 @@ input += SG_STDIN;
   if (process.env.SOLONGATE_DEBUG) {
   }
   // NOT `Date.now()`. Every `Date.now() - _evalStart` below becomes an
-  // evaluation_time_ms in the audit log — the number the dashboard, the dataroom
+  // evaluation_time_ms in the audit log — the number the dashboard, the TUI
   // and the TUI print as what this call paid to be guarded. Measured from here
   // it excluded Node's boot and this file's parse, which is most of the cost,
   // and reported ~1ms for a hook that was really taking tens. See SG_ORIGIN_MS.
@@ -2524,7 +2529,34 @@ input += SG_STDIN;
     try {
       const _fd = projectFlagDir(); mkdirSync(_fd, { recursive: true });
       sweepLegacyFlagDir(); // every call, not just denials
-      const _rec = { ms: Date.now() - _evalStart, ts: Date.now(), tool: toolName, session: call.sessionId };
+      // THE SAME FIELDS THE GO GUARD WRITES, and they were not.
+      //
+      // This wrote four of them: ms, ts, tool, session. The Go guard writes
+      // eleven. Nothing noticed for as long as the only reader was the audit
+      // hook, which wants the timing and nothing else — and then the first-run
+      // screen started reading the ring to show somebody their first judged
+      // call, and on a machine running the Node guard it had a tool name and
+      // four dashes. The record looked fabricated because it was nearly empty.
+      //
+      // Which of the two guards wrote a line is not something a reader should
+      // be able to tell. Argument KEY NAMES and counts only, as over there: the
+      // values are the file contents, commands and URLs this whole thing exists
+      // to keep where they belong.
+      const _isExec = guessPermission(toolName) === 'EXECUTE';
+      const _rec = {
+        ms: Date.now() - _evalStart,
+        ts: Date.now(),
+        tool: toolName,
+        session: call.sessionId,
+        client: AGENT_TYPE,
+        cwd: call.cwd,
+        perm: guessPermission(toolName),
+        args: Object.keys(call.args || {}).sort(),
+        paths: extractPaths(call.args || {}, _isExec).length,
+        cmds: extractCommands(call.args || {}).length,
+        urls: extractUrls(call.args || {}).length,
+        sandbox: process.env.SOLONGATE_SANDBOX || '',
+      };
       writeFileSync(join(_fd, '.last-eval'), JSON.stringify(_rec));
       // Also append to a short ring. When many tool calls run in PARALLEL they all
       // race on the single .last-eval above (overwrite / torn read → blank eval

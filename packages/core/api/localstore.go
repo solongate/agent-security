@@ -557,13 +557,13 @@ func sortedCounts(m map[string]int, n int) []struct {
 // only $.rules, so a document whose rules live only in the bundle compiles to an empty
 // rule set — which for a denylist denies nothing.
 //
-// The dataroom knew that and wrote both. The CLI wrote only the top level, so after
+// The TUI knew that and wrote both. The CLI wrote only the top level, so after
 // `solongate policy deny` the two disagreed, and each tool showed its own:
 //
 //	solongate policy show local   14 rules
-//	the dataroom's Rules pane      1 rule
+//	the TUI's Rules pane      1 rule
 //
-// The silent half is worse than the confusing half. The dataroom saves what it read, so
+// The silent half is worse than the confusing half. The TUI saves what it read, so
 // opening a policy it believed had one rule and pressing save would have written one rule
 // back — deleting thirteen that were being enforced, with no warning, because from inside
 // that panel nothing was being removed.

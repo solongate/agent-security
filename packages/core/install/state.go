@@ -66,7 +66,7 @@ func ShippedGuardVersion() *int {
 }
 
 // GuardHookOutdated reports whether the installed guard DIFFERS from the one
-// this build ships, so the dataroom can offer an update even when the API is
+// this build ships, so the TUI can offer an update even when the API is
 // behind or unreachable.
 //
 // False when there is nothing to compare against — no guard installed, or no

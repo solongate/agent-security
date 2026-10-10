@@ -18,7 +18,7 @@ import (
 // is on (config.LocalLogsSetting). What was missing, and is here, is reading
 // its contents: the port of the second half of
 // packages/proxy/src/tui/local-log.ts. It lives in the TUI package because the
-// dataroom is its only caller today; when `watch`, `doctor` or the logs server
+// TUI is its only caller today; when `watch`, `doctor` or the logs server
 // land they should take it into core/config rather than copy it.
 
 // localLogLine is one parsed line of the local JSONL. Every field is

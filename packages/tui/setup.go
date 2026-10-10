@@ -7,8 +7,8 @@
 // state where leaving is the wrong move: a machine with no policy file allows
 // every call. The guard loads nil, the evaluator returns the empty string, and
 // the call falls through to allow. Everything is instrumented and nothing is
-// enforced, which from the dataroom looks identical to a machine that is
-// working. So this runs before the dataroom exists and the dataroom does not
+// enforced, which from the TUI looks identical to a machine that is
+// working. So this runs before the TUI exists and the TUI does not
 // open until it is finished.
 //
 // THE LAST STEP WAITS FOR A REAL TOOL CALL and cannot be skipped forward. Every
@@ -17,7 +17,7 @@
 // be wrong and none of them are visible from here: the client never wrote the
 // registration, the launcher cannot find node, or the hook is registered
 // against a build that is not the one installed. Each of those produces a
-// perfectly healthy looking dataroom. One tool call settles all three, and it
+// perfectly healthy looking TUI. One tool call settles all three, and it
 // costs the user ten seconds.
 package tui
 
@@ -36,6 +36,19 @@ import (
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/install"
 )
+
+// setupPrompt is what the first run tells somebody to type at their agent.
+//
+// A SPECIFIC COMMAND RATHER THAN "do something". The screen is waiting for a
+// tool call and the person has to produce one, which means the instruction has
+// to be something an agent will definitely answer by REACHING FOR A TOOL. "Ask
+// it to read a file" is not that: half the time the model answers from what it
+// already has in context and no tool runs, and then this screen sits there
+// looking broken while the person did exactly what it said.
+//
+// `echo` with a word in it also makes the record unmistakably theirs when it
+// arrives: one command, no paths, and a tool name they will recognise.
+const setupPrompt = `run the command: echo solongate-works`
 
 type setupStep int
 
@@ -189,7 +202,7 @@ type setupModel struct {
 	// step three
 	call *setupCall
 
-	// Set when the user leaves without finishing. The dataroom does not open
+	// Set when the user leaves without finishing. The TUI does not open
 	// and nothing is recorded, so the next run starts here again.
 	abandoned bool
 }
@@ -420,7 +433,7 @@ func (m *setupModel) write(path string) tea.Cmd {
 // The block is built as plain lines and centred as a whole, horizontally and
 // vertically.
 //
-// CENTRED BECAUSE THERE IS NOTHING ELSE ON THE SCREEN. The dataroom pins to the
+// CENTRED BECAUSE THERE IS NOTHING ELSE ON THE SCREEN. The TUI pins to the
 // top left because it is a dense layout a person navigates; this is one thing
 // at a time, and one thing at a time in the top left corner of a 200 column
 // terminal reads as an error message.
@@ -436,9 +449,9 @@ func (m *setupModel) View() string {
 	var body []string
 	push := func(s string) { body = append(body, s) }
 
-	push(sgb("SolonGate", theme.AccentBright).render() + plain("   ").render() +
-		sg("first run", theme.Dim).render())
-	push(sg("Three things, and the last one needs your agent.", theme.Dim).render())
+	push(sgb("Welcome to SolonGate.", theme.AccentBright).render())
+	push(sg("Your agent asks this machine before it acts. Three things to set", theme.Dim).render())
+	push(sg("up, and the last one needs the agent itself.", theme.Dim).render())
 	push("")
 	body = append(body, m.rail(w)...)
 	push("")
@@ -529,13 +542,18 @@ func (m *setupModel) viewGuard(w int) []string {
 	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
 
 	if m.guardReady {
-		push(sg("The guard is registered. "+m.guardDetail, theme.OK))
+		push(sgb("Step 1 of 3 · the guard is in place", theme.AccentBright))
+		push(plain(""))
+		push(sg("Registered with your agent. "+m.guardDetail, theme.OK))
 		return out
 	}
-	push(sgb("No client has the guard registered.", theme.Bad))
+	push(sgb("Step 1 of 3 · nothing is guarding this machine yet", theme.Bad))
 	push(plain(""))
-	push(sg("Nothing is being checked on this machine. Run the installer from", theme.Dim))
-	push(sg("the checkout, in your own terminal, and this screen will notice:", theme.Dim))
+	push(sg("No client has the guard registered, so no tool call is being", theme.Dim))
+	push(sg("checked by anything.", theme.Dim))
+	push(plain(""))
+	push(sg("Run the installer from the checkout, in your own terminal. This", theme.Dim))
+	push(sg("screen notices on its own when it is done:", theme.Dim))
 	push(plain(""))
 	push(sg("    ./install.sh", theme.AccentBright))
 	if m.guardDetail != "" {
@@ -549,8 +567,11 @@ func (m *setupModel) viewPolicy(w int) []string {
 	var out []string
 	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
 
-	push(sgb("This machine has no policy, so every tool call is allowed.", theme.Warn))
-	push(sg("It is being recorded. It is not being refused. Pick a start:", theme.Dim))
+	push(sgb("Step 2 of 3 · choose what this machine refuses", theme.AccentBright))
+	push(plain(""))
+	push(sg("There is no policy yet, so every tool call your agent makes is", theme.Dim))
+	push(sg("allowed. It is recorded, and it is not refused. Pick a starting", theme.Dim))
+	push(sg("point below with ↑↓ and press enter. You can change it later.", theme.Dim))
 	push(plain(""))
 
 	postures := setupPostures()
@@ -623,20 +644,25 @@ func (m *setupModel) viewWaiting(w int) []string {
 		push(sg("✓ wrote "+m.wrote+" to "+config.PolicyFilePath(), theme.OK))
 		push(plain(""))
 	}
-	push(sgb("Waiting for the first tool call.", theme.Warn))
-	push(plain(""))
-	push(listenBar(min(w, 34), m.frame))
+	push(sgb("Step 3 of 3 · make your agent do something", theme.AccentBright))
 	push(plain(""))
 	push(sg("Everything above is a claim about what happens when your agent", theme.Dim))
-	push(sg("acts. None of it is proven on this machine until one has. Leave", theme.Dim))
-	push(sg("this open, and in another terminal:", theme.Dim))
+	push(sg("acts, and none of it is proven on this machine until one has.", theme.Dim))
+	push(sg("So this screen waits. Leave it open.", theme.Dim))
 	push(plain(""))
-	push(sg("  1. ", theme.Dim), sg("start your agent", theme.White),
-		sg("   claude, codex, opencode, antigravity", theme.Dim))
-	push(sg("  2. ", theme.Dim), sg("ask it to read a file", theme.White),
-		sg("   anything, a README will do", theme.Dim))
+	push(sg("  1. ", theme.Dim), sg("open a second terminal and start your agent", theme.White))
+	push(sg("       claude", theme.AccentBright),
+		sg("    or codex, opencode, antigravity", theme.Dim))
 	push(plain(""))
-	push(sg("listening · "+elapsed(m.started), theme.Dim))
+	push(sg("  2. ", theme.Dim), sg("type this to it, word for word:", theme.White))
+	push(plain(""))
+	push(sg("       "+setupPrompt, theme.AccentBright))
+	push(plain(""))
+	push(sg("The agent will run it as a tool call, SolonGate will judge that", theme.Dim))
+	push(sg("call, and this screen will say so within a second.", theme.Dim))
+	push(plain(""))
+	push(listenBar(min(w, 34), m.frame))
+	push(sg("waiting · "+elapsed(m.started), theme.Dim))
 	return out
 }
 
@@ -752,7 +778,7 @@ func (m *setupModel) footer() string {
 		}
 		return seg2("↑↓", "choose  ") + seg2("enter", "write it  ") + seg2("q", "leave")
 	case stepFinished:
-		return seg2("enter", "open the dataroom")
+		return seg2("enter", "open the TUI")
 	default:
 		return seg2("q", "leave  (the first run starts here again next time)")
 	}
@@ -779,12 +805,12 @@ func (s seg) render() string {
 // needsSetup is the one question Run asks before opening anything.
 //
 // The timestamp is the record, not the policy file: a user who deliberately
-// deleted their policy should land in the dataroom they know, not back at a
+// deleted their policy should land in the TUI they know, not back at a
 // wizard. The first run happened; what they do afterwards is theirs.
 func needsSetup(cfg config.TUIConfig) bool { return strings.TrimSpace(cfg.SetupDoneAt) == "" }
 
 // runSetup shows the first run and reports whether to carry on into the
-// dataroom. An abandoned setup records nothing, so the next run starts here.
+// TUI. An abandoned setup records nothing, so the next run starts here.
 func runSetup(deps Deps, out io.Writer) (bool, error) {
 	m := newSetup(deps)
 	final, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithOutput(out)).Run()

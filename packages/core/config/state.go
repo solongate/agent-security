@@ -4,6 +4,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"time"
 
@@ -76,6 +77,59 @@ type TUIConfig struct {
 	// A TIMESTAMP RATHER THAN A BOOL because the question people ask later is
 	// when this machine was set up, and a bool cannot answer it.
 	SetupDoneAt string `json:"setupDoneAt,omitempty"`
+
+	// UpdateRange is how far `solongate update` is willing to move: "short"
+	// takes whatever is on the branch, "long" takes only tagged releases.
+	// Empty means long.
+	//
+	// IN THIS FILE DESPITE ITS NAME. tui-config.json is where this machine's
+	// preferences live and has been since before it held only TUI ones; the
+	// alternative was a second preferences file, which is how a machine ends up
+	// with two places to look and one of them stale.
+	UpdateRange string `json:"updateRange,omitempty"`
+}
+
+// The two update ranges.
+//
+// LONG IS THE DEFAULT, and the asymmetry is the point. A tag is a deliberate
+// act by a maintainer and a release job that passed; the tip of a branch is
+// whatever was merged minutes ago, which on this project has more than once
+// been a fix for the thing merged before it. Somebody who has not chosen gets
+// the one where a human decided it was ready.
+const (
+	UpdateRangeShort = "short"
+	UpdateRangeLong  = "long"
+)
+
+// UpdateRangeOf normalises whatever is in the file. Anything unrecognised
+// reads as long, for the same reason the default is: an unreadable preference
+// must not quietly widen what gets installed.
+func UpdateRangeOf(cfg TUIConfig) string {
+	if cfg.UpdateRange == UpdateRangeShort {
+		return UpdateRangeShort
+	}
+	return UpdateRangeLong
+}
+
+// SetUpdateRange records the choice, merging over the file the same way
+// MarkSetupDone does so an unknown field survives.
+func SetUpdateRange(which string) error {
+	if which != UpdateRangeShort && which != UpdateRangeLong {
+		return errors.New(`update range must be "short" or "long"`)
+	}
+	if err := EnsureDir(); err != nil {
+		return err
+	}
+	doc := map[string]any{}
+	if b, err := os.ReadFile(TUIConfigPath()); err == nil {
+		_ = json.Unmarshal(b, &doc)
+	}
+	doc["updateRange"] = which
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(TUIConfigPath(), append(out, '\n'), FileMode)
 }
 
 // LoadTUIConfig defaults notifications ON. The file says `false` to turn them
@@ -92,6 +146,7 @@ func LoadTUIConfig() TUIConfig {
 		Accent        string `json:"accent"`
 		PollMs        *int   `json:"pollMs"`
 		SetupDoneAt   string `json:"setupDoneAt"`
+		UpdateRange   string `json:"updateRange"`
 	}
 	if json.Unmarshal(b, &raw) != nil {
 		return cfg
@@ -104,6 +159,7 @@ func LoadTUIConfig() TUIConfig {
 		cfg.PollMs = *raw.PollMs
 	}
 	cfg.SetupDoneAt = raw.SetupDoneAt
+	cfg.UpdateRange = raw.UpdateRange
 	return cfg
 }
 

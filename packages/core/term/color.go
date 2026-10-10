@@ -17,7 +17,14 @@ import (
 // The palette, byte for byte the one in packages/proxy/src/cli-utils.ts. The
 // blues are a ramp used top to bottom by the banner, so their order is part of
 // the artwork rather than a naming convention.
-const (
+//
+// VARIABLES RATHER THAN CONSTANTS, so they can be emptied when nothing is going
+// to interpret them. Every command that printed these used to be gated to a
+// real terminal, which made the question moot; `solongate run` is the first one
+// that is not, because the shell shim launches an agent through it and a script
+// or an IDE has no tty. Without this, a confined launch writes `\x1b[2m` into
+// somebody's build log.
+var (
 	Reset  = "\x1b[0m"
 	Bold   = "\x1b[1m"
 	Dim    = "\x1b[2m"
@@ -36,6 +43,31 @@ const (
 	Yellow = "\x1b[38;2;220;200;80m"
 	BgBlue = "\x1b[48;2;20;50;160m"
 )
+
+// STDERR, NOT STDOUT, is what decides. Everything in this package writes there:
+// stdout belongs to `--json` and to anything being piped into another program,
+// and a command whose JSON goes down a pipe still has a person reading its
+// banner on the terminal beside it.
+//
+// NO_COLOR is honoured whatever the answer. It is a one-line courtesy and the
+// convention is widely enough followed that ignoring it reads as an oversight.
+func init() {
+	if os.Getenv("NO_COLOR") != "" || !isatty(os.Stderr) {
+		Reset, Bold, Dim, Italic, White, Gray = "", "", "", "", "", ""
+		Blue1, Blue2, Blue3, Blue4, Blue5, Blue6 = "", "", "", "", "", ""
+		Green, Red, Cyan, Yellow, BgBlue = "", "", "", "", ""
+	}
+}
+
+// isatty asks the file itself rather than taking a dependency. A character
+// device is what a terminal is; a pipe, a file and /dev/null are not.
+func isatty(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
 
 // Log writes a line to stderr.
 //

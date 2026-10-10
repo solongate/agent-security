@@ -70,11 +70,17 @@ fi
 # warning from a failure in any of it, and the only question they have is
 # whether each part worked.
 #
-# So each part announces itself, its output is CAPTURED, and it ends as one
-# line that answers that question:
+# So each part's output is CAPTURED and it ends as one line that answers that
+# question:
 #
-#            Installing workspace dependencies...
 #   [  OK  ] Installed workspace dependencies.
+#
+# ONE LINE, NOT TWO. systemd prints a "Starting ..." line first because it is
+# supervising hundreds of units and some of them hang. There are five things
+# here, they run in order, and the one that announced itself was always the
+# one on screen. The cost is that the Go build is quiet for a minute or two;
+# the benefit is that the finished install is five lines, each of which is a
+# result.
 #
 # The captured output is not thrown away. It is printed in full under a
 # [FAILED] line when something fails: silence is only acceptable while nothing
@@ -98,7 +104,6 @@ run() {
 	_doing=$1
 	_done=$2
 	shift 2
-	say "$_doing..."
 	if "$@" >"$RUNLOG" 2>&1; then
 		mark_ok "$_done"
 		return 0
@@ -123,7 +128,7 @@ die() {
 cd "$(dirname "$0")"
 repo=$(pwd)
 
-printf '%bSolonGate%b — installing from %s\n' "$B" "$OFF" "$repo"
+printf '%bSolonGate%b  installing from %s\n' "$B" "$OFF" "$repo"
 
 # ── which host is this ────────────────────────────────────────────────
 
@@ -151,8 +156,6 @@ bin="$repo/packages/hooks/platforms/$tag/solongate"
 
 # ── 1. the tools this needs ───────────────────────────────────────────
 
-say "Checking the toolchain..."
-
 command -v node >/dev/null 2>&1 || die "node was not found on PATH." \
 	"SolonGate's hooks are .mjs programs and run under node. Install Node 22 or newer."
 
@@ -168,7 +171,7 @@ if [ "$node_major" -lt 22 ]; then
 fi
 
 command -v pnpm >/dev/null 2>&1 || die "pnpm was not found on PATH." \
-	"This repository is a pnpm workspace — npm and yarn cannot resolve the" \
+	"This repository is a pnpm workspace: npm and yarn cannot resolve the" \
 	"workspace links between its packages. Install it with:" \
 	"    corepack enable pnpm" \
 	"  or" \

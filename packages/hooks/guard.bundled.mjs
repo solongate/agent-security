@@ -461,7 +461,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 107;
+var HOOK_VERSION = 108;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -1711,7 +1711,21 @@ input += SG_STDIN;
         const _fd = projectFlagDir();
         mkdirSync(_fd, { recursive: true });
         sweepLegacyFlagDir();
-        const _rec = { ms: Date.now() - _evalStart, ts: Date.now(), tool: toolName, session: call.sessionId };
+        const _isExec = guessPermission(toolName) === "EXECUTE";
+        const _rec = {
+          ms: Date.now() - _evalStart,
+          ts: Date.now(),
+          tool: toolName,
+          session: call.sessionId,
+          client: AGENT_TYPE,
+          cwd: call.cwd,
+          perm: guessPermission(toolName),
+          args: Object.keys(call.args || {}).sort(),
+          paths: extractPaths(call.args || {}, _isExec).length,
+          cmds: extractCommands(call.args || {}).length,
+          urls: extractUrls(call.args || {}).length,
+          sandbox: process.env.SOLONGATE_SANDBOX || ""
+        };
         writeFileSync(join(_fd, ".last-eval"), JSON.stringify(_rec));
         try {
           const ring = join(_fd, ".eval-ring.jsonl");

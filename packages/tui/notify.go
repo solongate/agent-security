@@ -12,7 +12,7 @@ import (
 // Best-effort desktop toast for the Live console's security alerts (DENY, DLP,
 // rate limit). It only SHOWS a notification — clicking it does nothing. Every
 // platform uses a tool it already ships with and every failure is swallowed,
-// because a missing notifier must never disturb the dataroom.
+// because a missing notifier must never disturb the TUI.
 //
 //	Linux   — notify-send (libnotify, present on GNOME and KDE desktops)
 //	Windows — a NotifyIcon balloon through the built-in PowerShell
@@ -38,7 +38,7 @@ func desktopNotify(title, msg string) {
 	default:
 		return
 	}
-	// The child must not inherit this process's stdout: the dataroom owns the
+	// The child must not inherit this process's stdout: the TUI owns the
 	// alternate screen, and one line from a notifier writing to it paints over
 	// the frame until the next full render.
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = nil, nil, nil

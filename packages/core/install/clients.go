@@ -182,7 +182,7 @@ func planClaude(p Paths, node string) (registration, error) {
 // than restoring the backup.
 //
 // Restoring could re-ADD them: a backup taken while the guard was present would
-// make the dataroom show "removed" while the guard still ran on every call —
+// make the TUI show "removed" while the guard still ran on every call —
 // which is exactly the bug the row was showing.
 func removeClaudeRegistration(p Paths) error {
 	raw, err := readIfPresent(p.SettingsPath)

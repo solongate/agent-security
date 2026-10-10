@@ -64,6 +64,6 @@ func New() *Client {
 }
 
 // Authenticated reports whether this machine has an account. It never has one, and
-// the surfaces that used to gate on it — the dataroom's lock, doctor's first check —
+// the surfaces that used to gate on it — the TUI's lock, doctor's first check —
 // do not ask any more.
 func (c *Client) Authenticated() bool { return false }

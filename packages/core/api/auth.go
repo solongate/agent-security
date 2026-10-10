@@ -10,7 +10,7 @@ import "context"
 // MCP proxy checking a configured key before it forwarded anything — a licence check
 // against /auth/me, refusing to start on a 401 or a 403. What it licensed is deleted.
 //
-// It stays as a stub rather than being removed because the dataroom's own account
+// It stays as a stub rather than being removed because the TUI's own account
 // header was the other consumer, and something a person could reasonably re-add — a
 // machine identity that is not a service's — would land here. Answering nothing is
 // the honest version of that until then.

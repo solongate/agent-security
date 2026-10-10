@@ -45,7 +45,7 @@ var trailingSep = regexp.MustCompile(`[\\/]+$`)
 // Local logging takes a FOLDER and the hooks append solongate-audit.jsonl inside it,
 // so a policy naming /home/me gets /home/me/solongate-audit.jsonl. Every viewer used
 // to read the DEFAULT folder unconditionally, so with a custom folder configured the
-// dataroom, `watch` and `doctor` all showed an empty log while entries were landing
+// TUI, `watch` and `doctor` all showed an empty log while entries were landing
 // somewhere else.
 //
 // IT READS THE POLICY FILE. It used to read the policy CACHES, newest first, because

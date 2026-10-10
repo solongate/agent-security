@@ -39,7 +39,7 @@ body:
         - Egress, the upload check
         - Rate limits
         - The audit trail
-        - The CLI or the dataroom
+        - The CLI or the TUI
         - A client that is not supported yet
         - The MCP proxy
         - Documentation

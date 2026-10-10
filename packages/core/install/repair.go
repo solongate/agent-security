@@ -23,7 +23,7 @@ type ReportLine struct {
 }
 
 // Report is the whole repair, with no printing in it — the same restore backs
-// `solongate repair` and the dataroom's Settings panel, and the dataroom owns
+// `solongate repair` and the TUI's Settings panel, and the TUI owns
 // the terminal while it is up.
 type Report struct {
 	OK      bool

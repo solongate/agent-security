@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/install"
@@ -123,6 +124,85 @@ func RunUpdate(args []string) int {
 
 // step runs one command with its output streamed through, so a build that takes a minute
 // looks like a build taking a minute rather than a hang.
+// quietStep runs a command with a spinner instead of its output.
+//
+// FOR THE GIT STEPS ONLY. A fetch and a checkout print progress nobody reads
+// and object counts nobody can act on, and all of it between two lines that do
+// matter. The spinner says the thing that is true, which is that something is
+// happening, and the output is kept so a FAILURE can print all of it.
+//
+// install.sh keeps streaming. It is minutes long, it has its own steps, and
+// hiding a build behind a spinner is how a person ends up watching a dot while
+// a compiler asks them something.
+func quietStep(dir, label, name string, args ...string) int {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	var out strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &out
+
+	stop := spin("  " + label)
+	err := cmd.Run()
+	stop()
+
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "  ✗ "+label)
+		if text := strings.TrimSpace(out.String()); text != "" {
+			for _, line := range strings.Split(text, "\n") {
+				fmt.Fprintln(os.Stderr, "    "+line)
+			}
+		}
+		var exit *exec.ExitError
+		if ok := asExitError(err, &exit); ok {
+			return exit.ExitCode()
+		}
+		return 1
+	}
+	fmt.Fprintln(os.Stderr, "  ✓ "+label)
+	return 0
+}
+
+// spin draws one frame every 90ms until the returned function is called.
+//
+// ON STDERR, with the result lines. The spinner used to go to stdout while a
+// failure went to stderr, and a terminal receiving both interleaved them: the
+// clearing \r landed before the error text rather than after the spinner, and
+// the two ended up on one line reading "⠋ Fetching releases ✗ Fetching
+// releases". One stream, one order.
+//
+// NOT ON A PIPE. Without a terminal there is nothing to overwrite, so \r turns
+// the animation into a few hundred copies of the same line in whatever log is
+// collecting it. There it prints the label once and nothing else.
+func spin(label string) func() {
+	if !isTerminal(os.Stderr) {
+		fmt.Fprintln(os.Stderr, label+"…")
+		return func() {}
+	}
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		frames := []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+		for i := 0; ; i++ {
+			select {
+			case <-done:
+				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", len(label)+6))
+				return
+			default:
+			}
+			fmt.Fprintf(os.Stderr, "\r  %c %s", frames[i%len(frames)], label)
+			time.Sleep(90 * time.Millisecond)
+		}
+	}()
+	return func() { close(done); <-finished }
+}
+
+// isTerminal asks the file rather than taking a dependency: a character device
+// is what a terminal is, and a pipe, a file and /dev/null are not.
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
 func step(dir, label, name string, args ...string) int {
 	fmt.Println("  " + label + "…")
 	cmd := exec.Command(name, args...)
@@ -210,11 +290,11 @@ func rangeOneLiner(rng string) string {
 func moveToBranchTip(root string) int {
 	if detached(root) {
 		branch := defaultBranch(root)
-		if c := step(root, "Returning to "+branch, "git", "checkout", branch); c != 0 {
+		if c := quietStep(root, "Returning to "+branch, "git", "checkout", branch); c != 0 {
 			return c
 		}
 	}
-	if c := step(root, "Fetching the newest commit", "git", "pull", "--ff-only"); c != 0 {
+	if c := quietStep(root, "Fetching the newest commit", "git", "pull", "--ff-only"); c != 0 {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "  The pull failed. Most often that is a local change in the checkout:")
 		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")
@@ -234,7 +314,7 @@ func moveToBranchTip(root string) int {
 // the next `git pull` quietly a different operation, and this command is not
 // the only thing that runs git in this directory.
 func moveToNewestRelease(root string) int {
-	if c := step(root, "Fetching releases", "git", "fetch", "--tags", "--force", "origin"); c != 0 {
+	if c := quietStep(root, "Fetching releases", "git", "fetch", "--tags", "--force", "origin"); c != 0 {
 		return c
 	}
 	tag, _ := gitOutput(root, "tag", "-l", "v*", "--sort=-v:refname")
@@ -246,7 +326,7 @@ func moveToNewestRelease(root string) int {
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
-	if c := step(root, "Checking out "+tag, "git", "checkout", "--detach", tag); c != 0 {
+	if c := quietStep(root, "Checking out "+tag, "git", "checkout", "--detach", tag); c != 0 {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "  The checkout failed. Most often that is a local change:")
 		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")

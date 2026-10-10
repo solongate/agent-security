@@ -80,6 +80,11 @@ type (
 		data bool
 		err  error
 	}
+
+	setProtectedMsg struct {
+		genTag
+		rows []protectedLine
+	}
 	// setRunMsg is the answer to any one-shot action started by run(). hide is
 	// the row key to drop on success — applied HERE rather than in the request
 	// goroutine, which would be writing panel state while the update loop reads
@@ -141,6 +146,14 @@ type Settings struct {
 	guardErr  error
 	selfProt  bool
 	haveSelf  bool
+
+	// The protected paths, and what is holding each one RIGHT NOW. READ ONLY
+	// HERE on purpose: adding one can need a sudo password on Linux, and a
+	// program that has taken over the terminal is the wrong place to ask for
+	// one. `solongate protect` is where that conversation belongs. This is the
+	// surface that answers it afterwards, which is the half somebody opens the
+	// dataroom looking for.
+	protected []protectedLine
 	selfErr   error
 
 	// hidden are rows deleted in this session. The row has to vanish the instant
@@ -219,7 +232,36 @@ func (p *Settings) readDisk() {
 // unpaired, because each was an HTTP call that needed a key; there is nothing
 // left to skip.
 func (p *Settings) reloadAll() tea.Cmd {
-	return tea.Batch(p.loadLocal(), p.loadGuard(), p.loadSelf())
+	return tea.Batch(p.loadLocal(), p.loadGuard(), p.loadSelf(), p.loadProtected())
+}
+
+// protectedLine is one path with the lock that is on it, read from the
+// FILESYSTEM rather than from the policy file. The file records what somebody
+// asked for; only the filesystem says what happened, and the gap between those
+// two is the thing worth showing.
+type protectedLine struct {
+	path string
+	lock config.Lock
+}
+
+func (p *Settings) loadProtected() tea.Cmd {
+	t := p.tag()
+	client := p.deps.API
+	return func() tea.Msg {
+		paths, err := client.Settings.ProtectedPaths(bg())
+		if err != nil {
+			// No row rather than an error row. An unreadable policy file is
+			// already reported by three other things on this panel, and a
+			// fourth copy of it pushes the ones that are not duplicates off
+			// the screen.
+			return setProtectedMsg{genTag: t}
+		}
+		rows := make([]protectedLine, 0, len(paths))
+		for _, path := range paths {
+			rows = append(rows, protectedLine{path: path, lock: config.CheckLock(path)})
+		}
+		return setProtectedMsg{genTag: t, rows: rows}
+	}
 }
 
 func (p *Settings) loadLocal() tea.Cmd {
@@ -299,6 +341,12 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 		if m.err == nil {
 			p.selfProt, p.haveSelf = m.data, true
 		}
+
+	case setProtectedMsg:
+		if m.tok != p.tok {
+			return p, nil // a previous mount's answer
+		}
+		p.protected = m.rows
 
 	case setRunMsg:
 		p.busy = false
@@ -722,6 +770,30 @@ func (p *Settings) viewList() string {
 				push(st.Render("    "+mark+" "+pad(c.Name, 16)+" "+c.Detail), "")
 			}
 		}
+	}
+
+	// PROTECTED PATHS, under everything else and not selectable.
+	//
+	// The mark is the whole point of the section: a tick means the operating
+	// system refuses to write or delete it, a warning means the write is
+	// refused and a delete is not, a cross means nothing is holding it. All
+	// three print the same word in the policy file.
+	if len(p.protected) > 0 {
+		push(" ", "")
+		push(stAccentB.Render("PROTECTED PATHS")+
+			stDim.Render("  — out of the agent's reach, by the OS where it can be"), "")
+		for _, r := range p.protected {
+			mark, st := "✗", stBad
+			switch {
+			case r.lock.Immutable:
+				mark, st = "✓", stOK
+			case r.lock.Held():
+				mark, st = "!", stWarn
+			}
+			push(st.Render("  "+mark+" ")+truncate(r.path, max(20, p.cols-6)), "")
+			push(stDim.Render("      "+r.lock.Summary()), "")
+		}
+		push(stDim.Render("      `solongate protect` adds and removes them"), "")
 	}
 
 	// The version sits at the very bottom of the scrollable list.

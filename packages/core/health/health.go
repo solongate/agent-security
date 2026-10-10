@@ -3,13 +3,13 @@
 // Package health answers one question: is this machine actually enforcing?
 //
 // IT IS NOT PART OF THE CLI, even though `solongate doctor` is where most people
-// read it. The dataroom shows the same checks, and when this lived in the CLI
+// read it. The TUI shows the same checks, and when this lived in the CLI
 // package the TUI imported the CLI to get at them. That edge was the only thing
 // standing between the two surfaces being siblings, and five symbols were all it
 // carried.
 //
 // So the collection lives here and the rendering lives with whoever is doing the
-// rendering: doctor.go prints a table, the dataroom draws a panel, and neither
+// rendering: doctor.go prints a table, the TUI draws a panel, and neither
 // has to know the other exists.
 
 package health
@@ -69,7 +69,7 @@ type Check struct {
 // ones that matter most when the network is down, and losing them to a single
 // failed request would hide exactly the state someone is running doctor to see.
 //
-// The no-printing part is load-bearing twice over. The dataroom's Settings panel
+// The no-printing part is load-bearing twice over. The TUI's Settings panel
 // shows the same rows, and Bubble Tea owns the terminal while it is up, so
 // anything it calls has to hand back data rather than write to the stream. And
 // `--json` needs the same values the human view renders, not a second

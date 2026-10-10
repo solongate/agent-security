@@ -198,7 +198,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		}
 
 		// Permission scoping, which until now was reachable only from the
-		// dataroom -- so a rule set could not be written down as commands, which
+		// TUI -- so a rule set could not be written down as commands, which
 		// is what a runbook and a CI check both need.
 		//
 		// It is worth knowing what you are asking for before you use it. The
@@ -235,7 +235,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		return 0, nil
 
 	case "mode":
-		// The mode was a dataroom toggle, so a whitelist policy could not be set
+		// The mode was a TUI toggle, so a whitelist policy could not be set
 		// up from a script at all -- and whitelist is the mode with the most
 		// consequential default: nothing is allowed until a rule says so.
 		id, mode := p.positional(1), strings.ToLower(p.positional(2))
@@ -267,7 +267,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		return 0, nil
 
 	case "rule":
-		// Turning a rule off without deleting it: the dataroom has always had
+		// Turning a rule off without deleting it: the TUI has always had
 		// this and the CLI had only revoke, which loses the rule.
 		id, ruleID, action := p.positional(1), p.positional(2), strings.ToLower(p.positional(3))
 		if id == "" || ruleID == "" || (action != "enable" && action != "disable") {
@@ -501,7 +501,7 @@ func mustJSON(v any) json.RawMessage {
 // ruleMatch is WHAT A RULE ACTUALLY MATCHES, which this table did not show.
 //
 // The columns were effect, priority, id and description, and the description is free
-// text somebody may never have written. A rule added from the dataroom has none, so it
+// text somebody may never have written. A rule added from the TUI has none, so it
 // printed as:
 //
 //	DENY  100  rule-1791039653150  -

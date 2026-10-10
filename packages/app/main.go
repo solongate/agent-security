@@ -51,7 +51,7 @@ var cliSubcommands = map[string]bool{
 	"repair": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
 	"doctor": true, "trace": true, "watch": true, "protect": true,
-	"dataroom": true,
+	"tui": true,
 }
 
 // `run` IS NOT IN THAT LIST, and putting it there was a real regression for
@@ -118,7 +118,7 @@ func run(args []string) int {
 	}
 	isHumanCLI := len(args) == 0 || cliSubcommands[sub] || cliInfoArgs[sub]
 
-	// THE BARE INVOCATION IS GATED BY THE DATAROOM ITSELF, not here, and that is
+	// THE BARE INVOCATION IS GATED BY THE TUI ITSELF, not here, and that is
 	// what makes printWelcome reachable.
 	//
 	// It was in this condition, so a piped `solongate` was refused with
@@ -128,7 +128,7 @@ func run(args []string) int {
 	// program's output without a tty, a README, a CI log, `solongate | less`,
 	// got a refusal where an explanation was written and waiting.
 	//
-	// Nothing is loosened. The dataroom is opened only `if isInteractive()`
+	// Nothing is loosened. The TUI is opened only `if isInteractive()`
 	// twenty lines down, and every command that changes a security posture is
 	// still in cliSubcommands and still asserts here.
 	if isHumanCLI && len(args) > 0 {
@@ -188,12 +188,12 @@ func run(args []string) int {
 		install.InstallGoBinaries()
 	}
 
-	// Bare invocation. On an interactive terminal this opens the dataroom, which
+	// Bare invocation. On an interactive terminal this opens the TUI, which
 	// starts with the first run until the first run has happened; a piped or CI
 	// run gets the plain welcome instead.
 	if len(args) == 0 {
 		if isInteractive() {
-			return launchDataroom()
+			return launchTUI()
 		}
 		printWelcome()
 		return 0
@@ -211,7 +211,7 @@ func run(args []string) int {
 	// wall of startup logs. That runtime is gone: this binary guards tool calls
 	// and edits a policy, and it never stood in front of a tool server.
 	fmt.Printf("\n  Unknown command: %s\n", sub)
-	fmt.Print("  Run `solongate --help` to see every command, or `solongate` for the dataroom.\n\n")
+	fmt.Print("  Run `solongate --help` to see every command, or `solongate` for the TUI.\n\n")
 	return 1
 }
 
@@ -281,8 +281,8 @@ type command struct {
 // single `run` field each rather than editing a dispatch chain.
 func table() []command {
 	return []command{
-		{"dataroom", "open the dataroom UI (policies, audit, settings)",
-			func([]string) int { return launchDataroom() }},
+		{"tui", "open the terminal UI (policies, audit, settings)",
+			func([]string) int { return launchTUI() }},
 
 		{"policy", "list, create, edit and activate policies", cli.Runner("policy")},
 		{"ratelimit", "show and edit rate limits", cli.Runner("ratelimit")},
@@ -313,7 +313,7 @@ func lookup(name string) (command, bool) {
 	return command{}, false
 }
 
-// launchDataroom starts the Bubble Tea program.
+// launchTUI starts the Bubble Tea program.
 //
 // The one constraint, already paid for once: a frame must be no taller than
 // (terminal rows - 1). Ink repainted the entire screen on every render as soon
@@ -321,7 +321,7 @@ func lookup(name string) (command, bool) {
 // same failure mode. tui enforces it by clipping every frame rather
 // than by trusting each panel's arithmetic.
 //
-// The gate above has already run: the dataroom is the command that both reveals
+// The gate above has already run: the TUI is the command that both reveals
 // and changes a security posture, so it is human-only like every other one.
 //
 // tui/panels is imported for its side effects: each panel registers
@@ -329,10 +329,10 @@ func lookup(name string) (command, bool) {
 // nav would list five sections that exist and report every one of them as not
 // ported. The version is stamped in here because it is stamped into main at
 // build time and the shell does not carry it.
-func launchDataroom() int {
+func launchTUI() int {
 	panels.Version = buildVersion
 	if err := tui.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "\n  %sThe dataroom could not start:%s %s\n\n", term.Yellow, term.Reset, err)
+		fmt.Fprintf(os.Stderr, "\n  %sThe TUI could not start:%s %s\n\n", term.Yellow, term.Reset, err)
 		return 1
 	}
 	return 0
@@ -341,7 +341,7 @@ func launchDataroom() int {
 // ── banners ────────────────────────────────────────────────────────────────
 
 // printWelcome is what a human sees running the package with no arguments and
-// no terminal to open the dataroom in. The proxy normally runs under an MCP
+// no terminal to open the TUI in. The proxy normally runs under an MCP
 // client, so a plain invocation means someone is trying it out: the only thing
 // asked of them is the one onboarding command.
 func printWelcome() {
@@ -351,7 +351,7 @@ func printWelcome() {
 	fmt.Println("")
 	fmt.Println("  Get started with one command:")
 	fmt.Println("")
-	fmt.Printf("    %ssolongate%s             %sopen the dataroom (policies, audit, settings)%s\n",
+	fmt.Printf("    %ssolongate%s             %sopen the TUI (policies, audit, settings)%s\n",
 		term.Cyan, term.Reset, term.Dim, term.Reset)
 	fmt.Printf("    %ssolongate --help%s      %slist every command%s\n",
 		term.Cyan, term.Reset, term.Dim, term.Reset)
@@ -371,7 +371,7 @@ func printWelcome() {
 
 // printHelp is the FULL command tree with exact syntax, so how to edit a rate
 // limit, a policy or a DLP rule is discoverable from the terminal without
-// opening the dataroom.
+// opening the TUI.
 func printHelp() {
 	const w = 46 // syntax column width
 	head := func(t string) { fmt.Printf("\n  %s%s%s\n", term.Bold, t, term.Reset) }
@@ -399,11 +399,11 @@ func printHelp() {
 	fmt.Printf("  %s%sSolonGate%s %ssecure gateway for your AI agents%s  %sv%s%s\n",
 		term.Bold, term.Blue4, term.Reset, term.Dim, term.Reset, term.Dim, buildVersion, term.Reset)
 	fmt.Println("")
-	fmt.Printf("  %sUsage:%s %ssolongate%s %s[command]%s   %s(no command opens the dataroom: all of this in a terminal UI)%s\n",
+	fmt.Printf("  %sUsage:%s %ssolongate%s %s[command]%s   %s(no command opens the TUI: all of this in a terminal UI)%s\n",
 		term.Dim, term.Reset, term.Cyan, term.Reset, term.Dim, term.Reset, term.Dim, term.Reset)
 
 	head("Setup & status")
-	cmd("solongate", "open the dataroom: policies, audit, settings")
+	cmd("solongate", "open the terminal UI: policies, audit, settings")
 	cmd("update", "pull the newest version and reinstall it")
 	cmd("repair", "restore the guard + hook + settings files if they were deleted or disarmed")
 	cmd("doctor", "health check: policy, guard, hooks, local logs")

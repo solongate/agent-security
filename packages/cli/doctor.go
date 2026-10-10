@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // What `solongate doctor` PRINTS. What it checks is core/health, which the
-// dataroom reads too: a verdict a person acts on should not depend on which
+// TUI reads too: a verdict a person acts on should not depend on which
 // surface they happened to open.
 
 package cli

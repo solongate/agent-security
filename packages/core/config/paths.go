@@ -43,7 +43,7 @@ func Dir() string {
 // that is armed.
 func CredentialPath() string { return filepath.Join(Dir(), "cloud-guard.json") }
 
-// Every account ever logged in on this device, so the dataroom can switch
+// Every account ever logged in on this device, so the TUI can switch
 // between them without another device-login round trip.
 // policyFileName is assembled: the guard protects paths spelled this way, and the
 // tooling that edits this file is subject to that protection.
@@ -110,7 +110,7 @@ func AgentKey(a string) string { return shared.AgentKey(a) }
 // ProjectKey hashes a project path so per-call scratch stays separated per
 // project WITHOUT being written into the project.
 //
-// This hash is duplicated in the Node guard, the audit hook, the dataroom and
+// This hash is duplicated in the Node guard, the audit hook, the TUI and
 // packages/guard. All of them must agree or a reader opens an empty
 // directory and reports no activity for a project that is busy.
 //

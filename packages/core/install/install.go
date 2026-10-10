@@ -11,7 +11,7 @@ import (
 	"github.com/solongate/agent-security/packages/core/config"
 )
 
-// Result is what the callers that must not print report back. The dataroom owns
+// Result is what the callers that must not print report back. The TUI owns
 // the terminal while it is up, so anything it calls has to hand back a status
 // rather than write to the stream.
 type Result struct {
@@ -42,7 +42,7 @@ var ErrNoLogin = errors.New("no login on this device")
 // registrations that name them, so no client is ever pointed at a file that is
 // not there yet.
 //
-// No prompting, no printing, no exit: this is what the dataroom's one-key
+// No prompting, no printing, no exit: this is what the TUI's one-key
 // install and `solongate repair` both call.
 func Install() Result {
 	p := GlobalPaths()

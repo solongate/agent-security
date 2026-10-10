@@ -211,7 +211,7 @@ func (p PoliciesAPI) AddRule(ctx context.Context, id string, spec RuleSpec) (Rul
 	// SURROUNDING WHITESPACE IS NOT PART OF THE PATTERN, and leaving it in produces
 	// the worst kind of rule: one that reads correctly everywhere and enforces
 	// nothing. `policy show` prints `curl *` whether or not there is a space after
-	// it, the dataroom lists it the same way, and the glob never matches a command
+	// it, the TUI lists it the same way, and the glob never matches a command
 	// that does not end in one.
 	//
 	// It is the same failure the permission check already refuses a typo for — a
@@ -219,7 +219,7 @@ func (p PoliciesAPI) AddRule(ctx context.Context, id string, spec RuleSpec) (Rul
 	// because a trailing space is invisible in the editor that made it.
 	//
 	// HERE RATHER THAN IN EACH CALLER. Three places build a RuleSpec: this CLI, the
-	// dataroom's whitelist key, and the whitelist helper below. Trimming in one of
+	// TUI's whitelist key, and the whitelist helper below. Trimming in one of
 	// them is how two of them end up wrong.
 	spec.Value = strings.TrimSpace(spec.Value)
 	spec.ToolPattern = strings.TrimSpace(spec.ToolPattern)

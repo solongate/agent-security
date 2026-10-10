@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package panels is the dataroom's section panels in Bubble Tea: Policies,
+// Package panels is the TUI's section panels in Bubble Tea: Policies,
 // Fleet and Settings, plus the two editors — DLP and Rate Limit — that are no
 // longer sections of their own but folds of a policy variant, mounted BOUND by
 // the Policies panel.
@@ -42,7 +42,7 @@ import (
 //
 // It is a variable rather than a field on tui.Deps because the version is
 // stamped into main at build time and the shell does not carry it. main sets it
-// on the way into the dataroom; left unset the row says "dev", which is what a
+// on the way into the TUI; left unset the row says "dev", which is what a
 // developer build is.
 var Version = "dev"
 

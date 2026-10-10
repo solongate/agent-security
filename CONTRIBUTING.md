@@ -30,14 +30,14 @@ the tests.
 | `packages/shared` | Shapes more than one program has to agree about. No dependencies, on purpose. |
 | `packages/core` | What both surfaces stand on: config, the local store, install state, health, the sandbox. |
 | `packages/cli` | The subcommands. Prints and exits. |
-| `packages/tui` | The dataroom. Full screen, stays open. |
+| `packages/tui` | The TUI. Full screen, stays open. |
 | `packages/app` | The binary. 409 lines: dispatch, the human-only gate, and `--help`. |
 | `packages/hooks` | The hook programs, and the scripts that build what ships. |
 
 `cli` and `tui` are siblings and neither imports the other. They are two
 surfaces onto the same thing, and when one reaches into the other what follows
 is a check a person reads differently depending on which they opened. The one
-edge that existed, the dataroom calling the CLI for `doctor`, is why
+edge that existed, the TUI calling the CLI for `doctor`, is why
 `core/health` is its own package.
 
 ## Checking your change

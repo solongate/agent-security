@@ -105,23 +105,23 @@ pause() {
 	trap 'printf "\033[?25h"' INT TERM EXIT
 	printf '\033[?25l'
 
-	width=26
+	# A SPINNER RATHER THAN A BAR. A bar that fills is a claim about progress,
+	# and nothing here is making progress: the step finished, this is a pause so
+	# its last four lines can be read. A spinner says only that the script is
+	# alive, which is the true thing and the only thing worth saying.
 	i=0
 	printf '\n'
 	while [ "$i" -le "$HOLD_TENTHS" ]; do
-		filled=$(( i * width / HOLD_TENTHS ))
-		bar=''
-		j=0
-		while [ "$j" -lt "$width" ]; do
-			if [ "$j" -lt "$filled" ]; then bar="${bar}━"; else bar="${bar}·"; fi
-			j=$((j + 1))
-		done
-		printf '\r      %b%s%b' "$DIM" "$bar" "$OFF"
+		case $(( i % 10 )) in
+		0) f='⠋' ;; 1) f='⠙' ;; 2) f='⠹' ;; 3) f='⠸' ;; 4) f='⠼' ;;
+		5) f='⠴' ;; 6) f='⠦' ;; 7) f='⠧' ;; 8) f='⠇' ;; *) f='⠏' ;;
+		esac
+		printf '\r      %b%s%b' "$DIM" "$f" "$OFF"
 		sleep 0.1
 		i=$((i + 1))
 	done
-	# Wiped rather than left behind: it was pacing, not a result, and a finished
-	# progress bar above every step is four lines of nothing.
+	# Wiped rather than left behind: it was pacing, not a result, and a stopped
+	# spinner above every step is four lines of nothing.
 	printf '\r                                                            \r'
 	printf '\033[?25h'
 	trap - INT TERM EXIT

@@ -50,9 +50,27 @@ var buildVersion = "dev"
 var cliSubcommands = map[string]bool{
 	"repair": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
-	"doctor": true, "trace": true, "watch": true, "protect": true, "run": true,
+	"doctor": true, "trace": true, "watch": true, "protect": true,
 	"dataroom": true,
 }
+
+// `run` IS NOT IN THAT LIST, and putting it there was a real regression for
+// the two days it was.
+//
+// The gate exists because every command in it changes a security posture, and
+// an agent must not be able to change one. `run` changes nothing: it starts a
+// process with MORE restriction than the caller had, never less, and the worst
+// an agent achieves by invoking it is confining itself.
+//
+// Gating it broke the case the whole feature is for. The shell shim launches
+// claude through `solongate run`, so with the gate on, `claude` stopped working
+// from any script, any IDE that spawns it, any CI job, and `claude -p`. The
+// safe path was unavailable in exactly the places nobody is watching.
+//
+// `run --explain` is the exception and stays gated below: it prints the whole
+// protected list, where a refusal only ever names the one path that was
+// attempted.
+var runExplainArgs = map[string]bool{"--explain": true, "explain": true}
 
 // Flags and aliases that print a banner and exit.
 var cliInfoArgs = map[string]bool{
@@ -114,6 +132,9 @@ func run(args []string) int {
 	// twenty lines down, and every command that changes a security posture is
 	// still in cliSubcommands and still asserts here.
 	if isHumanCLI && len(args) > 0 {
+		assertHumanTerminal()
+	}
+	if sub == "run" && len(args) > 1 && runExplainArgs[args[1]] {
 		assertHumanTerminal()
 	}
 

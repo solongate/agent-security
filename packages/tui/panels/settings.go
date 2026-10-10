@@ -20,7 +20,7 @@ import (
 func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { return NewSettings(d) }) }
 
 // The Settings panel, ported from tui/panels/Settings.tsx — the dashboard
-// Settings page, dataroom edition. Everything an operator configures, in ONE
+// Settings page, TUI edition. Everything an operator configures, in ONE
 // single-cursor list:
 //
 //	ACCOUNTS   accounts logged in on this device: view · make active · add
@@ -32,7 +32,7 @@ func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { ret
 //
 // Installing, updating and removing the guard, doctor and repair all run for
 // real now, through core/install and core/health. This panel reaches no
-// further than that: the CLI is a sibling, not something the dataroom calls. They are commands rather than inline calls because
+// further than that: the CLI is a sibling, not something the TUI calls. They are commands rather than inline calls because
 // each writes several files, unlocks and relocks them, and may spawn a process;
 // doing that on the update goroutine would freeze the terminal for as long as
 // the disk takes, and a frozen terminal during a guard install is
@@ -152,7 +152,7 @@ type Settings struct {
 	// program that has taken over the terminal is the wrong place to ask for
 	// one. `solongate protect` is where that conversation belongs. This is the
 	// surface that answers it afterwards, which is the half somebody opens the
-	// dataroom looking for.
+	// TUI looking for.
 	protected []protectedLine
 	selfErr   error
 

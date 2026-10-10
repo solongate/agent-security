@@ -118,7 +118,7 @@ was not started this way. It fails closed, so it is off until you turn it on.
 ## The CLI
 
 ```
-solongate              the dataroom: policies, audit, settings
+solongate              the TUI: policies, audit, settings
 solongate policy       list, create and edit the policy
 solongate dlp          secret detection
 solongate ratelimit    the rate limit

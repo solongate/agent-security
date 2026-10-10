@@ -16,7 +16,7 @@ import (
 //
 // Ink took colour NAMES and resolved them itself; lipgloss takes a colour. The
 // mapping below is the one chalk uses, because the two implementations render
-// the same screens on the same terminals and a dataroom that is grey in one and
+// the same screens on the same terminals and a TUI that is grey in one and
 // bright white in the other reads as a rendering bug rather than a port.
 
 // Named ANSI colours, in chalk's numbering: `gray` is bright black (90), and
@@ -32,7 +32,7 @@ var ansiNames = map[string]string{
 
 // colorOf accepts what tui-config.json's `accent` may hold: a chalk colour name
 // or a hex string. Anything else falls back rather than erroring — an accent is
-// decoration, and a typo in it must not stop the dataroom from opening.
+// decoration, and a typo in it must not stop the TUI from opening.
 func colorOf(name, fallback string) lipgloss.Color {
 	n := strings.TrimSpace(name)
 	if strings.HasPrefix(n, "#") {
@@ -70,7 +70,7 @@ var theme = palette{
 }
 
 // setAccent applies the user's accent once, at start-up. Package-level state
-// because there is exactly one dataroom per process and every renderer below
+// because there is exactly one TUI per process and every renderer below
 // would otherwise have to thread a palette it never varies.
 func setAccent(accent string) {
 	c := colorOf(accent, "7")

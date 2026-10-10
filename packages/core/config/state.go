@@ -116,7 +116,7 @@ func LoadTUIConfig() TUIConfig {
 // unknown field is a writer that deletes it.
 //
 // Best effort. Failing to record this costs one extra first-run screen, which
-// is not worth refusing to open the dataroom over.
+// is not worth refusing to open the TUI over.
 func MarkSetupDone() {
 	if EnsureDir() != nil {
 		return

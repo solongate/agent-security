@@ -257,7 +257,7 @@ type ActivePolicy struct {
 	// Variant is which setting of that policy this machine is enforcing.
 	// It is only ever set for a guest whose host pinned one, which makes it the
 	// honest answer to "am I under somebody else's policy": it comes from what
-	// the guard is actually served rather than from a flag the dataroom keeps.
+	// the guard is actually served rather than from a flag the TUI keeps.
 	Variant      string `json:"variant,omitempty"`
 	HookVersions struct {
 		Guard  int `json:"guard"`

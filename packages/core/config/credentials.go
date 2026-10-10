@@ -51,7 +51,7 @@ func LoadCredentialFile() Credential {
 }
 
 // EnforcingKey is the key this device enforces with, empty when it is unpaired.
-// Distinct from whatever the dataroom is currently VIEWING.
+// Distinct from whatever the TUI is currently VIEWING.
 // DotenvAPIKey reads SOLONGATE_API_KEY from a .env beside the working
 // directory, the way the hooks do. A project .env is a real source of the key
 // on machines that were set up before device login existed.
@@ -85,7 +85,7 @@ func DotenvAPIKey() string {
 //
 // The account layer: an accounts.json holding every account ever logged in on the
 // device, a Resolver that produced a key and URL per request with a five-second cache
-// and a "view" override so the dataroom could read one account while another was
+// and a "view" override so the TUI could read one account while another was
 // enforcing, and the writers that kept the two files consistent — SaveAccount,
 // RemoveAccount, SetActiveAccount, ClearActiveCredential. Plus EnforcingKey,
 // IsActiveAccount and ErrNotAuthenticated, whose message named a panel that is gone.

@@ -3,7 +3,7 @@
 // Package term is the plain-ANSI surface: the palette the non-TUI commands
 // print with, and the banner.
 //
-// It is deliberately separate from lipgloss. The dataroom renders through
+// It is deliberately separate from lipgloss. The TUI renders through
 // Bubble Tea and can ask the terminal what it supports; a one-shot command
 // prints and exits, and dragging a renderer in for six colour codes would make
 // `solongate policy list` pay for a TUI it never starts.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package tui is the SolonGate dataroom: the fullscreen terminal UI behind
+// Package tui is the SolonGate TUI: the fullscreen terminal UI behind
 // `solongate` with no arguments.
 //
 // It is the Bubble Tea port of packages/proxy/src/tui. The shell in this file
@@ -74,7 +74,7 @@ type PanelContext struct {
 	Now time.Time
 }
 
-// Panel is one section of the dataroom.
+// Panel is one section of the TUI.
 //
 // Implementations are POINTERS: a panel holds buffers and in-flight state, and
 // value semantics would have every Update copy them and every stale copy still
@@ -105,7 +105,7 @@ type Takeover interface {
 
 // KeyCapture is a panel that is editing text. While it reports true the shell
 // touches no keys at all, so a `q` typed into a search box does not quit the
-// dataroom.
+// TUI.
 type KeyCapture interface{ CapturingKeys() bool }
 
 // GenMsg is a panel message that belongs to one mount of that panel. The shell
@@ -217,7 +217,7 @@ const (
 	focusPanel
 )
 
-// App is the dataroom shell.
+// App is the TUI shell.
 type App struct {
 	deps Deps
 
@@ -226,7 +226,7 @@ type App struct {
 	gen int
 
 	// policyLabel is what is being enforced, read from the policy file. It used
-	// to be which account the dataroom was viewing.
+	// to be which account the TUI was viewing.
 	policyLabel string
 
 	section int
@@ -288,7 +288,7 @@ func (a *App) readPolicyLabel() tea.Cmd {
 
 // mount builds the panel for the current section and runs its Init. It is the
 // equivalent of a React mount: a section that is not on screen does not poll,
-// which is what keeps the dataroom inside the API's rate limit.
+// which is what keeps the TUI inside the API's rate limit.
 func (a *App) mount() tea.Cmd {
 	idx := a.effectiveSection()
 	a.panel = buildPanel(idx, a.deps)
@@ -402,7 +402,7 @@ func (a *App) capturing() bool {
 func (a *App) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A panel editing text owns the keyboard completely. Ink left the shell's
 	// handler armed while ink-text-input had focus, so typing a `q` into Live's
-	// search box quit the dataroom; this is the one deliberate difference from
+	// search box quit the TUI; this is the one deliberate difference from
 	// the TypeScript key routing.
 	if a.focus == focusPanel && a.capturing() {
 		return a, a.toPanel(k)
@@ -680,10 +680,10 @@ func clampBlock(s string, cols, rows int) string {
 
 // ── entry point ────────────────────────────────────────────────────────────
 
-// Run opens the dataroom and returns when the user quits.
+// Run opens the TUI and returns when the user quits.
 //
 // The caller is responsible for the human-only gate: every command in this CLI
-// changes or reveals a security posture, and the dataroom is the one that does
+// changes or reveals a security posture, and the TUI is the one that does
 // both. See assertHumanTerminal in main.go.
 func Run() error {
 	cfg := config.LoadTUIConfig()
@@ -694,7 +694,7 @@ func Run() error {
 	// console.log and solved it the same way: send it to a file instead.
 	log.SetOutput(io.Discard)
 	if config.EnsureDir() == nil {
-		path := filepath.Join(config.Dir(), "dataroom-debug.log")
+		path := filepath.Join(config.Dir(), "tui-debug.log")
 		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			defer f.Close()
 			log.SetOutput(f)
@@ -703,10 +703,10 @@ func Run() error {
 
 	deps := Deps{API: api.New(), Cfg: cfg}
 
-	// THE FIRST RUN COMES FIRST, and the dataroom does not open behind it. See
+	// THE FIRST RUN COMES FIRST, and the TUI does not open behind it. See
 	// setup.go for why this is a gate rather than a section in the nav: the
 	// state it is about is the one where everything looks fine and nothing is
-	// enforced. A user who leaves it gets no dataroom and no record, so the
+	// enforced. A user who leaves it gets no TUI and no record, so the
 	// next run starts there again.
 	if needsSetup(cfg) {
 		carryOn, err := runSetup(deps, os.Stdout)

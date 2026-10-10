@@ -80,11 +80,11 @@ func AgentKey(agent string) string {
 // ~/.solongate/projects/<key>, keyed by a hash of the project path so they stay
 // separated per project without being written INTO the project. Four programs
 // compute this independently and none of them compares its answer with anyone
-// else's: this guard, the Node guard, the audit hook and the dataroom. They just
+// else's: this guard, the Node guard, the audit hook and the TUI. They just
 // each look in the folder their own answer names.
 //
 // So a disagreement is silent. It is not a wrong number, it is a different
-// directory: the dataroom reads an empty ring, evaluation times go missing, and
+// directory: the TUI reads an empty ring, evaluation times go missing, and
 // the deny flag stops suppressing the audit hook's duplicate entry. Nothing
 // logs anything.
 //

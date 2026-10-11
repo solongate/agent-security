@@ -94,19 +94,20 @@ func Runner(name string) func([]string) int {
 
 // report turns an error into the single line the user sees.
 //
-// The three cases are kept apart because they need different next steps: not
-// logged in tells you to log in, an API rejection carries the status that
+// The cases are kept apart because they need different next steps: an
+// interruption is not a failure, a store rejection carries the status that
 // explains it, and anything else is printed as-is rather than dressed up as
 // something this layer understands.
+//
+// There used to be a third case ahead of those: `errors.Is(e,
+// api.ErrNotAuthenticated)`, printing "not logged in". Nothing could return that
+// error — there is no service to authenticate to — so the branch was unreachable
+// and the only thing it did was tell a reader this CLI has a login.
 func report(e error) int {
 	if errors.Is(e, context.Canceled) {
 		// Ctrl+C is not a failure and must not print one. 130 is what a shell
 		// reports for a process the user interrupted.
 		return 130
-	}
-	if errors.Is(e, api.ErrNotAuthenticated) {
-		errln(red("  ✗ ") + e.Error())
-		return 1
 	}
 	var ae *api.Error
 	if errors.As(e, &ae) {

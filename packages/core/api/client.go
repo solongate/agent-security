@@ -29,22 +29,21 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
-// IsAuth answered "is this a 401 or a 403". Nothing produces one now; it is kept so
-// the callers that check it keep compiling, and it is always false.
-func (e *Error) IsAuth() bool { return e.Status == 401 || e.Status == 403 }
-
-// ErrNotAuthenticated was returned when no credential could be resolved. Nothing
-// returns it any more — there is nothing to authenticate to — and it stays because
-// cli still recognises it when printing an error.
-var ErrNotAuthenticated = errString("not logged in")
-
-type errString string
-
-func (e errString) Error() string { return string(e) }
+// THE AUTHENTICATION SURFACE IS GONE, not stubbed. What stood here was an
+// `Auth` namespace with a `Me` call, an `Authenticated()` that returned a
+// hardcoded false, an `ErrNotAuthenticated` nothing returned, and an `IsAuth()`
+// reading a `Status` field no response ever set. Each was kept so a caller would
+// keep compiling, and together they read as an account system that was merely
+// switched off — `grep Authenticated` found a method, and the method was a lie
+// about there being something to authenticate to.
+//
+// There is no service and no account. The three callers that asked have been
+// changed to not ask: cli/commands.go no longer tests for an error that cannot
+// be returned, and nothing gates on a login. A reader now finds no auth surface,
+// which is the accurate thing to find.
 
 // Client holds the four namespaces. Each one is backed by the two files.
 type Client struct {
-	Auth     AuthAPI
 	Policies PoliciesAPI
 	Settings SettingsAPI
 	Stats    StatsAPI
@@ -55,15 +54,9 @@ type Client struct {
 // credential to resolve.
 func New() *Client {
 	c := &Client{}
-	c.Auth = AuthAPI{c}
 	c.Policies = PoliciesAPI{c}
 	c.Settings = SettingsAPI{c}
 	c.Stats = StatsAPI{c}
 	c.Audit = AuditAPI{c}
 	return c
 }
-
-// Authenticated reports whether this machine has an account. It never has one, and
-// the surfaces that used to gate on it — the TUI's lock, doctor's first check —
-// do not ask any more.
-func (c *Client) Authenticated() bool { return false }

@@ -211,16 +211,9 @@ func MarkSetupDone() {
 // kept working, which is invisible unless something says it out loud. Nothing writes a
 // marker, because nothing writes to a service.
 
-// writeJSONCompact matches the Node writers: JSON.stringify with no indent.
-// Indentation would be cosmetic here and these files are read by both
-// implementations, so the format stays the one already on disk.
-func writeJSONCompact(path string, v any) error {
-	if err := EnsureDir(); err != nil {
-		return err
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o644)
-}
+// writeJSONCompact was here — EnsureDir, json.Marshal, WriteFile 0644 — with a
+// comment about matching the Node writers' unindented output. No caller. The
+// writers in this package that do reach disk build their own write because they
+// each need something it did not offer: a read-merge-write that preserves keys
+// this version does not know about, or a temp-plus-rename that keeps a reader
+// from seeing half a file.

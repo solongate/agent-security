@@ -983,9 +983,3 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 	}
 	return l.String()
 }
-
-// errString is a message that is already the whole error. errors.New would do,
-// but this keeps the import list of this file to what it actually needs.
-type errString string
-
-func (e errString) Error() string { return string(e) }

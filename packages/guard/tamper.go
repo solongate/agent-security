@@ -25,17 +25,14 @@ import (
 	"github.com/solongate/agent-security/packages/policy"
 )
 
-// Kept from the original even though nothing reads it: the write/exec split is
-// the documented shape of this layer, and the write set is what a future
-// write-only variant of the check would key off. The exec set IS live, in
-// tamperCheck.
-var tamperGuardToolsWrite = map[string]bool{
-	"write": true, "edit": true, "multiedit": true, "notebookedit": true,
-	"create": true, "update": true, "delete": true, "remove": true, "move": true,
-	"rename": true, "copy": true,
-	"filesystem": true, "fs_write": true, "fs_edit": true, "str_replace_editor": true,
-}
-
+// THERE IS NO WRITE SET, and there used to be one: fifteen tool names next to
+// this list, read by nothing. Its comment argued it was "the documented shape of
+// this layer" and what "a future write-only variant of the check would key off".
+// Neither survived contact with how the layer works: tamperCheck looks at a
+// tool's TARGET PATH fields regardless of what the tool is called, so a write is
+// already covered without the tool being named, and a set that exists for a
+// variant nobody has written is a design note pretending to be code. The git
+// history is where a design that is not running belongs.
 var tamperGuardToolsExec = map[string]bool{
 	"bash": true, "powershell": true, "shell": true, "exec": true, "run": true,
 	"eval": true, "cmd": true,

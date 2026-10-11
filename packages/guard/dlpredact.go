@@ -37,28 +37,16 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
+// THE DE-OBFUSCATION EXPRESSIONS LIVE IN packages/shared/dlp.go, one copy.
+//
+// Two of them were declared here as well — the shell-quote stripper and the
+// base64 token matcher — with the second carrying twenty lines explaining why
+// its floor moved from sixteen characters to twelve. Nothing in this package
+// read either one; DLPScanViews in shared does the work and owns the pair. A
+// second copy of a threshold that a long comment argues for is the shape a
+// drift starts in: somebody tunes the number they can see, and the number being
+// enforced is the other one.
 var (
-	// Shell decoration a split secret hides behind: "AKIA""3XZ9…", 'AKIA'\''…',
-	// AKIA\3XZ9. Dropping all four collapses it back to one contiguous run.
-	reShellQuoteChars = regexp.MustCompile("[`'\"\\\\]")
-	// A base64-looking token. 16 chars minimum: shorter runs are mostly ordinary
-	// words and decode to noise, and every secret worth smuggling is longer.
-	// A base64-looking token. TWELVE characters minimum, not sixteen.
-	//
-	// WHY IT MOVED. Sixteen was chosen so ordinary words would not be decoded,
-	// and it had a hole nobody had measured: base64 of an eleven digit national
-	// id is fifteen characters plus one of padding, so the floor sat exactly one
-	// character above the most important value this package looks for. A ten
-	// digit tax number is fourteen. Both walked straight through the encoded
-	// view. Twelve reaches a nine byte value, which covers every identifier here.
-	//
-	// WHAT IT COSTS. More tokens get decoded, and ordinary long words now
-	// produce a few bytes of noise each. That noise still has to satisfy a
-	// CHECKSUM to become a hit, so the false alarm risk is arithmetic rather
-	// than shape - measured over 159k tokens of real source code, it added none.
-	// The token count is still bounded (see maxB64Tokens), so the CPU is too.
-	reB64Token = regexp.MustCompile(`[A-Za-z0-9+/]{12,}={0,2}`)
-
 	// Transfer commands. Only these pay for the extra file read, which is why
 	// egress scanning stays off the common hot path.
 	dlpTransferCmd = regexp.MustCompile(`\b(curl|wget|scp|rsync|sftp|ftp|nc|netcat)\b`)
@@ -97,9 +85,6 @@ var (
 	// (python -c, $(<f), while read, …); this covers the common ones and the glob
 	// path below fails closed.
 	dlpReaderCmd = regexp.MustCompile(`\b(cat|less|more|head|tail|bat|nl|od|xxd|hexdump|strings|grep|egrep|fgrep|rg|ag|cut|awk|gawk|sed|tr|sort|uniq|paste|join|comm|column|fold|tac|rev|pr|expand|unexpand|base64|base32|dd|mapfile|readarray)\b`)
-	// dlpReadCheck's narrower list, kept separate because it is the Node hook's:
-	// that layer BLOCKS rather than redacts, so it deliberately names fewer tools.
-	dlpReadCheckCmd = regexp.MustCompile(`\b(cat|less|more|head|tail|bat|nl|od|xxd|strings|grep|egrep|rg|awk|sed)\b`)
 )
 
 // dlpHitRank moved with them — DLPScanViews cannot rank without it, and two

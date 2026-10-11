@@ -5,19 +5,16 @@ package config
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
 
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-// DefaultAPIURL is where every command talks unless something says otherwise.
-//
-// The loopback API this repository builds. There is no hosted one to fall back
-// to, and a default pointing at somebody else's service is a default that sends
-// this machine's audit log there.
-const DefaultAPIURL = "http://127.0.0.1:3002"
+// DefaultAPIURL was here, a const pointing at http://127.0.0.1:3002 with a
+// comment about where every command talks. Nothing read it. It is deleted rather
+// than kept because the README's claim is that this tool makes no network calls,
+// and an address constant in the config package is the first thing a reader
+// checking that claim finds — a URL nothing dials still has to be explained
+// away. core/api/client.go takes no address, which is the real answer.
 
 // Credential is ~/.solongate/cloud-guard.json.
 //
@@ -31,12 +28,11 @@ type Credential = shared.Credential
 // project selected", which means allow — so a typo silently disarms the guard
 // rather than erroring.
 //
-// The CLI's own credential resolution deliberately does NOT apply this (see
-// Resolve): the CLI's failure mode for a bad key is a 401 the user can read,
-// not a silent allow, and refusing to even send a key that the API might accept
-// would make the two implementations disagree about who is logged in.
-var realKeyBody = regexp.MustCompile(`(?i)^[a-f0-9]{16,}$`)
-
+// ONE DEFINITION OF "REAL", in packages/shared. A second copy of the body
+// pattern lived here as `realKeyBody`, under a comment about a CLI resolver and
+// a 401 that no longer exist, while IsRealKey below already delegated to shared.
+// Two regexes deciding whether a key counts is the pair that can disagree, and
+// the direction it fails in is allow.
 func IsRealKey(k string) bool { return shared.IsRealKey(k) }
 
 // LoadCredentialFile reads the active-key file. A missing or unparseable file
@@ -50,36 +46,14 @@ func LoadCredentialFile() Credential {
 	return c
 }
 
-// EnforcingKey is the key this device enforces with, empty when it is unpaired.
-// Distinct from whatever the TUI is currently VIEWING.
-// DotenvAPIKey reads SOLONGATE_API_KEY from a .env beside the working
-// directory, the way the hooks do. A project .env is a real source of the key
-// on machines that were set up before device login existed.
-func DotenvAPIKey() string {
-	envPath, err := filepath.Abs(".env")
-	if err != nil {
-		return ""
-	}
-	b, err := os.ReadFile(envPath)
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		eq := strings.Index(trimmed, "=")
-		if eq == -1 {
-			continue
-		}
-		if strings.TrimSpace(trimmed[:eq]) != "SOLONGATE_API_KEY" {
-			continue
-		}
-		return strings.Trim(strings.TrimSpace(trimmed[eq+1:]), `"'`)
-	}
-	return ""
-}
+// DotenvAPIKey was here: it read SOLONGATE_API_KEY out of a .env beside the
+// working directory, "the way the hooks do", for machines set up before device
+// login existed. Nothing called it, and a credential reader aimed at the
+// AGENT'S OWN working directory is the wrong shape to leave lying around in a
+// tool whose job is to stop secrets leaving that directory — it reads a project
+// .env on the hot side of the boundary. The hooks no longer read a credential
+// either (see HOOK_VERSION 99 in the Node guard: two file reads left the hot
+// path of every tool call).
 
 // ── WHAT WAS HERE, AND WHY NONE OF IT IS ─────────────────────────────────────
 //

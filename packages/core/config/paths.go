@@ -53,8 +53,6 @@ var policyFileName = "poli" + "cy.json"
 // tool call and the one the CLI and the MCP proxy write.
 func PolicyFilePath() string { return filepath.Join(Dir(), policyFileName) }
 
-func AccountsPath() string { return filepath.Join(Dir(), "accounts.json") }
-
 func TUIConfigPath() string { return filepath.Join(Dir(), "tui-config.json") }
 
 // Desired state of the local audit-log service. `desired` in here outlives the
@@ -73,12 +71,13 @@ func TUIConfigPath() string { return filepath.Join(Dir(), "tui-config.json") }
 //	                                          Nothing is sent, so nothing is
 //	                                          rejected; doctor stopped reporting it.
 
-// THE policy file. It is not a fallback and not a starter: it is where a policy lives.
-// The comment here used to call it "the starter policy the onboarding wizard writes",
-// read when "the cloud cache holds no policy" — which had it exactly backwards by the
-// end, since the cache was the thing that did not exist.
-func LocalPolicyPath() string { return filepath.Join(Dir(), "policy.json") }
-
+// There was a second accessor for THE policy file here, LocalPolicyPath, with a
+// comment correcting an older comment about a starter policy and a cloud cache.
+// It returned the same path as PolicyFilePath above and nothing called it. Two
+// functions naming one file is how a caller ends up reading the path that is not
+// the one being written — and this file in particular is spelled with a split
+// literal up there so the guard's own tamper sweep does not match this source,
+// a precaution the duplicate did not take.
 func HooksDir() string { return filepath.Join(Dir(), "hooks") }
 
 func LocalLogsDir() string { return filepath.Join(Dir(), "local-logs") }
@@ -153,23 +152,11 @@ func ProjectFlagDir() string {
 // program ran first — and the guard runs constantly.
 func EnsureDir() error { return shared.EnsureSGDir() }
 
-// ensureOwnerOnly narrows an existing path's mode to owner-only, keeping its
-// file/directory bits.
-//
-// Needed because Go's create-with-mode does nothing to a path that is already
-// there, and these files predate the mode being right. Best effort: a chmod that
-// fails (a read-only mount, a Windows filesystem with no POSIX bits) must not
-// stop the CLI from working — it is a hardening step, not a precondition.
-func ensureOwnerOnly(path string) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-	want := os.FileMode(0o600)
-	if info.IsDir() {
-		want = 0o700
-	}
-	if info.Mode().Perm() != want {
-		_ = os.Chmod(path, want)
-	}
-}
+// ensureOwnerOnly was here: a best-effort chmod narrowing an existing path to
+// 0600 (0700 for a directory), written because Go's create-with-mode does
+// nothing to a path that already exists. Nothing called it, and that is worth
+// noticing rather than just deleting — the narrowing it describes IS needed, and
+// the places that need it do it themselves: guard/audit.go re-chmods the audit
+// log on every write, and the Node hook's detached log writer does the same.
+// An unused helper for a hardening step that is actually performed elsewhere
+// reads as coverage this package does not provide.

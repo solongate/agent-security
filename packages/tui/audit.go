@@ -39,7 +39,6 @@ func init() { Register(SectionAudit, func(d Deps) Panel { return newAudit(d) }) 
 
 const (
 	auditPage      = 500
-	localMaxBytes  = 16 * 1024 * 1024 // read up to 16MB of local history
 	auditKeyColumn = 19
 )
 

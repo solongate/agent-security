@@ -1775,12 +1775,6 @@ func orDash(n int) string {
 }
 
 // viewDetail is one session, dashboard style: a summary and the full timeline.
-func stampAgo(at, now int64) string {
-	if at == 0 {
-		return "—"
-	}
-	return hhmmss(at) + " (" + agoAt(at, time.UnixMilli(now)) + " ago)"
-}
 
 func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []string {
 	chartH := p.chartHeight(ctx)
@@ -2249,14 +2243,6 @@ func joinCounts(entries []countEntry, sep string) string {
 		parts = append(parts, e.key+"×"+strconv.Itoa(e.n))
 	}
 	return strings.Join(parts, sep)
-}
-
-func firstN(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
 }
 
 func maxInt(a, b int) int {

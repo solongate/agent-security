@@ -93,9 +93,24 @@ fi
 # THERE IS NO PAUSE AND NO SPINNER ANY MORE. The pause existed because the
 # output was unreadable, and the spinner existed because the pause looked like
 # a stall. Neither problem is left, and both were solving the first one badly.
-say() { printf '         %b%s%b\n' "$DIM" "$1" "$OFF"; }
-mark_ok() { printf '%b[  OK  ]%b %s\n' "$GREEN" "$OFF" "$1"; }
-mark_no() { printf '%b[FAILED]%b %s\n' "$RED" "$OFF" "$1"; }
+# ALL OF IT ON STDERR, WHICH IS THE fflush THIS SCRIPT CANNOT CALL.
+#
+# stdout to a terminal is LINE buffered, and the spinner writes a frame with no
+# newline on the end of it. Line buffering flushes on a newline, so the frames
+# sat in the buffer and the screen held still anyway, which is the exact thing
+# the spinner was added to fix. Piped, stdout is fully buffered and the whole
+# install arrives in one block at the end.
+#
+# stderr is unbuffered by definition, so a partial line reaches the screen the
+# moment it is written. There is no fflush in sh; this is it.
+#
+# It also puts this script on the same stream as the Go CLI, which prints its
+# own marks to stderr. `solongate update` runs this in the middle of itself,
+# and two streams into one terminal is how a mark ends up inside the line above
+# it.
+say() { printf '         %b%s%b\n' "$DIM" "$1" "$OFF" >&2; }
+mark_ok() { printf '%b[  OK  ]%b %s\n' "$GREEN" "$OFF" "$1" >&2; }
+mark_no() { printf '%b[FAILED]%b %s\n' "$RED" "$OFF" "$1" >&2; }
 
 # A FILE RATHER THAN A VARIABLE. `pnpm install` emits more than a shell is
 # comfortable holding in a command substitution, and a substitution would also
@@ -132,14 +147,14 @@ run() {
 				*' '*) _left=${_left#* } ;;
 				*) _left='' ;;
 			esac
-			printf '\r%b   %s     %s%b' "$DIM" "$_f" "$_doing" "$OFF"
+			printf '\r%b   %s     %s%b' "$DIM" "$_f" "$_doing" "$OFF" >&2
 			sleep "$SPIN_DELAY"
 		done
 		set +e
 		wait "$_pid"
 		_rc=$?
 		set -e
-		printf '\r%s\r' '                                                                      '
+		printf '\r%s\r' '                                                                      ' >&2
 	else
 		say "$_doing..."
 		set +e
@@ -153,9 +168,9 @@ run() {
 		return 0
 	fi
 	mark_no "$_doing"
-	printf '\n'
+	printf '\n' >&2
 	sed 's/^/         /' "$RUNLOG" >&2
-	printf '\n'
+	printf '\n' >&2
 	exit 1
 }
 
@@ -176,7 +191,7 @@ repo=$(pwd)
 # characters, so everything that is not a mark is indented nine. A header flush
 # against the margin reads as a separate program's banner, and this script runs
 # in the middle of `solongate update`, which is exactly the misreading to avoid.
-printf '         %bSolonGate%b  installing from %s\n' "$B" "$OFF" "$repo"
+printf '         %bSolonGate%b  installing from %s\n' "$B" "$OFF" "$repo" >&2
 
 # ── which host is this ────────────────────────────────────────────────
 
@@ -236,7 +251,7 @@ if ! "$go_bin" version >/dev/null 2>&1; then
 		"GO_BIN to the binary if it is somewhere this did not look."
 fi
 
-mark_ok "Toolchain: node $(node -v), pnpm $(pnpm --version), $("$go_bin" version | cut -d' ' -f3)."
+mark_ok "Toolchain: node $(node -v), pnpm $(pnpm --version), $("$go_bin" version | cut -d' ' -f3 | sed 's/^go/go /')."
 
 # ── 2. the workspace ──────────────────────────────────────────────────
 
@@ -358,7 +373,7 @@ if [ -n "$linked" ]; then
 else
 	mark_ok "Installed, but not on your PATH yet."
 	say 'add to your shell profile:'
-	printf '\n    export PATH="$HOME/.solongate/bin:$PATH"\n\n'
+	printf '\n    export PATH="$HOME/.solongate/bin:$PATH"\n\n' >&2
 fi
 
 say "solongate              the TUI"

@@ -25,6 +25,7 @@ func RunRepair([]string) int {
 	// install the guard. It keeps the terminal, and the price was the longest
 	// silence in the run: it copies a 27MB binary into the store and registers
 	// four clients while the screen holds still.
+	defer hushTTY()()
 	stop := spin("Registering the guard with your agents")
 	rep := install.Repair()
 	stop()

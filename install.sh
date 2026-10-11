@@ -116,7 +116,41 @@ mark_no() { printf '%b[FAILED]%b %s\n' "$RED" "$OFF" "$1" >&2; }
 # comfortable holding in a command substitution, and a substitution would also
 # miss anything the child writes straight to the terminal.
 RUNLOG=$(mktemp 2>/dev/null || echo /tmp/solongate-install.log)
-trap 'rm -f "$RUNLOG"' EXIT
+
+# KEYS PRESSED DURING AN INSTALL MUST NOT LAND ON THE SCREEN.
+#
+# This runs for twenty seconds and redraws one line in place while it works.
+# Anything typed over that line is echoed by the kernel straight into the
+# middle of it, and it is not only typing: the terminal answers
+# escape-sequence queries on the same channel, and those replies echo too,
+# which is where a stray ":" or "," on a line comes from.
+#
+# Echo goes off, and the restore on the way out DISCARDS whatever arrived
+# while the screen was busy, so a key pressed during the install does not run
+# as a command the moment the prompt comes back.
+#
+# Every part of this is optional. A machine without stty, or an install with
+# no terminal on stdin, simply skips it.
+STTY_SAVED=''
+if [ -t 0 ]; then
+	STTY_SAVED=$(stty -g 2>/dev/null || echo '')
+	[ -n "$STTY_SAVED" ] && stty -echo 2>/dev/null
+fi
+
+restore_tty() {
+	[ -n "$STTY_SAVED" ] || return 0
+	# min 0 time 0 makes a read return immediately with whatever is waiting,
+	# so one pass empties the buffer rather than blocking on it.
+	if stty -icanon min 0 time 0 2>/dev/null; then
+		while IFS= read -r _junk; do :; done </dev/tty 2>/dev/null
+	fi
+	stty "$STTY_SAVED" 2>/dev/null || :
+	STTY_SAVED=''
+}
+
+trap 'restore_tty; rm -f "$RUNLOG"' EXIT
+trap 'restore_tty; rm -f "$RUNLOG"; exit 130' INT
+trap 'restore_tty; rm -f "$RUNLOG"; exit 143' TERM
 
 # run: announce, capture, and say one line about how it went.
 # SOMETHING HAS TO MOVE WHILE NOTHING IS BEING PRINTED. `pnpm install` and the

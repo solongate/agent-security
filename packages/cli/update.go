@@ -45,6 +45,11 @@ func RunUpdate(args []string) int {
 
 	before := install.InstalledGuardVersion()
 
+	// For the whole run, including install.sh and the repair inside it. See
+	// hushTTY: this command writes for twenty seconds and redraws a line in
+	// place while it works, and anything echoed onto that line stays there.
+	defer hushTTY()()
+
 	// EVERY LINE STARTS IN THE SAME COLUMN. A mark is [  OK  ] and a space,
 	// nine characters, so everything that is not a mark is indented nine. A
 	// header flush against the margin reads as a separate program's banner

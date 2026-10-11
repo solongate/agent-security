@@ -289,7 +289,7 @@ command -v pnpm >/dev/null 2>&1 || die "pnpm was not found on PATH." \
 go_bin=$(node -e 'import("./scripts/gobin.mjs").then(m => console.log(m.goBin()))' 2>/dev/null || echo go)
 if ! "$go_bin" version >/dev/null 2>&1; then
 	die "no Go toolchain was found." \
-		"The guard and the CLI are Go programs. Install Go 1.25 or newer, or set" \
+		"The guard and the CLI are Go programs. Install Go 1.26 or newer, or set" \
 		"GO_BIN to the binary if it is somewhere this did not look."
 fi
 

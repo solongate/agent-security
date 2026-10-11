@@ -31,7 +31,7 @@ the tests.
 | `packages/core` | What both surfaces stand on: config, the local store, install state, health, the sandbox. |
 | `packages/cli` | The subcommands. Prints and exits. |
 | `packages/tui` | The TUI. Full screen, stays open. |
-| `packages/app` | The binary. 409 lines: dispatch, the human-only gate, and `--help`. |
+| `packages/app` | The binary: dispatch, the human-only gate, and `--help`. |
 | `packages/hooks` | The hook programs, and the scripts that build what ships. |
 
 `cli` and `tui` are siblings and neither imports the other. They are two

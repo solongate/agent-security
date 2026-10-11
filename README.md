@@ -6,7 +6,7 @@
   <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
   <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
-  <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26-00ADD8.svg" alt="Go 1.26"></a>
+  <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26%2B-00ADD8.svg" alt="Go 1.26+"></a>
   <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-22%2B-339933.svg" alt="Node 22+"></a>
 </p>
 
@@ -177,12 +177,26 @@ pnpm install
 pnpm build
 ```
 
-There are two implementations of the guard, in Go and in bundled JavaScript, and
-which one decides a call depends only on whether a machine has the binary. They
-have to agree, so a change to the decision path lands in both. Nothing in the
-repository checks that they still do: there is no test suite here, and a change
-to the guard is only as good as what you ran it against by hand.
-[CONTRIBUTING.md](CONTRIBUTING.md) is the rest.
+There are two implementations of the guard, in Go and in bundled JavaScript. The
+hook always starts as Node and hands the call to the binary when it can, so
+which one decides is not simply whether the binary is there. `sgTryGoGuard`
+applies five gates, and the first two are environment switches:
+
+- `SOLONGATE_NO_GO_GUARD=1` skips delegation and pins the decision to Node.
+- `SOLONGATE_GUARD_BIN` goes to the **front** of the candidate list, ahead of
+  the npm platform package and `~/.solongate/bin`.
+- the candidate must exist and, off Windows, be executable.
+- `<binary> --sg-version` must print an integer **equal** to the hook's own
+  `HOOK_VERSION`, within two seconds.
+- a spawn error, a signal, or any exit status outside `{0, 2}` falls back to
+  Node silently.
+
+That version number is the interlock: it is what makes a half-upgraded machine
+fall back to Node instead of running a binary that decides differently from its
+hook. So the two have to agree, and a change to the decision path lands in both
+and bumps the number. Nothing in the repository checks that they still agree:
+there is no test suite here, and a change to the guard is only as good as what
+you ran it against by hand. [CONTRIBUTING.md](CONTRIBUTING.md) is the rest.
 
 Reporting a vulnerability: [SECURITY.md](SECURITY.md), privately, never a public
 issue. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies everywhere.

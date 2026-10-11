@@ -45,8 +45,11 @@ func RunUpdate(args []string) int {
 
 	before := install.InstalledGuardVersion()
 
-	fmt.Println()
-	fmt.Fprintln(os.Stderr, "SolonGate  updating from "+root)
+	// EVERY LINE STARTS IN THE SAME COLUMN. A mark is [  OK  ] and a space,
+	// nine characters, so everything that is not a mark is indented nine. A
+	// header flush against the margin reads as a separate program's banner
+	// rather than the first line of this one.
+	fmt.Fprintln(os.Stderr, "         "+term.Bold+"SolonGate"+term.Reset+"  updating from "+root)
 
 	// FETCH FIRST, AND SAY WHETHER ANYTHING CAME. A pull that changes nothing still costs
 	// a full rebuild, and somebody watching it has no way to tell a no-op from a real
@@ -97,7 +100,7 @@ func RunUpdate(args []string) int {
 	// --yes because this is already the answer to "do you want to update".
 	script := filepath.Join(root, "install.sh")
 	if !install.Exists(script) {
-		fmt.Fprintln(os.Stderr, "  "+script+" is missing, so there is nothing to run.")
+		fmt.Fprintln(os.Stderr, "         "+script+" is missing, so there is nothing to run.")
 		return 1
 	}
 	if code := step(root, "Rebuilding and reinstalling", "sh", script, "--yes"); code != 0 {
@@ -115,8 +118,6 @@ func RunUpdate(args []string) int {
 	default:
 		markOK("Done.")
 	}
-	fmt.Fprintln(os.Stderr, "         open a new terminal: hooks load when a session starts")
-	fmt.Println()
 	return 0
 }
 
@@ -219,7 +220,7 @@ func step(dir, label, name string, args ...string) int {
 		if ok := asExitError(err, &exit); ok {
 			return exit.ExitCode()
 		}
-		fmt.Fprintln(os.Stderr, "  "+label+" failed: "+err.Error())
+		fmt.Fprintln(os.Stderr, "         "+label+" failed: "+err.Error())
 		return 1
 	}
 	return 0
@@ -300,8 +301,8 @@ func moveToBranchTip(root string) int {
 	}
 	if c := quietStep(root, "Fetching the newest commit", "git", "pull", "--ff-only"); c != 0 {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  The pull failed. Most often that is a local change in the checkout:")
-		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr, "         The pull failed. Most often that is a local change in the checkout:")
+		fmt.Fprintln(os.Stderr, "            cd "+root+" && git status")
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
@@ -325,15 +326,15 @@ func moveToNewestRelease(root string) int {
 	tag = strings.TrimSpace(strings.SplitN(tag, "\n", 2)[0])
 	if tag == "" {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  There are no release tags in this checkout, so the long range has")
-		fmt.Fprintln(os.Stderr, "  nothing to move to. `solongate range short` follows the branch instead.")
+		fmt.Fprintln(os.Stderr, "         There are no release tags in this checkout, so the long range has")
+		fmt.Fprintln(os.Stderr, "         nothing to move to. `solongate range short` follows the branch instead.")
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
 	if c := quietStep(root, "Checking out "+tag, "git", "checkout", "--detach", tag); c != 0 {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  The checkout failed. Most often that is a local change:")
-		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr, "         The checkout failed. Most often that is a local change:")
+		fmt.Fprintln(os.Stderr, "            cd "+root+" && git status")
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
@@ -397,14 +398,14 @@ func restoreInstallArtifacts(root string) int {
 
 	if len(foreign) > 0 {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  The checkout has local changes that are not the install's:")
+		fmt.Fprintln(os.Stderr, "         The checkout has local changes that are not the install's:")
 		for _, f := range foreign {
-			fmt.Fprintln(os.Stderr, "      "+f)
+			fmt.Fprintln(os.Stderr, "            "+f)
 		}
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  Those are yours, so nothing here will throw them away. Commit or")
-		fmt.Fprintln(os.Stderr, "  stash them and run update again:")
-		fmt.Fprintln(os.Stderr, "      cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr, "         Those are yours, so nothing here will throw them away. Commit or")
+		fmt.Fprintln(os.Stderr, "         stash them and run update again:")
+		fmt.Fprintln(os.Stderr, "            cd "+root+" && git status")
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
@@ -416,9 +417,9 @@ func restoreInstallArtifacts(root string) int {
 	args := append([]string{"checkout", "--"}, generated...)
 	if _, ok := gitOutput(root, args...); !ok {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  Could not restore the files the last install rewrote:")
+		fmt.Fprintln(os.Stderr, "         Could not restore the files the last install rewrote:")
 		for _, g := range generated {
-			fmt.Fprintln(os.Stderr, "      "+g)
+			fmt.Fprintln(os.Stderr, "            "+g)
 		}
 		fmt.Fprintln(os.Stderr)
 		return 1

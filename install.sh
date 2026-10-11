@@ -104,11 +104,51 @@ RUNLOG=$(mktemp 2>/dev/null || echo /tmp/solongate-install.log)
 trap 'rm -f "$RUNLOG"' EXIT
 
 # run: announce, capture, and say one line about how it went.
+# SOMETHING HAS TO MOVE WHILE NOTHING IS BEING PRINTED. `pnpm install` and the
+# Go build each take tens of seconds and their output is captured, so without
+# this the screen holds still long enough to look hung. The frame sits where
+# the mark will land, so the line does not jump when it is replaced.
+#
+# Only on a terminal. A \r into a log file writes the same line a few hundred
+# times; there the step simply announces itself once and waits.
+SPIN='⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏'
+if sleep 0.1 2>/dev/null; then SPIN_DELAY=0.1; else SPIN_DELAY=1; fi
+
 run() {
 	_doing=$1
 	_done=$2
 	shift 2
-	if "$@" >"$RUNLOG" 2>&1; then
+
+	if [ -t 2 ]; then
+		# set +e around wait: the whole point is to read the status, and
+		# `set -e` would take the script out before the [FAILED] line.
+		"$@" >"$RUNLOG" 2>&1 </dev/null &
+		_pid=$!
+		_left=$SPIN
+		while kill -0 "$_pid" 2>/dev/null; do
+			[ -n "$_left" ] || _left=$SPIN
+			_f=${_left%% *}
+			case $_left in
+				*' '*) _left=${_left#* } ;;
+				*) _left='' ;;
+			esac
+			printf '\r%b   %s     %s%b' "$DIM" "$_f" "$_doing" "$OFF"
+			sleep "$SPIN_DELAY"
+		done
+		set +e
+		wait "$_pid"
+		_rc=$?
+		set -e
+		printf '\r%s\r' '                                                                      '
+	else
+		say "$_doing..."
+		set +e
+		"$@" >"$RUNLOG" 2>&1
+		_rc=$?
+		set -e
+	fi
+
+	if [ "$_rc" -eq 0 ]; then
 		mark_ok "$_done"
 		return 0
 	fi
@@ -132,7 +172,11 @@ die() {
 cd "$(dirname "$0")"
 repo=$(pwd)
 
-printf '%bSolonGate%b  installing from %s\n' "$B" "$OFF" "$repo"
+# EVERY LINE STARTS IN THE SAME COLUMN. A mark is [  OK  ] and a space, nine
+# characters, so everything that is not a mark is indented nine. A header flush
+# against the margin reads as a separate program's banner, and this script runs
+# in the middle of `solongate update`, which is exactly the misreading to avoid.
+printf '         %bSolonGate%b  installing from %s\n' "$B" "$OFF" "$repo"
 
 # ── which host is this ────────────────────────────────────────────────
 
@@ -317,9 +361,7 @@ else
 	printf '\n    export PATH="$HOME/.solongate/bin:$PATH"\n\n'
 fi
 
-printf '\n'
 say "solongate              the TUI"
 say "solongate policy       what is enforced here"
 say "solongate doctor       whether it is working"
 say "solongate update       pull the newest version and reinstall"
-printf '\n'

@@ -147,9 +147,26 @@ solongate repair       restore the guard, hooks and settings
 solongate update       pull the newest version and reinstall
 ```
 
-Each one reads or changes a security posture, so they require a real terminal
-and the guard refuses a tool call that invokes them. `solongate --help` is the
-full tree.
+Most of these read or change a security posture, so they require a real
+terminal on both stdin and stdout, and the guard refuses a tool call that
+invokes them. Two are not gated that way:
+
+- `run` is exempt on purpose. It changes nothing: it starts a process with
+  MORE restriction than the caller had, never less, so the worst an agent
+  achieves by invoking it is confining itself. Gating it broke the case the
+  feature exists for — the shell shim launches the agent through `solongate
+  run`, so the safe path became unavailable from scripts, CI and any IDE that
+  spawns the agent itself. `run --explain` IS gated, because it prints the
+  whole protected list where a refusal only ever names the path that was
+  attempted.
+- `update` is exempt because it re-runs the installer, which needs the
+  terminal the installer writes to. It is the higher-leverage of the two —
+  it moves the checkout and reinstalls the guard, the hooks and the client
+  registrations — so it does not rest on this gate alone: the tamper layer
+  refuses any tool call whose command names the CLI, `update` included.
+
+`solongate --help` is the full tree of what is documented here; `tui`,
+`stats` and a few flags exist without appearing in it.
 
 ## Supported agents
 

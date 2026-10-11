@@ -72,6 +72,31 @@ var cliSubcommands = map[string]bool{
 // attempted.
 var runExplainArgs = map[string]bool{"--explain": true, "explain": true}
 
+// `update` IS NOT IN THAT LIST EITHER, and unlike `run` the reason was never
+// written down. It is the higher-leverage of the two exemptions by a wide
+// margin: it reads ~/.solongate/.installed-from, moves the checkout with git,
+// and then runs `sh install.sh --yes`, which rebuilds the guard, rewrites the
+// hooks and re-registers every client. `run` only ever ADDS restriction. This
+// replaces the code that does the restricting.
+//
+// It is exempt because it re-runs the installer, and the installer writes to a
+// terminal — a progress line per step, with the captured output of a failure
+// printed underneath it. Gated here, `solongate update` could not be the thing
+// the README tells people to run.
+//
+// SO IT DOES NOT REST ON THIS GATE, and that is the part that makes the
+// exemption survivable. The tamper layer refuses any tool call whose command
+// names the CLI, and it does not inspect the subcommand (see argsInvokeCLI in
+// guard/tamper.go) — so an agent reaching for `solongate update` is refused by
+// the guard on the way in, with or without a terminal. The gate here is the
+// second layer, not the only one.
+//
+// What that leaves is a depth-of-defence gap rather than an open door: on a
+// machine with no guard installed yet, or with self-protection switched off,
+// `update` is the one command on the README's list with nothing in front of it.
+// Worth closing by moving the installer's output off the terminal, which is a
+// bigger change than this comment.
+
 // Flags and aliases that print a banner and exit.
 var cliInfoArgs = map[string]bool{
 	"help": true, "--help": true, "-h": true,

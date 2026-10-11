@@ -21,19 +21,56 @@
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { spawn } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
 import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // Bump on every shield.mjs change. The cloud serves the newest version; the
 // guard hook installs it on its next run (no re-login needed).
+// 10 stops this writing into the agent's terminal. Everything after the child
+// is launched goes to ~/.solongate/shield.log, because the frame on screen
+// belongs to the agent and a line printed into it is corruption rather than a
+// message: it lands in the input box and the next keystroke overwrites half
+// of it. See log().
+//
 // 8 collapses a run of `*` in a custom DLP glob before compiling it. That is a
 // HANG fix on the path every prompt travels, so an installed shield must pick it
 // up: see dlpGlobToRe.
-const HOOK_VERSION = 9;
+const HOOK_VERSION = 10;
 
-const log = (...a) => process.stderr.write(`[SolonGate shield] ${a.map(String).join(' ')}\n`);
+// WHERE THIS WRITES CHANGES THE MOMENT THE AGENT STARTS, and it has to.
+//
+// Before the child is launched this process owns the terminal and stderr is
+// exactly right: a usage line or a failure to launch is the only thing the
+// person is waiting for.
+//
+// After the child is launched the terminal belongs to the AGENT, which is a
+// full-screen program drawing its own frame. A line written into that frame is
+// not a log message, it is corruption: it lands in the input box, the next
+// keystroke overwrites half of it, and it survives until something redraws.
+// One of these arrived as `[SolonGate shield] upstream error: read ECONNRESET`
+// in the middle of somebody's prompt.
+//
+// So the file takes over. The proxy runs for the whole session and an upstream
+// reset is a thing that happens on a long one; it is worth recording and it is
+// not worth interrupting anybody for.
+let liveChild = false;
+
+const log = (...a) => {
+  const line = `[SolonGate shield] ${a.map(String).join(' ')}\n`;
+  if (!liveChild) { process.stderr.write(line); return; }
+  try {
+    const dir = join(homedir(), '.solongate');
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = join(dir, 'shield.log');
+    // Trimmed rather than rotated. A reset per minute on a long session would
+    // otherwise be an unbounded file nobody ever looks at, and the only part
+    // worth having is the recent end.
+    try { if (statSync(file).size > 262144) writeFileSync(file, '', { mode: 0o600 }); } catch { /* first write */ }
+    appendFileSync(file, `${new Date().toISOString()} ${line}`, { mode: 0o600 });
+  } catch { /* a shield that cannot log still shields */ }
+};
 // THE PATTERN LIST LIVES IN ./dlp.mjs, one copy for the three hooks that scan.
 //
 // Each of them carried its own, and they had drifted: the guard had 70 and each hook had
@@ -210,9 +247,15 @@ async function main() {
     env: { ...process.env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}` },
     shell: process.platform === 'win32',
   });
+  // From here the terminal is the agent's. See log().
+  liveChild = true;
+
   const shutdown = () => { try { close(); } catch { /* ignore */ } };
   child.on('exit', (code, signal) => { shutdown(); if (signal) process.kill(process.pid, signal); else process.exit(code ?? 0); });
-  child.on('error', (e) => { log('failed to launch command:', e.message); shutdown(); process.exit(1); });
+  // Back to stderr for this one: a child that never started never took the
+  // terminal, and the person is still looking at a shell prompt waiting to be
+  // told why nothing happened.
+  child.on('error', (e) => { liveChild = false; log('failed to launch command:', e.message); shutdown(); process.exit(1); });
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { child.kill(sig); } catch { /* ignore */ } });
 }
 

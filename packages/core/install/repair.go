@@ -105,7 +105,7 @@ func Repair() Report {
 
 	return Report{
 		OK:      true,
-		Message: "guard repaired. Open a new AI session for it to take effect.",
+		Message: "guard repaired.",
 		Before:  before,
 		After:   after,
 		Notes:   notes,

@@ -19,38 +19,43 @@ func RunRepair([]string) int {
 
 	rep := install.Repair()
 
-	errln("")
-	errln("  " + bold("SolonGate repair"))
-	errln("")
-	errln("  before:")
-	for _, l := range rep.Before {
-		errln("    " + padRight(l.Label, 20) + " " + l.Detail)
-	}
-	errln("")
-
+	// ONE LINE PER THING, AND EVERY ONE OF THEM A MARK.
+	//
+	// This used to print a "before" list, a blank line, a "restored" list, and
+	// a tick. Almost all of it was the same six rows twice over, and the only
+	// reader who benefited was somebody comparing them column by column. It
+	// runs in the middle of `solongate update` and of install.sh, both of which
+	// report a step as one [  OK  ] line, so three paragraphs of its own went
+	// past too fast to read and in a different voice from everything around it.
+	//
+	// So: the state the repair LEFT, one row at a time, in the same two marks
+	// the rest of the run uses. A client it could not register is the row worth
+	// seeing, and it is the one that says [FAILED] while the run carries on.
 	if !rep.OK {
-		errln("  " + red("✗ ") + rep.Message)
+		markNo(rep.Message)
 		return 1
 	}
-
-	errln("  restored:")
 	for _, l := range rep.After {
-		detail := l.Detail
-		// A client the repair could not register is the one line worth colouring:
-		// the run "succeeded" and that client is still unguarded.
+		line := padRight(l.Label, 20) + " " + l.Detail
 		if !l.OK {
-			detail = yellow(detail)
+			markNo(line)
+			continue
 		}
-		errln("    " + padRight(l.Label, 20) + " " + detail)
+		markOK(line)
 	}
-	errln("")
+	// Notes are conditions the repair cannot fix on the user's behalf, such as
+	// Codex needing `/hooks` run inside it once. They are not steps, so they do
+	// not get a mark; they are indented under the last one.
 	for _, n := range rep.Notes {
-		errln("  " + n)
-		errln("")
+		errln("         " + n)
 	}
-
-	errln("  " + green("✓ ") + rep.Message)
-	errln("")
+	markOK(rep.Message)
+	// SAID HERE AND NOWHERE ELSE. A client reads its hooks when it starts, so a
+	// session that is already open is running under whatever was registered
+	// when it launched, and a repair it cannot see looks like a repair that did
+	// not work. install.sh and `solongate update` both reach this through the
+	// same binary, so putting it here says it once rather than in three voices.
+	errln("         open a new AI session for it to take effect")
 	return 0
 }
 

@@ -57,7 +57,11 @@ done
 # Colour only when something is there to read it. A pipe or a CI log gets plain
 # text; escape codes in a captured log are noise that outlives the terminal.
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-	B='\033[1m'; DIM='\033[2m'; RED='\033[31m'; GREEN='\033[32m'; OFF='\033[0m'
+	# THE SAME GREEN AND RED packages/core/term USES, to the byte. This script
+	# and the Go CLI print [  OK  ] lines into the same run, one after the
+	# other, and two shades of green read as two programs taking turns.
+	B='\033[1m'; DIM='\033[2m'
+	RED='\033[38;2;220;80;80m'; GREEN='\033[38;2;80;200;120m'; OFF='\033[0m'
 else
 	B=''; DIM=''; RED=''; GREEN=''; OFF=''
 fi
@@ -305,7 +309,6 @@ for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
 	fi
 done
 
-printf '\n'
 if [ -n "$linked" ]; then
 	mark_ok "solongate is on your PATH: $linked"
 else
@@ -314,10 +317,6 @@ else
 	printf '\n    export PATH="$HOME/.solongate/bin:$PATH"\n\n'
 fi
 
-# Hooks are read when a client starts, so a session that is already open is
-# still running under whatever was registered when it launched, including none.
-printf '\n%bOpen a new terminal before you test it.%b\n' "$B" "$OFF"
-say "hooks load when a session starts, so open sessions are not guarded yet"
 printf '\n'
 say "solongate              the TUI"
 say "solongate policy       what is enforced here"

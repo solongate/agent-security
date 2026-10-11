@@ -39,6 +39,22 @@ import (
 // `/home`, `/home/me` and `/home/me/game`, and `solongate run` prints that list
 // on the way in.
 
+// A SECOND THING LANDLOCK SEPARATES OUT, and it is not about files at all.
+//
+// ABI 5 split `ioctl` on device files into its own right, and go-landlock
+// leaves it out of RWDirs and RWFiles on purpose: you ask for it by name or
+// you do not get it. We did not ask, so inside the sandbox every ioctl on
+// /dev/pts/N failed with EACCES, and an agent is a full-screen terminal
+// program: it could not read the window size, could not put the terminal in
+// raw mode, and crashed the moment the window was resized or the mouse moved.
+// Mouse reports arrived as literal text in its input box.
+//
+// So every rule carries WithIoctlDev. This gives nothing away. The right
+// governs ioctl on character and block devices; it has no bearing on reading
+// or deleting the file somebody asked us to protect, which is the whole of
+// what this sandbox is for. BestEffort strips it below ABI 5, where the right
+// does not exist and ioctl was never restricted in the first place.
+
 // Launch confines this process and then becomes the command.
 //
 // It execs rather than forking. The Landlock domain survives execve, so the
@@ -110,7 +126,7 @@ func allowRules(deny []string) ([]landlock.Rule, []string, error) {
 	if len(denied) == 0 {
 		// Nothing to deny, but still a real Landlock domain: entering one
 		// blocks arbitrary mounts, which is worth having on its own.
-		return []landlock.Rule{landlock.RWDirs("/").WithRefer()}, nil, nil
+		return []landlock.Rule{landlock.RWDirs("/").WithRefer().WithIoctlDev()}, nil, nil
 	}
 
 	// Every directory on the way to something denied. These cannot be granted
@@ -144,9 +160,9 @@ func allowRules(deny []string) ([]landlock.Rule, []string, error) {
 			// rejects a directory right applied to a file, so the two are not
 			// interchangeable even though both mean "as before".
 			if e.IsDir() {
-				rules = append(rules, landlock.RWDirs(child).WithRefer().IgnoreIfMissing())
+				rules = append(rules, landlock.RWDirs(child).WithRefer().WithIoctlDev().IgnoreIfMissing())
 			} else {
-				rules = append(rules, landlock.RWFiles(child).IgnoreIfMissing())
+				rules = append(rules, landlock.RWFiles(child).WithIoctlDev().IgnoreIfMissing())
 			}
 		}
 	}

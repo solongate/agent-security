@@ -179,7 +179,7 @@ func markNo(text string) { fmt.Fprintf(os.Stderr, "%s[FAILED]%s %s\n", term.Red,
 // collecting it. There it prints the label once and nothing else.
 func spin(label string) func() {
 	if !isTerminal(os.Stderr) {
-		fmt.Fprintln(os.Stderr, label+"…")
+		fmt.Fprintln(os.Stderr, "         "+label+"...")
 		return func() {}
 	}
 	done := make(chan struct{})

@@ -17,7 +17,17 @@ func RunRepair([]string) int {
 		return code
 	}
 
+	// THE ONE STEP THAT CANNOT GO THROUGH install.sh's run(), AND SO HAD NO
+	// SPINNER. Everything else in an install is announced, captured and
+	// replaced by a mark. This is not: `repair` refuses to work unless it has a
+	// terminal on stdin and stdout, so capturing its output would take the
+	// terminal away and the step would fail explaining why an agent may not
+	// install the guard. It keeps the terminal, and the price was the longest
+	// silence in the run: it copies a 27MB binary into the store and registers
+	// four clients while the screen holds still.
+	stop := spin("Registering the guard with your agents")
 	rep := install.Repair()
+	stop()
 
 	// ONE LINE PER THING, AND EVERY ONE OF THEM A MARK.
 	//

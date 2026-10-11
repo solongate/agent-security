@@ -139,7 +139,7 @@ func quietStep(dir, label, name string, args ...string) int {
 	var out strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &out
 
-	stop := spin("  " + label)
+	stop := spin(label)
 	err := cmd.Run()
 	stop()
 
@@ -160,19 +160,32 @@ func quietStep(dir, label, name string, args ...string) int {
 	return 0
 }
 
-// spin draws one frame every 90ms until the returned function is called.
-//
 // THE SAME TWO MARKS install.sh USES. An update runs that script in the middle
 // of itself, so a run that printed ✓ for its own steps and [  OK  ] for the
 // script's would look like two programs taking turns. It is one.
 func markOK(text string) { fmt.Fprintf(os.Stderr, "%s[  OK  ]%s %s\n", term.Green, term.Reset, text) }
 func markNo(text string) { fmt.Fprintf(os.Stderr, "%s[FAILED]%s %s\n", term.Red, term.Reset, text) }
 
+// spin animates the dots at the end of the label until the returned function
+// is called.
+//
+// IT WAS A BRAILLE SPINNER AND THAT WAS WRONG TWICE. The frames are a single
+// character at a column of their own, and in a terminal font that draws braille
+// loosely they read as punctuation dropped on the line: ":" and ",". And a
+// character in its own column has to be cleared from its own column, which left
+// residue on any line the clear did not exactly cover. Dots after the label are
+// the same animation with neither problem, and they are what every other line
+// in this run already ends with.
+//
+// THE CLEAR IS \033[2K, not a counted run of spaces. Counting assumes the line
+// is exactly as wide as the text put there, and a terminal that echoes
+// something of its own onto it, an escape-sequence reply or a typed key, makes
+// that assumption wrong and leaves the difference on screen. Erase the line.
+//
 // ON STDERR, with the result lines. The spinner used to go to stdout while a
 // failure went to stderr, and a terminal receiving both interleaved them: the
 // clearing \r landed before the error text rather than after the spinner, and
-// the two ended up on one line reading "⠋ Fetching releases ✗ Fetching
-// releases". One stream, one order.
+// the two ended up on one line. One stream, one order.
 //
 // NOT ON A PIPE. Without a terminal there is nothing to overwrite, so \r turns
 // the animation into a few hundred copies of the same line in whatever log is
@@ -186,16 +199,15 @@ func spin(label string) func() {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		frames := []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 		for i := 0; ; i++ {
 			select {
 			case <-done:
-				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", len(label)+12))
+				fmt.Fprint(os.Stderr, "\r\x1b[2K")
 				return
 			default:
 			}
-			fmt.Fprintf(os.Stderr, "\r   %c     %s", frames[i%len(frames)], label)
-			time.Sleep(90 * time.Millisecond)
+			fmt.Fprintf(os.Stderr, "\r\x1b[2K         %s%s", label, strings.Repeat(".", i%3+1))
+			time.Sleep(350 * time.Millisecond)
 		}
 	}()
 	return func() { close(done); <-finished }

@@ -126,8 +126,11 @@ trap 'rm -f "$RUNLOG"' EXIT
 #
 # Only on a terminal. A \r into a log file writes the same line a few hundred
 # times; there the step simply announces itself once and waits.
-SPIN='⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏'
-if sleep 0.1 2>/dev/null; then SPIN_DELAY=0.1; else SPIN_DELAY=1; fi
+# Dots after the label, not a spinner character in a column of its own. A
+# braille frame reads as punctuation dropped on the line in a font that draws
+# it loosely, and a character in its own column has to be cleared from its own
+# column. Dots are what every other line here already ends with.
+if sleep 0.35 2>/dev/null; then SPIN_DELAY=0.35; else SPIN_DELAY=1; fi
 
 run() {
 	_doing=$1
@@ -139,22 +142,24 @@ run() {
 		# `set -e` would take the script out before the [FAILED] line.
 		"$@" >"$RUNLOG" 2>&1 </dev/null &
 		_pid=$!
-		_left=$SPIN
+		_d=''
 		while kill -0 "$_pid" 2>/dev/null; do
-			[ -n "$_left" ] || _left=$SPIN
-			_f=${_left%% *}
-			case $_left in
-				*' '*) _left=${_left#* } ;;
-				*) _left='' ;;
+			case $_d in
+				'.') _d='..' ;;
+				'..') _d='...' ;;
+				*) _d='.' ;;
 			esac
-			printf '\r%b   %s     %s%b' "$DIM" "$_f" "$_doing" "$OFF" >&2
+			# \033[2K erases the whole line. A counted run of spaces assumes the
+			# line is exactly as wide as what we put there, and a terminal that
+			# echoes something of its own onto it leaves the difference on screen.
+			printf '\r\033[2K         %b%s%s%b' "$DIM" "$_doing" "$_d" "$OFF" >&2
 			sleep "$SPIN_DELAY"
 		done
 		set +e
 		wait "$_pid"
 		_rc=$?
 		set -e
-		printf '\r%s\r' '                                                                      ' >&2
+		printf '\r\033[2K' >&2
 	else
 		say "$_doing..."
 		set +e

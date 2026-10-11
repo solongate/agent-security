@@ -45,16 +45,12 @@ func RunUpdate(args []string) int {
 
 	before := install.InstalledGuardVersion()
 
-	// For the whole run, including install.sh and the repair inside it. See
-	// hushTTY: this command writes for twenty seconds and redraws a line in
-	// place while it works, and anything echoed onto that line stays there.
-	defer hushTTY()()
-
 	// EVERY LINE STARTS IN THE SAME COLUMN. A mark is [  OK  ] and a space,
 	// nine characters, so everything that is not a mark is indented nine. A
 	// header flush against the margin reads as a separate program's banner
 	// rather than the first line of this one.
-	fmt.Fprintln(os.Stderr, "         "+term.Bold+"SolonGate"+term.Reset+"  updating from "+root)
+	fmt.Fprint(os.Stderr, "         "+term.Bold+"SolonGate"+term.Reset+"  ")
+	typeOut("updating from " + root)
 
 	// FETCH FIRST, AND SAY WHETHER ANYTHING CAME. A pull that changes nothing still costs
 	// a full rebuild, and somebody watching it has no way to tell a no-op from a real
@@ -80,7 +76,7 @@ func RunUpdate(args []string) int {
 	head, _ := gitOutput(root, "rev-parse", "HEAD")
 
 	rng := config.UpdateRangeOf(config.LoadTUIConfig())
-	fmt.Fprintln(os.Stderr, "         range "+rng+": "+rangeOneLiner(rng))
+	typeOut("         range " + rng + ": " + rangeOneLiner(rng))
 
 	var code int
 	if rng == config.UpdateRangeShort {
@@ -168,8 +164,42 @@ func quietStep(dir, label, name string, args ...string) int {
 // THE SAME TWO MARKS install.sh USES. An update runs that script in the middle
 // of itself, so a run that printed ✓ for its own steps and [  OK  ] for the
 // script's would look like two programs taking turns. It is one.
-func markOK(text string) { fmt.Fprintf(os.Stderr, "%s[  OK  ]%s %s\n", term.Green, term.Reset, text) }
-func markNo(text string) { fmt.Fprintf(os.Stderr, "%s[FAILED]%s %s\n", term.Red, term.Reset, text) }
+func markOK(text string) {
+	fmt.Fprintf(os.Stderr, "%s[  OK  ]%s ", term.Green, term.Reset)
+	typeOut(text)
+}
+
+func markNo(text string) {
+	fmt.Fprintf(os.Stderr, "%s[FAILED]%s ", term.Red, term.Reset)
+	typeOut(text)
+}
+
+// typeOut writes the letters one at a time, in order.
+//
+// An install is a sequence of things happening to somebody's machine, and a
+// line that appears all at once is a line that has already happened. Typed
+// out, it is happening while they read it, which is what it is.
+//
+// Both halves are needed and neither is enough on its own: the delay paces it,
+// and os.Stderr being unbuffered is what lets a partial line reach the screen
+// at all. Through a buffered writer every character would sit there until the
+// flush and the whole line would appear at once anyway.
+//
+// Not on a pipe: there is nobody watching a log file arrive, and a few hundred
+// one-byte writes into it buy nothing.
+func typeOut(text string) {
+	if !isTerminal(os.Stderr) {
+		fmt.Fprintln(os.Stderr, text)
+		return
+	}
+	for _, r := range text {
+		fmt.Fprintf(os.Stderr, "%c", r)
+		time.Sleep(typeDelay)
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
+const typeDelay = 3 * time.Millisecond
 
 // spin animates the dots at the end of the label until the returned function
 // is called.

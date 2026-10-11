@@ -108,49 +108,50 @@ fi
 # own marks to stderr. `solongate update` runs this in the middle of itself,
 # and two streams into one terminal is how a mark ends up inside the line above
 # it.
-say() { printf '         %b%s%b\n' "$DIM" "$1" "$OFF" >&2; }
-mark_ok() { printf '%b[  OK  ]%b %s\n' "$GREEN" "$OFF" "$1" >&2; }
-mark_no() { printf '%b[FAILED]%b %s\n' "$RED" "$OFF" "$1" >&2; }
+# THE LETTERS ARRIVE ONE AT A TIME, IN ORDER.
+#
+# An install is a sequence of things happening to somebody's machine, and a
+# line that appears all at once is a line that has already happened. Typed out,
+# it is happening while they read it, which is what it is.
+#
+# Both halves are needed and neither is enough on its own: the delay paces it,
+# and stderr being unbuffered is what lets a partial line reach the screen at
+# all. On stdout, which is line buffered, every character would sit in the
+# buffer until the newline and the whole line would appear at once anyway.
+#
+# The colour goes out in one piece. Typing an escape sequence character by
+# character is 20 invisible characters of delay before the first visible one.
+#
+# Not on a pipe: there is nobody watching a log file arrive.
+TYPE_DELAY=0.002
+[ -t 2 ] || TYPE_DELAY=''
+sleep "$TYPE_DELAY" 2>/dev/null || TYPE_DELAY=''
+
+type_out() {
+	if [ -z "$TYPE_DELAY" ]; then
+		printf '%s' "$1" >&2
+		return 0
+	fi
+	# ${rest#?} drops the first character; ${rest%"${rest#?}"} is that character.
+	# Shell builtins only: a `cut` per character triples the cost of the line.
+	_rest=$1
+	while [ -n "$_rest" ]; do
+		printf '%s' "${_rest%"${_rest#?}"}" >&2
+		_rest=${_rest#?}
+		sleep "$TYPE_DELAY"
+	done
+}
+
+say() { printf '         %b' "$DIM" >&2; type_out "$1"; printf '%b\n' "$OFF" >&2; }
+mark_ok() { printf '%b[  OK  ]%b ' "$GREEN" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
+mark_no() { printf '%b[FAILED]%b ' "$RED" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
 
 # A FILE RATHER THAN A VARIABLE. `pnpm install` emits more than a shell is
 # comfortable holding in a command substitution, and a substitution would also
 # miss anything the child writes straight to the terminal.
 RUNLOG=$(mktemp 2>/dev/null || echo /tmp/solongate-install.log)
 
-# KEYS PRESSED DURING AN INSTALL MUST NOT LAND ON THE SCREEN.
-#
-# This runs for twenty seconds and redraws one line in place while it works.
-# Anything typed over that line is echoed by the kernel straight into the
-# middle of it, and it is not only typing: the terminal answers
-# escape-sequence queries on the same channel, and those replies echo too,
-# which is where a stray ":" or "," on a line comes from.
-#
-# Echo goes off, and the restore on the way out DISCARDS whatever arrived
-# while the screen was busy, so a key pressed during the install does not run
-# as a command the moment the prompt comes back.
-#
-# Every part of this is optional. A machine without stty, or an install with
-# no terminal on stdin, simply skips it.
-STTY_SAVED=''
-if [ -t 0 ]; then
-	STTY_SAVED=$(stty -g 2>/dev/null || echo '')
-	[ -n "$STTY_SAVED" ] && stty -echo 2>/dev/null
-fi
-
-restore_tty() {
-	[ -n "$STTY_SAVED" ] || return 0
-	# min 0 time 0 makes a read return immediately with whatever is waiting,
-	# so one pass empties the buffer rather than blocking on it.
-	if stty -icanon min 0 time 0 2>/dev/null; then
-		while IFS= read -r _junk; do :; done </dev/tty 2>/dev/null
-	fi
-	stty "$STTY_SAVED" 2>/dev/null || :
-	STTY_SAVED=''
-}
-
-trap 'restore_tty; rm -f "$RUNLOG"' EXIT
-trap 'restore_tty; rm -f "$RUNLOG"; exit 130' INT
-trap 'restore_tty; rm -f "$RUNLOG"; exit 143' TERM
+trap 'rm -f "$RUNLOG"' EXIT
 
 # run: announce, capture, and say one line about how it went.
 # SOMETHING HAS TO MOVE WHILE NOTHING IS BEING PRINTED. `pnpm install` and the
@@ -230,7 +231,9 @@ repo=$(pwd)
 # characters, so everything that is not a mark is indented nine. A header flush
 # against the margin reads as a separate program's banner, and this script runs
 # in the middle of `solongate update`, which is exactly the misreading to avoid.
-printf '         %bSolonGate%b  installing from %s\n' "$B" "$OFF" "$repo" >&2
+printf '         %bSolonGate%b  ' "$B" "$OFF" >&2
+type_out "installing from $repo"
+printf '\n' >&2
 
 # ── which host is this ────────────────────────────────────────────────
 

@@ -25,7 +25,6 @@ func RunRepair([]string) int {
 	// install the guard. It keeps the terminal, and the price was the longest
 	// silence in the run: it copies a 27MB binary into the store and registers
 	// four clients while the screen holds still.
-	defer hushTTY()()
 	stop := spin("Registering the guard with your agents")
 	rep := install.Repair()
 	stop()
@@ -66,7 +65,7 @@ func RunRepair([]string) int {
 	// when it launched, and a repair it cannot see looks like a repair that did
 	// not work. install.sh and `solongate update` both reach this through the
 	// same binary, so putting it here says it once rather than in three voices.
-	errln("         open a new AI session for it to take effect")
+	typeOut("         open a new AI session for it to take effect")
 	return 0
 }
 

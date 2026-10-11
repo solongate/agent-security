@@ -246,8 +246,24 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
 		"Run ./install.sh yourself, in your own terminal."
 fi
 
-run "Registering the guard with your agents" "SolonGate is installed. Your agents ask it before they act." \
-	"$bin" repair
+# NOT THROUGH run(), and the reason is the whole point of this step.
+#
+# run() sends the child's stdout to a file so one [ OK ] line can stand in for
+# its output. `repair` refuses to work unless stdout AND stdin are both a
+# terminal, because every command in this CLI changes a security posture and an
+# agent's tool call has no terminal. Capturing its output takes the terminal
+# away, so the one step that installs the guard failed with the message
+# explaining why an agent may not install the guard.
+#
+# It keeps the terminal. Its output is a handful of lines rather than a package
+# manager's, and the [ OK ] is printed after it on the strength of its exit
+# code.
+if "$bin" repair; then
+	mark_ok "SolonGate is installed. Your agents ask it before they act."
+else
+	mark_no "Registering the guard with your agents"
+	exit 1
+fi
 
 # ── and a command called solongate ────────────────────────────────────
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/install"
+	"github.com/solongate/agent-security/packages/core/term"
 )
 
 // `solongate update` — fetch the newest source and reinstall from it.
@@ -45,8 +46,7 @@ func RunUpdate(args []string) int {
 	before := install.InstalledGuardVersion()
 
 	fmt.Println()
-	fmt.Println("  Updating SolonGate from " + root)
-	fmt.Println()
+	fmt.Fprintln(os.Stderr, "SolonGate  updating from "+root)
 
 	// FETCH FIRST, AND SAY WHETHER ANYTHING CAME. A pull that changes nothing still costs
 	// a full rebuild, and somebody watching it has no way to tell a no-op from a real
@@ -72,8 +72,7 @@ func RunUpdate(args []string) int {
 	head, _ := gitOutput(root, "rev-parse", "HEAD")
 
 	rng := config.UpdateRangeOf(config.LoadTUIConfig())
-	fmt.Println("  Update range: " + rng + " · " + rangeOneLiner(rng))
-	fmt.Println()
+	fmt.Fprintln(os.Stderr, "         range "+rng+": "+rangeOneLiner(rng))
 
 	var code int
 	if rng == config.UpdateRangeShort {
@@ -87,7 +86,7 @@ func RunUpdate(args []string) int {
 
 	after, _ := gitOutput(root, "rev-parse", "HEAD")
 	if head != "" && head == after {
-		fmt.Println("  Already on the newest version.")
+		markOK("Already on the newest version.")
 	}
 
 	// REBUILD AND REINSTALL THROUGH install.sh, rather than repeating its steps here.
@@ -106,18 +105,17 @@ func RunUpdate(args []string) int {
 	}
 
 	now := install.InstalledGuardVersion()
-	fmt.Println()
 	switch {
 	case before == nil && now != nil:
-		fmt.Println("  ✓ SolonGate installed, guard v" + strconv.Itoa(*now) + ".")
+		markOK("SolonGate installed, guard v" + strconv.Itoa(*now) + ".")
 	case before != nil && now != nil && *before != *now:
-		fmt.Println("  ✓ Updated: guard v" + strconv.Itoa(*before) + " → v" + strconv.Itoa(*now) + ".")
+		markOK("Updated: guard v" + strconv.Itoa(*before) + " to v" + strconv.Itoa(*now) + ".")
 	case now != nil:
-		fmt.Println("  ✓ Up to date: guard v" + strconv.Itoa(*now) + ".")
+		markOK("Up to date: guard v" + strconv.Itoa(*now) + ".")
 	default:
-		fmt.Println("  ✓ Done.")
+		markOK("Done.")
 	}
-	fmt.Println("    Open a new terminal — hooks load when a session starts.")
+	fmt.Fprintln(os.Stderr, "         open a new terminal: hooks load when a session starts")
 	fmt.Println()
 	return 0
 }
@@ -145,10 +143,10 @@ func quietStep(dir, label, name string, args ...string) int {
 	stop()
 
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "  ✗ "+label)
+		markNo(label)
 		if text := strings.TrimSpace(out.String()); text != "" {
 			for _, line := range strings.Split(text, "\n") {
-				fmt.Fprintln(os.Stderr, "    "+line)
+				fmt.Fprintln(os.Stderr, "         "+line)
 			}
 		}
 		var exit *exec.ExitError
@@ -157,12 +155,18 @@ func quietStep(dir, label, name string, args ...string) int {
 		}
 		return 1
 	}
-	fmt.Fprintln(os.Stderr, "  ✓ "+label)
+	markOK(label)
 	return 0
 }
 
 // spin draws one frame every 90ms until the returned function is called.
 //
+// THE SAME TWO MARKS install.sh USES. An update runs that script in the middle
+// of itself, so a run that printed ✓ for its own steps and [  OK  ] for the
+// script's would look like two programs taking turns. It is one.
+func markOK(text string) { fmt.Fprintf(os.Stderr, "%s[  OK  ]%s %s\n", term.Green, term.Reset, text) }
+func markNo(text string) { fmt.Fprintf(os.Stderr, "%s[FAILED]%s %s\n", term.Red, term.Reset, text) }
+
 // ON STDERR, with the result lines. The spinner used to go to stdout while a
 // failure went to stderr, and a terminal receiving both interleaved them: the
 // clearing \r landed before the error text rather than after the spinner, and
@@ -185,11 +189,11 @@ func spin(label string) func() {
 		for i := 0; ; i++ {
 			select {
 			case <-done:
-				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", len(label)+6))
+				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", len(label)+12))
 				return
 			default:
 			}
-			fmt.Fprintf(os.Stderr, "\r  %c %s", frames[i%len(frames)], label)
+			fmt.Fprintf(os.Stderr, "\r   %c     %s", frames[i%len(frames)], label)
 			time.Sleep(90 * time.Millisecond)
 		}
 	}()
@@ -204,7 +208,7 @@ func isTerminal(f *os.File) bool {
 }
 
 func step(dir, label, name string, args ...string) int {
-	fmt.Println("  " + label + "…")
+	fmt.Fprintln(os.Stderr, "         "+label+"...")
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Stdin = os.Stdin

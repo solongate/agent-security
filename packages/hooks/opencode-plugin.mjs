@@ -127,6 +127,18 @@ function rewritePatch(res) {
   return null;
 }
 
+/** The masked output the post-tool hook emits, or null when it masked nothing. */
+function redactedOutput(res) {
+  try {
+    const j = JSON.parse(res.stdout);
+    const h = j?.hookSpecificOutput;
+    if (h?.hookEventName === 'PostToolUse' && h.updatedToolOutput !== undefined) {
+      return h.updatedToolOutput;
+    }
+  } catch { /* nothing masked, or not JSON */ }
+  return null;
+}
+
 // The assistant text held between the part events and the message completing.
 //
 // Keyed by message id, cleared on flush, and dropped whole past a bound: a
@@ -271,10 +283,38 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
       }
     },
 
+    // MASKING THE RESULT, WHICH MEANS MUTATING `output` IN PLACE.
+    //
+    // This is why `opencode` declares redactsOutput. OpenCode calls
+    //
+    //     let V = {...result};
+    //     yield* trigger('tool.execute.after', {…}, V);
+    //     return V;
+    //
+    // and Plugin.trigger is `for (const h of hooks) await h(input, output);
+    // return output` — no clone, the hook is awaited, and the object handed to
+    // it is the one returned to the model. So assigning to a field of `output`
+    // here changes what the model reads. Verified against the installed binary
+    // (opencode 1.18.16): both the per-tool path and the MCP/subtask paths pass
+    // the same reference they return.
+    //
+    // TWO CONSEQUENCES, both deliberate:
+    //
+    // The audit call is AWAITED now, where it used to be fire-and-forget with a
+    // comment saying it must never delay the editor. A mask that arrives after
+    // the result has gone to the model is not a mask, so the wait is the
+    // feature; GUARD_TIMEOUT_MS still bounds it and a timeout leaves the output
+    // untouched.
+    //
+    // And it FAILS OPEN, unlike the pre-tool path. A pre-tool failure can
+    // refuse the call, which is the safe direction. Here the tool has already
+    // run and its result exists: there is nothing left to refuse, and throwing
+    // would lose the output entirely rather than protect it. Block mode is what
+    // covers the case where masking is not good enough — the guard refuses the
+    // read before it happens (see dlpRedactReadPlan), which is the half of this
+    // that cannot fail open.
     'tool.execute.after': async (input, output) => {
-      // The ALLOW-path audit record. Fire and forget: it must never delay the
-      // editor, and losing one line is better than a stalled tool.
-      void runHook(AUDIT, {
+      const res = await runHook(AUDIT, {
         tool_name: input?.tool ?? '',
         tool_input: input?.args ?? {},
         tool_response: output?.output ?? output?.metadata ?? {},
@@ -282,6 +322,23 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
         tool_use_id: input?.callID ?? '',
         cwd,
       }, GUARD_TIMEOUT_MS);
+      if (!res) return;
+      const masked = redactedOutput(res);
+      if (masked === null) return;
+      // The hook returns the shape it was given. It was given
+      // `output.output` — a string for every text-producing tool — so a string
+      // back is assigned straight to it. An object back means the hook
+      // preserved a structured result's shape, and the field it belongs in is
+      // the one it came from.
+      try {
+        if (typeof masked === 'string') {
+          if (typeof output?.output === 'string') output.output = masked;
+        } else if (masked && typeof masked === 'object' && output) {
+          if (typeof masked.stdout === 'string' && typeof output.output === 'string') output.output = masked.stdout;
+          else if (typeof masked.content === 'string' && typeof output.output === 'string') output.output = masked.content;
+          else if (output.metadata && typeof output.metadata === 'object') Object.assign(output.metadata, masked);
+        }
+      } catch { /* a result we cannot write to is one we leave alone */ }
     },
   };
 };

@@ -267,6 +267,25 @@ func antigravityHookCommand(p Paths, node string) string {
 	return hookCommand(p, node, GuardHookName, "antigravity", "Antigravity")
 }
 
+// antigravityAuditCommand is the POST-tool stage on this client.
+//
+// IT EXISTS, and this code said for a long time that it did not. The agy binary
+// documents PostToolUse as a first-class event — matcher-grouped exactly like
+// PreToolUse, stdin carrying the tool call plus `stepIdx` and an `error` when it
+// failed. Verified against the installed agy (the contract is embedded in the
+// binary). What it does NOT have is any way to rewrite the result: its stdout
+// "expects an empty JSON object {}", so there is no updatedToolOutput to write
+// and masking still has to happen before the tool runs, via the `overwrite`
+// field on PreToolUse. Hence ReportsAfter true, RedactsOutput false — see
+// guard/clients.go.
+//
+// What registering it buys: the ALLOW audit row and the detect-mode DLP record
+// now come from the same place they do on every other client, instead of only
+// from whatever the guard could write on the way in.
+func antigravityAuditCommand(p Paths, node string) string {
+	return hookCommand(p, node, auditHookName, "antigravity", "Antigravity")
+}
+
 // antigravityTokensCommand is the token reader on this client.
 //
 // Stop rather than PostInvocation: an invocation is one model call and a turn
@@ -289,6 +308,12 @@ func planAntigravity(p Paths, node string) (registration, error) {
 	if err := group.setValue("PreToolUse", []hookGroup{{
 		Matcher: matcher(""),
 		Hooks:   []hookHandler{{Type: "command", Command: antigravityHookCommand(p, node)}},
+	}}); err != nil {
+		return registration{}, err
+	}
+	if err := group.setValue("PostToolUse", []hookGroup{{
+		Matcher: matcher(""),
+		Hooks:   []hookHandler{{Type: "command", Command: antigravityAuditCommand(p, node)}},
 	}}); err != nil {
 		return registration{}, err
 	}

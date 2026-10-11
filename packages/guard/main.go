@@ -223,9 +223,22 @@ func observingDLP(sec *shared.Security) *observingCfg {
 // falling back for a release that changed nothing here, and staying on the fast
 // path after a cloud self-update that changed everything.
 //
-// TestHookVersionMatchesTheNodeHook reads the number out of guard.mjs, so this
-// cannot drift without the build saying so.
-const hookVersion = 108
+// TestHookVersionMatchesTheNodeHook used to read the number out of the Node hook
+// so this could not drift without the build saying so. That test went with the
+// rest of the suite, so the two numbers are now kept level by hand, in the same
+// change — and a mismatch is not a build failure but a silent fall back to Node
+// on every machine that has both.
+//
+// 109: the five places the two implementations decided differently. This side
+// gained `agents` scoping on the policy and the `.last-deny` flag; the hook
+// gained the protected-path check, require-sandbox, and the detect-mode DLP
+// record on a client with no post-tool stage. The full note is on HOOK_VERSION
+// in the Node hook.
+// 110: the client capability table. opencode gained redactsOutput (measured),
+// antigravity gained reportsAfter (it has a post-tool stage after all), codex
+// keeps redactsOutput false for a now-proven reason, and the Node side gained
+// the reportsAfter field it was missing. Full note on HOOK_VERSION in the hook.
+const hookVersion = 110
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.
@@ -453,6 +466,23 @@ func main() {
 	if local != nil {
 		pol = local.Policy
 	}
+	// AGENT SCOPING, which this binary did not honour and the hook always did.
+	// `agents` on the policy names the clients its RULES are for; an empty or
+	// absent list, or a "*" entry, means all of them. Ignoring the key here made
+	// one file mean two things depending on whether a machine had this binary —
+	// a policy scoped to Codex was enforced against Claude Code too — and the
+	// hook is the reference for these shapes, so this side was the one that was
+	// wrong. See shared.Policy.AppliesTo.
+	//
+	// Scoped out means the RULES do not apply. It does not mean the call is
+	// waved through: everything above this line — tamper protection,
+	// require-sandbox, the protected paths, egress, DLP and the rate limit — has
+	// already run, and the layers below still do. The hook used to return ALLOW
+	// for an out-of-scope client before any of them, which made a scoped policy
+	// a way to switch them off; that is fixed there rather than reproduced here.
+	if pol != nil && !pol.AppliesTo(agentType) {
+		pol = nil
+	}
 	policyReason := policy.EvaluatePolicy(pol, c.Args, c.Tool, c.Cwd)
 
 	// Every call, denial or not: the timing the audit hook reads back, and the
@@ -613,6 +643,10 @@ func elapsedMs(started time.Time) float64 {
 // waiting on a network round trip for a decision already made.
 func record(sec *shared.Security, hasSecurity bool, c call, agentType, agentName, reason string, started time.Time) {
 	recordDecision(sec, hasSecurity, c, agentType, agentName, reason, "DENY", started)
+	// Every denial in this binary comes through here on its way to deny(), which
+	// makes it the one place the flag can be written without each layer having to
+	// remember to. See writeDenyFlag for what the audit hook does with it.
+	writeDenyFlag(shared.ProjectFlagDir(), c.Tool, c.CallID)
 }
 
 // recordObserved files a row for a call that was ALLOWED but carried a signal

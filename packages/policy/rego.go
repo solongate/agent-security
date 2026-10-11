@@ -238,12 +238,15 @@ func ConvertRulesToRego(rules []PolicyRule) string {
 		`    regex.match(pattern, p)`,
 		`}`,
 		``,
-		`# Helper: check if an item matches any pattern in a list`,
-		`list_matches_any(item, patterns) if {`,
-		`    some pattern in patterns`,
-		`    glob.match(pattern, [], item)`,
-		`}`,
-		``,
+		// THERE IS NO list_matches_any HELPER, and there was one: a glob.match
+		// loop emitted into every generated module and called by nothing. The
+		// list constraints (command, filename, URL) compile to an inline
+		// `regex.match` over a single alternation instead — see
+		// generateListConstraintConditions — because one expression per
+		// constraint beats one call per pattern, and because glob.match and
+		// RE2 do not agree about what `*` crosses. An unused helper in the
+		// generated source invited a future condition to call the semantics
+		// that are NOT the ones being enforced.
 		`# Default decision: DENY (no matching rule)`,
 		`default decision := {"effect": "DENY", "reason": "No matching policy rule found. Default action: DENY.", "matched_rule": null}`,
 		``,
@@ -382,8 +385,21 @@ func generateConditions(rule PolicyRule) []string {
 
 // The tool selector is internal and fixed to "*" in the shipped product — no UI
 // or CLI exposes it. Kept general for the engine.
+//
+// AN ABSENT SELECTOR MEANS EVERY TOOL, and it used to mean no tool at all. A
+// rule whose JSON omits `toolPattern` decodes to "" here, which fell past every
+// case below and compiled to `input.tool_name == ""` — a condition no call can
+// satisfy, so the rule never fired. Not a narrow case either: it applied to all
+// four constraint kinds and to denylist mode, which is the default, so a policy
+// file written by hand enforced NOTHING on a machine with the Go binary while
+// enforcing normally on one without it. The Node evaluator has no tool_pattern
+// condition at all, so "" there has always meant every tool.
+//
+// It went unnoticed because the TUI stamps `ToolPattern: "*"` on every rule it
+// creates, so the rules the product makes for you were never affected — only
+// the ones somebody wrote, exported, or copied in.
 func generateToolPatternCondition(pattern string) []string {
-	if pattern == "*" {
+	if pattern == "*" || pattern == "" {
 		return []string{"# Matches all tools"}
 	}
 	startsWithStar := strings.HasPrefix(pattern, "*")

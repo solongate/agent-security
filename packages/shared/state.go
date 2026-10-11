@@ -113,6 +113,43 @@ type Policy struct {
 	Name  string          `json:"name"`
 	Mode  string          `json:"mode"`
 	Rules json.RawMessage `json:"rules"`
+
+	// Agents scopes the RULES to named clients. Empty or absent means every
+	// client, and so does an entry of "*".
+	//
+	// Here because the JavaScript guard has honoured it since before this
+	// package existed and this one did not, so the same file meant two things
+	// depending on whether a machine had the binary: a policy scoped to one
+	// client was enforced against all of them here. The hook is the reference
+	// for these shapes (see the package comment), so the hook's reading is the
+	// correct one and this was the bug.
+	//
+	// It scopes the rules and nothing else. DLP, the rate limit, egress and the
+	// tamper flag are configured in a different block of the same file and are
+	// not the policy; a client out of scope still gets all of them. The hook
+	// returned ALLOW above those layers for an out-of-scope client, which turned
+	// a scoped policy into a way to disarm them, and that is fixed on its side
+	// rather than copied to this one.
+	Agents []string `json:"agents,omitempty"`
+}
+
+// AppliesTo reports whether this policy's rules are meant for the named client.
+//
+// Kept identical to the scope test in packages/hooks/guard.mjs: a missing or
+// empty list is every client, "*" is every client, and otherwise the client has
+// to be named exactly. Compared case-sensitively because the names are the
+// client ids the installer bakes into the hook registration, not something a
+// person types.
+func (p *Policy) AppliesTo(client string) bool {
+	if p == nil || len(p.Agents) == 0 {
+		return true
+	}
+	for _, a := range p.Agents {
+		if a == "*" || a == client {
+			return true
+		}
+	}
+	return false
 }
 
 // PolicyCache mirrors ~/.solongate/.policy-cache-<agent>.json.

@@ -99,10 +99,17 @@ var clients = map[string]*Client{
 	// inside the patch text, so parse lifts them onto the neutral fields (see
 	// liftFreeformPatchPaths, applied to every client for safety).
 	"codex": {
-		Parse:         parseFlatPayload,
-		Emit:          emitHookSpecific,
-		ReportsAfter:  true,
-		RedactsOutput: false, // has a post-tool stage, but it rejects output rewrites
+		Parse:        parseFlatPayload,
+		Emit:         emitHookSpecific,
+		ReportsAfter: true,
+		// CONFIRMED AGAINST THE BINARY, and stronger than "rejects": the Codex
+		// hook schema has no output-rewrite field at all. Its strings carry
+		// hookSpecificOutput, permissionDecision, permissionDecisionReason and
+		// updatedInput — and zero occurrences of updatedToolOutput. So a post-tool
+		// stage runs (ReportsAfter) and there is nothing it can write to change
+		// the result. Masking is done before the tool runs, or the call is
+		// refused. Verified on codex-cli 0.147.0.
+		RedactsOutput: false,
 	},
 
 	// OpenCode: no subprocess hook contract at all — a plugin runs in-process and
@@ -113,20 +120,45 @@ var clients = map[string]*Client{
 	"opencode": {
 		Parse: parseFlatPayload,
 		Emit:  emitHookSpecific,
-		// tool.execute.after does hand the plugin the tool's result, but whether
-		// writing to it changes what the model sees is untested. Claiming the
-		// capability we have not proven would let a secret through masked-in-name-
-		// only; false makes any masking we cannot apply a block instead.
-		ReportsAfter:  true, // tool.execute.after does run, and it runs the audit hook
-		RedactsOutput: false,
+		// MEASURED, not assumed. This was false with a comment saying the
+		// capability was untested and claiming it unproven would let a secret
+		// through masked-in-name-only. It has now been proven, against the
+		// installed opencode (1.18.16), by reading what the binary does:
+		//
+		//     let V = {...result};
+		//     yield* trigger("tool.execute.after", {…}, V);
+		//     return V;
+		//
+		// and Plugin.trigger is `for (const h of hooks) await h(input, output);
+		// return output` — no clone anywhere, the hook is awaited, and the object
+		// handed to it is the object returned to the model. So a hook that
+		// MUTATES a field of the result changes what the model reads. The plugin
+		// does exactly that now (hooks/opencode-plugin.mjs), and it awaits the
+		// masking rather than firing it off, because a mask that lands after the
+		// result has gone is not a mask.
+		ReportsAfter:  true,
+		RedactsOutput: true,
 	},
 
 	// Antigravity CLI: nested payload, and a decision dialect of its own.
+	//
+	// ReportsAfter WAS false here, with a comment saying this client has "no
+	// post-tool stage at all". That was wrong, and it was the reason detect mode
+	// and every ALLOW row went missing on this client. The agy binary documents
+	// PostToolUse as a first-class event, matcher-grouped exactly like
+	// PreToolUse, with the tool call plus `stepIdx` and an `error` on stdin. The
+	// installer registers the audit hook on it now (install/clients.go).
+	//
+	// RedactsOutput stays false, and here the vendor limit is real: the
+	// PostToolUse contract's stdout "expects an empty JSON object {}" — there is
+	// no field that rewrites the result. Masking on this client happens before
+	// the tool runs, through `overwrite` on PreToolUse, and anything that cannot
+	// be masked that way is refused instead.
 	"antigravity": {
 		Parse:         parseAntigravity,
 		Emit:          emitAntigravity,
-		ReportsAfter:  false,
-		RedactsOutput: false, // no post-tool stage at all (its output is ignored)
+		ReportsAfter:  true,
+		RedactsOutput: false,
 	},
 
 	// Unknown client: never silently adopt another client's rules. Parse by

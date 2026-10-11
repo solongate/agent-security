@@ -37,7 +37,12 @@
  */
 import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, mkdirSync, chmodSync, renameSync, appendFileSync, rmSync, rmdirSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { resolve, join, dirname, isAbsolute } from 'node:path';
+// `normalize` is for the protected-path check and is NOT interchangeable with
+// `resolve`: the Go twin cleans a path with filepath.Clean, which does not make
+// it absolute. A JS side that resolved against cwd instead would refuse a
+// relative token the binary lets through, and two guards disagreeing about one
+// path is worse than both treating it the same way.
+import { resolve, join, dirname, isAbsolute, normalize } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
 // The decision engine, shared with the MCP proxy so a policy cannot mean one
@@ -147,9 +152,44 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // three were replaced -- the list had already drifted once, 70 against 14, and doing it
 // again while consolidating would have been the same bug self-inflicted.
 //
+// 109 CLOSES THE FIVE PLACES THE TWO IMPLEMENTATIONS DECIDED DIFFERENTLY. Three
+// layers the binary ran and this did not: the user's own protected paths
+// (userProtectedCheck), require-sandbox (sandboxRequired), and the detect-mode
+// DLP record on a client with no post-tool stage. The machine running THIS
+// implementation is the one with no binary, which is also the one where the OS
+// lock is weakest — unprivileged Linux falls back to `chmod 0444`, which stops a
+// write and does not stop `rm` — so the guard check was the only thing covering
+// the easy case and it was the half that was missing.
+//
+// Fourth, an ordering fix in this file: `policy.agents` scoping returned ALLOW
+// above the tamper check, so a policy naming other clients switched off
+// self-protection, egress, DLP and the rate limit for this one. Scoping now
+// decides whether the RULES apply, which is the only thing it was ever about.
+//
+// Fifth is on the Go side: it writes `.last-deny` now, so the audit hook's
+// duplicate suppression works there too.
+//
 // This number is how a machine compares the hook it has with the one in a
 // checkout, and a fix nobody picks up is not a fix.
-const HOOK_VERSION = 108;
+// 110 MAKES THE CLIENT CAPABILITY TABLE MATCH THE CLIENTS. Three of its cells
+// were wrong, and each was wrong in the direction of doing less:
+//
+//   opencode  redactsOutput was false under a comment saying the capability was
+//             untested. Measured against opencode 1.18.16: the result object is
+//             handed to `tool.execute.after` by reference and the same object is
+//             returned to the model, and Plugin.trigger awaits each hook without
+//             cloning. The plugin masks in place now, and awaits it.
+//   agy       reportsAfter was false under a comment saying it has no post-tool
+//             stage at all. It has one; the binary documents it. Detect mode and
+//             every ALLOW row were missing on this client because of that line.
+//   codex     redactsOutput stays false, now for the proven reason: its hook
+//             schema has no updatedToolOutput field at all.
+//
+// And reportsAfter did not exist on this side, which made the detect-mode record
+// added in 109 gate on the wrong capability — it keyed off redactsOutput, so on
+// Codex (post-tool stage, no output rewrite) this implementation wrote a record
+// the Go one skipped. The field is here now and both gate on it.
+const HOOK_VERSION = 110;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -762,7 +802,8 @@ const CLIENTS = {
   'claude-code': {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
-    redactsOutput: true, // audit.mjs rewrites the tool result at PostToolUse
+    reportsAfter: true,
+    redactsOutput: true, // the post-tool hook rewrites the tool result
   },
 
   // Codex CLI: same decision dialect as Claude Code, different INPUT problem.
@@ -772,7 +813,14 @@ const CLIENTS = {
   codex: {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
-    redactsOutput: false, // has a post-tool stage, but it rejects output rewrites
+    reportsAfter: true,
+    // CONFIRMED AGAINST THE BINARY, and stronger than "rejects": the Codex hook
+    // schema has no output-rewrite field at all. Its strings carry
+    // hookSpecificOutput, permissionDecision, permissionDecisionReason and
+    // updatedInput — and zero occurrences of updatedToolOutput. A post-tool
+    // stage runs, and there is nothing it can write to change the result.
+    // Verified on codex-cli 0.147.0.
+    redactsOutput: false,
   },
 
   // OpenCode: no subprocess hook contract at all — a plugin runs in-process and
@@ -783,16 +831,31 @@ const CLIENTS = {
   opencode: {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
-    // tool.execute.after does hand the plugin the tool's result, but whether
-    // writing to it changes what the model sees is untested. Claiming the
-    // capability we have not proven would let a secret through masked-in-name-
-    // only; false makes any masking we cannot apply a block instead.
-    redactsOutput: false,
+    reportsAfter: true,
+    // MEASURED, not assumed. This was false under a comment saying the
+    // capability was untested. It has now been proven against the installed
+    // opencode (1.18.16): the tool result is passed to `tool.execute.after` by
+    // reference and the SAME object is returned to the model, and
+    // Plugin.trigger awaits each hook without cloning. So a hook that mutates a
+    // field of the result changes what the model reads, which is what the
+    // plugin does now.
+    redactsOutput: true,
   },
 
   // Antigravity CLI: nested payload, and a decision dialect of its own.
   antigravity: {
-    redactsOutput: false, // no post-tool stage at all (its output is ignored)
+    // reportsAfter WAS absent here and false on the Go side, under a comment
+    // saying this client has no post-tool stage at all. That was wrong, and it
+    // is why detect mode and every ALLOW row went missing on this client: the
+    // agy binary documents PostToolUse as a first-class event, matcher-grouped
+    // exactly like PreToolUse. The installer registers the post-tool hook on it
+    // now.
+    reportsAfter: true,
+    // The vendor limit here IS real: the PostToolUse contract's stdout "expects
+    // an empty JSON object {}", so nothing can rewrite the result. Masking on
+    // this client happens before the tool runs, via `overwrite` on PreToolUse,
+    // and what cannot be masked that way is refused instead.
+    redactsOutput: false,
     parse(raw) {
       const tc = (raw.toolCall && typeof raw.toolCall === 'object') ? raw.toolCall : {};
       const a = (tc.args && typeof tc.args === 'object') ? tc.args : {};
@@ -842,7 +905,14 @@ const CLIENTS = {
   // payload SHAPE and deny with the most widely enforced signal available
   // (JSON + exit 2). A client that needs anything else gets its own entry.
   generic: {
-    redactsOutput: false, // assume the weaker capability, so masking fails closed
+    // BOTH FALSE ON PURPOSE, and neither is a gap waiting to be measured. An
+    // unknown client is one whose contract nobody has read: assuming it runs a
+    // post-tool stage means leaving the record to something that may not exist,
+    // and assuming it can mask its output means letting a secret through
+    // masked-in-name-only. Assume the weaker capability in both directions, so
+    // the record is written here and masking fails closed.
+    reportsAfter: false,
+    redactsOutput: false,
     parse(raw) {
       return (raw.toolCall && typeof raw.toolCall === 'object')
         ? CLIENTS.antigravity.parse(raw)
@@ -1601,9 +1671,16 @@ function extractTargetPaths(args) {
   return out;
 }
 
-function tamperCheck(toolName, args) {
+// Does this tool run a command, as opposed to naming a file? Two layers ask —
+// tamper protection and the user's protected paths — and they have to answer the
+// same, so there is one copy of the question.
+function toolIsExec(toolName) {
   const tn = String(toolName || '').toLowerCase();
-  const isExec = TAMPER_GUARD_TOOLS_EXEC.has(tn) || /bash|shell|exec|powershell|cmd|run|eval/.test(tn);
+  return TAMPER_GUARD_TOOLS_EXEC.has(tn) || /bash|shell|exec|powershell|cmd|run|eval/.test(tn);
+}
+
+function tamperCheck(toolName, args) {
+  const isExec = toolIsExec(toolName);
   // ANY tool that targets a protected path is blocked — READ as well as write.
   // An AI must not even read SolonGate's own protection files. This is enforced
   // at the tool boundary; the hooks themselves are run by node directly (not via
@@ -1625,6 +1702,117 @@ function tamperCheck(toolName, args) {
     }
   }
   return null;
+}
+
+// ── The user's own protected paths ───────────────────────────────────────────
+// SEPARATE FROM TAMPER PROTECTION ON PURPOSE, and packages/guard/protected.go
+// says the same thing. Self-protection keeps the guard armed and a person is
+// allowed to switch it off; this list is a promise somebody made about their own
+// files, and switching off the first must not quietly cancel the second. So
+// neither check below sits behind selfProtectEnabled.
+//
+// AND IT IS THE WEAKEST OF THE THREE THINGS HOLDING THAT PROMISE. It reads the
+// strings in a tool call, so it catches `rm game.c` and does not catch
+// `x=gam; y=e; rm "$x$y.c"`, a script written to /tmp and then run, or a program
+// the agent compiles that calls unlink itself. Not a gap to close by adding
+// patterns: the ways to name a file without typing its name do not run out. It
+// is closed by the OS lock `solongate protect` puts on the file and the sandbox
+// `solongate run` puts around the agent, and this layer's job is to refuse the
+// easy case immediately, with a reason a person can read.
+//
+// Which is why its absence here mattered more than it looks. The machines that
+// run THIS implementation are the ones with no Go binary — and on unprivileged
+// Linux `protect` cannot get `chattr +i`, so it falls back to `chmod 0444`, a
+// mode that stops a write and does not stop a delete. There, this check was the
+// only thing between the agent and `rm`, and it was the half that was missing.
+
+// underProtected reports which protected path covers raw: the path itself, or
+// anything inside it when it is a directory.
+function underProtected(raw, norm) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const np = normTamperPath(normalize(s));
+  for (const p of norm) {
+    // `+ '/'` rather than a bare prefix, so protecting /home/me/game does not
+    // also swallow /home/me/game-notes. The rule isProtectedPath applies to the
+    // hooks directory, for the same reason.
+    if (np === p || np.startsWith(p + '/')) return p;
+  }
+  return '';
+}
+
+function protectedReason(named, hit) {
+  if (named === hit) {
+    return 'Protected path: "' + hit + '" cannot be read, written or deleted by an agent';
+  }
+  return 'Protected path: "' + named + '" is inside "' + hit +
+    '", which cannot be read, written or deleted by an agent';
+}
+
+// userProtectedCheck returns the deny reason, or null when the call names none
+// of the protected paths. Kept pass-for-pass with userProtectedCheck in
+// packages/guard/protected.go: same three passes in the same order, and the same
+// two reason strings, because the reason is what the model repeats to the person
+// reading and the two must not word it differently.
+function userProtectedCheck(toolName, args, sec) {
+  const list = sec && Array.isArray(sec.protectedPaths) ? sec.protectedPaths : null;
+  if (!list || list.length === 0) return null;
+  const norm = [];
+  for (const p of list) {
+    const t = String(p || '').trim();
+    if (t) norm.push(normTamperPath(normalize(t)));
+  }
+  if (norm.length === 0) return null;
+
+  // The TARGET fields first, which is where a well-behaved tool puts the file it
+  // is about. Never the free-form body: a note that merely mentions the path is
+  // not an attempt to open it, and refusing it would teach the user the feature
+  // is broken.
+  for (const raw of extractTargetPaths(args)) {
+    const hit = underProtected(raw, norm);
+    if (hit) return protectedReason(raw, hit);
+  }
+
+  // Then anything that looks like a path anywhere in the call, including the
+  // pieces of an exec command. extractPaths already does the tokenising and the
+  // isExec split, and sharing it means a path shape the policy layer can see is
+  // one this layer can see too.
+  const isExec = toolIsExec(toolName);
+  for (const raw of extractPaths(args || {}, isExec)) {
+    const hit = underProtected(raw, norm);
+    if (hit) return protectedReason(raw, hit);
+  }
+
+  // And a plain substring sweep over the command, for the same reason
+  // commandTargetsProtected does it: a command has no argument structure this
+  // layer can trust, and the path may arrive glued to a flag or inside quotes the
+  // tokeniser split differently than the shell will.
+  if (isExec) {
+    for (const cmd of extractCommands(args || {})) {
+      const c = normTamperPath(cmd);
+      for (const p of norm) {
+        if (c.includes(p)) return protectedReason(p, p);
+      }
+    }
+  }
+  return null;
+}
+
+// sandboxRequired reports whether this call must be refused for arriving from an
+// agent SolonGate did not start.
+//
+// FAILS CLOSED, which is why it is opt-in. The marker is an environment variable
+// `solongate run` sets on the process it launches; every descendant inherits it,
+// and an agent started any other way does not have it. An agent could of course
+// set the variable itself — and gain nothing by it, because the variable is not
+// what confines anything. The confinement is the Landlock domain, the Seatbelt
+// profile or the restricted token, applied before the agent's first instruction
+// and not droppable by it. The marker only reports the fact.
+function sandboxRequired(sec) {
+  if (!sec || sec.requireSandbox !== true) return null;
+  if (String(process.env.SOLONGATE_SANDBOX || '') !== '') return null;
+  return 'Refused: this machine requires agents to be started with `solongate run`. ' +
+    'Protected paths are enforced by the operating system there, and by string matching anywhere else.';
 }
 
 // ── Extra security layers (rate limit, egress allowlist, DLP block) ──
@@ -2080,6 +2268,18 @@ function rateLimitCheck(agentKey, limits) {
 }
 
 // Runs all enabled enforcement layers; returns a deny reason or null (allow).
+// The patterns a mode wants SCANNED AND RECORDED while changing nothing, and
+// which of the two observing modes asked. Mirrors observingDLP in
+// packages/guard/main.go, including the order: redact outranks detect because
+// exactly one of the three shapes is ever written to disk, and a file carrying
+// both is a file that was edited by hand.
+function observingDLP(sec) {
+  if (!sec) return null;
+  if (sec.dlpRedact) return { cfg: sec.dlpRedact, mode: 'redact' };
+  if (sec.dlpObserve) return { cfg: sec.dlpObserve, mode: 'detect' };
+  return null;
+}
+
 function securityLayerCheck(toolName, args, cfg, agentKey) {
   if (!cfg) return null;
   try {
@@ -2310,8 +2510,6 @@ input += SG_STDIN;
   // skipped where they are written. What the early return also skipped was the
   // tamper guard, so a machine with no credential could not protect its own
   // state — and that state is exactly what a local policy is kept in.
-  if (process.env.SOLONGATE_DEBUG) {
-  }
   // NOT `Date.now()`. Every `Date.now() - _evalStart` below becomes an
   // evaluation_time_ms in the audit log — the number the dashboard, the TUI
   // and the TUI print as what this call paid to be guarded. Measured from here
@@ -2426,24 +2624,34 @@ input += SG_STDIN;
       // Couldn't load any policy — leave policy undefined; evaluate() returns null.
     }
 
-    if (process.env.SOLONGATE_DEBUG) {
-    }
-    // Agent scoping
-    {
+    // AGENT SCOPING NARROWS THE POLICY, NOT THE GUARD, and it used to do the
+    // second. `policy.agents` naming other clients returned ALLOW right here —
+    // above tamper protection, egress, DLP and the rate limit — so a policy
+    // written for Codex switched self-protection off for Claude Code. None of
+    // those layers is part of the policy: three of them are configured in a
+    // different block of the same file and the fourth cannot be configured at
+    // all. The Go twin has no scoping, so it never had the hole, and matching the
+    // two by copying the early return into Go would have been importing a bypass
+    // rather than closing one.
+    //
+    // So the scope decides whether the RULES apply, and is read again at the
+    // policy step below. Everything above it runs either way.
+    const policyInScope = (() => {
       const scope = (policy && Array.isArray(policy.agents) && policy.agents.length > 0)
         ? policy.agents
         : ['*'];
-      if (!scope.includes('*') && !scope.includes(AGENT_TYPE)) {
-    allowTool();
-        return;
-      }
-    }
+      return scope.includes('*') || scope.includes(AGENT_TYPE);
+    })();
 
-    if (process.env.SOLONGATE_DEBUG) {
-    }
     // Tamper / self-protection — runs before policy eval. ON by default; the file
     // can turn it off (fail safe: stays on if the file is silent or unreadable).
     let reason = selfProtectEnabled ? tamperCheck(toolName, args) : null;
+    // THE USER'S OWN PROTECTED PATHS AND require-sandbox, in the Go guard's
+    // order and OUTSIDE the selfProtect condition above. See userProtectedCheck:
+    // a person may switch the guard's self-protection off, and that must not also
+    // cancel a promise they made about their own files.
+    if (!reason) reason = sandboxRequired(securityCfg);
+    if (!reason) reason = userProtectedCheck(toolName, args, securityCfg);
     // A secret leaving the machine in the ARGUMENTS of a call — as opposed to one
     // read out of a file, which is the redaction plan's job. Second, exactly as in
     // guard/main.go: it is the check with the narrowest trigger (a transfer
@@ -2452,8 +2660,6 @@ input += SG_STDIN;
     // Extra security layers run after tamper and egress, before policy. A block
     // reason wins immediately (BLACK). Fail-open by design.
     if (!reason) reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
-    if (process.env.SOLONGATE_DEBUG) {
-    }
     // ROUTING IS BINARY — WHITE (allow) / BLACK (block). Nothing is escalated to a
     // model and there is no judge, so a REVIEW rule reads as allow under denylist.
     //
@@ -2465,7 +2671,7 @@ input += SG_STDIN;
     let opaRoute = 'white';
     if (reason) {
       opaRoute = 'black'; // hardcoded tamper protection blocked it
-    } else if (policy && policy.rules) {
+    } else if (policy && policy.rules && policyInScope) {
       // hookCwd is the directory the call was made from, and a relative path
       // token in a shell command only means a file once it is resolved against it.
       const verdict = evaluate(policy, args, toolName, hookCwd);
@@ -2569,6 +2775,42 @@ input += SG_STDIN;
         try { if (statSync(ring).size > 16384) writeFileSync(ring, readFileSync(ring, 'utf-8').split('\n').filter(Boolean).slice(-50).join('\n') + '\n'); } catch {}
       } catch {}
     } catch {}
+
+    // DETECT MODE, AND ONLY WHERE NOTHING ELSE WILL COUNT IT. On a client with a
+    // post-tool stage the audit hook scans the arguments and files the ALLOW row,
+    // and doing it here as well would double-count. On a client without one —
+    // Antigravity has no PostToolUse at all — nothing else ever runs, so a
+    // secret that went out in an argument had no record anywhere that it did, and
+    // a mode whose whole job is to observe observed nothing. The Go guard has
+    // counted it here for a while (see recordObserved in guard/main.go); this is
+    // the half that was missing.
+    //
+    // Only when nothing has blocked: a call already refused is a DENY row below,
+    // not an observation. And only when block mode is NOT configured — the API
+    // writes exactly one of the three DLP shapes, so the two cannot both fire for
+    // one call, and the ordering makes that impossible to get wrong later.
+    if (!reason && !CLIENT.reportsAfter && securityCfg && !securityCfg.dlpBlock) {
+      try {
+        const _obs = observingDLP(securityCfg);
+        if (_obs) {
+          const _hit = dlpScan(args, _obs.cfg);
+          if (_hit) {
+            writeLocalLog(securityCfg, {
+              ts: new Date().toISOString(),
+              tool: toolName, arguments: args,
+              decision: 'ALLOW',
+              reason: 'Security layer (DLP): detected - arguments contain a ' + _hit +
+                '. Allowed: DLP is in ' + _obs.mode + ' mode.',
+              permission: guessPermission(toolName),
+              source: `${AGENT_TYPE}-guard`,
+              agent_id: AGENT_TYPE, agent_name: AGENT_NAME,
+              session_id: call.sessionId,
+              evaluation_time_ms: Date.now() - _evalStart,
+            });
+          }
+        }
+      } catch { /* an observation is never a reason to disturb a call */ }
+    }
 
     // Only log DENY decisions from guard hook.
     // ALLOW decisions are logged by the audit hook (PostToolUse) to avoid double-counting.

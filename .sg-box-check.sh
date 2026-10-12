@@ -26,13 +26,39 @@ case "$WS" in
   *) echo "give an absolute path"; exit 1 ;;
 esac
 
-if [ -n "${SOLONGATE_SANDBOX:-}" ]; then
-  echo "SOLONGATE_SANDBOX is set, so this shell is already confined and no"
-  echo "mount namespace can be created from it. Run this from a plain terminal."
+command -v bwrap >/dev/null 2>&1 || { echo "bwrap is not installed"; exit 1; }
+
+# CAN THIS SHELL MAKE A MOUNT NAMESPACE AT ALL? Asked by trying, not by reading
+# an environment variable.
+#
+# This guard used to be `if [ -n "$SOLONGATE_SANDBOX" ]`, which is the same
+# mistake require-sandbox made before it started probing the kernel: the marker
+# is a variable, `env -u SOLONGATE_SANDBOX` clears it, and the confinement it
+# stood for stays exactly where it was. Run that way the check does not refuse,
+# it runs, every launch dies before producing a line, and eighteen cases report
+# WRONG. Eighteen failures that mean "ask somewhere else" look identical to
+# eighteen failures that mean the box stopped closing, which is the worst thing
+# a check can be.
+#
+# So: try the smallest namespace bwrap can make. If the kernel says no here it
+# will say no to the box, and the reason is that something above this shell is
+# already confining it (Landlock from `solongate run`, a container without
+# CAP_SYS_ADMIN, user namespaces turned off).
+if ! bwrap --unshare-all --ro-bind /usr /usr --dev /dev /bin/true 2>/dev/null; then
+  echo "This shell cannot create a mount namespace, so there is nothing here"
+  echo "that can build a box. Probed by running bwrap, which failed."
+  echo
+  echo "Something above this shell is confining it. The usual causes:"
+  echo "  - the shell was started by \`solongate run\`, so Landlock is on it"
+  echo "    already and inherited restrictions cannot be lifted"
+  echo "  - a container without CAP_SYS_ADMIN"
+  echo "  - user namespaces disabled: /proc/sys/user/max_user_namespaces is"
+  echo "    $(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo unknown)"
+  echo
+  echo "Run this from a plain terminal. Clearing SOLONGATE_SANDBOX does not"
+  echo "help: it hides the marker, not the confinement."
   exit 1
 fi
-
-command -v bwrap >/dev/null 2>&1 || { echo "bwrap is not installed"; exit 1; }
 
 APP=$(mktemp -d)/solongate
 (cd "$REPO/packages/app" && go build -o "$APP" .) || { echo "build failed"; exit 1; }

@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/solongate/agent-security/packages/core/api"
-	"github.com/solongate/agent-security/packages/core/sandbox"
+	"github.com/solongate/agent-security/packages/sandbox"
 	"github.com/solongate/agent-security/packages/shared"
 )
 
@@ -114,7 +114,7 @@ func SandboxAgent(argv []string) int {
 	_ = os.MkdirAll(filepath.Join(ws, ".sandbox-home"), 0o755)
 
 	env := append(os.Environ(),
-		shared.SandboxEnv+"="+buildTag(),
+		shared.SandboxEnv+"="+shared.SandboxMarker(shared.SandboxModeBox, buildTag()),
 		"HOME="+home,
 		"TMPDIR=/tmp",
 		"XDG_CACHE_HOME="+home+"/.cache",

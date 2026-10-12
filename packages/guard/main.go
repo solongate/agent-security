@@ -238,7 +238,10 @@ func observingDLP(sec *shared.Security) *observingCfg {
 // antigravity gained reportsAfter (it has a post-tool stage after all), codex
 // keeps redactsOutput false for a now-proven reason, and the Node side gained
 // the reportsAfter field it was missing. Full note on HOOK_VERSION in the hook.
-const hookVersion = 110
+// 111: require-sandbox verifies the marker against the kernel instead of
+// trusting its presence. See sandboxRequired in protected.go and
+// shared.VerifiedInSandbox; the full note is on HOOK_VERSION in the hook.
+const hookVersion = 111
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.

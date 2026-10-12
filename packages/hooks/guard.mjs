@@ -189,7 +189,15 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // added in 109 gate on the wrong capability — it keyed off redactsOutput, so on
 // Codex (post-tool stage, no output rewrite) this implementation wrote a record
 // the Go one skipped. The field is here now and both gate on it.
-const HOOK_VERSION = 110;
+// 111 MAKES require-sandbox FAIL CLOSED ON A KERNEL FACT. It refused on the
+// absence of SOLONGATE_SANDBOX, so an agent that exported the variable was
+// neither confined nor refused — one line in a shell profile and the switch
+// whose whole purpose is failing closed failed open. The marker now says which
+// confinement claims to be on and the kernel is asked whether it is: PID 1 in a
+// box, a protected path's readability under `run`. An answer that cannot be
+// reached is a refusal. Ported in the same change as the Go side, which is
+// where the probes are documented.
+const HOOK_VERSION = 111;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -1820,11 +1828,96 @@ function userProtectedCheck(toolName, args, sec) {
 // what confines anything. The confinement is the Landlock domain, the Seatbelt
 // profile or the restricted token, applied before the agent's first instruction
 // and not droppable by it. The marker only reports the fact.
+// sandboxRequired reports whether this call must be refused for arriving from
+// an agent SolonGate did not start.
+//
+// FAILS CLOSED, and it fails closed on a KERNEL FACT rather than on an
+// environment variable's absence.
+//
+// What this used to do: trust the marker. The argument was that an agent gains
+// nothing by setting it, because the variable confines nothing — true of the
+// confinement and false of the CHECK. The check refused on the marker's
+// ABSENCE, so an agent that exported SOLONGATE_SANDBOX was neither confined nor
+// refused. One line in a shell profile, inherited by every agent the machine
+// ever starts, and the fail-closed switch failed open. Shell profiles are not on
+// the tamper list, so nothing stopped that line being written.
+//
+// THE TWO PROBES, matching shared.VerifiedInSandbox in the Go twin exactly,
+// because which implementation judges a call depends only on whether the
+// machine has the binary:
+//
+//   box  /proc/1/comm is the box's own init. A mount namespace gives the
+//        process its own /proc, in which PID 1 is bwrap rather than the host's
+//        systemd. Faking it means being PID 1 in a namespace, which means
+//        being in one — and a namespace an agent built for itself grants it
+//        nothing it did not already have.
+//
+//   run  a protected path cannot be opened for reading. Outside the Landlock
+//        domain it can: `solongate protect` locks against writing and deleting,
+//        and both chattr +i and chmod 0444 leave a file readable. Inside, the
+//        path has no rule and open() returns EACCES. A successful read is proof
+//        the confinement is not on, which is the direction that matters.
+//
+// AN INCONCLUSIVE ANSWER IS A REFUSAL. "I could not tell" and "it is confined"
+// are different sentences, and only one of them should let a call through on a
+// machine whose owner asked for confinement to be mandatory. `run` with no
+// protected paths is the case that lands there, and it says so rather than
+// printing the generic line.
+function sandboxVerified(sec) {
+  const marker = String(process.env.SOLONGATE_SANDBOX || '');
+  if (marker === '') return { confined: false, conclusive: true };
+  // Everything before the colon is the mode. A marker from a build that wrote
+  // only a version is read as `run`, the weaker of the two and so the safe
+  // reading.
+  const mode = marker.includes(':') ? marker.slice(0, marker.indexOf(':')) : 'run';
+
+  if (mode === 'box') {
+    try {
+      const init = readFileSync('/proc/1/comm', 'utf-8').trim();
+      if (init === 'systemd' || init === 'init' || init === 'launchd') {
+        return { confined: false, conclusive: true };
+      }
+      if (init === '') return { confined: false, conclusive: false };
+      return { confined: true, conclusive: true };
+    } catch {
+      return { confined: false, conclusive: false };
+    }
+  }
+
+  const paths = (sec && Array.isArray(sec.protectedPaths)) ? sec.protectedPaths : [];
+  for (const raw of paths) {
+    const pth = String(raw || '').trim();
+    if (!pth) continue;
+    try {
+      accessSync(pth, constants.R_OK);
+      // Readable, so nothing stands between this process and a path somebody
+      // protected. The marker is a lie.
+      return { confined: false, conclusive: true };
+    } catch (e) {
+      if (e && e.code === 'ENOENT') continue; // nothing to learn from an absent path
+      return { confined: true, conclusive: true };
+    }
+  }
+  return { confined: false, conclusive: false };
+}
+
 function sandboxRequired(sec) {
   if (!sec || sec.requireSandbox !== true) return null;
-  if (String(process.env.SOLONGATE_SANDBOX || '') !== '') return null;
-  return 'Refused: this machine requires agents to be started with `solongate run`. ' +
-    'Protected paths are enforced by the operating system there, and by string matching anywhere else.';
+  const { confined, conclusive } = sandboxVerified(sec);
+  if (confined && conclusive) return null;
+  if (!conclusive) {
+    return 'Refused: this machine requires agents to be started with `solongate run` or ' +
+      '`solongate sandbox`, and there is no way to confirm that this one was. ' +
+      'Add a protected path, or use `solongate sandbox`, which can be verified.';
+  }
+  if (String(process.env.SOLONGATE_SANDBOX || '') !== '') {
+    return 'Refused: this process carries a sandbox marker but is not confined — ' +
+      'the kernel says otherwise. Start the agent with `solongate run` or ' +
+      '`solongate sandbox`, and remove SOLONGATE_SANDBOX from your shell profile.';
+  }
+  return 'Refused: this machine requires agents to be started with `solongate run` or ' +
+    '`solongate sandbox`. Protected paths are enforced by the operating system there, ' +
+    'and by string matching anywhere else.';
 }
 
 // ── Extra security layers (rate limit, egress allowlist, DLP block) ──

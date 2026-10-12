@@ -461,7 +461,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 110;
+var HOOK_VERSION = 111;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -1348,10 +1348,47 @@ function userProtectedCheck(toolName, args, sec) {
   }
   return null;
 }
+function sandboxVerified(sec) {
+  const marker = String(process.env.SOLONGATE_SANDBOX || "");
+  if (marker === "") return { confined: false, conclusive: true };
+  const mode = marker.includes(":") ? marker.slice(0, marker.indexOf(":")) : "run";
+  if (mode === "box") {
+    try {
+      const init = readFileSync("/proc/1/comm", "utf-8").trim();
+      if (init === "systemd" || init === "init" || init === "launchd") {
+        return { confined: false, conclusive: true };
+      }
+      if (init === "") return { confined: false, conclusive: false };
+      return { confined: true, conclusive: true };
+    } catch {
+      return { confined: false, conclusive: false };
+    }
+  }
+  const paths = sec && Array.isArray(sec.protectedPaths) ? sec.protectedPaths : [];
+  for (const raw of paths) {
+    const pth = String(raw || "").trim();
+    if (!pth) continue;
+    try {
+      accessSync(pth, constants.R_OK);
+      return { confined: false, conclusive: true };
+    } catch (e) {
+      if (e && e.code === "ENOENT") continue;
+      return { confined: true, conclusive: true };
+    }
+  }
+  return { confined: false, conclusive: false };
+}
 function sandboxRequired(sec) {
   if (!sec || sec.requireSandbox !== true) return null;
-  if (String(process.env.SOLONGATE_SANDBOX || "") !== "") return null;
-  return "Refused: this machine requires agents to be started with `solongate run`. Protected paths are enforced by the operating system there, and by string matching anywhere else.";
+  const { confined, conclusive } = sandboxVerified(sec);
+  if (confined && conclusive) return null;
+  if (!conclusive) {
+    return "Refused: this machine requires agents to be started with `solongate run` or `solongate sandbox`, and there is no way to confirm that this one was. Add a protected path, or use `solongate sandbox`, which can be verified.";
+  }
+  if (String(process.env.SOLONGATE_SANDBOX || "") !== "") {
+    return "Refused: this process carries a sandbox marker but is not confined \u2014 the kernel says otherwise. Start the agent with `solongate run` or `solongate sandbox`, and remove SOLONGATE_SANDBOX from your shell profile.";
+  }
+  return "Refused: this machine requires agents to be started with `solongate run` or `solongate sandbox`. Protected paths are enforced by the operating system there, and by string matching anywhere else.";
 }
 var DLP_PATTERNS = dlpPatterns("");
 var DLP_MAX_FILE_BYTES = 1048576;

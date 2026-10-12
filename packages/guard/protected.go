@@ -111,21 +111,51 @@ func protectedReason(named, hit string) string {
 // sandboxRequired reports whether this call must be refused for arriving from
 // an agent SolonGate did not start.
 //
-// FAILS CLOSED and is opt-in for that reason. The marker is an environment
-// variable set by `solongate run` on the process it launches; every descendant
-// inherits it, and an agent started any other way does not have it. An agent
-// could of course set the variable itself — and gain nothing by it, because
-// the variable is not what confines anything. The confinement is the Landlock
-// domain, the Seatbelt profile or the restricted token, which were applied
-// before the agent's first instruction and which it cannot drop. The marker
-// only reports the fact.
+// FAILS CLOSED, and it now fails closed on a KERNEL FACT rather than on an
+// environment variable's absence.
+//
+// What it used to do: trust the marker. The comment argued an agent gains
+// nothing by setting it, because the variable confines nothing — true of the
+// confinement and false of this check. The check refused on the marker's
+// ABSENCE, so an agent that exported SOLONGATE_SANDBOX was neither confined
+// nor refused. One line in a shell profile, inherited by every agent the
+// machine ever starts, and the fail-closed switch failed open. Shell profiles
+// are not on protectedTargets, so nothing stopped that line being written.
+//
+// What it does now: the marker says which confinement claims to be on, and the
+// kernel is asked whether it is. In a box, PID 1 is the box's own init rather
+// than the host's. Under `run`, a protected path cannot be opened for reading —
+// outside the domain it can, because `protect` locks against writing and
+// deleting and leaves a file readable. See shared.VerifiedInSandbox.
+//
+// AN INCONCLUSIVE ANSWER IS A REFUSAL, which is the whole point of a switch
+// called require-sandbox: "I could not tell" and "it is confined" are different
+// sentences, and only one of them should let a call through on a machine whose
+// owner asked for this. `run` with no protected paths is the case that lands
+// there, and the refusal says so rather than printing the generic line.
 func sandboxRequired(sec *shared.Security) string {
 	if sec == nil || !sec.RequireSandbox {
 		return ""
 	}
-	if shared.InSandbox() {
+	confined, conclusive := shared.VerifiedInSandbox(sec.ProtectedPaths)
+	if confined && conclusive {
 		return ""
 	}
-	return "Refused: this machine requires agents to be started with `solongate run`. " +
-		"Protected paths are enforced by the operating system there, and by string matching anywhere else."
+	if !conclusive {
+		return "Refused: this machine requires agents to be started with `solongate run` or " +
+			"`solongate sandbox`, and there is no way to confirm that this one was. " +
+			"Add a protected path, or use `solongate sandbox`, which can be verified."
+	}
+	if shared.InSandbox() {
+		// The marker is there and the kernel disagrees with it. Worth its own
+		// sentence: somebody is either running a stale marker from a shell
+		// profile or trying it on, and the generic line would send them looking
+		// for a launcher problem that is not there.
+		return "Refused: this process carries a sandbox marker but is not confined — " +
+			"the kernel says otherwise. Start the agent with `solongate run` or " +
+			"`solongate sandbox`, and remove SOLONGATE_SANDBOX from your shell profile."
+	}
+	return "Refused: this machine requires agents to be started with `solongate run` or " +
+		"`solongate sandbox`. Protected paths are enforced by the operating system there, " +
+		"and by string matching anywhere else."
 }

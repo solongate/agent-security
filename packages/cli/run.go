@@ -27,7 +27,7 @@ import (
 
 	"github.com/solongate/agent-security/packages/core/api"
 	"github.com/solongate/agent-security/packages/core/config"
-	"github.com/solongate/agent-security/packages/core/sandbox"
+	"github.com/solongate/agent-security/packages/sandbox"
 	"github.com/solongate/agent-security/packages/shared"
 )
 
@@ -93,7 +93,7 @@ func RunAgent(argv []string) int {
 
 	// The marker the guard reads. It reports the fact; it does not create it.
 	// See shared.SandboxEnv for why an agent setting it gains nothing.
-	env := append(os.Environ(), shared.SandboxEnv+"="+buildTag())
+	env := append(os.Environ(), shared.SandboxEnv+"="+shared.SandboxMarker(shared.SandboxModeRun, buildTag()))
 
 	printBanner(mech, plan)
 

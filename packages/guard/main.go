@@ -412,8 +412,22 @@ func main() {
 		argsText = string(b)
 	}
 
+	// DLPScanViews, NOT DLPScan, and the difference was a hole in this
+	// implementation only.
+	//
+	// DLPScan reads the raw text once. DLPScanViews reads three: raw, the same
+	// text with shell quoting stripped, and the concatenated decode of its
+	// base64-looking tokens. The second view is what collapses a secret somebody
+	// split to get it past a pattern:
+	//
+	//	printf AKIA""IOSFODNN7EXAMPLE
+	//
+	// The file-content scans in dlpredact.go already used the multi-view form.
+	// The ARGUMENT scan, which is this one, did not, so a split secret in a
+	// command was refused by the Node guard and allowed by this one. Measured:
+	// go=0 js=2 on exactly that command.
 	if sec != nil && sec.DLPBlock != nil {
-		if hit := shared.DLPScan(argsText, sec.DLPBlock); hit != "" {
+		if hit := shared.DLPScanViews(argsText, sec.DLPBlock); hit != "" {
 			reason := "Security layer (DLP): blocked, arguments contain a " + hit +
 				// A denial names what a person can change; see hooks/guard.mjs.
 				". Blocked by SolonGate (DLP). Edit ~/.solongate/policy.json to change what is refused."
@@ -430,7 +444,10 @@ func main() {
 		// on such a client observed nothing at all: reads were still redacted, so
 		// it looked like it was working, and an argument carrying a secret went
 		// out with no record anywhere that it had.
-		if hit := shared.DLPScan(argsText, cfg.cfg); hit != "" {
+		// The same multi-view scan as the block branch above: a mode that
+		// observes has to observe the same things a mode that refuses refuses,
+		// or detect quietly under-reports what block would have caught.
+		if hit := shared.DLPScanViews(argsText, cfg.cfg); hit != "" {
 			recordObserved(sec, hasSecurity, c, agentType, agentName,
 				"Security layer (DLP): detected, arguments contain a "+hit+". Allowed: DLP is in "+cfg.mode+" mode.",
 				started)

@@ -445,7 +445,14 @@ func restoreInstallArtifacts(root string) int {
 
 	if len(foreign) > 0 {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "         The checkout has local changes that are not the install's:")
+		// MARKED, like every other outcome this command has. The three exits
+		// were [  OK  ] on success, [FAILED] on a step that broke, and — here —
+		// nothing at all: a hard stop printed as dim prose with no mark in the
+		// column every other line is aligned to. The indentation was right and
+		// the mark was missing, which made the one outcome somebody has to act
+		// on the one that looked like a comment.
+		markNo("Update stopped: the checkout has local changes.")
+		fmt.Fprintln(os.Stderr, "         Not the install's own, so they are yours to keep:")
 		for _, f := range foreign {
 			fmt.Fprintln(os.Stderr, "            "+f)
 		}
@@ -464,7 +471,8 @@ func restoreInstallArtifacts(root string) int {
 	args := append([]string{"checkout", "--"}, generated...)
 	if _, ok := gitOutput(root, args...); !ok {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "         Could not restore the files the last install rewrote:")
+		markNo("Update stopped: could not restore what the last install rewrote.")
+		fmt.Fprintln(os.Stderr, "         These are the files it writes every time:")
 		for _, g := range generated {
 			fmt.Fprintln(os.Stderr, "            "+g)
 		}

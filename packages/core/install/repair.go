@@ -7,13 +7,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+
+	"github.com/solongate/agent-security/packages/core/config"
 )
 
 // `solongate repair`, put the guard back after tampering or deletion.
 //
 // It reports what was missing, rewrites every protection file, re-registers the
-// hooks in all four clients and re-locks. The logged-in account is reused, so
-// nothing has to be paired again.
+// hooks in all four clients and re-locks. Nothing has to be paired or logged in:
+// there is no account and no key, so a repair needs nothing from the user.
 
 // ReportLine is one row of the before/after listing.
 type ReportLine struct {
@@ -95,30 +97,51 @@ func Repair() Report {
 		notes = append(notes, "Removed "+strconv.Itoa(swept)+
 			" leftover .solongate scratch folder(s) from earlier versions; per-call flags now live under ~/.solongate/projects.")
 	}
-	// THE STALE CREDENTIAL, removed rather than described.
+	// EVERY FILE THAT EVER HELD AN API KEY, removed rather than described.
 	//
-	// The account layer kept every account ever logged in on the device in
-	// accounts.json, each with its API key, at 0644. That layer was
-	// removed and nothing here reads or writes the file; every machine that ran
-	// a build which did still has it.
+	// There is no API key in this product. There is no account, nothing pairs
+	// with a service, and nothing authenticates: the key existed to connect a
+	// device to a site, that connection is gone, and the code that read, wrote
+	// and validated a key went with it.
 	//
-	// `doctor` has been telling people to rotate the key and delete the file.
-	// That was the cautious call and it was the wrong one: the file is dead
-	// weight holding a live-format secret, and asking somebody to go and delete
-	// it by hand means most machines keep it forever. `repair` exists to put a
-	// machine into the state this version wants, so it does the deleting.
+	// Two files are left on machines that ran a build which had it, and they are
+	// swept together because they held the same kind of secret and were found
+	// one at a time:
 	//
-	// IT STILL CANNOT ROTATE THE KEY, and the note says so. Deleting the file
-	// removes the copy on disk; whatever that key is good for, it is still good
-	// for it until somebody revokes it. That half is not ours to do, and a note
-	// that said only "removed" would read as finished.
-	if stale := filepath.Join(p.SGDir, "accounts.json"); Exists(stale) {
-		if err := os.Remove(stale); err == nil {
-			notes = append(notes, "Removed "+stale+", left over from the account layer. "+
-				"It held an API key: delete it at the provider too, because removing the file does not revoke it.")
+	//	the account store  every account ever logged in on the device, each with
+	//	                   its key, at 0644.
+	//	the armed one      the key the installed hooks enforced with, at 0444 and
+	//	                   locked, which is why it needs the unlock before the
+	//	                   remove and why a plain os.Remove was not enough.
+	//
+	// `doctor` used to tell people to rotate and delete by hand. That was the
+	// cautious call and the wrong one: a file nothing maintains, holding a
+	// live-format secret, stays forever when its removal is somebody's chore.
+	// `repair` exists to put a machine into the state this version wants.
+	//
+	// IT STILL CANNOT REVOKE THE KEY, and the notes say so. Deleting the file
+	// removes the copy on disk; whatever that key opens, it opens until somebody
+	// revokes it at whatever issued it. That half is not ours, and a note saying
+	// only "removed" would read as finished.
+	for _, name := range []string{"accounts.json", "cloud-guard.json"} {
+		stale := filepath.Join(p.SGDir, name)
+		if !Exists(stale) {
+			continue
+		}
+		err := os.Remove(stale)
+		if err != nil {
+			// The armed one is locked, which is the whole reason the first
+			// attempt can fail on a file the user owns.
+			config.UnlockFile(stale)
+			err = os.Remove(stale)
+		}
+		if err == nil {
+			notes = append(notes, "Removed "+stale+", left over from when this product had accounts. "+
+				"It held an API key: revoke that key at whatever issued it, because deleting the file does not.")
 		} else {
 			notes = append(notes, "Could not remove "+stale+" ("+err.Error()+"). "+
-				"It is left over from the account layer and holds an API key; delete it and revoke the key.")
+				"It is left over from when this product had accounts and holds an API key; "+
+				"delete it and revoke the key.")
 		}
 	}
 

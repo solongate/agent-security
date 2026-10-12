@@ -236,8 +236,3 @@ func (c *PolicyCache) UnmarshalJSON(b []byte) error {
 	}
 	return nil
 }
-
-type Credential struct {
-	APIKey string `json:"apiKey"`
-	APIURL string `json:"apiUrl"`
-}

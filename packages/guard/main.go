@@ -304,11 +304,12 @@ func main() {
 
 	// THERE IS NO CREDENTIAL HERE AT ALL, and its absence is the point.
 	//
-	// This used to be `if cred.APIKey == "" { allow() }`, the key was the whole
-	// test, on the reasoning that the key selects the project and therefore the
-	// policy. That holds for a machine with a service to ask. It makes the guard
-	// a NO-OP on every machine that has none, which is how this is ordinarily
-	// run: the policy is a file, and it was never read.
+	// This used to read a key and allow the call when there was not one, on the
+	// reasoning that the key selects the project and therefore the policy. That
+	// holds for a machine with a service to ask. It makes the guard a NO-OP on
+	// every machine that has none, which is now every machine: there is no
+	// account and nothing to pair with. The policy is a file, and it was never
+	// read.
 	//
 	// Nothing needs allowing early for that case. With no policy resolved,
 	// EvaluatePolicy answers nothing and the call reaches allow() at the end; the

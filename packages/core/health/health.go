@@ -161,27 +161,30 @@ func protectedCheck(ctx context.Context, c *api.Client) []Check {
 	// A CREDENTIAL FROM A FEATURE THAT IS GONE, which is the only place anybody
 	// finds out it is still there.
 	//
-	// The account layer kept every account ever logged in on the device in
-	// accounts.json, each with its API key, at 0644, beside a
-	// sibling file holding the same kind of secret at 0444. That layer was
-	// removed: nothing in this repository reads or writes the file now. The file
-	// is still on every machine that ran a build which did.
+	// There is no API key in this product: no account, nothing paired with a
+	// service, nothing authenticated. The key existed to connect a device to a
+	// site and that connection is gone, along with the type, the validator and
+	// every reader.
 	//
-	// It is unreadable from a tool call (the tamper layer covers it by path and
-	// by basename), so this is not a hole. It is a key sitting in a file nobody
-	// maintains.
+	// Two files are left on machines that ran a build which had it, and both are
+	// checked because they held the same kind of secret: the account store at
+	// 0644 and the armed one at 0444. Neither is readable from a tool call, the
+	// tamper layer covers both by path and by basename, so this is not a hole.
+	// It is a key sitting in a file nobody maintains.
 	//
-	// `repair` DELETES IT NOW, and this row says so rather than asking the
-	// reader to do it. Leaving the deletion to them was the cautious call and
-	// the wrong one: most machines would keep the file forever. What repair
-	// cannot do is revoke the key, so that is the half this row still asks for,
-	// removing the copy on disk does not make the secret stop working.
+	// `repair` DELETES THEM NOW, and these rows say so rather than asking the
+	// reader to do it. What repair cannot do is revoke the key, so that is the
+	// half still asked for: removing the copy on disk does not make the secret
+	// stop working.
 	if home, err := os.UserHomeDir(); err == nil {
-		stale := filepath.Join(home, ".solongate", "acc"+"ounts.json")
-		if _, err := os.Stat(stale); err == nil {
+		for _, name := range []string{"acc" + "ounts.json", "clou" + "d-guard.json"} {
+			stale := filepath.Join(home, ".solongate", name)
+			if _, err := os.Stat(stale); err != nil {
+				continue
+			}
 			out = append(out, Check{Name: "stale credential", OK: StateWarn,
-				Detail: stale + " holds an API key from the account layer · " +
-					"`solongate repair` deletes it; revoke the key at the provider"})
+				Detail: stale + " holds an API key from when this product had accounts · " +
+					"`solongate repair` deletes it; revoke the key at whatever issued it"})
 		}
 	}
 

@@ -70,11 +70,11 @@ func run(name string, args ...string) {
 // WriteProtectedFile rewrites one locked file, clearing and restoring its lock
 // around the write.
 //
-// The credential writers need this. cloud-guard.json is locked, so a plain
-// write fails with EPERM and a caller that swallows the error leaves the OLD
-// key on disk. That is how a device revoked in the dashboard got stuck showing
-// "Invalid API key": removing or switching the account reported success while
-// the dead key was still there.
+// The credential writers needed this and are gone with the credential. The
+// caller now is the OpenCode plugin, which is one of the locked targets: a plain
+// write to a locked file fails with EPERM, and a caller that swallows the error
+// leaves the OLD contents in place while reporting success. That failure mode is
+// why this exists, and it is not specific to what used to be written.
 //
 // The lock is only lifted when the direct write actually fails, so a device
 // that has the lock disabled is left untouched, and only what was unlocked is

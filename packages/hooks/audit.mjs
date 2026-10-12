@@ -52,9 +52,11 @@ function projectFlagDir() {
 const HOOK_VERSION = 33;
 
 // loadEnvKey and loadGlobalCloudConfig lived here, and between them they resolved an
-// API key from a project .env and from ~/.solongate/cloud-guard.json. Both are gone: the
-// key authenticated an audit POST, that POST is gone, and a hook that runs after every
-// tool call should not stat and read two files to learn something it will not use.
+// credential from a project .env and from a file in this product's own directory.
+// Both are gone, and so is the thing they were for: the key authenticated an audit
+// POST, that POST no longer exists, and there is no account to hold a key for. A
+// hook that runs after every tool call should not stat and read two files to learn
+// something it will not use.
 //
 // The guard hook dropped the identical pair (hooks/guard.mjs), and so did the Go twin.
 

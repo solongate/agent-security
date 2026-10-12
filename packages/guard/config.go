@@ -17,19 +17,16 @@ import (
 
 // loadCredential and loadPolicyCache lived here, and both are gone.
 //
-// loadCredential read ~/.solongate/cloud-guard.json, let SOLONGATE_API_KEY override it
-// for anyone not in a fleet, filtered the result through IsRealKey so a malformed key
-// could not be mistaken for a working one, and defaulted the URL to this machine. Its
-// last consumer was accountMark, which hashed the key into an `acct` stamp on each
-// local log line so a machine paired to two accounts could tell whose calls were
-// whose. Nothing pairs and nothing read the stamp.
+// loadCredential read an API key off disk, which this product no longer has: no
+// account, nothing paired with a service, nothing authenticated. Everything that
+// produced, validated or consumed a key is deleted, and `repair` sweeps the two
+// files an upgraded machine may still carry.
 //
-// loadPolicyCache read .policy-cache-<agent>.json. Nothing has written that file
-// since the refresh was removed, and nothing called this, it was dead code reading a
-// file that cannot exist.
+// loadPolicyCache read a per-agent cache file. Nothing has written one since the
+// refresh was removed, so it was dead code reading a file that cannot exist.
 //
-// The Node hook dropped the identical pair at the same time (hooks/guard.mjs). Both
-// read a file per call before any rule was evaluated.
+// The Node hook dropped the identical pair at the same time. Both read a file per
+// call before any rule was evaluated.
 
 // loadLocalPolicy is the fallback when the cloud cache holds no policy.
 //

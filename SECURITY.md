@@ -149,8 +149,12 @@ Stated here so nobody has to find them the expensive way:
 - **A policy that will not compile does not disarm the guard.** Evaluation falls
   back to a deterministic evaluator rather than allowing. If you find a policy
   shape where it does allow, that is in scope above.
-- **The prompt shim is a local proxy, and it holds your API key.** On Claude
-  Code the shim starts a listener on `127.0.0.1`, points the agent at it, and
+- **The prompt shim is a local proxy, and the agent's model credential passes
+  through it.** That credential is the agent's own, issued by whoever serves its
+  model. SolonGate has no API key of its own: no account, nothing paired with a
+  service, nothing authenticated.
+
+  On Claude Code the shim starts a listener on `127.0.0.1`, points the agent at it, and
   masks secrets in the outbound request body before forwarding. The agent's
   credentials pass through it in cleartext, because that is what a proxy in
   front of an API does.

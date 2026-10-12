@@ -23,8 +23,6 @@ func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { ret
 // Settings page, TUI edition. Everything an operator configures, in ONE
 // single-cursor list:
 //
-//	ACCOUNTS   accounts logged in on this device: view · make active · add
-//	           (device login, in-panel) · remove
 //	PROTECTION the guard hook, self-protection, doctor and repair
 //	           turned on: `npm i -g` needs sudo on most macOS setups, so it must
 //	           not run unasked)

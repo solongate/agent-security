@@ -174,7 +174,9 @@ function pickUpstream() {
 // A PER-RUN SECRET IN THE PATH, because a loopback listener is not private.
 //
 // This proxy sits in front of the agent's own API traffic and carries the
-// user's API key in every request it forwards. It listened on 127.0.0.1 with no
+// agent's own model credential in every request it forwards, which is a key
+// issued by whoever serves that model and never one of SolonGate's: this product
+// has no account and authenticates to nothing. It listened on 127.0.0.1 with no
 // authentication of any kind, so ANY process on the machine, a browser tab
 // with a local server, another user on a shared box, the agent's own shell
 // running something somebody pasted, could POST to it and have its request

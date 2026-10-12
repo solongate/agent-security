@@ -87,9 +87,6 @@ type Paths struct {
 	// Never restored automatically, see removeClaudeRegistration for why.
 	BackupPath string
 
-	// The active credential the installed hooks enforce with.
-	ConfigPath string
-
 	// Antigravity CLI (`agy`) reads global hooks from ~/.gemini/config/hooks.json.
 	// Only the guard is registered there; its ALLOW-path audit comes from the
 	// passive session-log collector rather than from a hook.
@@ -142,8 +139,6 @@ func GlobalPaths() Paths {
 		SettingsPath: filepath.Join(claudeDir, "settings.json"),
 		BackupPath:   filepath.Join(claudeDir, "settings.solongate.bak"),
 
-		ConfigPath: config.CredentialPath(),
-
 		AntigravityDir:        antigravityDir,
 		AntigravityHooksPath:  filepath.Join(antigravityDir, "hooks.json"),
 		AntigravityBackupPath: filepath.Join(antigravityDir, "hooks.solongate.bak"),
@@ -195,10 +190,10 @@ func (p Paths) protectedTargets() []string {
 		filepath.Join(p.HooksDir, auditHookName),
 		filepath.Join(p.HooksDir, stopHookName),
 		filepath.Join(p.HooksDir, shieldHookName),
-		// p.ConfigPath, the credential, was pinned here. Nothing writes that file, so
-		// there is nothing to pin: the npm installer's list dropped it for the same
-		// reason, and a lock on a file that never exists is a no-op that reads as
-		// protection.
+		// A credential file was pinned here. There is no credential: this product
+		// has no account and authenticates to nothing, so there is nothing to
+		// pin, and a lock on a file that should not exist is a no-op that reads
+		// as protection. `repair` deletes the leftovers instead.
 		p.SettingsPath,
 		filepath.Join(p.HooksDir, tokensHookName),
 		// The shared DLP list. Installed hooks import it at RUNTIME, so whoever can

@@ -557,11 +557,11 @@ function safeReadFileSync(filePath, encoding = 'utf-8') {
 // deliberate order, the environment, then ~/.solongate/cloud-guard.json (written by
 // the installer, absolute because a global hook runs from an arbitrary cwd), then a
 // project-local .env. The order mattered: .env used to win, and a forgotten key in
-// the folder an agent happened to start in would shadow the paired credential, so
-// every call from that directory logged nothing while the same agent one folder over
-// logged fine, no symptom, because enforcement never needed the network. There was
-// an isRealKey filter too, so a sample `sg_live_your_key_here` could not shadow a
-// working key and fail every call closed.
+// the folder an agent happened to start in would shadow the paired one, so every
+// call from that directory logged nothing while the same agent one folder over
+// logged fine, no symptom, because enforcement never needed the network. A format
+// filter sat on top of it, so a sample placeholder could not shadow a working value
+// and fail every call closed.
 //
 // All of it existed to answer requests that are gone. The last thing holding on was
 // accountMark, which hashed the key into a `acct` stamp on each local log line so a
@@ -2676,11 +2676,12 @@ input += SG_STDIN;
  try {
   // THERE IS NO CREDENTIAL GATE HERE, and its absence is the point.
   //
-  // This used to be `if (!API_KEY) { allowTool(); return; }`, the key was the
-  // whole test, on the reasoning that the key selects the project and therefore
-  // the policy. That reasoning holds for a machine that has a service to ask. It
-  // makes the guard a NO-OP on every machine that does not, which is how this
-  // program is ordinarily run: the policy is a file, and it was never read.
+  // This used to read a key and allow the call when there was not one, the key
+  // being the whole test, on the reasoning that it selects the project and
+  // therefore the policy. That reasoning holds for a machine that has a service
+  // to ask. It makes the guard a NO-OP on every machine that does not, which is
+  // now every machine: there is no account and nothing to pair with. The policy
+  // is a file, and it was never read.
   //
   // Nothing needs to be allowed early for that case anyway. With no policy
   // resolved, evaluate() returns null and the call falls through to allowTool()

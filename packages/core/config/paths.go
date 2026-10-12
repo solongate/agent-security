@@ -41,7 +41,10 @@ func Dir() string {
 // The active credential the guard hooks enforce with. One per device, not one
 // per account: accounts.json accumulates every account, this file names the one
 // that is armed.
-func CredentialPath() string { return filepath.Join(Dir(), "cloud-guard.json") }
+// CredentialPath was here, naming the file an API key was read from. Removed
+// with the key, and the name is not reintroduced: the only code that still
+// mentions that file is the sweep in repair that deletes it, which spells the
+// name itself rather than asking for a path to a thing that should not exist.
 
 // Every account ever logged in on this device, so the TUI can switch
 // between them without another device-login round trip.

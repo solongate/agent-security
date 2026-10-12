@@ -5,7 +5,6 @@ package shared
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode/utf16"
 )
@@ -124,28 +123,10 @@ func ProjectFlagDir() string {
 	return filepath.Join(SGDir(), "projects", ProjectKey(abs))
 }
 
-// A real key is sg_live_ or sg_test_ followed by hex.
-//
-// It matters more than a format check looks: an unusable key means "no project
-// selected", which means ALLOW, so a placeholder in a stray .env silently
-// disarms the guard rather than erroring. The sample files ship
-// `sg_live_your_key_here`, which passes a truthiness test and nothing else.
-var realKeyBody = regexp.MustCompile(`(?i)^[a-f0-9]{16,}$`)
-
-func IsRealKey(k string) bool {
-	v := strings.TrimSpace(k)
-	if !strings.HasPrefix(v, "sg_live_") && !strings.HasPrefix(v, "sg_test_") {
-		return false
-	}
-	body := v[len("sg_live_"):]
-	lower := strings.ToLower(body)
-	for _, bad := range []string{"your_key_here", "placeholder", "example"} {
-		if strings.Contains(lower, bad) {
-			return false
-		}
-	}
-	return realKeyBody.MatchString(body)
-}
+// IsRealKey was here, with the pattern that decided whether an API key counted.
+// It is gone with the key: this product has no account, pairs with no service
+// and authenticates to nothing, so there is no key to validate. See
+// core/install/repair.go for the two files an upgraded machine may still have.
 
 // GuessPermission is the ENFORCING classifier, and this is the one that has to
 // survive: it is `input.permission` in a compiled policy, so a rule scoped to

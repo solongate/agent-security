@@ -70,6 +70,18 @@ func RunAgent(argv []string) int {
 		return 1
 	}
 
+	// `run` IS THE DENY LIST, and the closed box is a separate command.
+	//
+	// They were briefly one thing with a setting deciding which, and that was
+	// wrong: `run` is a permission layer over this machine — paths are refused,
+	// $HOME still exists, `ls /` still shows everything — and it works on three
+	// platforms. The box builds a new root and needs a Linux mount namespace.
+	// One flag standing for both would have hidden that difference behind a
+	// word, and the difference is the whole of what somebody is choosing.
+	//
+	// See `solongate sandbox`.
+	plan := sandbox.Plan{Deny: deny}
+
 	mech, _ := sandbox.Describe()
 	if mech == "" {
 		errln("")
@@ -83,9 +95,9 @@ func RunAgent(argv []string) int {
 	// See shared.SandboxEnv for why an agent setting it gains nothing.
 	env := append(os.Environ(), shared.SandboxEnv+"="+buildTag())
 
-	printBanner(mech, deny)
+	printBanner(mech, plan)
 
-	rep, err := sandbox.Launch(sandbox.Plan{Deny: deny}, rest, env)
+	rep, err := sandbox.Launch(plan, rest, env)
 	// On Linux and macOS Launch execs and never returns, so reaching here at
 	// all means something failed before the agent started.
 	if err != nil {
@@ -112,20 +124,43 @@ func RunAgent(argv []string) int {
 // scrolling past every time. With nothing protected it says nothing at all:
 // a banner that appears before there is anything to report trains people to
 // stop reading it, and then the one that matters goes past unread too.
-func printBanner(mech string, deny []string) {
-	if len(deny) == 0 {
+// printBanner says which of the two postures this launch is, because they are
+// not degrees of each other and somebody reading one line should not have to
+// guess. A workspace line names what the agent CAN reach; a deny line names
+// what it cannot, and the difference is everything else on the disk.
+func printBanner(mech string, p sandbox.Plan) {
+	if !p.Confined() {
 		return
 	}
 	errln("")
+	if p.Allowlist() {
+		errln("  " + bold("SolonGate") + dim(" · "+mech+" · workspace only"))
+		errln("  " + dim("  ") + p.Workspace)
+		errln("  " + dim("  nothing else on this machine is reachable, including $HOME"))
+		errln("  " + dim("  `solongate run --explain` for the runtime set this keeps open"))
+		errln("")
+		return
+	}
 	errln("  " + bold("SolonGate") + dim(" · "+mech+" · "+
-		plural(len(deny), "path", "paths")+" out of reach"))
-	for _, d := range deny {
+		plural(len(p.Deny), "path", "paths")+" out of reach"))
+	for _, d := range p.Deny {
 		errln("  " + dim("  ") + d)
 	}
-	if len(sandbox.Preview(sandbox.Plan{Deny: deny})) > 0 {
+	if len(sandbox.Preview(p)) > 0 {
 		errln("  " + dim("  `solongate run --explain` for what this does not cover"))
 	}
 	errln("")
+}
+
+// homeDir is the user's home, empty when it cannot be resolved. An empty one
+// narrows the runtime-write set to /tmp rather than guessing a path, because a
+// wrong guess here grants the agent a directory somebody did not intend.
+func homeDir() string {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return h
 }
 
 func plural(n int, one, many string) string {

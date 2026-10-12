@@ -318,6 +318,20 @@ func table() []command {
 		// `--` belongs to the agent, including flags this CLI also understands.
 		// A parser here would eat `--json` out of `solongate run -- claude --json`.
 		{"run", "start an agent with the protected paths out of its reach", cli.RunAgent},
+
+		// NOT HUMAN-GATED, for the same reason `run` is not: it only ever ADDS
+		// restriction. An agent that invokes it confines itself harder, and
+		// gating it would break the case the command exists for — a shim or an
+		// IDE launching the agent through it.
+		//
+		// A SECOND COMMAND RATHER THAN A FLAG ON `run`, because the two are not
+		// degrees of one thing. `run` is a permission layer over this machine:
+		// paths are refused, $HOME still exists and `ls /` still shows
+		// everything. `sandbox` builds a new root, so there is nothing outside
+		// the project to refuse. One of them is available on three platforms
+		// and the other needs a Linux mount namespace, and a flag would have
+		// hidden that difference behind a word.
+		{"sandbox", "start an agent in a closed box: the project, and nothing else", cli.SandboxAgent},
 		{"stats", "traffic and security statistics", cli.Runner("stats")},
 		{"audit", "browse the audit log", cli.Runner("audit")},
 		{"doctor", "health check: policy, guard, hooks, local logs", cli.Runner("doctor")},

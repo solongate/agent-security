@@ -139,16 +139,24 @@ type UpdateStatusMsg struct {
 // as many variants as a team keeps — so a rate limit that lived beside policies
 // rather than inside one described enforcement that no longer exists. They are
 // levels of the Policies panel, on the variant they belong to.
+// SANDBOX IS ITS OWN SECTION, not a row under Settings, and the reason is what
+// it decides. Every other setting on this product tunes how a tool call is
+// JUDGED — which rules apply, what counts as a secret, how many calls a minute.
+// The sandbox decides what the agent can reach at all, before any call is
+// judged, and it is the only setting whose answer the agent cannot argue with.
+// A one-line row beside "doctor" and "repair" described it as an option of the
+// same size as those.
 const (
 	SectionLive = iota
 	SectionPolicies
 	SectionAudit
+	SectionSandbox
 	SectionSettings
 	sectionCount
 )
 
 var sectionLabels = [sectionCount]string{
-	"Solo Live", "Policies", "Audit", "Settings",
+	"Solo Live", "Policies", "Audit", "Sandbox", "Settings",
 }
 
 var registry [sectionCount]func(Deps) Panel

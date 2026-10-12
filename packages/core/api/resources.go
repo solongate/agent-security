@@ -21,9 +21,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/solongate/agent-security/packages/shared"
 )
 
 // ── /policies ──────────────────────────────────────────────────────────────
@@ -553,6 +556,215 @@ func (s SettingsAPI) SetProtectedPaths(ctx context.Context, paths []string) erro
 		st.Security = &guardSecurity{}
 	}
 	st.Security.ProtectedPaths = paths
+	st.absent = false
+	return writeStore(st)
+}
+
+// Sandboxes are the closed boxes this machine has defined, lowest id first.
+func (s SettingsAPI) Sandboxes(ctx context.Context) ([]shared.Sandbox, error) {
+	st, err := readStore()
+	if err != nil {
+		return nil, err
+	}
+	if st.Security == nil {
+		return nil, nil
+	}
+	out := append([]shared.Sandbox(nil), st.Security.Sandboxes...)
+	sort.Slice(out, func(a, b int) bool { return out[a].ID < out[b].ID })
+	return out, nil
+}
+
+// Sandbox returns one box by id.
+func (s SettingsAPI) Sandbox(ctx context.Context, id string) (shared.Sandbox, error) {
+	boxes, err := s.Sandboxes(ctx)
+	if err != nil {
+		return shared.Sandbox{}, err
+	}
+	id = NormalizeSandboxID(id)
+	for _, b := range boxes {
+		if b.ID == id {
+			return b, nil
+		}
+	}
+	return shared.Sandbox{}, errors.New("there is no sandbox " + id +
+		" — `solongate sandbox list` shows the ones there are")
+}
+
+// NormalizeSandboxID turns what somebody typed into the stored form.
+//
+// `solongate sandbox 1 claude` and `solongate sandbox 001 claude` are the same
+// box: the padding is how the list lines up in a column, not part of the name,
+// and requiring it would mean a command that fails for a reason nobody can see.
+func NormalizeSandboxID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	n := 0
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return id // not a number; returned as-is so the lookup fails by name
+		}
+		n = n*10 + int(r-'0')
+	}
+	return fmt.Sprintf("%03d", n)
+}
+
+// nextSandboxID is the LOWEST FREE number, not one past the highest.
+//
+// Deleting a box frees its id, and the next box takes it. The alternative — a
+// counter that only goes up — means a machine where boxes get made and removed
+// ends up typing "047" for its only sandbox, and the id is a thing somebody
+// types every time they start an agent. The number names a slot.
+//
+// Three digits because 999 boxes is more than anybody has and a fixed width is
+// what makes the list a column rather than a ragged edge. Past 999 it keeps
+// counting and the column gets wider, which is better than refusing.
+func nextSandboxID(existing []shared.Sandbox) string {
+	taken := make(map[string]bool, len(existing))
+	for _, b := range existing {
+		taken[b.ID] = true
+	}
+	for n := 1; ; n++ {
+		id := fmt.Sprintf("%03d", n)
+		if !taken[id] {
+			return id
+		}
+	}
+}
+
+// validateSandboxDir refuses the paths that would look like confinement and not
+// be it.
+//
+// CHECKED WHEREVER A BOX IS WRITTEN, because the person setting it is at a
+// terminal and can be told, while the launch happens in front of an agent that
+// is about to start.
+func validateSandboxDir(dir string) (string, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return "", errors.New("a sandbox needs a directory")
+	}
+	if strings.HasPrefix(dir, "~") {
+		return "", errors.New(`"~" is a shell convention, not a path the kernel can confine to — write it out in full`)
+	}
+	if !filepath.IsAbs(dir) {
+		return "", errors.New("the directory must be an absolute path, like /home/you/projects/thing")
+	}
+	dir = filepath.Clean(dir)
+	if dir == string(filepath.Separator) {
+		return "", errors.New(`"/" as a sandbox confines nothing`)
+	}
+	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == dir {
+		return "", errors.New("the home directory cannot be a sandbox: it holds ~/.ssh and every " +
+			"other project, which is what a sandbox exists to keep the agent out of")
+	}
+	st, err := os.Stat(dir)
+	if err != nil {
+		return "", errors.New(dir + " cannot be read: " + err.Error())
+	}
+	if !st.IsDir() {
+		return "", errors.New(dir + " is not a directory")
+	}
+	return dir, nil
+}
+
+// SandboxCreate adds a box and returns it, with the id it was given.
+//
+// Network defaults to true, and the default is deliberate: a box with no
+// network cannot reach the model that drives the agent, so it is airtight and
+// unused. The surfaces that offer this say what the choice costs rather than
+// choosing quietly.
+func (s SettingsAPI) SandboxCreate(ctx context.Context, dir, label string, network bool) (shared.Sandbox, error) {
+	clean, err := validateSandboxDir(dir)
+	if err != nil {
+		return shared.Sandbox{}, err
+	}
+	st, err := readStore()
+	if err != nil {
+		return shared.Sandbox{}, err
+	}
+	if st.Security == nil {
+		st.Security = &guardSecurity{}
+	}
+	// One box per directory. Two boxes about the same directory differing only
+	// in whether the network is on is a way to run the confined agent
+	// unconfined-enough by typing the other number, and nothing about the list
+	// would show that had happened.
+	for _, b := range st.Security.Sandboxes {
+		if b.Dir == clean {
+			return shared.Sandbox{}, errors.New("sandbox " + b.ID + " is already " + clean)
+		}
+	}
+	box := shared.Sandbox{
+		ID:      nextSandboxID(st.Security.Sandboxes),
+		Dir:     clean,
+		Network: network,
+		Label:   strings.TrimSpace(label),
+	}
+	st.Security.Sandboxes = append(st.Security.Sandboxes, box)
+	st.absent = false
+	if err := writeStore(st); err != nil {
+		return shared.Sandbox{}, err
+	}
+	return box, nil
+}
+
+// SandboxUpdate replaces a box's directory, label and network answer, keeping
+// its id — the id is what somebody types, so changing a box must not change it.
+func (s SettingsAPI) SandboxUpdate(ctx context.Context, id, dir, label string, network bool) error {
+	clean, err := validateSandboxDir(dir)
+	if err != nil {
+		return err
+	}
+	st, err := readStore()
+	if err != nil {
+		return err
+	}
+	if st.Security == nil {
+		return errors.New("there are no sandboxes to update")
+	}
+	id = NormalizeSandboxID(id)
+	for i := range st.Security.Sandboxes {
+		if st.Security.Sandboxes[i].ID != id {
+			continue
+		}
+		for j, other := range st.Security.Sandboxes {
+			if j != i && other.Dir == clean {
+				return errors.New("sandbox " + other.ID + " is already " + clean)
+			}
+		}
+		st.Security.Sandboxes[i].Dir = clean
+		st.Security.Sandboxes[i].Label = strings.TrimSpace(label)
+		st.Security.Sandboxes[i].Network = network
+		st.absent = false
+		return writeStore(st)
+	}
+	return errors.New("there is no sandbox " + id)
+}
+
+// SandboxDelete removes a box and frees its id for the next one.
+func (s SettingsAPI) SandboxDelete(ctx context.Context, id string) error {
+	st, err := readStore()
+	if err != nil {
+		return err
+	}
+	if st.Security == nil {
+		return errors.New("there are no sandboxes to delete")
+	}
+	id = NormalizeSandboxID(id)
+	out := make([]shared.Sandbox, 0, len(st.Security.Sandboxes))
+	found := false
+	for _, b := range st.Security.Sandboxes {
+		if b.ID == id {
+			found = true
+			continue
+		}
+		out = append(out, b)
+	}
+	if !found {
+		return errors.New("there is no sandbox " + id)
+	}
+	st.Security.Sandboxes = out
 	st.absent = false
 	return writeStore(st)
 }

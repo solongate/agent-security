@@ -849,7 +849,8 @@ func (p *Settings) viewList() string {
 	switch {
 	case p.editing != "":
 		prompt := "webhook url: "
-		if p.editing == "path" {
+		switch p.editing {
+		case "path":
 			prompt = "local log path: "
 		}
 		out = append(out, stWarn.Render(prompt)+p.input.View())

@@ -100,8 +100,9 @@ type guardSecurity struct {
 
 	// Mirrors shared.Security. omitempty on both, so a machine that has never
 	// used `solongate protect` keeps the file it had.
-	ProtectedPaths []string `json:"protectedPaths,omitempty"`
-	RequireSandbox bool     `json:"requireSandbox,omitempty"`
+	ProtectedPaths []string         `json:"protectedPaths,omitempty"`
+	RequireSandbox bool             `json:"requireSandbox,omitempty"`
+	Sandboxes      []shared.Sandbox `json:"sandboxes,omitempty"`
 }
 
 // empty decides whether the security block is written at all, so EVERY field
@@ -112,7 +113,7 @@ type guardSecurity struct {
 func (g *guardSecurity) empty() bool {
 	return g == nil || (g.RateLimit == nil && g.RateLimitObserve == nil &&
 		g.DLPBlock == nil && g.DLPRedact == nil && g.DLPObserve == nil && g.LocalLogs == nil &&
-		len(g.ProtectedPaths) == 0 && !g.RequireSandbox)
+		len(g.ProtectedPaths) == 0 && !g.RequireSandbox && len(g.Sandboxes) == 0)
 }
 
 // stored is the file, plus which spelling it was in.

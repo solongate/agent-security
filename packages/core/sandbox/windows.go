@@ -43,6 +43,27 @@ import (
 // it.
 func Launch(p Plan, argv []string, env []string) (Report, error) {
 	rep := Report{Mechanism: "icacls deny (per run)"}
+
+	// WORKSPACE MODE IS NOT IMPLEMENTED HERE, and it refuses rather than
+	// falling back to the deny list.
+	//
+	// The two are not degrees of the same thing. A per-path deny protects what
+	// was named; a workspace allowlist protects everything that was not, which
+	// is the set the mode exists for. Running the deny list in its place would
+	// honour the setting's name and none of its meaning: the agent would be
+	// told it is confined to one directory while ~/.ssh and every sibling
+	// project stayed open. Default-deny on Windows needs a restricted token
+	// with a per-run grant on every path the agent legitimately uses, and
+	// shipping that from a machine I cannot test it on would be shipping a
+	// claim. See the note above.
+	if p.Allowlist() {
+		rep.Mechanism = ""
+		rep.Err = errors.New("workspace confinement is not implemented on Windows: " +
+			"it needs a restricted token with a default-deny ACL, not the per-path deny this uses. " +
+			"Use `solongate protect` for the paths that matter, which applies a permanent lock " +
+			"independent of how the agent was started")
+		return rep, rep.Err
+	}
 	if len(argv) == 0 {
 		rep.Err = errors.New("nothing to run")
 		return rep, rep.Err

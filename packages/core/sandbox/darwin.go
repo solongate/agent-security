@@ -51,9 +51,25 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 		return rep, rep.Err
 	}
 
-	profile, denied := seatbeltProfile(p.Deny)
-	if len(denied) == 0 {
-		rep.Notes = append(rep.Notes, "nothing to deny, so the profile only blocks nothing")
+	var profile string
+	if p.Allowlist() {
+		profile, err = seatbeltWorkspaceProfile(p)
+		if err != nil {
+			rep.Err = err
+			return rep, err
+		}
+		rep.Notes = append(rep.Notes,
+			"writable: "+p.Workspace,
+			"writable outside it: "+strings.Join(p.RuntimeWrite, " "),
+			"readable, never writable: "+strings.Join(p.RuntimeRead, " "),
+			"everything else is denied by default, including $HOME itself,",
+			"so ~/.ssh, ~/.aws and every other project are unreachable")
+	} else {
+		var denied []string
+		profile, denied = seatbeltProfile(p.Deny)
+		if len(denied) == 0 {
+			rep.Notes = append(rep.Notes, "nothing to deny, so the profile only blocks nothing")
+		}
 	}
 	rep.Enforced = true
 
@@ -136,4 +152,80 @@ func Describe() (string, []string) {
 		notes = append(notes, "deprecated by Apple, with no removal date announced")
 	}
 	return "Seatbelt", notes
+}
+
+// seatbeltWorkspaceProfile is the allowlist, and on this platform it is the
+// honest shape: Seatbelt has a real default-deny and a real deny rule, so
+// "nothing except these" is one line rather than Landlock's enumeration.
+//
+// `(deny default)` first, then grants. Order does not decide it — in SBPL the
+// LAST matching rule wins — which is why every grant comes after the deny and
+// why nothing is granted twice with different rights.
+//
+// process-exec is granted on the read set rather than globally: the agent has
+// to run its own interpreter and the tools in /usr/bin, and it must not be able
+// to execute something it just wrote outside the workspace. Inside the
+// workspace it can, because a project that cannot run its own build scripts is
+// not a workspace.
+func seatbeltWorkspaceProfile(p Plan) (string, error) {
+	ws := filepath.Clean(p.Workspace)
+	if !filepath.IsAbs(ws) {
+		return "", errors.New("workspace must be an absolute path, got " + p.Workspace)
+	}
+	if ws == "/" {
+		return "", errors.New(`refusing to use "/" as a workspace: that confines nothing`)
+	}
+	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == ws {
+		return "", errors.New("refusing to use the home directory as a workspace: " +
+			"it contains ~/.ssh and every other project, which is what this mode exists to keep out")
+	}
+
+	var b strings.Builder
+	b.WriteString("(version 1)\n(deny default)\n")
+
+	// Without these the process cannot start, and the failure reads as the
+	// sandbox being broken rather than as a missing grant: no sysctl means no
+	// page size, no mach lookup means no dyld.
+	b.WriteString("(allow process-fork)\n")
+	b.WriteString("(allow sysctl-read)\n")
+	b.WriteString("(allow mach-lookup)\n")
+	b.WriteString("(allow signal (target self))\n")
+	b.WriteString("(allow file-read-metadata)\n")
+
+	// The workspace, and the canonical form of it as well: Seatbelt matches
+	// what the kernel resolves, and on macOS /Users is commonly reached through
+	// a symlink, so a rule written against the typed path alone can be walked
+	// around.
+	for _, f := range canonicalForms(ws) {
+		b.WriteString("(allow file* (subpath " + sbplString(f) + "))\n")
+		b.WriteString("(allow process-exec (subpath " + sbplString(f) + "))\n")
+	}
+	for _, d := range append(p.RuntimeWrite, DefaultRuntimeDevices()...) {
+		if d == "" {
+			continue
+		}
+		for _, f := range canonicalForms(filepath.Clean(d)) {
+			b.WriteString("(allow file* (subpath " + sbplString(f) + "))\n")
+		}
+	}
+	for _, d := range p.RuntimeRead {
+		if d == "" {
+			continue
+		}
+		for _, f := range canonicalForms(filepath.Clean(d)) {
+			b.WriteString("(allow file-read* (subpath " + sbplString(f) + "))\n")
+			b.WriteString("(allow process-exec (subpath " + sbplString(f) + "))\n")
+		}
+	}
+	return b.String(), nil
+}
+
+// canonicalForms is the literal path and its realpath, deduplicated. Both are
+// needed for the same reason the deny list needs both.
+func canonicalForms(abs string) []string {
+	out := []string{abs}
+	if real, err := filepath.EvalSymlinks(abs); err == nil && real != abs {
+		out = append(out, real)
+	}
+	return out
 }

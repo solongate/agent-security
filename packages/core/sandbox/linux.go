@@ -10,10 +10,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/landlock-lsm/go-landlock/landlock"
+	llsys "github.com/landlock-lsm/go-landlock/landlock/syscall"
 )
 
 // Linux confinement is Landlock: unprivileged, inherited by every descendant,
@@ -68,7 +70,34 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 		return rep, rep.Err
 	}
 
-	rules, walked, err := allowRules(p.Deny)
+	// THE ABI IS PROBED RATHER THAN ASSUMED, and this is a correctness fix as
+	// much as a feature. BestEffort().RestrictPaths returns nil on a kernel with
+	// no Landlock at all — the library's own documented behaviour — and this
+	// function used to set Enforced = true unconditionally after it. On a 5.12
+	// kernel, WSL1, or a distribution that leaves landlock out of CONFIG_LSM,
+	// `solongate run` printed its banner, reported "Landlock", and ran the agent
+	// with nothing applied. The one case other.go says must never happen.
+	//
+	// It matters more in workspace mode than it ever did for a deny list. A
+	// denylist that silently does nothing loses the files somebody named; an
+	// allowlist that silently does nothing hands over the whole machine while
+	// reporting that it did not.
+	abi, abiErr := llsys.LandlockGetABIVersion()
+	if abiErr != nil || abi < 1 {
+		rep.Mechanism = ""
+		rep.Err = errors.New("this kernel has no Landlock (ABI " + strconv.Itoa(abi) +
+			"), so nothing can be confined; 5.13 or newer with landlock in CONFIG_LSM is required")
+		return rep, rep.Err
+	}
+
+	var rules []landlock.Rule
+	var walked []string
+	var err error
+	if p.Allowlist() {
+		rules, err = workspaceRules(p)
+	} else {
+		rules, walked, err = allowRules(p.Deny)
+	}
 	if err != nil {
 		rep.Err = err
 		return rep, err
@@ -84,6 +113,21 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 		return rep, err
 	}
 	rep.Enforced = true
+	rep.ABI = abi
+
+	if p.Allowlist() {
+		rep.Notes = append(rep.Notes,
+			"writable: "+p.Workspace,
+			"writable outside it: "+strings.Join(p.RuntimeWrite, " "),
+			"readable, never writable: "+strings.Join(p.RuntimeRead, " "),
+			"everything else does not exist to the agent, including $HOME itself,",
+			"so ~/.ssh, ~/.aws, ~/.gnupg and every other project are unreachable")
+		if abi < 3 {
+			rep.Notes = append(rep.Notes,
+				"ABI "+strconv.Itoa(abi)+": this kernel cannot restrict truncate(), so a file",
+				"the agent can read it can also shorten to nothing. ABI 3 (kernel 6.2) fixes it")
+		}
+	}
 
 	if len(walked) > 0 {
 		rep.Notes = append(rep.Notes,
@@ -209,4 +253,85 @@ func Describe() (string, []string) {
 		"unprivileged, inherited by every process the agent starts, and it cannot",
 		"be removed by the confined process",
 	}
+}
+
+// workspaceRules is the allowlist, and it is the simple direction for Landlock.
+//
+// Landlock has no deny rule, which made the denylist above an enumeration of
+// everything on the way to each protected path. An allowlist is what the kernel
+// interface actually is, so this is three grants and nothing else: the
+// workspace read-write, the runtime-write set read-write, the runtime-read set
+// read-only. Anything not named gets no rule, and with no rule there is no
+// handle — open() returns EACCES whether the agent spells the path, globs it,
+// assembles it at runtime or compiles a program to call unlink on it.
+//
+// NO ANCESTOR WALK, and so none of the denylist's cost: a file created after
+// launch inside the workspace is reachable immediately, because the grant is on
+// the directory rather than on the children that existed when it started.
+//
+// IgnoreIfMissing throughout. The runtime sets are written for a range of
+// distributions — /lib64 does not exist on some, ~/.codex only after that
+// client is installed — and Landlock rejects a rule naming a path that is not
+// there, which would turn an absent optional directory into a refusal to start.
+func workspaceRules(p Plan) ([]landlock.Rule, error) {
+	ws := filepath.Clean(p.Workspace)
+	if !filepath.IsAbs(ws) {
+		return nil, errors.New("workspace must be an absolute path, got " + p.Workspace)
+	}
+	if ws == "/" {
+		return nil, errors.New(`refusing to use "/" as a workspace: that confines nothing`)
+	}
+	// A workspace of $HOME would put ~/.ssh back inside the sandbox and quietly
+	// undo the entire point, so it is refused rather than honoured.
+	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == ws {
+		return nil, errors.New("refusing to use the home directory as a workspace: " +
+			"it contains ~/.ssh and every other project, which is what this mode exists to keep out")
+	}
+	st, err := os.Stat(ws)
+	if err != nil {
+		return nil, errors.New("workspace " + ws + " cannot be read: " + err.Error())
+	}
+	if !st.IsDir() {
+		return nil, errors.New("workspace " + ws + " is not a directory")
+	}
+
+	rules := []landlock.Rule{
+		landlock.RWDirs(ws).WithRefer().WithIoctlDev(),
+	}
+	// Writable, and stat decides whether it is a directory rule or a file one:
+	// the kernel rejects a directory right applied to a file, so /dev/null and
+	// ~/.cache cannot share a rule shape.
+	for _, d := range append(p.RuntimeWrite, DefaultRuntimeDevices()...) {
+		if d == "" {
+			continue
+		}
+		st, err := os.Stat(d)
+		if err != nil {
+			continue // absent is skipped; IgnoreIfMissing cannot fix a wrong KIND
+		}
+		if st.IsDir() {
+			rules = append(rules, landlock.RWDirs(d).WithRefer().WithIoctlDev().IgnoreIfMissing())
+		} else {
+			rules = append(rules, landlock.RWFiles(d).WithIoctlDev().IgnoreIfMissing())
+		}
+	}
+	for _, d := range p.RuntimeRead {
+		if d == "" {
+			continue
+		}
+		// Directory and file rights are different sets and the kernel rejects a
+		// directory right applied to a file, so /dev/null and /usr cannot share
+		// a rule. Stat decides which; a missing path is skipped rather than
+		// guessed at, since IgnoreIfMissing cannot save a wrong KIND of rule.
+		st, err := os.Stat(d)
+		if err != nil {
+			continue
+		}
+		if st.IsDir() {
+			rules = append(rules, landlock.RODirs(d).WithIoctlDev().IgnoreIfMissing())
+		} else {
+			rules = append(rules, landlock.ROFiles(d).WithIoctlDev().IgnoreIfMissing())
+		}
+	}
+	return rules, nil
 }

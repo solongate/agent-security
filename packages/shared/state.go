@@ -95,6 +95,24 @@ type Security struct {
 	// than implying the strongest case everywhere.
 	ProtectedPaths []string `json:"protectedPaths,omitempty"`
 
+	// Sandboxes are the closed boxes this machine has defined, each one a
+	// directory an agent can be confined to and nothing else.
+	//
+	// A LIST RATHER THAN ONE SETTING, because a machine has more than one
+	// project and they do not share a confinement. The box for a customer's
+	// repository and the box for a scratch experiment want different
+	// directories and often different answers about the network, and a single
+	// setting made somebody edit it every time they changed what they were
+	// working on — which is the kind of friction that ends with the feature
+	// switched off.
+	//
+	// THE OTHER WAY ROUND FROM ProtectedPaths, and that is the point of both
+	// of them. A protected list protects what somebody remembered to name,
+	// which is never ~/.ssh, never a sibling customer's repository, never the
+	// credentials of a tool they installed last month. A box protects
+	// everything they did not name.
+	Sandboxes []Sandbox `json:"sandboxes,omitempty"`
+
 	// RequireSandbox refuses every tool call from an agent that was not started
 	// through `solongate run`.
 	//
@@ -103,6 +121,42 @@ type Security struct {
 	// the rest, and the difference is invisible from inside the agent. With it,
 	// an agent outside the sandbox gets nothing at all.
 	RequireSandbox bool `json:"requireSandbox,omitempty"`
+}
+
+// Sandbox is one closed box: an id, a directory, and whether the agent inside
+// it can reach the network.
+type Sandbox struct {
+	// ID is what `solongate sandbox <id> <agent>` takes, zero-padded to three
+	// digits from "001".
+	//
+	// SHORT AND REUSED ON PURPOSE. It is typed every time an agent is started,
+	// so it has to be short enough to type and stable enough to remember; and
+	// deleting a box frees its number for the next one, so a machine that has
+	// made and removed boxes for a year still has small ids rather than "047".
+	// The number names a slot, not a history.
+	ID string `json:"id"`
+
+	// Dir is the directory the box is about, as an ABSOLUTE path. "~/x" is a
+	// shell convention rather than a path: the kernel does not expand it, so a
+	// box keyed on that string would be a box around a directory that does not
+	// exist.
+	Dir string `json:"dir"`
+
+	// Network is whether the agent in this box can reach the network.
+	//
+	// A PER-BOX CHOICE, because the right answer differs per project and
+	// neither answer is safe in general. Off is a box nothing can leave, and
+	// an agent that cannot reach its model cannot do anything either. On lets
+	// the agent work and leaves exfiltration to the DLP and egress layers,
+	// which read what is leaving — something a mount namespace cannot do.
+	//
+	// Defaults to ON when a box is created, because that is the box that works;
+	// the TUI says what the choice costs rather than choosing quietly.
+	Network bool `json:"network"`
+
+	// Label is an optional human name, for a list of boxes that would otherwise
+	// be a list of paths.
+	Label string `json:"label,omitempty"`
 }
 
 // Rules stays raw. The guard compiles it to Rego and the CLI passes it through;

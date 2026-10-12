@@ -19,10 +19,12 @@
  * that file is gone.)
  */
 import { createServer, request as httpRequest } from 'node:http';
+import { createServer as createTLSServer } from 'node:tls';
+import { execFileSync } from 'node:child_process';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { request as httpsRequest } from 'node:https';
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -206,9 +208,75 @@ function tokenOK(url) {
   try { return timingSafeEqual(got, exp); } catch { return false; }
 }
 
-function startProxy(upstream) {
+// ── the hop, encrypted ───────────────────────────────────────────────────────
+
+// A PER-RUN CERTIFICATE, so the local hop is not cleartext.
+//
+// THE TOKEN WAS NOT ENOUGH AND IT WAS TREATED AS IF IT WERE. It stops another
+// process from HAVING a request forwarded with the agent's credentials, which was
+// the hole worth closing first. It does nothing about reading the bytes of a
+// request already in flight: loopback is a network interface, a packet capture on
+// it shows the Authorization header, and the reasoning for leaving that was that
+// capturing loopback needs root and a root attacker can read the credential file
+// anyway.
+//
+// That is true and it is not a reason to ship cleartext. It argues the residual
+// risk is small, not that it is zero, and the usual objection to fixing it does
+// not apply here: TLS on loopback would break a client that cannot be told to
+// trust a local certificate, and this shim serves ONE client. Claude Code is
+// Node, Node reads NODE_EXTRA_CA_CERTS, and the certificate is generated for
+// this run and this run only.
+//
+// WHAT IS NOT CLAIMED: this is not authentication of the peer. The agent verifies
+// the listener, the listener does not verify the agent, and the token is still
+// what does that. The two are different jobs and both are needed.
+//
+// IP SAN, NOT A HOSTNAME. The agent connects to 127.0.0.1, so the certificate has
+// to name that address rather than a name, or Node refuses it with
+// ERR_TLS_CERT_ALTNAME_INVALID and the run fails closed at the first request.
+//
+// Shelled out to openssl because node:crypto generates keys and does not sign
+// certificates. There is no pure-Node way to make an X.509 without a dependency,
+// and a dependency in the LLM path to improve a local hop is the wrong trade. A
+// machine without openssl falls back to http and says so: refusing to start would
+// take the agent down over a risk that needs root to exploit.
+function makeCert(dir) {
+  const key = join(dir, 'shield-key.pem');
+  const crt = join(dir, 'shield-cert.pem');
+  try {
+    execFileSync('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+      '-keyout', key, '-out', crt,
+      '-days', '1',
+      '-subj', '/CN=127.0.0.1',
+      '-addext', 'subjectAltName=IP:127.0.0.1',
+    ], { stdio: 'ignore', timeout: 10000 });
+    // 0600 on the key. It is in ~/.solongate, which is 0700, so this is belt
+    // and braces; a private key at the default mode is still wrong.
+    const k = readFileSync(key);
+    const c = readFileSync(crt);
+    rmSync(key, { force: true });
+    return { key: k, cert: c, certPath: crt };
+  } catch (e) {
+    log('no certificate (' + (e && e.message ? e.message : 'openssl failed') + '), the local hop is http');
+    rmSync(key, { force: true });
+    rmSync(crt, { force: true });
+    return null;
+  }
+}
+
+function startProxy(upstream, tls) {
   const forward = upstream.protocol === 'https:' ? httpsRequest : httpRequest;
-  const server = createServer((req, res) => {
+  // HTTP SEMANTICS OVER A TLS SOCKET, which is what makes this one line.
+  //
+  // node:http's createServer takes an options object, and a TLS server is the
+  // same request handling on an encrypted socket. Passing the handler to
+  // createServer with {key, cert} would be https.createServer; building it from
+  // node:tls and handing the connections to an http server is the same thing
+  // without a second module. Either way the handler below does not change, and
+  // that matters: the token gate, the masking and the forwarding are the parts
+  // that decide anything, and none of them should know what the socket is.
+  const handler = (req, res) => {
     // THE GATE, before the body is even read. A request without the token is
     // not the agent's, and nothing about it should reach upstream or be
     // buffered here.
@@ -280,11 +348,34 @@ function startProxy(upstream) {
       upReq.end(body);
     });
     req.on('error', () => { try { res.destroy(); } catch { /* ignore */ } });
-  });
+  };
+
+  const server = createServer(tls ? { key: tls.key, cert: tls.cert } : {}, handler);
+  if (tls) {
+    // createServer with key and cert does not by itself make a TLS listener in
+    // node:http, so the socket layer is attached explicitly: TLS terminates
+    // here, and the decrypted stream is what the http parser reads.
+    const secure = createTLSServer({ key: tls.key, cert: tls.cert });
+    secure.on('secureConnection', (socket) => server.emit('connection', socket));
+    return new Promise((resolveP) => {
+      secure.listen(0, '127.0.0.1', () => {
+        const addr = secure.address();
+        resolveP({
+          port: addr && typeof addr === 'object' ? addr.port : 0,
+          scheme: 'https',
+          close: () => { try { secure.close(); } catch { /* ignore */ } server.close(); },
+        });
+      });
+    });
+  }
   return new Promise((resolveP) => {
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
-      resolveP({ port: addr && typeof addr === 'object' ? addr.port : 0, close: () => server.close() });
+      resolveP({
+        port: addr && typeof addr === 'object' ? addr.port : 0,
+        scheme: 'http',
+        close: () => server.close(),
+      });
     });
   });
 }
@@ -294,19 +385,50 @@ async function main() {
   const cmd = sep !== -1 ? process.argv.slice(sep + 1) : [];
   if (cmd.length === 0) { log('usage: node shield.mjs -- <command> [args...]'); process.exit(1); }
   const upstream = pickUpstream();
-  const { port, close } = await startProxy(upstream);
+
+  // The certificate lives in this product's own directory, which is 0700, and
+  // the private key never reaches disk for longer than openssl needs to write
+  // it: makeCert reads both back and unlinks the key before returning. The
+  // certificate itself stays, because the child has to be handed a path to it.
+  const tls = makeCert(join(homedir(), '.solongate'));
+  const { port, scheme, close } = await startProxy(upstream, tls);
   const child = spawn(cmd[0], cmd.slice(1), {
     stdio: 'inherit',
     // The token rides in the base URL, so every request the agent builds from
     // it carries one and the agent never has to know. Its environment is the
     // only place this value ever goes.
-    env: { ...process.env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/${SHIELD_TOKEN}` },
+    env: {
+      ...process.env,
+      ANTHROPIC_BASE_URL: `${scheme}://127.0.0.1:${port}/${SHIELD_TOKEN}`,
+      // WHAT MAKES THE AGENT TRUST THE LISTENER, and the only reason a
+      // self-signed certificate works here.
+      //
+      // NODE_EXTRA_CA_CERTS adds to the trust store rather than replacing it,
+      // so every other certificate the agent would have accepted it still
+      // accepts: this is not a machine-wide trust change and it is not
+      // NODE_TLS_REJECT_UNAUTHORIZED=0, which would have been the lazy way and
+      // would have told the agent to trust anything at all, including whatever
+      // else happened to be listening.
+      //
+      // Set only when there is a certificate. On a machine without openssl the
+      // scheme above is http and adding a path to a file that does not exist
+      // would make Node warn on every start.
+      ...(tls ? { NODE_EXTRA_CA_CERTS: tls.certPath } : {}),
+    },
     shell: process.platform === 'win32',
   });
   // From here the terminal is the agent's. See log().
   liveChild = true;
 
-  const shutdown = () => { try { close(); } catch { /* ignore */ } };
+  // THE CERTIFICATE GOES WHEN THE RUN DOES. It is valid for a day and names
+  // 127.0.0.1, so a leftover one is not a credential, but it is also not
+  // anything a later run should reuse: each run makes its own, and leaving the
+  // old one would mean a file on disk that the trust store of some future
+  // process could still be pointed at.
+  const shutdown = () => {
+    try { close(); } catch { /* ignore */ }
+    if (tls) { try { rmSync(tls.certPath, { force: true }); } catch { /* ignore */ } }
+  };
   child.on('exit', (code, signal) => { shutdown(); if (signal) process.kill(process.pid, signal); else process.exit(code ?? 0); });
   // Back to stderr for this one: a child that never started never took the
   // terminal, and the person is still looking at a shell prompt waiting to be

@@ -166,9 +166,24 @@ Stated here so nobody has to find them the expensive way:
   forwarded with those credentials attached, loopback is an address, not a
   boundary. The token is never written to disk or logged.
 
-  What it still is: an unencrypted hop on the local machine. Another process
-  running as you can read your traffic by other means anyway, so the token is
-  about an accident rather than about an attacker who is already you.
+  The hop is encrypted. A certificate is generated for the run, named for
+  `127.0.0.1` by IP rather than by hostname, and handed to the agent through
+  `NODE_EXTRA_CA_CERTS`, which ADDS to its trust store rather than replacing it:
+  nothing else the agent would have trusted becomes untrusted, and this is not
+  `NODE_TLS_REJECT_UNAUTHORIZED=0`. The private key is unlinked as soon as the
+  listener has it and the certificate goes when the run ends.
+
+  This was left as cleartext for a while on the reasoning that capturing
+  loopback needs root and a root attacker can read the credential file anyway.
+  That argues the risk is small, not that it is zero. The usual objection to
+  TLS on loopback is that a client cannot be told to trust a local certificate,
+  and this shim serves one client, which is Node.
+
+  What it is not: authentication of the peer. The agent verifies the listener;
+  the listener does not verify the agent, and the run token is what does that.
+  A machine without `openssl` gets http and a line in the log saying so,
+  because refusing to start would take the agent down over a risk that needs
+  root to exploit.
 - **The shim fails open.** Any error parsing or redacting a request forwards the
   original bytes. A payload shape the redactor does not recognise reaches the
   model unmasked. That is deliberate, a shim that dropped requests would take

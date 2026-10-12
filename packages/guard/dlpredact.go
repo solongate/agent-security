@@ -31,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/solongate/agent-security/packages/policy"
@@ -211,8 +212,24 @@ func egressSecretCheck(args map[string]interface{}, sec *shared.Security, cwd st
 // ── Redaction ─────────────────────────────────────────────────────────────────
 
 // dlpRedactText masks every enabled secret in `text` as `[REDACTED:name]`,
-// mirroring audit.mjs's output redaction so Antigravity gets the SAME masking
-// Claude does.
+// mirroring the audit hook's output redaction so Antigravity gets the SAME
+// masking Claude does.
+//
+// THE MARKER IS NOT TEXT THE NEXT PATTERN MAY SEE, which is why this is not the
+// obvious loop over ReplaceAll.
+//
+// Patterns run one after another over the SAME string, so by the time the
+// second one runs the first has already written `[REDACTED:...]` into it. A
+// pattern that then matches anything inside that marker rewrites the marker,
+// and a custom pattern as ordinary as `[` turns `[REDACTED:custom]` into
+// `[REDACTED:other]REDACTED:custom]`. Nothing leaks, the secret is gone either
+// way, but the record of WHAT was removed is the half of redaction a person
+// actually reads, and a mangled marker is a record nobody can act on.
+//
+// So each match becomes a placeholder no pattern can match, and the
+// placeholders become markers in one final pass. The Node twin does exactly
+// this with the same NUL-delimited index, and the two have to agree: the same
+// file read on two clients must come back masked the same way.
 func dlpRedactText(text string, cfg *shared.DLPConfig) string {
 	if cfg == nil || text == "" {
 		return text
@@ -221,6 +238,16 @@ func dlpRedactText(text string, cfg *shared.DLPConfig) string {
 	for _, n := range cfg.Patterns {
 		enabled[n] = true
 	}
+
+	// NUL is the delimiter because no DLP pattern contains one and no text an
+	// agent reads has a reason to. A placeholder a pattern could match would put
+	// the problem straight back.
+	var labels []string
+	stash := func(label string) string {
+		labels = append(labels, label)
+		return "\x00" + strconv.Itoa(len(labels)-1) + "\x00"
+	}
+
 	out := text
 	// Built-ins then customs, each in list order: the replacement text carries the
 	// pattern NAME, so the order decides what a human reads in the masked file.
@@ -229,14 +256,12 @@ func dlpRedactText(text string, cfg *shared.DLPConfig) string {
 		if !enabled[name] {
 			continue
 		}
-		p := struct {
-			Name string
-			Re   *regexp.Regexp
-		}{name, re}
-		// Literal replacement, not ReplaceAllString: a pattern name containing `$1`
-		// would otherwise be expanded as a capture-group reference and the marker
-		// would come out mangled, or empty, which reads as "nothing was redacted".
-		out = p.Re.ReplaceAllLiteralString(out, "[REDACTED:"+p.Name+"]")
+		// A function, not ReplaceAllString: a pattern name containing `$1` would
+		// otherwise be expanded as a capture-group reference and the marker would
+		// come out mangled, or empty, which reads as "nothing was redacted".
+		out = re.ReplaceAllStringFunc(out, func(string) string {
+			return stash("[REDACTED:" + name + "]")
+		})
 	}
 	for _, c := range cfg.Custom {
 		re, err := shared.GlobToRegexp(c.Re)
@@ -247,10 +272,28 @@ func dlpRedactText(text string, cfg *shared.DLPConfig) string {
 		if name == "" {
 			name = "custom"
 		}
-		out = re.ReplaceAllLiteralString(out, "[REDACTED:"+name+"]")
+		out = re.ReplaceAllStringFunc(out, func(string) string {
+			return stash("[REDACTED:" + name + "]")
+		})
 	}
-	return out
+
+	// One pass, not a loop to a fixed point. A placeholder swallowed whole by a
+	// later pattern loses its label, and a NUL-delimited number that was in the
+	// ORIGINAL text resolves to nothing: both come out empty rather than as a
+	// marker, and both match the Node twin, which is the behaviour that has to be
+	// identical rather than the behaviour that is prettiest.
+	return dlpStashRe.ReplaceAllStringFunc(out, func(m string) string {
+		i, err := strconv.Atoi(strings.Trim(m, "\x00"))
+		if err != nil || i < 0 || i >= len(labels) {
+			return ""
+		}
+		return labels[i]
+	})
 }
+
+// The placeholder shape, compiled once. It lives beside dlpRedactText because
+// the two are one mechanism and changing either alone breaks it.
+var dlpStashRe = regexp.MustCompile("\x00\\d+\x00")
 
 // The plan dlpRedactReadPlan hands back. Block and Rewrite are exclusive: a
 // non-nil plan either denies the call or replaces the named argument values.

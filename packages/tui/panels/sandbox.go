@@ -27,7 +27,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/solongate/agent-security/packages/sandbox"
 	"github.com/solongate/agent-security/packages/shared"
 	"github.com/solongate/agent-security/packages/tui"
 )
@@ -88,12 +87,10 @@ func NewSandbox(d tui.Deps) *Sandbox {
 	in := textinput.New()
 	in.Prompt = ""
 	in.CharLimit = 4096
-	p := &Sandbox{deps: d, input: in}
-	p.mech, _ = sandbox.Describe()
-	// Asked once, at construction: whether a box can be built here does not
-	// change while the TUI is open, and the answer decides whether this section
-	// is a list of boxes or an explanation of why there are none.
-	p.boxErr = sandbox.BoxAvailable()
+	// Both come from Deps rather than from the sandbox package: this module does
+	// not import it, so a panel that draws a list does not drag go-landlock into
+	// the TUI's dependency graph. See tui.Deps.Confinement.
+	p := &Sandbox{deps: d, input: in, mech: d.Confinement.Mechanism, boxErr: d.Confinement.BoxUnavailable}
 	return p
 }
 

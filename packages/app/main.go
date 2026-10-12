@@ -29,6 +29,7 @@ import (
 	"github.com/solongate/agent-security/packages/core/api"
 	"github.com/solongate/agent-security/packages/core/install"
 	"github.com/solongate/agent-security/packages/core/term"
+	"github.com/solongate/agent-security/packages/sandbox"
 	"github.com/solongate/agent-security/packages/tui"
 	"github.com/solongate/agent-security/packages/tui/panels"
 )
@@ -371,7 +372,10 @@ func lookup(name string) (command, bool) {
 // build time and the shell does not carry it.
 func launchTUI() int {
 	panels.Version = buildVersion
-	if err := tui.Run(); err != nil {
+	// The confinement facts are asked for HERE and passed in, so packages/tui
+	// does not import packages/sandbox. See tui.Deps.Confinement.
+	mech, _ := sandbox.Describe()
+	if err := tui.Run(tui.Confinement{Mechanism: mech, BoxUnavailable: sandbox.BoxAvailable()}); err != nil {
 		fmt.Fprintf(os.Stderr, "\n  %sThe TUI could not start:%s %s\n\n", term.Yellow, term.Reset, err)
 		return 1
 	}

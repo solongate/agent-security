@@ -31,7 +31,6 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/solongate/agent-security/packages/sandbox v0.0.0-00010101000000-000000000000 // indirect
 	github.com/solongate/agent-security/packages/shared v0.0.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sys v0.47.0 // indirect
@@ -51,6 +50,7 @@ replace github.com/solongate/agent-security/packages/shared => ../shared
 require (
 	github.com/solongate/agent-security/packages/cli v0.0.0
 	github.com/solongate/agent-security/packages/core v0.0.0
+	github.com/solongate/agent-security/packages/sandbox v0.0.0-00010101000000-000000000000
 	github.com/solongate/agent-security/packages/tui v0.0.0
 )
 

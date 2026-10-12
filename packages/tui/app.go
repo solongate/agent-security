@@ -45,6 +45,36 @@ import (
 type Deps struct {
 	API *api.Client
 	Cfg config.TUIConfig
+
+	// Confinement is what this machine can do about confining an agent, as
+	// PLAIN DATA rather than as a package the TUI imports.
+	//
+	// THE TUI DOES NOT IMPORT packages/sandbox, and that is the point of this
+	// field. The Sandbox panel needs two facts — which kernel mechanism is
+	// available, and why a closed box cannot be built when it cannot — and
+	// reaching for them directly meant the TUI module required go-landlock and
+	// libcap/psx for a panel that draws a list. Somebody reading the TUI found
+	// kernel confinement in it.
+	//
+	// The caller fills it. `app` links the sandbox package already, because the
+	// CLI it dispatches to does; asking there and passing the answer in costs
+	// one struct and removes a dependency from a module that only renders.
+	Confinement Confinement
+}
+
+// Confinement is the answer to "what can this machine do", flattened so no
+// layer above the sandbox package has to depend on it.
+type Confinement struct {
+	// Mechanism is the kernel feature `solongate run` would use here:
+	// "Landlock", "Seatbelt", "icacls deny (per run)", or "" where there is
+	// none.
+	Mechanism string
+
+	// BoxUnavailable is why `solongate sandbox` cannot build a closed box here,
+	// and nil when it can. A sentence, because it is printed: a missing bwrap
+	// names the package to install, and a kernel with no user namespaces says
+	// which sysctl said so.
+	BoxUnavailable error
 }
 
 // PanelContext is what the shell knows at the moment a panel updates or
@@ -693,9 +723,14 @@ func clampBlock(s string, cols, rows int) string {
 // The caller is responsible for the human-only gate: every command in this CLI
 // changes or reveals a security posture, and the TUI is the one that does
 // both. See assertHumanTerminal in main.go.
-func Run() error {
+// Run opens the TUI. The confinement facts are passed in rather than looked up:
+// see Deps.Confinement for why this module does not import the sandbox package.
+func Run(c Confinement) error {
 	cfg := config.LoadTUIConfig()
 	setAccent(cfg.Accent)
+	// NO_COLOR after the accent, so it wins over whatever tui-config.json asked
+	// for. A user who has turned colour off has turned it off.
+	flatten()
 
 	// Anything written to stderr lands on top of the frame, and the standard
 	// logger's default destination is stderr. Ink had the same problem with
@@ -709,7 +744,7 @@ func Run() error {
 		}
 	}
 
-	deps := Deps{API: api.New(), Cfg: cfg}
+	deps := Deps{API: api.New(), Cfg: cfg, Confinement: c}
 
 	// THE FIRST RUN COMES FIRST, and the TUI does not open behind it. See
 	// setup.go for why this is a gate rather than a section in the nav: the

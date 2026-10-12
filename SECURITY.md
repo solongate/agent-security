@@ -149,6 +149,37 @@ Stated here so nobody has to find them the expensive way:
 - **A policy that will not compile does not disarm the guard.** Evaluation falls
   back to a deterministic evaluator rather than allowing. If you find a policy
   shape where it does allow, that is in scope above.
+- **The prompt shim is a local proxy, and it holds your API key.** On Claude
+  Code the shim starts a listener on `127.0.0.1`, points the agent at it, and
+  masks secrets in the outbound request body before forwarding. The agent's
+  credentials pass through it in cleartext, because that is what a proxy in
+  front of an API does.
+
+  A per-run token guards it: a 32-byte secret in the URL path, given to the
+  agent through its base URL, required on every request. Anything arriving
+  without it gets a 404 and never reaches upstream. Before that the listener
+  authenticated nothing, so any local process could have had a request
+  forwarded with those credentials attached — loopback is an address, not a
+  boundary. The token is never written to disk or logged.
+
+  What it still is: an unencrypted hop on the local machine. Another process
+  running as you can read your traffic by other means anyway, so the token is
+  about an accident rather than about an attacker who is already you.
+- **The shim fails open.** Any error parsing or redacting a request forwards the
+  original bytes. A payload shape the redactor does not recognise reaches the
+  model unmasked. That is deliberate — a shim that dropped requests would take
+  the agent down — and it is why `block` mode exists for the cases where masking
+  is not good enough.
+- **`solongate run` is a permission layer, not a box.** Paths are refused;
+  `$HOME` still exists and still returns EACCES, and `ls /` still shows the
+  machine. It protects the paths you named. `solongate sandbox` is the other
+  shape — a new root where nothing outside the project is there at all — and it
+  needs Linux and `bwrap`.
+- **A sandbox keeps the network.** The closed box is about files. An agent
+  inside one can still reach its model, and what leaves over the wire is the
+  DLP and egress layers' job — they read content, which a mount namespace
+  cannot. A box with the network off is available per box and means the agent
+  cannot reach a model at all.
 
 ## Credit
 

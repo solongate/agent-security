@@ -27,7 +27,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/solongate/agent-security/packages/core/sandbox"
+	"github.com/solongate/agent-security/packages/sandbox"
 	"github.com/solongate/agent-security/packages/shared"
 	"github.com/solongate/agent-security/packages/tui"
 )

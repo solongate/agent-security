@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/solongate/agent-security/packages/core v0.0.0
+	github.com/solongate/agent-security/packages/sandbox v0.0.0-00010101000000-000000000000
 	github.com/solongate/agent-security/packages/shared v0.0.0
 )
 
@@ -16,3 +17,5 @@ require (
 replace github.com/solongate/agent-security/packages/core => ../core
 
 replace github.com/solongate/agent-security/packages/shared => ../shared
+
+replace github.com/solongate/agent-security/packages/sandbox => ../sandbox

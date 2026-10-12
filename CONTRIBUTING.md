@@ -28,11 +28,19 @@ the tests.
 | `packages/guard` | The guard. Runs on every tool call and decides. |
 | `packages/policy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
 | `packages/shared` | Shapes more than one program has to agree about. No dependencies, on purpose. |
-| `packages/core` | What both surfaces stand on: config, the local store, install state, health, the sandbox. |
+| `packages/sandbox` | The kernel confinement: Landlock, Seatbelt, a Windows deny, and the closed box. |
+| `packages/core` | What both surfaces stand on: config, the local store, install state, health. |
 | `packages/cli` | The subcommands. Prints and exits. |
 | `packages/tui` | The TUI. Full screen, stays open. |
 | `packages/app` | The binary: dispatch, the human-only gate, and `--help`. |
 | `packages/hooks` | The hook programs, and the scripts that build what ships. |
+
+`sandbox` is its own module rather than a directory under `core`, and the
+reason is measurable: it is the only package here that needs go-landlock, and
+`core` is one module — so while it lived there, everything that imported
+`core/api` resolved go-landlock too, which was four of the eight go.mod files
+for a dependency three of them never call. Nothing inside `core` imported it;
+only `cli` and `tui` do.
 
 `cli` and `tui` are siblings and neither imports the other. They are two
 surfaces onto the same thing, and when one reaches into the other what follows
@@ -46,7 +54,7 @@ edge that existed, the TUI calling the CLI for `doctor`, is why
 pnpm install
 pnpm build          # bundles the hooks
 
-for m in guard policy shared core cli tui app; do
+for m in guard policy shared sandbox core cli tui app; do
   (cd "packages/$m" && gofmt -l . && go vet ./...)
 done
 ```
@@ -105,7 +113,7 @@ No prefixes are required.
   fix cannot be reverted on its own.
 - Say what you ran, in detail. With no suite behind the change, a vague "tested
   locally" is not reviewable. Name the client, the calls, and the outcome.
-- CI runs gofmt and vet over the seven Go modules, the hook bundle, the release
+- CI runs gofmt and vet over the eight Go modules, the hook bundle, the release
   build, and a secret scan. All of it has to be green, and all of it together
   still says nothing about whether the guard decides correctly.
 - If your change alters what a policy means, say so in the pull request title.

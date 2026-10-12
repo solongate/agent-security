@@ -461,7 +461,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 111;
+var HOOK_VERSION = 112;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -603,6 +603,44 @@ var AGENT_TYPE = process.argv[2] || "claude-code";
 var POLICY_SELECTOR = process.env.SOLONGATE_AGENT_ID || "";
 var AGENT_ID = POLICY_SELECTOR || AGENT_TYPE;
 var AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TYPE;
+var SG_LOCK_NAME = ".solongate-audit.lock";
+var SG_LOCK_STALE_MS = 5e3;
+var SG_LOCK_WAIT_MS = 2e3;
+function sgSleep(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+  }
+}
+function sgLockLog(dir) {
+  const lock = join(dir, SG_LOCK_NAME);
+  const until = Date.now() + SG_LOCK_WAIT_MS;
+  for (; ; ) {
+    try {
+      closeSync(openSync(lock, "wx", SG_FILE_MODE));
+      return () => {
+        try {
+          rmSync(lock, { force: true });
+        } catch {
+        }
+      };
+    } catch {
+      try {
+        const st = statSync(lock);
+        if (Date.now() - st.mtimeMs > SG_LOCK_STALE_MS) {
+          try {
+            rmSync(lock, { force: true });
+          } catch {
+          }
+          continue;
+        }
+      } catch {
+      }
+      if (Date.now() >= until) return null;
+      sgSleep(10);
+    }
+  }
+}
 {
   const _wi = process.argv.indexOf("--sg-log-write");
   if (_wi !== -1) {
@@ -619,8 +657,13 @@ var AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TY
         try {
           mkdirSync(_dir, { recursive: true, mode: SG_DIR_MODE });
           const _f = join(_dir, "solongate-audit.jsonl");
-          appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
-          _narrow(_f);
+          const _unlock = sgLockLog(_dir);
+          try {
+            appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+            _narrow(_f);
+          } finally {
+            if (_unlock) _unlock();
+          }
         } catch {
           const _fb = join(resolve(homedir(), ".solongate"), "local-logs");
           try {
@@ -629,8 +672,13 @@ var AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TY
           }
           try {
             const _f = join(_fb, "solongate-audit.jsonl");
-            appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
-            _narrow(_f);
+            const _unlock = sgLockLog(_fb);
+            try {
+              appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+              _narrow(_f);
+            } finally {
+              if (_unlock) _unlock();
+            }
           } catch {
           }
           try {

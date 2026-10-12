@@ -195,3 +195,45 @@ func GuessPermission(tool string) string {
 		return "READ"
 	}
 }
+
+// ── the audit log's lock ─────────────────────────────────────────────────────
+//
+// WHAT IT IS FOR, which is one operation and not the log in general. Every tool
+// call appends a line, and O_APPEND writes are atomic against each other — a
+// burst of concurrent hooks never corrupts the file and needs no lock. The one
+// unsafe operation is the TUI's delete and clear: read the whole file, decide
+// what it should say, write it back. Anything appended in between is in neither
+// version and is gone, silently, which for an audit trail is the part that
+// matters.
+//
+// WHY A LOCK IS AFFORDABLE HERE, when it would not be on the hot path. The
+// append does not happen in the hook: the hook hands a base64 payload to a
+// DETACHED CHILD and returns, so the verdict is already on its way to the agent
+// before the writer starts. A lock in that child costs the tool call nothing.
+//
+// THE RULES BOTH IMPLEMENTATIONS FOLLOW, and they have to be the same rules or
+// the lock is decoration:
+//
+//   - the lock is a FILE created with O_CREAT|O_EXCL, which is atomic on every
+//     filesystem either of these runs on. Holding it is holding the only
+//     successful create.
+//   - a lock older than AuditLockStaleAfter is broken and taken. A writer that
+//     was killed between creating it and removing it would otherwise stop every
+//     later write forever, and this is a log, not a ledger.
+//   - waiting is bounded by AuditLockWait. Past that the appender writes
+//     ANYWAY: losing the lock race must not lose the record, and an append
+//     landing during a rewrite is the old bug rather than a new one.
+//   - the rewriter does the opposite and gives up. A delete that did not happen
+//     is visible to the person who pressed the key; a record that vanished is
+//     not.
+const (
+	AuditLockName = ".solongate-audit.lock"
+
+	// Long enough that a normal rewrite finishes inside it, short enough that a
+	// killed writer does not hold the log hostage for a session.
+	AuditLockStaleAfterMS = 5000
+
+	// About as long as somebody will not notice. The appender is detached, so
+	// nothing is waiting on it.
+	AuditLockWaitMS = 2000
+)

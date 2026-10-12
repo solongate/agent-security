@@ -19,6 +19,7 @@
  * that file is gone.)
  */
 import { createServer, request as httpRequest } from 'node:http';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { request as httpsRequest } from 'node:https';
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -170,9 +171,56 @@ function pickUpstream() {
   try { return new URL(raw); } catch { return new URL('https://api.anthropic.com'); }
 }
 
+// A PER-RUN SECRET IN THE PATH, because a loopback listener is not private.
+//
+// This proxy sits in front of the agent's own API traffic and carries the
+// user's API key in every request it forwards. It listened on 127.0.0.1 with no
+// authentication of any kind, so ANY process on the machine — a browser tab
+// with a local server, another user on a shared box, the agent's own shell
+// running something somebody pasted — could POST to it and have its request
+// forwarded upstream with those credentials attached. Loopback is not a
+// boundary; it is an address.
+//
+// There is no header the agent can be made to send: the agent is the client and
+// it sends what it sends. What CAN be arranged is the URL, because the shim
+// decides it — the child is launched with ANTHROPIC_BASE_URL pointing here. So
+// the secret goes in the path, the agent carries it without knowing it has, and
+// a request arriving without it is refused.
+//
+// 32 bytes from the CSPRNG, fresh per run, never written to disk and never
+// logged. It leaves this process once, into one child's environment.
+const SHIELD_TOKEN = randomBytes(32).toString('hex');
+
+// Compared in constant time and only after the lengths match, which is the
+// cheap half of not leaking the token one byte at a time through timing. The
+// prefix is a fixed length, so a mismatch in length is itself the answer.
+function tokenOK(url) {
+  const want = '/' + SHIELD_TOKEN;
+  if (typeof url !== 'string' || url.length < want.length + 1) return false;
+  if (url[want.length] !== '/' && url[want.length] !== '?') return false;
+  const got = Buffer.from(url.slice(0, want.length), 'utf-8');
+  const exp = Buffer.from(want, 'utf-8');
+  if (got.length !== exp.length) return false;
+  try { return timingSafeEqual(got, exp); } catch { return false; }
+}
+
 function startProxy(upstream) {
   const forward = upstream.protocol === 'https:' ? httpsRequest : httpRequest;
   const server = createServer((req, res) => {
+    // THE GATE, before the body is even read. A request without the token is
+    // not the agent's, and nothing about it should reach upstream or be
+    // buffered here.
+    //
+    // 404 rather than 401 or 403: a 401 advertises that something is listening
+    // and wants credentials, which is an invitation to look for them. A 404 is
+    // what a wrong path on any server looks like.
+    if (!tokenOK(req.url)) {
+      log('refused a request without the run token:', String(req.method || '?'));
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('not found');
+      req.resume(); // drain, so the socket closes cleanly rather than hanging
+      return;
+    }
     // Re-read the DLP config on every request (cheap: a small JSON) so editing the
     // policy file takes effect WITHOUT restarting claude — the audit hook re-reads per
     // call for the same reason. Loading once at startup left the shield stale for the
@@ -216,7 +264,10 @@ function startProxy(upstream) {
         hostname: upstream.hostname,
         port: upstream.port || (upstream.protocol === 'https:' ? 443 : 80),
         method: req.method,
-        path: req.url,
+        // The token is this proxy's, not the API's: upstream sees the path the
+        // agent meant. slice rather than replace, so a token-shaped string
+        // later in the path is left alone.
+        path: req.url.slice(1 + SHIELD_TOKEN.length) || '/',
         headers: { ...headers, host: upstream.host },
       }, (upRes) => { res.writeHead(upRes.statusCode || 502, upRes.headers); upRes.pipe(res); });
       upReq.on('error', (e) => {
@@ -244,7 +295,10 @@ async function main() {
   const { port, close } = await startProxy(upstream);
   const child = spawn(cmd[0], cmd.slice(1), {
     stdio: 'inherit',
-    env: { ...process.env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}` },
+    // The token rides in the base URL, so every request the agent builds from
+    // it carries one and the agent never has to know. Its environment is the
+    // only place this value ever goes.
+    env: { ...process.env, ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}/${SHIELD_TOKEN}` },
     shell: process.platform === 'win32',
   });
   // From here the terminal is the agent's. See log().

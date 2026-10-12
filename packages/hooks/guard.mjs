@@ -197,7 +197,13 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // box, a protected path's readability under `run`. An answer that cannot be
 // reached is a refusal. Ported in the same change as the Go side, which is
 // where the probes are documented.
-const HOOK_VERSION = 111;
+// 112 LOCKS THE AUDIT LOG AGAINST ITS ONE UNSAFE OPERATION. Appends are atomic
+// against each other and always were; the TUI's delete and clear read the file,
+// decided, and wrote it back, so anything appended in between was gone. Both
+// sides take an O_EXCL lock file now — this one in the DETACHED writer, where it
+// costs the tool call nothing. Past a bounded wait the appender writes anyway
+// and the rewriter gives up, which is the right direction for each.
+const HOOK_VERSION = 112;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -623,6 +629,63 @@ const AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_
 // lands even if Claude Code kills the parent hook mid-write during a concurrent
 // denial burst. Handled FIRST and exits immediately — the child never loads the
 // heavy guard logic below.
+// ── the audit log's lock ─────────────────────────────────────────────────────
+//
+// THE APPEND IS NOT THE RACE. O_APPEND writes are atomic against each other, so
+// a burst of concurrent hooks never corrupts the log and needs no lock. The one
+// unsafe operation is the TUI's delete and clear: read the whole file, decide
+// what it should say, write it back. Anything appended in between is in neither
+// version and is gone — silently, which for an audit trail is the part that
+// matters.
+//
+// IT IS AFFORDABLE HERE AND WOULD NOT BE ON THE HOT PATH. This runs in the
+// DETACHED child, spawned and abandoned by a hook that has already handed its
+// verdict to the agent. A lock in here costs the tool call nothing.
+//
+// The rules are shared.AuditLockName's, and both implementations follow the
+// same ones or the lock is decoration: an O_EXCL create is the lock, a lock
+// older than the stale window is broken and taken, and waiting is bounded.
+//
+// PAST THE BOUND IT WRITES ANYWAY, which is the opposite of what the rewriter
+// does and is deliberate in both directions: losing the lock race must not lose
+// the record, while a delete that did not happen is visible to the person who
+// pressed the key and a vanished record is not.
+const SG_LOCK_NAME = '.solongate-audit.lock';
+const SG_LOCK_STALE_MS = 5000;
+const SG_LOCK_WAIT_MS = 2000;
+
+// A synchronous pause, because this writer has no event loop to wait on and
+// must not return before the line is on disk. Atomics.wait on a throwaway
+// buffer is the one sleep Node offers that blocks the thread.
+function sgSleep(ms) {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* spin instead */ }
+}
+
+function sgLockLog(dir) {
+  const lock = join(dir, SG_LOCK_NAME);
+  const until = Date.now() + SG_LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      // 'wx' is O_CREAT|O_EXCL|O_WRONLY: atomic on every filesystem this runs
+      // on, so holding it is holding the only successful create.
+      closeSync(openSync(lock, 'wx', SG_FILE_MODE));
+      return () => { try { rmSync(lock, { force: true }); } catch {} };
+    } catch {
+      try {
+        const st = statSync(lock);
+        if (Date.now() - st.mtimeMs > SG_LOCK_STALE_MS) {
+          // A writer killed between creating and removing it would otherwise
+          // stop every later write for the rest of the session.
+          try { rmSync(lock, { force: true }); } catch {}
+          continue;
+        }
+      } catch { /* vanished between the create and the stat; try again */ }
+      if (Date.now() >= until) return null; // write anyway, see above
+      sgSleep(10);
+    }
+  }
+}
+
 {
   const _wi = process.argv.indexOf('--sg-log-write');
   if (_wi !== -1) {
@@ -644,15 +707,25 @@ const AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_
         try {
           mkdirSync(_dir, { recursive: true, mode: SG_DIR_MODE });
           const _f = join(_dir, 'solongate-audit.jsonl');
-          appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
-          _narrow(_f);
+          const _unlock = sgLockLog(_dir);
+          try {
+            appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+            _narrow(_f);
+          } finally {
+            if (_unlock) _unlock();
+          }
         } catch {
           const _fb = join(resolve(homedir(), '.solongate'), 'local-logs');
           try { mkdirSync(_fb, { recursive: true, mode: SG_DIR_MODE }); } catch {}
           try {
             const _f = join(_fb, 'solongate-audit.jsonl');
-            appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
-            _narrow(_f);
+            const _unlock = sgLockLog(_fb);
+            try {
+              appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+              _narrow(_f);
+            } finally {
+              if (_unlock) _unlock();
+            }
           } catch {}
           try {
             writeFileSync(join(resolve(homedir(), '.solongate'), '.local-logs-invalid-path'),

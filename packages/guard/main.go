@@ -241,7 +241,9 @@ func observingDLP(sec *shared.Security) *observingCfg {
 // 111: require-sandbox verifies the marker against the kernel instead of
 // trusting its presence. See sandboxRequired in protected.go and
 // shared.VerifiedInSandbox; the full note is on HOOK_VERSION in the hook.
-const hookVersion = 111
+// 112: the audit log's lock. See HOOK_VERSION in the hook and
+// shared.AuditLockName for the rules both sides follow.
+const hookVersion = 112
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.

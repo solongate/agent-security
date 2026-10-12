@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/shared"
@@ -260,6 +262,20 @@ func readLogWithSize(file string) ([]byte, int64, bool) {
 // records every command an agent was refused, which is a log of what somebody
 // was working on. shared.FileMode is the number the rest of the product writes.
 func rewriteLog(file string, readSize int64, body []byte) bool {
+	// THE LOCK CLOSES WHAT THE SIZE CHECK COULD NOT. The check alone left the
+	// window between the stat and the write open: an append landing in those
+	// microseconds was still lost. The appender takes this same lock now, in the
+	// detached child that does the writing, so there is no window left.
+	//
+	// The size check stays, and is not redundant: it catches the case where an
+	// appender gave up waiting and wrote anyway, which it is allowed to do
+	// because losing the lock race must not lose the record.
+	unlock, ok := lockAuditLog(filepath.Dir(file))
+	if !ok {
+		return false
+	}
+	defer unlock()
+
 	st, err := os.Stat(file)
 	if err != nil {
 		return false
@@ -270,4 +286,37 @@ func rewriteLog(file string, readSize int64, body []byte) bool {
 		return false
 	}
 	return os.WriteFile(file, body, shared.FileMode) == nil
+}
+
+// lockAuditLog takes the lock the Node writer takes, and GIVES UP rather than
+// forcing it.
+//
+// The two sides fail in opposite directions on purpose, and shared.AuditLockName
+// says why: an appender that cannot get the lock writes anyway, because losing
+// the record is worse than racing. A rewriter that cannot get it does nothing,
+// because a delete that did not happen is visible to the person who pressed the
+// key and a vanished record is not.
+func lockAuditLog(dir string) (func(), bool) {
+	lock := filepath.Join(dir, shared.AuditLockName)
+	deadline := time.Now().Add(shared.AuditLockWaitMS * time.Millisecond)
+	for {
+		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, shared.FileMode)
+		if err == nil {
+			_ = f.Close()
+			return func() { _ = os.Remove(lock) }, true
+		}
+		// Somebody holds it, or a dead writer left it behind. A lock older than
+		// the stale window is broken: this is a log, and a killed writer must
+		// not stop every later one for the rest of the session.
+		if st, serr := os.Stat(lock); serr == nil {
+			if time.Since(st.ModTime()) > shared.AuditLockStaleAfterMS*time.Millisecond {
+				_ = os.Remove(lock)
+				continue
+			}
+		}
+		if time.Now().After(deadline) {
+			return nil, false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }

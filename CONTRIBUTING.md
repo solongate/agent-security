@@ -63,19 +63,33 @@ There is no test suite in this repository: no `_test.go` anywhere, and the
 conformance suite that judged both guards against each other was removed with
 nothing replacing it. The commands above tell you the code compiles.
 
-Three checks do tell you something about what it decides, and CI runs all
-three:
+Four checks do tell you something about what it decides. CI runs three of them
+on every push; the fourth needs a Mac and runs on one:
 
 ```bash
 ./.sg-parity-check.sh      # both guards, one policy file, fourteen verdicts
+./.sg-layers-check.sh      # every layer that refuses, twenty-six cases
 ./.sg-box-check.sh         # a closed box, twenty-two questions  (Linux, needs bwrap)
 ./.sg-seatbelt-check.sh    # the Seatbelt profile confines        (macOS)
 ```
 
-They are not coverage. Fourteen cases and one box is the two things somebody
-measured, kept measured, and what they catch is the class that has cost the
-most here: the two implementations drifting apart, and a sandbox reporting
-confinement it is not applying. Everything else is still on the pull request.
+Three questions, not one. Parity asks whether the two implementations reach the
+same verdict. Layers asks whether the layers do what they claim: DLP in all four
+modes, the rate limit, tamper with no policy loaded, the four constraint kinds,
+whitelist mode. Box asks whether the closed box is closed.
+
+Parity was the only one for a long time and it can only ever answer the first
+question. Two implementations agreeing says nothing about whether either is
+right. The layers check found the seventh divergence on its first run, in a
+place parity had no case for: the Go argument scan read one view of the text
+where the Node one read three, so a secret split across a quote boundary was
+refused by one guard and allowed by the other.
+
+Still not coverage. Forty cases is more than fourteen and neither number is a
+test suite. What they catch is the class that has cost the most here: the two
+implementations drifting apart, a layer that is configured but inert, and a
+sandbox reporting confinement it is not applying. Everything else is still on
+the pull request.
 
 Which puts the burden on the pull request. Run your change against a real agent
 and write down what you did: which client, which tool calls, what you expected,

@@ -124,7 +124,14 @@ JSON
 echo
 echo "[2] require-sandbox                 (before: Go only)"
 run_both "no marker -> refuse"      "$(call Read '{"file_path":"/etc/hostname"}' t5)" claude-code
-run_both "marker present -> allow"  "$(call Read '{"file_path":"/etc/hostname"}' t6)" claude-code SOLONGATE_SANDBOX=1
+# A SET ENV VAR IS NOT CONFINEMENT AND THIS CASE CHANGED MEANING.
+#
+# It used to read "marker present -> allow", and that was the bug: the marker is
+# an environment variable, any shell can export it, and exporting it was enough
+# to satisfy require-sandbox. Both guards now ask the kernel instead, so the
+# marker alone gets refused and the refusal names the forgery. Still a parity
+# case, just a case about agreeing to refuse rather than agreeing to allow.
+run_both "a forged marker is refused"  "$(call Read '{"file_path":"/etc/hostname"}' t6)" claude-code SOLONGATE_SANDBOX=1
 
 # ── 3. policy.agents scoping ─────────────────────────────────────────────────
 # toolPattern "*" is load-bearing here and not decoration: with the field absent
@@ -197,9 +204,9 @@ jv=$(grep -oE 'HOOK_VERSION *= *[0-9]+' "$J" | grep -oE '[0-9]+$')
 echo
 printf 'passed=%s  failed=%s\n' "$pass" "$fail"
 echo
-echo "KNOWN, NOT FIXED HERE: a rule whose JSON omits toolPattern never fires in"
-echo "the Go guard, generateToolPatternCondition(\"\") emits input.tool_name == \"\","
-echo "which no call satisfies, while the Node evaluator has no tool_pattern"
-echo "condition at all. Rules the TUI creates carry \"*\" and are unaffected; a"
-echo "hand-written policy file is silently unenforced on the fast path."
+echo "WHAT THIS DOES NOT MEASURE: the enforcement layers themselves. Fourteen"
+echo "cases here, all of them about the two implementations reaching the same"
+echo "verdict on the same input. Whether DLP, the rate limit, the four policy"
+echo "constraint kinds and whitelist mode do what they claim is a separate"
+echo "question, and ./.sg-layers-check.sh is where it is asked."
 [ "$fail" = 0 ]

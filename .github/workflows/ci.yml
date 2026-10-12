@@ -141,7 +141,7 @@ jobs:
       # and pass without looking at anything. A check that cannot fail reads as
       # coverage, which is worse than the absence it would be papering over.
 
-  # THE TWO CHECKS THIS REPOSITORY HAS, run rather than committed and forgotten.
+  # THE CHECKS THIS REPOSITORY HAS, run rather than committed and forgotten.
   #
   # There is no test suite here: no _test.go anywhere, and the conformance suite
   # that judged the two guard implementations against each other was removed with
@@ -149,18 +149,31 @@ jobs:
   # hand, and these two scripts are that written down. They were gitignored until
   # recently, then committed, and still ran nowhere.
   #
-  # Both work on a runner, which is why this job can exist. The parity check
-  # builds the guard and needs the hook bundle, both of which CI already does.
-  # The box check needs bwrap and a shell that is not itself confined, and a
-  # GitHub runner is both.
+  # All three work on a runner, which is why this job can exist. The parity and
+  # layers checks build the guard and need the hook bundle, both of which CI
+  # already does. The box check needs bwrap and a shell that is not itself
+  # confined, and a GitHub runner is both.
   #
-  # IT IS NOT A TEST SUITE AND THE NAME SAYS SO. Fourteen parity cases and
-  # twenty-two questions about one box is not coverage; it is the two things
-  # somebody measured, kept measured. What it catches is the class that has cost
-  # the most here: the two implementations drifting apart, and a sandbox that
-  # reports confinement it is not applying.
+  # WHAT EACH ONE ANSWERS, because they are three different questions:
+  #
+  #   parity  do the two implementations reach the same verdict?
+  #   layers  do the enforcement layers do what they claim?
+  #   box     is the closed box actually closed?
+  #
+  # Parity was here first and only ever asked the first question: fourteen cases,
+  # every one of them "go and js agree". Two implementations agreeing says
+  # nothing about whether either is right, and for a while that was the whole of
+  # what ran. The layers check is the second question, and writing it found the
+  # seventh divergence on its first run: the Go argument scan read one view of
+  # the text where the Node one read three, so a secret split across a quote
+  # boundary was refused by one guard and allowed by the other.
+  #
+  # STILL NOT A TEST SUITE. Forty cases is more than fourteen and neither number
+  # is coverage. What they catch is the class that has cost the most here: the
+  # two implementations drifting apart, a layer that is configured but inert, and
+  # a sandbox that reports confinement it is not applying.
   checks:
-    name: checks (parity, box)
+    name: checks (parity, layers, box)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -204,6 +217,15 @@ jobs:
       # finding, so it fails the build.
       - name: the two guards agree
         run: ./.sg-parity-check.sh
+
+      # Twenty-six cases driving both guards through every layer that refuses
+      # something: DLP in all four modes and on file content, the rate limit,
+      # tamper protection with no policy loaded at all, the four policy
+      # constraint kinds, whitelist mode, and a project-local policy file trying
+      # to turn tamper off. Each case asserts the same exit code from both
+      # implementations, so it is a parity check and a behaviour check at once.
+      - name: the layers enforce
+        run: ./.sg-layers-check.sh
 
       # Twenty-two questions about a closed box: what is absent, what still
       # works, the per-box network answer, and whether an unknown id is refused.

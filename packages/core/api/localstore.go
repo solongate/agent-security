@@ -317,13 +317,23 @@ func fromLayers(l SecurityLayers, keep *guardSecurity) *guardSecurity {
 	if custom == nil {
 		custom = []CustomPattern{}
 	}
+	// EXACTLY ONE OF THE THREE SHAPES, which is the invariant shared.Security
+	// documents and this function used to break: block mode wrote DLPBlock AND
+	// DLPRedact.
+	//
+	// It was inert while it lasted — the guard checks DLPBlock first and never
+	// consults DLPRedact once it is set — and it was a trap one edit away from
+	// mattering. Any surface that cleared DLPBlock without knowing about the
+	// second copy would leave DLPRedact behind, and the machine would go from
+	// refusing a secret to quietly masking one, with nothing on disk or in
+	// `doctor` to say the mode had changed.
 	rules := &dlpRules{Patterns: patterns, Custom: custom}
-	if l.DLP.Mode == LayerBlock {
+	switch l.DLP.Mode {
+	case LayerBlock:
 		out.DLPBlock = rules
+	case LayerRedact:
 		out.DLPRedact = rules
-	} else if l.DLP.Mode == LayerRedact {
-		out.DLPRedact = rules
-	} else if l.DLP.Mode == LayerDetect {
+	case LayerDetect:
 		out.DLPObserve = rules
 	}
 	return out

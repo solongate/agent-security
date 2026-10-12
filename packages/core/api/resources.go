@@ -121,10 +121,75 @@ func (p PoliciesAPI) Update(ctx context.Context, id string, policy PolicySet) (P
 	next.ID = s.Policy.ID
 	next.Mode = policyMode(&next)
 	s.Policy = &next
+
+	// THE LAYERS ARE MIRRORED UP TO THE TOP-LEVEL BLOCK, and without this the
+	// TUI's DLP and rate-limit editors wrote to a place nothing enforces.
+	//
+	// There are two shapes on disk for the same configuration. The POLICY
+	// carries `security` inside it, per variant, which is what the editor reads
+	// and writes and what an exported policy arrives in. The FILE carries a
+	// top-level `security` block, and that is the one the guard reads on every
+	// tool call — both implementations of it, and `doctor`, and the CLI.
+	//
+	// The TUI only ever wrote the first. `Policies.Update` is its one
+	// layer-writing path (see the save in tui/panels/policies.go, which fills
+	// PolicySet.Security and PolicyVariant.Security and calls nothing else), so
+	// a DLP mode set in the panel landed in the policy document and the guard
+	// went on reading the top-level block that nobody had touched. The panel
+	// printed a tick. `doctor` then read the nested block back through
+	// `guardSecurity`, which has no field for `dlp` at all and whose rateLimit
+	// has no `mode` — so DLP vanished and the rate limit survived as a non-nil
+	// block with every window at zero, which toLayers reads as block mode and
+	// doctor prints as StateOK: "rate limit: block · no window set".
+	//
+	// Mirrored here rather than fixed in the panel, for the same reason
+	// mirrorRulesIntoDefaultVariant lives in writeStore: this is the one
+	// function both surfaces go through, and a mirror maintained by each caller
+	// is a mirror that is wrong as soon as there is a third.
+	//
+	// The ACTIVE variant's layers win, because that is the variant being
+	// enforced. A policy with no layers at all leaves the block alone — an
+	// empty editor is not a statement that this machine configures nothing, and
+	// clearing DLP from under somebody by saving a rule is the bug in the other
+	// direction.
+	if lay := activeVariantLayers(&next); lay != nil {
+		s.Security = fromLayers(*lay, s.Security)
+	}
+
 	if err := writeStore(s); err != nil {
 		return PolicyDetail{}, err
 	}
 	return detailOf(&next), nil
+}
+
+// activeVariantLayers is the layers of the variant this policy says is in
+// force, or nil when it carries none.
+//
+// DefaultVariant names it; a policy with no variants carries its layers at the
+// top of its own document. Falling back to the first variant matches
+// mirrorRulesIntoDefaultVariant, so the rules and the layers that get mirrored
+// are always from the same variant — two mirrors disagreeing about which
+// variant is live would enforce one variant's rules with another's DLP.
+func activeVariantLayers(p *PolicySet) *SecurityLayers {
+	if p == nil {
+		return nil
+	}
+	if len(p.Variants) == 0 {
+		return p.Security
+	}
+	i := 0
+	if p.DefaultVariant != "" {
+		for j, v := range p.Variants {
+			if v.ID == p.DefaultVariant {
+				i = j
+				break
+			}
+		}
+	}
+	if p.Variants[i].Security != nil {
+		return p.Variants[i].Security
+	}
+	return p.Security
 }
 
 // Remove deletes the rules. THE LAYERS SURVIVE: a rate limit and a DLP

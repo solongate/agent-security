@@ -69,6 +69,21 @@ id_ed25519
 # Shell scripts (dev/test only)
 **/*.sh
 
+# EXCEPT THE TWO CHECKS, which are the only evidence this repository has.
+#
+# There is no test suite here: no _test.go anywhere, and the conformance suite
+# that used to judge the two guard implementations against each other was
+# removed. CONTRIBUTING asks a pull request to say what it ran by hand, and
+# these are that, written down so the next person re-runs a check rather than
+# reconstructing it.
+#
+# `**/*.sh` above exists because install.sh and the launcher are generated and
+# copied around, and a stray copy in a platform directory should not be
+# committed. It also swallowed these, so a check somebody wrote stayed on one
+# machine.
+!/.sg-parity-check.sh
+!/.sg-box-check.sh
+
 # ...except the installer, which is the first thing anybody runs.
 #
 # This rule swallowed it silently. `git add -A` skips an ignored file without a

@@ -131,8 +131,10 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 
 	if len(walked) > 0 {
 		rep.Notes = append(rep.Notes,
-			"a file created directly in "+strings.Join(walked, " ")+" from now on",
-			"is not reachable by the agent until it restarts")
+			"these directories are listable: "+strings.Join(walked, " "),
+			"nothing in them can be deleted, and a file created in one cannot then",
+			"be written — granting that would grant it on the protected file too.",
+			"`solongate sandbox` has none of these costs; see its --explain")
 	}
 
 	// no_new_privs is required by Landlock and the library sets it, but it is
@@ -185,10 +187,46 @@ func allowRules(deny []string) ([]landlock.Rule, []string, error) {
 		}
 	}
 
+	// THE WALKED DIRECTORY ITSELF GETS A RULE, and it did not before.
+	//
+	// Only its children were granted, so the directory had no rights of its own
+	// and `ls /home/you` and `mkdir /home/you/anything` were refused for as long
+	// as the agent ran. Measured and then written in the README as though it
+	// worked. Protecting one file in a home directory made the home directory
+	// unusable, which is not a trade anybody agreed to.
+	//
+	// What it gets is listing and creating, and NOT removing. The remove bits
+	// are the ones that matter here: REMOVE_FILE on a parent is exactly what
+	// `rm` needs to delete the child, so granting them would hand over the file
+	// this whole layer exists to keep. The denied child still has no rule of its
+	// own, so it cannot be opened, read, written or truncated either — the
+	// directory being listable does not make its contents reachable.
+	//
+	// EXECUTE IS NOT GRANTED EITHER, for a smaller reason: a directory does not
+	// need it and including it would let a file created here be run, which is
+	// one of the routes the string-matching layers cannot see.
+	//
+	// WHAT THIS STILL CANNOT DO, and it is a limit of the model rather than of
+	// this list: a file CREATED in a walked directory cannot then be written.
+	// Creating needs MAKE_REG on the directory, which is granted; writing needs
+	// WRITE_FILE on the new file, which has no rule of its own — and the only
+	// way to give it one is to grant WRITE_FILE on the directory, which Landlock
+	// applies to everything beneath it INCLUDING the protected child. So the
+	// choice is "list and create but not author" or "read and write everything,
+	// protected file included", and the first is the one that keeps the promise.
+	//
+	// `solongate sandbox` does not have this shape at all: an allow-list grants
+	// the project read-write as one rule and never walks an ancestor.
+	const walkedAccess = landlock.AccessFSSet(llsys.AccessFSReadDir |
+		llsys.AccessFSMakeDir | llsys.AccessFSMakeReg |
+		llsys.AccessFSMakeSym | llsys.AccessFSMakeFifo |
+		llsys.AccessFSMakeSock)
+
 	var rules []landlock.Rule
 	var walked []string
 	for dir := range onPath {
 		walked = append(walked, dir)
+		rules = append(rules, landlock.PathAccess(walkedAccess, dir).IgnoreIfMissing())
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			// An unreadable directory on the way grants nothing below it, which

@@ -1226,10 +1226,25 @@ func (p *Live) export(visible []streamItem, now int64) {
 		p.action = &flashMsg{text: "✗ export failed: " + err.Error(), level: "bad", until: now + 6000}
 		return
 	}
-	if err := os.WriteFile(file, []byte(b.String()), 0o644); err != nil {
+	// 0600 AND NOT 0644, and the mode matters more here than on the log it comes
+	// from.
+	//
+	// This file is WIDER than the audit log: the export row carries dlp[] and
+	// burst, which the log does not, so a reader who can open this learns which
+	// secrets a pattern matched and which calls tripped a limit. The log itself
+	// is 0600 inside a 0700 directory. An export of it at 0644 was the one file
+	// in the directory any local account could read, holding the most, and
+	// nothing chose that: 0644 is what os.WriteFile examples use.
+	if err := os.WriteFile(file, []byte(b.String()), 0o600); err != nil {
 		p.action = &flashMsg{text: "✗ export failed: " + err.Error(), level: "bad", until: now + 6000}
 		return
 	}
+	// CHMOD AS WELL AS THE MODE, because WriteFile only applies a mode when it
+	// CREATES the file. An export written once at 0644 keeps 0644 through
+	// every rewrite after it, so changing the constant fixes new machines and
+	// leaves every machine that already exported one exactly as it was. The
+	// chmod is what reaches those.
+	_ = os.Chmod(file, 0o600)
 	p.action = &flashMsg{
 		text:  "✓ exported " + strconv.Itoa(len(visible)) + " lines → " + file,
 		level: "ok", until: now + 6000,

@@ -315,3 +315,87 @@ func fixed0(v float64) string { return fmt.Sprintf("%d", int64(math.Round(v))) }
 // round-trips, and never an exponent at the magnitudes these fields carry. A
 // trust score of 75 has to read as 75, not 75.000000 and not 7.5e+01.
 func num(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
+// ── wrapping a line that is longer than the terminal ─────────────────────────
+
+// INDENTED CONTINUATION, because the alternative looked like a different
+// program had written the line.
+//
+// Every line this CLI prints is either a marked step or indented under one:
+//
+//	[  OK  ] guard hook file      present (v112)
+//	         open a new AI session for it to take effect
+//
+// Nine spaces is the width of the mark, so the unmarked lines sit in the column
+// the marked ones start in. That holds for as long as a line fits. The repair
+// note about a leftover credential does not, it is three sentences, and the
+// terminal wrapped it at column zero: the first line sat in the indented column
+// and the rest ran along the left margin, under the marks rather than beside
+// them.
+//
+// So the wrapping is done here, where the indent is known, rather than left to
+// the terminal, which does not know there is one.
+const markIndent = "         " // the width of "[  OK  ] "
+
+// termWidth is the usable width, or 0 when there is no terminal to measure.
+//
+// COLUMNS FIRST, because it is what the user set and what a pipe does not have.
+// The per-platform probe below is the real answer when the variable is absent,
+// and both are absent when this is a log file, which is the case that must not
+// wrap: a log has no width, and folding it at some assumed column makes every
+// line a guess.
+func termWidth() int {
+	if v := os.Getenv("COLUMNS"); v != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			return n
+		}
+	}
+	// stderr here is an io.Writer so tests can capture it, and a captured
+	// buffer has no file descriptor and no width.
+	f, ok := stderr.(*os.File)
+	if !ok || !isTerminal(f) {
+		return 0
+	}
+	return terminalColumns(f)
+}
+
+// wrapIndented folds text to the terminal width and puts every line, including
+// the first, in the indented column.
+//
+// Words longer than the available width are left alone rather than broken: they
+// are paths, and a path cut in half is a path somebody cannot copy. One long
+// path overflowing is a worse line; a broken one is a wrong line.
+func wrapIndented(text string) []string {
+	width := termWidth()
+	avail := width - len(markIndent)
+	// A narrow or unmeasurable terminal gets the text whole. Folding at a
+	// column that was guessed is not better than not folding.
+	if width == 0 || avail < 20 {
+		return []string{markIndent + text}
+	}
+
+	var out []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case len(line)+1+len(word) <= avail:
+			line += " " + word
+		default:
+			out = append(out, markIndent+line)
+			line = word
+		}
+	}
+	if line != "" {
+		out = append(out, markIndent+line)
+	}
+	return out
+}
+
+// noteln prints one unmarked line under the marked ones, wrapped.
+func noteln(text string) {
+	for _, l := range wrapIndented(text) {
+		errln(l)
+	}
+}

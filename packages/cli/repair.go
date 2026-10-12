@@ -56,8 +56,15 @@ func RunRepair([]string) int {
 	// Notes are conditions the repair cannot fix on the user's behalf, such as
 	// Codex needing `/hooks` run inside it once. They are not steps, so they do
 	// not get a mark; they are indented under the last one.
+	//
+	// WRAPPED, because their length is not known where they are written. Every
+	// note here used to be one short clause and this was a plain indent. The
+	// one about a leftover credential is three sentences and a path, the
+	// terminal folded it at column zero, and the continuation ran along the
+	// left margin underneath the marks instead of beside them. See
+	// wrapIndented.
 	for _, n := range rep.Notes {
-		errln("         " + n)
+		noteln(n)
 	}
 	markOK(rep.Message)
 	// SAID HERE AND NOWHERE ELSE. A client reads its hooks when it starts, so a

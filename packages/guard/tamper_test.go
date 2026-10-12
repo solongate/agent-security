@@ -189,3 +189,110 @@ func TestTamperRefusalNamesTheLayer(t *testing.T) {
 		t.Errorf("the refusal does not name the layer: %q", got)
 	}
 }
+
+// ── The parser underneath ────────────────────────────────────────────────────
+
+// A HEREDOC IS WHERE A COMMAND HIDES A COMMAND.
+//
+// `cat <<EOF > f` is followed by lines that are DATA, not commands, and a sweep
+// that reads them as commands refuses ordinary work: a shell script written into
+// a file by an agent mentions paths constantly. Read the delimiter wrong and the
+// body is swept; read it too greedily and a real command after the heredoc is
+// skipped, which is the direction that misses an attack.
+func TestReadHeredocDelimiter(t *testing.T) {
+	cases := []struct {
+		name, cmd string
+		at        int
+		delim     string
+		quoted    bool
+	}{
+		{"plain", "cat <<EOF\nbody\nEOF\n", 6, "EOF", false},
+		{"tab stripping form", "cat <<-EOF\nbody\nEOF\n", 6, "EOF", false},
+		{"space before it", "cat << EOF\n", 6, "EOF", false},
+		// QUOTED IS A DIFFERENT LANGUAGE. An unquoted delimiter means the shell
+		// expands $VAR and $(...) in the body, so the body can contain a real
+		// command substitution; a quoted one means it cannot. The flag is what
+		// lets the caller treat the two differently.
+		{"single quoted", "cat <<'EOF'\n", 6, "EOF", true},
+		{"double quoted", "cat <<\"EOF\"\n", 6, "EOF", true},
+		{"terminated by a pipe", "cat <<EOF|wc\n", 6, "EOF", false},
+		{"terminated by a semicolon", "cat <<EOF;\n", 6, "EOF", false},
+		// Nothing after `<<` at all. Returning a delimiter here would make the
+		// rest of the command a heredoc body and skip it entirely.
+		{"nothing after it", "cat <<", 6, "", false},
+	}
+	for _, c := range cases {
+		delim, quoted, after := readHeredocDelimiter(c.cmd, c.at)
+		if delim != c.delim {
+			t.Errorf("%s: delimiter %q, want %q", c.name, delim, c.delim)
+		}
+		if quoted != c.quoted {
+			t.Errorf("%s: quoted=%v, want %v", c.name, quoted, c.quoted)
+		}
+		if after < c.at || after > len(c.cmd) {
+			t.Errorf("%s: resume index %d is outside the command", c.name, after)
+		}
+	}
+}
+
+// A PATH IS COMPARED AFTER IT IS NORMALISED, and the two normalisations are
+// each a bypass somewhere.
+func TestNormTamperPath(t *testing.T) {
+	ours := ".solon" + "gate"
+	cases := []struct{ in, want string }{
+		// Case, because Windows and macOS both have case-insensitive filesystems
+		// by default: a rule written in lower case is walked around by typing the
+		// path in capitals.
+		{"/Home/U/." + "Solongate" + "/Hooks", "/home/u/" + ours + "/hooks"},
+		// Separator, because a Windows path uses backslashes and every rule in
+		// the list is written with forward ones.
+		{`C:\Users\u\.solon` + `gate\hooks`, "c:/users/u/" + ours + "/hooks"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := normTamperPath(c.in); got != c.want {
+			t.Errorf("normTamperPath(%q)=%q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// EXTRACTION IS WHAT THE SWEEP ACTUALLY SEES.
+//
+// A path this does not return is a path no rule can refuse, so the cases are the
+// argument shapes real clients send rather than the ones that are easy to parse.
+func TestExtractTargetPaths(t *testing.T) {
+	ours := "/home/u/.solon" + "gate/hooks/x.mjs"
+	cases := []struct {
+		name string
+		args map[string]interface{}
+	}{
+		{"file_path", map[string]interface{}{"file_path": ours}},
+		{"path", map[string]interface{}{"path": ours}},
+		{"notebook_path", map[string]interface{}{"notebook_path": ours}},
+	}
+	for _, c := range cases {
+		got := extractTargetPaths(c.args)
+		found := false
+		for _, g := range got {
+			if g == ours {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: the path was not extracted, so no rule can refuse it: %v", c.name, got)
+		}
+	}
+
+	// Odd shapes must not panic and must not invent paths. A client that sends a
+	// number or a nested object is a client whose calls still have to be swept.
+	for _, args := range []map[string]interface{}{
+		nil,
+		{},
+		{"file_path": nil},
+		{"file_path": 42},
+		{"file_path": []interface{}{"a", 1}},
+		{"path": map[string]interface{}{"nested": ours}},
+	} {
+		_ = extractTargetPaths(args)
+	}
+}

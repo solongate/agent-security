@@ -56,8 +56,8 @@ type Security struct {
 	// ever on disk and a mode cannot accidentally do a stronger mode's work.
 	//
 	// There used to be two modes wearing three names. "detect" set DLPRedact, so
-	// it masked the model's view of every secret it found — which is redacting,
-	// not detecting — and "block" set both, so the only difference between them
+	// it masked the model's view of every secret it found, which is redacting,
+	// not detecting, and "block" set both, so the only difference between them
 	// was whether an argument hit also refused the call. A read whose secret was
 	// in the FILE behaved identically in both: allowed, masked, and recorded as
 	// clean. Somebody asking for detect got redaction they did not ask for, and
@@ -73,7 +73,7 @@ type Security struct {
 	// present and a layer cannot accidentally enforce the observing one.
 	//
 	// Read by the post-tool audit hook on clients that have one, and by the
-	// guard itself on clients that do not — where nothing else runs, so a
+	// guard itself on clients that do not, where nothing else runs, so a
 	// detect-mode burst that is not counted here is not counted anywhere.
 	RateLimitObserve *RateLimit `json:"rateLimitObserve"`
 	LocalLogs        *LocalLogs `json:"localLogs"`
@@ -103,7 +103,7 @@ type Security struct {
 	// repository and the box for a scratch experiment want different
 	// directories and often different answers about the network, and a single
 	// setting made somebody edit it every time they changed what they were
-	// working on — which is the kind of friction that ends with the feature
+	// working on, which is the kind of friction that ends with the feature
 	// switched off.
 	//
 	// THE OTHER WAY ROUND FROM ProtectedPaths, and that is the point of both
@@ -148,7 +148,7 @@ type Sandbox struct {
 	// neither answer is safe in general. Off is a box nothing can leave, and
 	// an agent that cannot reach its model cannot do anything either. On lets
 	// the agent work and leaves exfiltration to the DLP and egress layers,
-	// which read what is leaving — something a mount namespace cannot do.
+	// which read what is leaving, something a mount namespace cannot do.
 	//
 	// Defaults to ON when a box is created, because that is the box that works;
 	// the TUI says what the choice costs rather than choosing quietly.
@@ -208,8 +208,8 @@ func (p *Policy) AppliesTo(client string) bool {
 
 // PolicyCache mirrors ~/.solongate/.policy-cache-<agent>.json.
 //
-// Security is a pointer on purpose. `null` there is an ANSWER — the API sent no
-// security block, so this project has none — and it has to stay distinguishable
+// Security is a pointer on purpose. `null` there is an ANSWER, the API sent no
+// security block, so this project has none, and it has to stay distinguishable
 // from "the field was absent". Collapsing the two is what once made a stale
 // device-wide marker decide where audit entries went.
 type PolicyCache struct {

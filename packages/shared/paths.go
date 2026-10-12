@@ -15,8 +15,8 @@ import (
 //
 // Owner-only, because this directory holds credentials and the policy cache. It
 // is declared HERE rather than at each call site because several programs create
-// the same directory — the guard through this package, the CLI through
-// core/config, the hooks in JavaScript — and the first one to run decides the
+// the same directory, the guard through this package, the CLI through
+// core/config, the hooks in JavaScript, and the first one to run decides the
 // mode. They disagreed: one used 0700 and another 0755, so which mode the
 // directory ended up with depended on which program a machine happened to run
 // first.
@@ -29,7 +29,7 @@ const (
 // already there.
 //
 // MkdirAll applies a mode only when it CREATES, so a directory made by an older
-// version — or by another one of these programs — keeps whatever it had. Chmod is
+// version, or by another one of these programs, keeps whatever it had. Chmod is
 // best effort: it must not stop the guard from working on a filesystem with no
 // POSIX bits.
 func EnsureSGDir() error {
@@ -199,7 +199,7 @@ func GuessPermission(tool string) string {
 // ── the audit log's lock ─────────────────────────────────────────────────────
 //
 // WHAT IT IS FOR, which is one operation and not the log in general. Every tool
-// call appends a line, and O_APPEND writes are atomic against each other — a
+// call appends a line, and O_APPEND writes are atomic against each other, a
 // burst of concurrent hooks never corrupts the file and needs no lock. The one
 // unsafe operation is the TUI's delete and clear: read the whole file, decide
 // what it should say, write it back. Anything appended in between is in neither

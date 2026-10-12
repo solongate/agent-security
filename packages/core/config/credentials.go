@@ -13,7 +13,7 @@ import (
 // comment about where every command talks. Nothing read it. It is deleted rather
 // than kept because the README's claim is that this tool makes no network calls,
 // and an address constant in the config package is the first thing a reader
-// checking that claim finds — a URL nothing dials still has to be explained
+// checking that claim finds, a URL nothing dials still has to be explained
 // away. core/api/client.go takes no address, which is the real answer.
 
 // Credential is ~/.solongate/cloud-guard.json.
@@ -25,7 +25,7 @@ type Credential = shared.Credential
 
 // A key has to look real before anything is enforced with it. The guard applies
 // the same test and it matters more than it looks: an unusable key means "no
-// project selected", which means allow — so a typo silently disarms the guard
+// project selected", which means allow, so a typo silently disarms the guard
 // rather than erroring.
 //
 // ONE DEFINITION OF "REAL", in packages/shared. A second copy of the body
@@ -50,7 +50,7 @@ func LoadCredentialFile() Credential {
 // working directory, "the way the hooks do", for machines set up before device
 // login existed. Nothing called it, and a credential reader aimed at the
 // AGENT'S OWN working directory is the wrong shape to leave lying around in a
-// tool whose job is to stop secrets leaving that directory — it reads a project
+// tool whose job is to stop secrets leaving that directory, it reads a project
 // .env on the hot side of the boundary. The hooks no longer read a credential
 // either (see HOOK_VERSION 99 in the Node guard: two file reads left the hot
 // path of every tool call).
@@ -60,7 +60,7 @@ func LoadCredentialFile() Credential {
 // The account layer: an accounts.json holding every account ever logged in on the
 // device, a Resolver that produced a key and URL per request with a five-second cache
 // and a "view" override so the TUI could read one account while another was
-// enforcing, and the writers that kept the two files consistent — SaveAccount,
+// enforcing, and the writers that kept the two files consistent. SaveAccount,
 // RemoveAccount, SetActiveAccount, ClearActiveCredential. Plus EnforcingKey,
 // IsActiveAccount and ErrNotAuthenticated, whose message named a panel that is gone.
 //

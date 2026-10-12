@@ -18,8 +18,8 @@ import (
 // the client reports nothing at all.
 //
 // What was wrong is WHICH absolute path. Both implementations resolved the
-// symlink first — resolveNode calls filepath.EvalSymlinks and the npm package
-// gets the same effect for free, because process.execPath is already resolved —
+// symlink first, resolveNode calls filepath.EvalSymlinks and the npm package
+// gets the same effect for free, because process.execPath is already resolved,
 // so on the machines where this bit:
 //
 //	Homebrew  /opt/homebrew/bin/node is a symlink into
@@ -36,7 +36,7 @@ import (
 //
 // When the recorded path is gone the client spawns a command that cannot start.
 // Nothing is enforced, nothing is logged, and every check this CLI had still
-// said "guard registered" — because it was registered. It could not run.
+// said "guard registered", because it was registered. It could not run.
 //
 // WHAT IT DOES
 //
@@ -69,7 +69,7 @@ const BeatDirName = ".beat"
 // directory a package manager deletes, and there is no /bin/sh to launch from.
 //
 // `/bin/sh <script>` rather than executing the launcher directly, so the file
-// never needs its executable bit — which also means an install that could not
+// never needs its executable bit, which also means an install that could not
 // chmod still produces a launcher that runs.
 func hookCommand(p Paths, node, script, client, label string) string {
 	target := filepath.ToSlash(filepath.Join(p.HooksDir, script))

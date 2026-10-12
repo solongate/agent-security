@@ -72,7 +72,7 @@ type StreamRow struct {
 //
 // `loc` tags where the record IS: LOC (a line in this machine's local log)
 // against CLD (the cloud audit log). With local storage off nothing is LOC,
-// which is the whole point of the setting — the label answers "where is this
+// which is the whole point of the setting, the label answers "where is this
 // stored", never "where did this happen". It was changed to the second reading
 // once and changed back.
 //
@@ -89,8 +89,8 @@ func streamLine(e StreamRow, selected, date bool, width int) string {
 	}
 	// A LOC/CLD column stood here, from a `loc bool` parameter. Every entry on every
 	// surface comes from this machine's own audit file, so the column distinguished
-	// nothing — and labelled some of them "cloud".
-	evalText, evalColor := "—", theme.Dim
+	// nothing, and labelled some of them "cloud".
+	evalText, evalColor := ", ", theme.Dim
 	if e.EvalMs != nil {
 		evalText = num(*e.EvalMs) + "ms"
 		if *e.EvalMs > 500 {
@@ -137,8 +137,8 @@ func streamLine(e StreamRow, selected, date bool, width int) string {
 // panelHeading, table and bar were here: a boxed-panel title helper, a
 // fixed-width aligned table over Column/Cell, and a labelled horizontal bar.
 // Nothing called any of them. Each panel builds its rows from renderRow and the
-// seg helpers directly, because each needs its own column behaviour — the audit
-// browser ellipsises a reason, Solo Live right-aligns a duration — and a shared
+// seg helpers directly, because each needs its own column behaviour, the audit
+// browser ellipsises a reason, Solo Live right-aligns a duration, and a shared
 // table that none of them could use was a component in name only.
 //
 // The bar is the one worth a note: Solo Live draws its TRAFFIC and HEARTBEAT
@@ -206,7 +206,7 @@ func helpBlock(groups []helpGroup, keyWidth, width int) []string {
 // whyBlock is the WHY of one entry, rendered above its arguments.
 //
 // The detail view used to open on the arguments alone. For a one-line command
-// that was almost readable — the rule id sat in the header and the rest could be
+// that was almost readable, the rule id sat in the header and the rest could be
 // guessed. For a real tool call it was a screen of JSON with the answer nowhere
 // on it: the reason the guard gave was recorded, and thrown away at display
 // time, because the row's `detail` field holds the arguments OR the reason and
@@ -214,7 +214,7 @@ func helpBlock(groups []helpGroup, keyWidth, width int) []string {
 //
 // So the three things that refuse a call now say so in words, before the
 // payload: which layer it was (policy rule, rate limit, DLP), and the guard's
-// own sentence explaining it. That sentence is the reliable one — it is written
+// own sentence explaining it. That sentence is the reliable one, it is written
 // at block time and never redacted, which is why reasonSignals reads the DLP
 // pattern name back out of it when the structured field is missing.
 //

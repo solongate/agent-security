@@ -17,7 +17,7 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-// `solongate trace` — what the guard saw, locally, for THIS directory.
+// `solongate trace`, what the guard saw, locally, for THIS directory.
 //
 // It exists because the audit log cannot answer the question people actually
 // ask, which is "my rule names that directory, why did nothing happen".

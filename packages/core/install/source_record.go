@@ -20,7 +20,7 @@ import (
 //
 // IT CAN BE ABSENT AND THAT IS NORMAL. An npm install has no checkout; a checkout can be
 // moved or deleted after the fact. Every reader here treats "no source" and "the source
-// is gone" the same way — as a question to answer, not a failure.
+// is gone" the same way, as a question to answer, not a failure.
 
 const sourceRecordName = ".installed-from"
 
@@ -56,7 +56,7 @@ func InstalledFrom() (string, bool) {
 }
 
 // CheckoutRoot finds the repository this binary was built in, by walking up from the
-// packaged hook source — which is the one directory an install already knows how to find.
+// packaged hook source, which is the one directory an install already knows how to find.
 func CheckoutRoot() (string, bool) {
 	dir, ok := hookSourceDir()
 	if !ok {

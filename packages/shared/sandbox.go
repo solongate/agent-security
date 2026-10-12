@@ -42,7 +42,7 @@ func SandboxMarker(mode, version string) string { return mode + ":" + version }
 //
 // THE UNVERIFIED ANSWER, kept because two callers want exactly that: the eval
 // record stamps what the call claimed, and `doctor` reports the claim beside
-// whether it held. Nothing that REFUSES a call may use this — see
+// whether it held. Nothing that REFUSES a call may use this, see
 // VerifiedInSandbox.
 func InSandbox() bool { return os.Getenv(SandboxEnv) != "" }
 
@@ -75,7 +75,7 @@ func SandboxMode() string {
 //	box  /proc/1/comm is the box's own init. A mount namespace gives the
 //	     process its own /proc, in which PID 1 is bwrap rather than the host's
 //	     systemd. Faking it means being PID 1 in a namespace, which means being
-//	     in one — and a namespace an agent built for itself grants it nothing it
+//	     in one, and a namespace an agent built for itself grants it nothing it
 //	     did not already have.
 //
 //	run  a protected path cannot be opened for reading. Outside the Landlock
@@ -87,7 +87,7 @@ func SandboxMode() string {
 // WHAT IS INCONCLUSIVE, stated rather than discovered: `run` with no protected
 // paths has nothing to probe against, and a protected path that does not exist
 // on disk is skipped. A machine in that state gets "could not tell", and
-// require-sandbox refuses — which is the switch doing what its name says.
+// require-sandbox refuses, which is the switch doing what its name says.
 func VerifiedInSandbox(protectedPaths []string) (confined, conclusive bool) {
 	switch SandboxMode() {
 	case "":

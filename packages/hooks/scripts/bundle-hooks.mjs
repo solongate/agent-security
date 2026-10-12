@@ -6,7 +6,7 @@
 // The guard hook evaluates policy through OPA WASM (@open-policy-agent/opa-wasm).
 // A GLOBAL install (init --global) drops the hook as a lone file referenced from
 // ~/.claude/settings.json, so the opa-wasm runtime must be inlined here at build
-// time — otherwise `import('@open-policy-agent/opa-wasm')` would MODULE_NOT_FOUND
+// time, otherwise `import('@open-policy-agent/opa-wasm')` would MODULE_NOT_FOUND
 // on the host and enforcement would silently fail-closed (DENY everything).
 //
 // Output (guard.bundled.mjs) is committed and shipped in the npm package; the

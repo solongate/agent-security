@@ -14,8 +14,8 @@
  * release URL is a second supply chain, and for a security tool that is the
  * wrong trade even when it is smaller.
  *
- * Both binaries go in ONE platform package. They are separate programs — the
- * guard runs per tool call, the CLI is what a human types — but they ship and
+ * Both binaries go in ONE platform package. They are separate programs, the
+ * guard runs per tool call, the CLI is what a human types, but they ship and
  * version together, and two packages would let a machine hold one of each from
  * different releases.
  *
@@ -70,7 +70,7 @@ try {
  * The two programs, and where each one's module lives.
  *
  * `bin` is the name the hook and the launcher look for, so it is part of the
- * contract rather than a build detail — packages/hooks/hooks/guard.mjs resolves
+ * contract rather than a build detail, packages/hooks/hooks/guard.mjs resolves
  * exactly `solongate-guard` inside the platform package.
  */
 const PROGRAMS = [
@@ -79,7 +79,7 @@ const PROGRAMS = [
 ];
 
 // A THIRD PROGRAM USED TO BE HERE and it broke this script outright. It built
-// `./cmd/solongate-browser` from `packages/shadowbridge` — a browser-side agent
+// `./cmd/solongate-browser` from `packages/shadowbridge`, a browser-side agent
 // that is not part of this release and whose module is not in this repository.
 //
 // The failure was worth more than the missing feature, because it named the wrong
@@ -88,11 +88,11 @@ const PROGRAMS = [
 //
 //     Error: spawnSync go ENOENT   path: 'go'
 //
-// on a machine with a perfectly good Go toolchain on PATH — and gobin.mjs next
+// on a machine with a perfectly good Go toolchain on PATH, and gobin.mjs next
 // door exists entirely to make that message mean what it says. Anyone reading it
 // would have gone looking for their Go install.
 //
-// `pkg` — the package to build inside a module, defaulting to its root — is kept
+// `pkg`, the package to build inside a module, defaulting to its root, is kept
 // even though both programs now build from theirs. It is what lets a module ship
 // more than one command, which is a thing this repository has needed before and
 // will again.

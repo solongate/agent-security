@@ -86,7 +86,7 @@ and the agent says so rather than quietly working around it.
 | --- | --- |
 | **Policy rules** | Allow or deny by path, command, filename or URL, scoped to READ, WRITE, EXECUTE or NETWORK. |
 | **DLP** | 70 built in secret patterns plus your own, in four modes: `off`, `detect`, `redact`, `block`. |
-| **Egress** | In block mode, refuses an upload whose file holds a secret — which pattern matching on the call alone cannot see. |
+| **Egress** | In block mode, refuses an upload whose file holds a secret, which pattern matching on the call alone cannot see. |
 | **Rate limits** | A cap per minute, hour or day. |
 | **The prompt** | A shim masks the outbound request body on Claude Code, which no tool call hook can reach. |
 | **Tamper protection** | The guard's own state is unreachable from a tool call, and a policy in a repository cannot switch it off. |
@@ -135,7 +135,7 @@ working.
 What does NOT keep working, and this line used to claim it did: making a new
 directory, or listing one, anywhere on the path down to a protected file.
 Landlock has no deny rule, so protecting `/home/you/game/game.c` is written
-as a grant on every sibling at every level above it — and a directory that
+as a grant on every sibling at every level above it, and a directory that
 was walked through grants nothing on itself. `ls /`, `ls ~` and
 `mkdir ~/anything` are refused for as long as the agent runs. `solongate
 sandbox` has none of that cost, because an allow-list is the shape Landlock
@@ -148,7 +148,7 @@ was not started this way. It fails closed, so it is off until you turn it on.
 
 A protected path protects what you remembered to name. That list never has
 `~/.ssh` on it, or a sibling customer's repository, or the credentials of a
-tool you installed last month — and those are what an agent reaching too far
+tool you installed last month, and those are what an agent reaching too far
 actually finds.
 
 So the other direction: name the one directory the agent may work in, and
@@ -161,14 +161,14 @@ solongate sandbox --explain 001   # everything that is in that box
 ```
 
 Boxes are made in the TUI's **Sandbox** section. Each gets an id from `001`,
-and deleting one frees its id for the next — the number names a slot, not a
+and deleting one frees its id for the next, the number names a slot, not a
 history, because it is something you type every time you start an agent.
 `sandbox 1 claude` and `sandbox 001 claude` are the same box.
 
 Inside, the agent's root is a tmpfs holding only the project at
 `/workspace`, its own program read-only at `/opt/agent`, a read-only
 runtime, a private `/proc` and a `/dev` with six nodes. `$HOME`,
-`/etc/passwd`, `/root`, `/var` and every other project are not refused —
+`/etc/passwd`, `/root`, `/var` and every other project are not refused,
 they are not there. `ls /` returns eleven entries and every one was chosen.
 `HOME` points inside the project, so whatever the agent keeps is next to the
 code it kept it about.
@@ -181,14 +181,14 @@ box's own processes are visible.
 
 **The network is each box's own choice**, and it is the one hole that is not
 a filesystem hole. On, the agent can reach its model and what leaves over
-the wire is the DLP and egress layers' job — they read content, which a
+the wire is the DLP and egress layers' job, they read content, which a
 mount namespace cannot. Off, nothing leaves at all and the agent is useful
 only for work that needs no model.
 
 It is built with [bubblewrap](https://github.com/containers/bubblewrap), so
 `bwrap` has to be installed. A missing one is a refusal naming the package
 rather than a fall back to `solongate run`: a box that quietly became a
-permission layer would claim more than it does. Linux only — macOS and
+permission layer would claim more than it does. Linux only, macOS and
 Windows have no namespaces and refuse for the same reason.
 
 ### `run` or `sandbox`
@@ -227,15 +227,15 @@ invokes them. Two are not gated that way:
 - `run` is exempt on purpose. It changes nothing: it starts a process with
   MORE restriction than the caller had, never less, so the worst an agent
   achieves by invoking it is confining itself. Gating it broke the case the
-  feature exists for — the shell shim launches the agent through `solongate
+  feature exists for, the shell shim launches the agent through `solongate
   run`, so the safe path became unavailable from scripts, CI and any IDE that
   spawns the agent itself. `run --explain` IS gated, because it prints the
   whole protected list where a refusal only ever names the path that was
   attempted.
 - `update` is exempt because it re-runs the installer, which needs the
-  terminal the installer writes to. It is the higher-leverage of the two —
+  terminal the installer writes to. It is the higher-leverage of the two,
   it moves the checkout and reinstalls the guard, the hooks and the client
-  registrations — so it does not rest on this gate alone: the tamper layer
+  registrations, so it does not rest on this gate alone: the tamper layer
   refuses any tool call whose command names the CLI, `update` included.
 
 `solongate --help` is the full tree of what is documented here; `tui`,

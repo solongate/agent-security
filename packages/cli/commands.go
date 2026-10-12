@@ -35,7 +35,7 @@ var Names = []string{
 var LocalNames = []string{}
 
 // handler is one command. It returns the process exit code, and an error only
-// for failures that should be rendered the same way everywhere — an API
+// for failures that should be rendered the same way everywhere, an API
 // rejection, an unreachable cloud, a missing login. A command that simply has
 // nothing to show returns (0, nil) and prints its own line.
 type handler func(ctx context.Context, c *api.Client, p parsedArgs) (int, error)
@@ -101,7 +101,7 @@ func Runner(name string) func([]string) int {
 //
 // There used to be a third case ahead of those: `errors.Is(e,
 // api.ErrNotAuthenticated)`, printing "not logged in". Nothing could return that
-// error — there is no service to authenticate to — so the branch was unreachable
+// error, there is no service to authenticate to, so the branch was unreachable
 // and the only thing it did was tell a reader this CLI has a login.
 func report(e error) int {
 	if errors.Is(e, context.Canceled) {

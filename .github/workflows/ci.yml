@@ -53,14 +53,14 @@ jobs:
   # Landlock file, a Seatbelt file, an icacls file and a refuse-everything
   # fallback; guard and core/install each had a pair. Every CI job ran on
   # ubuntu-latest, so the darwin and windows halves were checked by nothing at
-  # all — the Seatbelt profile and the Windows deny were as good as whatever
+  # all, the Seatbelt profile and the Windows deny were as good as whatever
   # somebody last typed into them. Cross-compiling here is cheap and catches the
   # whole class: an undefined symbol, a syscall that does not exist on that GOOS,
   # a constant renamed on one side of a tag.
   #
   # IT DOES NOT RUN ANYTHING, and the job name says compile for that reason.
   # Landlock needs a Linux kernel, the closed box needs a mount namespace, and
-  # Seatbelt needs a Mac — so this proves the code builds for those platforms
+  # Seatbelt needs a Mac, so this proves the code builds for those platforms
   # and nothing about whether the confinement holds there. The honest version of
   # that is in the package comments, which say which platform has been measured.
   cross:

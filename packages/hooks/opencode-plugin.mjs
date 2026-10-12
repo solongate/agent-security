@@ -8,7 +8,7 @@
  * process, and a tool call is refused by throwing from `tool.execute.before`.
  *
  * So this file is a shim, not an engine. It spawns the same guard every other
- * client runs and turns its answer into the shape OpenCode wants — which keeps
+ * client runs and turns its answer into the shape OpenCode wants, which keeps
  * one implementation of policy, DLP, rate limiting and auditing
  * instead of a second one that drifts.
  *
@@ -44,7 +44,7 @@ const CONVERSATION = join(HOOKS_DIR, 'conversation.mjs');
 //
 // NOT process.execPath: OpenCode runs plugins inside its own Bun-based binary,
 // so in here process.execPath is `.../opencode-ai/bin/opencode.exe`. Spawning
-// THAT with the guard as an argument does not run the guard — it re-runs
+// THAT with the guard as an argument does not run the guard, it re-runs
 // opencode with nonsense arguments, which exits non-2, which this shim reads as
 // "allowed". The result was a guard that never guarded and never said so.
 // Measured: execPath=/…/opencode-ai/bin/opencode.exe, versions.bun=1.3.14.
@@ -55,7 +55,7 @@ const NODE = NODE_BAKED.startsWith('__SOLONGATE') || !existsSync(NODE_BAKED) ? '
 // node at RUN time and leaves the beat every other client leaves.
 //
 // The baked path above is `process.execPath` from the install, and on a Mac
-// that is a Homebrew Cellar path or an nvm version directory — both deleted by
+// that is a Homebrew Cellar path or an nvm version directory, both deleted by
 // a routine upgrade. The `'node'` fallback then needs PATH to have one, which
 // is exactly the assumption that does not hold inside a hook environment. The
 // launcher tries the baked path first, then PATH, then everywhere a Mac keeps a
@@ -110,7 +110,7 @@ function denyReason(res) {
     const j = JSON.parse(res.stdout);
     const r = j?.hookSpecificOutput?.permissionDecisionReason;
     if (typeof r === 'string' && r.trim()) return r.trim();
-  } catch { /* not JSON — fall back to stderr */ }
+  } catch { /* not JSON, fall back to stderr */ }
   const line = String(res.stderr || '').split('\n').map((s) => s.trim()).filter(Boolean).pop();
   return line || 'Blocked by SolonGate.';
 }
@@ -147,7 +147,7 @@ function redactedOutput(res) {
 const pending = new Map();
 const MAX_PENDING = 64;
 
-// textOf joins the text parts of a message and ignores the rest — a file
+// textOf joins the text parts of a message and ignores the rest, a file
 // attachment or a tool call is not something a person said. A synthetic part
 // is one OpenCode wrote itself, which is not either.
 function textOf(parts) {
@@ -217,7 +217,7 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
       // A text part of a message. `text` is the WHOLE text so far rather than a
       // delta, so the last one wins and nothing is concatenated.
       // numberOr keeps a missing or nonsense count out of a spend figure. A
-      // field this SDK version does not declare — info.tokens.total is one —
+      // field this SDK version does not declare, info.tokens.total is one,
       // arrives undefined rather than zero, and Number(undefined) is NaN.
       const numberOr = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
 
@@ -230,8 +230,8 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
         return;
       }
 
-      // The message finished. Anything else — a user message, one still being
-      // written — is not a completed answer and is left alone.
+      // The message finished. Anything else, a user message, one still being
+      // written, is not a completed answer and is left alone.
       if (event.type === 'message.updated') {
         const info = event.properties?.info;
         if (!info || info.role !== 'assistant' || !info.time?.completed) return;
@@ -251,7 +251,7 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
           const reasoning = numberOr(t.reasoning);
           const cacheRead = numberOr(t.cache?.read);
           const cacheWrite = numberOr(t.cache?.write);
-          // OpenCode's own total when it sends one — it counts reasoning
+          // OpenCode's own total when it sends one, it counts reasoning
           // ALONGSIDE output rather than inside it, which is its convention and
           // not ours to reconcile.
           const total = numberOr(t.total) || input + output + reasoning + cacheRead + cacheWrite;
@@ -292,7 +292,7 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
     //     return V;
     //
     // and Plugin.trigger is `for (const h of hooks) await h(input, output);
-    // return output` — no clone, the hook is awaited, and the object handed to
+    // return output`, no clone, the hook is awaited, and the object handed to
     // it is the one returned to the model. So assigning to a field of `output`
     // here changes what the model reads. Verified against the installed binary
     // (opencode 1.18.16): both the per-tool path and the MCP/subtask paths pass
@@ -310,7 +310,7 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
     // refuse the call, which is the safe direction. Here the tool has already
     // run and its result exists: there is nothing left to refuse, and throwing
     // would lose the output entirely rather than protect it. Block mode is what
-    // covers the case where masking is not good enough — the guard refuses the
+    // covers the case where masking is not good enough, the guard refuses the
     // read before it happens (see dlpRedactReadPlan), which is the half of this
     // that cannot fail open.
     'tool.execute.after': async (input, output) => {
@@ -326,7 +326,7 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
       const masked = redactedOutput(res);
       if (masked === null) return;
       // The hook returns the shape it was given. It was given
-      // `output.output` — a string for every text-producing tool — so a string
+      // `output.output`, a string for every text-producing tool, so a string
       // back is assigned straight to it. An object back means the hook
       // preserved a structured result's shape, and the field it belongs in is
       // the one it came from.

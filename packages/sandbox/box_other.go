@@ -10,7 +10,7 @@ import "errors"
 // back to.
 //
 // macOS has no namespaces; its sandbox is Seatbelt, which is a permission layer
-// like Landlock — it can refuse a path and cannot remove it. Windows has no
+// like Landlock, it can refuse a path and cannot remove it. Windows has no
 // equivalent either outside a container runtime. Both get `solongate run`,
 // which is honest about being the weaker thing.
 //

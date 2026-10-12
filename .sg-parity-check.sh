@@ -2,7 +2,7 @@
 # Runs the Go guard and the bundled Node guard against the SAME machine policy
 # and compares verdicts. Exit 2 = deny, 0 = allow.
 #
-# Not a test suite — there is none in this repository. This is the by-hand
+# Not a test suite, there is none in this repository. This is the by-hand
 # evidence CONTRIBUTING.md asks a pull request to carry, written down so the next
 # person can re-run it instead of reconstructing it.
 #
@@ -18,7 +18,7 @@ if [ -z "$G" ]; then
   (cd "$REPO/packages/guard" && go build -o "$G" .) || { echo "guard build failed"; exit 1; }
 fi
 J="$REPO/packages/hooks/guard.bundled.mjs"
-[ -f "$J" ] || { echo "no bundle at $J — run: node packages/hooks/scripts/bundle-hooks.mjs"; exit 1; }
+[ -f "$J" ] || { echo "no bundle at $J, run: node packages/hooks/scripts/bundle-hooks.mjs"; exit 1; }
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
@@ -67,8 +67,8 @@ run_both() {
     if [ -n "$gr" ] && [ "$gr" = "$jr" ]; then
       note "reason identical: $gr"
     elif printf '%s%s' "$gr" "$jr" | grep -q 'Blocked by policy'; then
-      # The policy layer's WORDING comes from two different engines — OPA emits a
-      # rule description, the JS evaluator builds a match sentence — which is a
+      # The policy layer's WORDING comes from two different engines. OPA emits a
+      # rule description, the JS evaluator builds a match sentence, which is a
       # divergence of its own and not one of the five being fixed here. Recorded,
       # not failed.
       note "reason wording differs (policy layer, known):"
@@ -198,7 +198,7 @@ echo
 printf 'passed=%s  failed=%s\n' "$pass" "$fail"
 echo
 echo "KNOWN, NOT FIXED HERE: a rule whose JSON omits toolPattern never fires in"
-echo "the Go guard — generateToolPatternCondition(\"\") emits input.tool_name == \"\","
+echo "the Go guard, generateToolPatternCondition(\"\") emits input.tool_name == \"\","
 echo "which no call satisfies, while the Node evaluator has no tool_pattern"
 echo "condition at all. Rules the TUI creates carry \"*\" and are unaffected; a"
 echo "hand-written policy file is silently unenforced on the fast path."

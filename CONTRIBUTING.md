@@ -37,7 +37,7 @@ the tests.
 
 `sandbox` is its own module rather than a directory under `core`, and the
 reason is measurable: it is the only package here that needs go-landlock, and
-`core` is one module — so while it lived there, everything that imported
+`core` is one module, so while it lived there, everything that imported
 `core/api` resolved go-landlock too, which was four of the eight go.mod files
 for a dependency three of them never call. Nothing inside `core` imported it;
 only `cli` and `tui` do.

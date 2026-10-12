@@ -24,7 +24,7 @@ var scratchFiles = map[string]bool{
 //
 // Those per-call flags used to live beside whatever the agent happened to be
 // working on, which scattered a dot-folder through every directory an agent had
-// ever touched — config folders and repos without an ignore rule included. They
+// ever touched, config folders and repos without an ignore rule included. They
 // live under ~/.solongate/projects/<key> now; this removes what is left behind
 // wherever an agent runs again.
 //
@@ -39,7 +39,7 @@ func sweepLegacyScratch() {
 	dir := filepath.Join(cwd, ".solongate")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return // not there, or not readable — either way nothing to do
+		return // not there, or not readable, either way nothing to do
 	}
 	remaining := 0
 	for _, e := range entries {
@@ -65,7 +65,7 @@ func sweepLegacyScratch() {
 //
 // It carries the CALL's identity rather than just the tool name. Matching on the
 // name alone mislabels a DIFFERENT call that merely follows a denial inside the
-// flag's ten-second window — and on Codex every shell call is named "Bash", so
+// flag's ten-second window, and on Codex every shell call is named "Bash", so
 // an allowed `echo hi` right after a blocked `cat secret` was filed as a denial
 // though it ran normally.
 //

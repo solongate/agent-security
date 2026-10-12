@@ -9,7 +9,7 @@
 #
 # WHY A SCRIPT RATHER THAN FOUR COMMANDS IN THE README. The four were: install the
 # workspace, bundle the hooks, build this host's binaries, then run the freshly
-# built binary BY PATH — `./packages/hooks/platforms/linux-x64/solongate repair` —
+# built binary BY PATH, `./packages/hooks/platforms/linux-x64/solongate repair`,
 # because the `solongate` on PATH still pointed at an older install. That last one
 # is not a command anybody should have to know, it names a directory that depends
 # on the machine, and getting it wrong looks like the product being broken rather
@@ -19,8 +19,8 @@
 # with the failures named.
 #
 # IT CANNOT BE USED BY AN AGENT, and that is not this script's doing. Every command
-# in the CLI changes a security posture — policies, rate limits, DLP, the guard
-# itself — so the CLI refuses to run without a terminal on both stdin and stdout,
+# in the CLI changes a security posture, policies, rate limits, DLP, the guard
+# itself, so the CLI refuses to run without a terminal on both stdin and stdout,
 # which an agent tool call never has. Run from an agent, the build steps here
 # succeed and the install step is refused, which is the correct outcome and is
 # reported as such rather than left to look like a bug.
@@ -306,7 +306,7 @@ mark_ok "Toolchain: node $(node -v), pnpm $(pnpm --version), $("$go_bin" version
 #     ╰──────────────────────────────────────────╯
 #
 # It is about pnpm, it is not a problem, and it lands directly under a line saying
-# the warnings above are expected — so it reads as the next thing that went wrong,
+# the warnings above are expected, so it reads as the next thing that went wrong,
 # in the install of a security tool, where somebody is already watching for trouble.
 # It was reported as an error the first time anybody saw it.
 #
@@ -336,7 +336,7 @@ GO_BIN="$go_bin" run "Building the guard and CLI for $tag" "Built the guard and 
 
 # WHY THE BINARY IS RUN BY PATH HERE, which is the thing this script exists to
 # stop a person doing: the `solongate` on PATH, if there is one, is whatever was
-# installed before — an older release, or nothing. Asking it to install itself
+# installed before, an older release, or nothing. Asking it to install itself
 # would install the old version over the new one. So the freshly built binary is
 # the one that arranges the machine, exactly once, and every run after this is
 # plain `solongate`.
@@ -345,7 +345,7 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
 		"Everything above this point succeeded: the build is done." \
 		"" \
 		"The install step is refused because every command in the SolonGate CLI" \
-		"changes a security posture, so the CLI requires a terminal — which an AI" \
+		"changes a security posture, so the CLI requires a terminal, which an AI" \
 		"agent's tool call does not have. This is deliberate." \
 		"" \
 		"Run ./install.sh yourself, in your own terminal."
@@ -379,7 +379,7 @@ fi
 # AND IF SOMETHING IS ALREADY THERE, IT MAY NOT BE THIS. That was the first version
 # of this block: it found a `solongate` on PATH, reported success and stopped. What
 # it found was an npm install from months earlier, whose launcher resolves the
-# platform package shipped BESIDE IT before it ever looks in the store — so the
+# platform package shipped BESIDE IT before it ever looks in the store, so the
 # command kept running a binary from a different build entirely, while the guard
 # enforcing every tool call was the new one. Two versions, one name, and the only
 # visible symptom was a screen that looked unfamiliar.
@@ -398,7 +398,7 @@ for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
 	[ -d "$dir" ] && [ -w "$dir" ] || continue
 
 	# A real file is somebody else's install, not a link this script can replace. Keep
-	# it — renamed, not deleted — so the change can be undone by hand.
+	# it, renamed, not deleted, so the change can be undone by hand.
 	if [ -e "$dir/solongate" ] && [ ! -L "$dir/solongate" ]; then
 		mv "$dir/solongate" "$dir/solongate.before-solongate-install" || continue
 		say "moved an existing $dir/solongate aside as solongate.before-solongate-install"

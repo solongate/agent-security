@@ -20,9 +20,9 @@ import (
 	"github.com/solongate/agent-security/packages/core/config"
 )
 
-// Live — the fullscreen realtime ops console.
+// Live, the fullscreen realtime ops console.
 //
-// Copying: SPACE toggles COPY MODE — the screen freezes completely (polls skip,
+// Copying: SPACE toggles COPY MODE, the screen freezes completely (polls skip,
 // in-flight responses are dropped, the tick halts) so terminal mouse selection
 // works and the user copies whatever they want. There is no auto-copy key.
 //
@@ -33,7 +33,7 @@ import (
 // desktop toast.
 //
 // TRAFFIC uses 10-second buckets over the last 10 minutes, anchored to
-// wall-clock slots — fast flow with activity, zero movement without.
+// wall-clock slots, fast flow with activity, zero movement without.
 
 func init() { Register(SectionLive, func(d Deps) Panel { return newLive(d) }) }
 
@@ -50,11 +50,11 @@ type streamItem struct {
 	Detail     string `json:"detail"`
 	// Args is what the guard RECORDED, verbatim, for the w/b keys to build a rule
 	// from. Detail is the same JSON collapsed onto one line for display, and it was
-	// what the action re-parsed — a display string standing in for data.
+	// what the action re-parsed, a display string standing in for data.
 	Args json.RawMessage `json:"-"`
 	// Reason is the guard's own sentence for the decision, kept SEPARATE from
 	// Detail. Detail is the arguments or the reason, whichever exists, so on a
-	// call with arguments — which is every real one — the reason was dropped and
+	// call with arguments, which is every real one, the reason was dropped and
 	// the inspector had nothing to explain the refusal with.
 	Reason string `json:"reason,omitempty"`
 	DLP    bool   `json:"dlp"`
@@ -184,7 +184,7 @@ type Live struct {
 	stats *api.Stats
 	// eval is the guard's own decision time, in milliseconds, one sample per entry
 	// read. It was `lat`: the round trip of the audit fetch, which read a file on this
-	// machine — see evalNow.
+	// machine, see evalNow.
 	eval   []int
 	local  []streamItem
 	merged []streamItem
@@ -199,7 +199,7 @@ type Live struct {
 	//
 	// `eval` above holds what each decision COST, one entry per decision, and the chart
 	// drawn from it only moved when a decision arrived. On a machine nobody was driving
-	// it was a frozen picture under a live console — and a frozen picture is exactly what
+	// it was a frozen picture under a live console, and a frozen picture is exactly what
 	// a hung program looks like, so the pane could not answer the question it existed to
 	// answer: is this still running?
 	//
@@ -313,7 +313,7 @@ func (m liveLocalResult) Generation() int { return m.gen }
 // read of the same audit file.
 //
 // The panel had two planes: `local`, tailed straight off the log, and `cloud`, fetched
-// through the audit API — which on this build reads that same file. So every call was
+// through the audit API, which on this build reads that same file. So every call was
 // ingested twice, rebuildMerged deduped the copies on tool|decision|minute, and the
 // survivors were tagged LOC or CLD. A person watching saw rows labelled "cloud" for
 // work that had never left their machine, a source filter that filtered one file from
@@ -360,8 +360,8 @@ func (p *Live) Init(ctx PanelContext) tea.Cmd {
 	p.openedAt = ctx.Now.UnixMilli()
 	p.start = ctx.Now
 	// Poll budget, about 40 requests a minute: feed 3s, stats 8s, sessions 8s,
-	// insights 20s, guard 60s. The 24h timeseries poll was dropped entirely —
-	// TRAFFIC is derived from the buffer — which is what pays for this cadence
+	// insights 20s, guard 60s. The 24h timeseries poll was dropped entirely,
+	// TRAFFIC is derived from the buffer, which is what pays for this cadence
 	// without risking the API's own rate limit.
 	return tea.Batch(
 		p.pollLocal(), p.pollStats(), p.pollInsights(), p.pollGuard(),
@@ -383,7 +383,7 @@ func (p *Live) paused() bool { return p.frozen || time.Now().UnixMilli() < p.pau
 // command to see what it does, and a tick command's whole job is to wait for
 // its interval first.
 //
-// The local plane is disk, not network, so only copy mode stops it — a
+// The local plane is disk, not network, so only copy mode stops it, a
 // rate-limit back-off is the API asking for room and has nothing to do with
 // reading a file this machine wrote.
 func (p *Live) shouldPoll(kind int) bool {
@@ -409,7 +409,7 @@ func (p *Live) pollLocal() tea.Cmd {
 		// THE FILE IS ALWAYS READ. This was `if setting.Enabled`, on the reasoning that
 		// a project which had turned local storage off should not have old LOC rows
 		// appear in its stream. Both writers record unconditionally now, and the
-		// setting resolved nothing but "off" for a while — so this panel skipped the
+		// setting resolved nothing but "off" for a while, so this panel skipped the
 		// one file the guard had been writing to all along.
 		res.lines = parseLocalLines(tailLines(setting.File, defaultTailBytes))
 		lines := tailLines(ringPath(), 8192)
@@ -623,8 +623,8 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 		id := "l:" + strconv.FormatInt(j.At, 10) + ":" + j.Tool + ":" + strconv.Itoa(p.localSeq)
 		p.localSeq++
 		// The structured dlp field is an array of pattern names when it is there
-		// at all. When it is not, the reason carries the name — it is written at
-		// block time and never redacted — which is what reasonSignals reads.
+		// at all. When it is not, the reason carries the name, it is written at
+		// block time and never redacted, which is what reasonSignals reads.
 		var dlpNames []string
 		if len(j.DLP) > 0 {
 			_ = json.Unmarshal(j.DLP, &dlpNames)
@@ -655,7 +655,7 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 	//
 	//	00:11:18 • 43ms · 111 calls
 	//
-	// — the machine's entire recorded history, attributed to the one second somebody
+	//, the machine's entire recorded history, attributed to the one second somebody
 	// happened to start looking. It made the first beat meaningless and the chart open
 	// with a spike that never happened.
 	backfill := p.lastLocalTS == 0
@@ -686,8 +686,8 @@ func (p *Live) ingestLocal(lines []localLogLine) {
 		p.eval = p.eval[len(p.eval)-240:]
 	}
 	// A "local +N calls" line stood here, pushed on every poll that saw fewer than ten
-	// new rows. The heartbeat now reports the same second with more in it — the cost as
-	// well as the count — so this was the same event twice, one line apart:
+	// new rows. The heartbeat now reports the same second with more in it, the cost as
+	// well as the count, so this was the same event twice, one line apart:
 	//
 	//	00:26:15 ▸ local +1 calls
 	//	00:26:15 • 30ms · 1 call
@@ -719,7 +719,7 @@ func (p *Live) apiError(err error, now int64) tea.Cmd {
 		p.pushLog("rate limited by api · backing off 30s", "warn", now)
 	case isNet:
 		// Transient network blips (an idle socket, a resume) are common and
-		// self-heal on the next poll — stay quiet unless it persists.
+		// self-heal on the next poll, stay quiet unless it persists.
 		p.netFails++
 		if p.netFails == 3 {
 			p.pushLog("network unreachable · retrying…", "warn", now)
@@ -733,7 +733,7 @@ func (p *Live) apiError(err error, now int64) tea.Cmd {
 // beat appends one sample to the heartbeat trace and clears what it consumed.
 //
 // Called from the animation tick, so the trace keeps moving through a poll that fails or
-// a cadence that has gone slow — which is precisely when somebody is looking at this pane
+// a cadence that has gone slow, which is precisely when somebody is looking at this pane
 // to find out whether anything is still alive.
 // ONE BEAT EVERY FIVE SECONDS. The animation tick runs at 500ms because a spinner needs
 // to look like it is spinning; a heartbeat at that rate is a flicker, and it pushed real
@@ -742,7 +742,7 @@ func (p *Live) apiError(err error, now int64) tea.Cmd {
 // AND THE NUMBERS GO IN THE EVENT LOG, because the chart cannot carry them. A column of
 // a certain height says "slower than the others" and nothing more: not how slow, and not
 // whether the machine was busy or idle while it happened. Those are the two things worth
-// knowing about a beat, so each one writes them down — the cost of the slowest decision
+// knowing about a beat, so each one writes them down, the cost of the slowest decision
 // in that second, and how many calls there were to decide.
 func (p *Live) beat(now int64) {
 	ms, calls := p.pulsePending, p.pulseCalls
@@ -772,7 +772,7 @@ func (p *Live) pushLog(msg, level string, now int64) {
 // rebuildMerged orders the stream.
 //
 // It used to MERGE, and the name is what is left of that: two planes, deduped against
-// each other on tool|decision|minute because the same call arrived twice — once tailed
+// each other on tool|decision|minute because the same call arrived twice, once tailed
 // off the log and once fetched through the audit API, which reads the same file. The
 // heuristic was load-bearing and approximate, which is the kind of thing that quietly
 // hides a real second call. There is one plane, so there is nothing to reconcile.
@@ -881,8 +881,8 @@ func (p *Live) flushToasts(now int64) tea.Cmd {
 //
 // Gating on the call timestamp rather than on a "the first scan seeds the seen
 // set" flag is what fixes the backlog spam: that flag armed on the empty first
-// tick, before any data had loaded, so the whole historical backlog — arriving
-// a tick later — counted as new and dumped a wall of toasts on every open.
+// tick, before any data had loaded, so the whole historical backlog, arriving
+// a tick later, counted as new and dumped a wall of toasts on every open.
 func (p *Live) notifySecurityEvents(ctx PanelContext) []tea.Cmd {
 	var cmds []tea.Cmd
 	for _, e := range p.merged {
@@ -949,7 +949,7 @@ func (p *Live) signalOK(e streamItem) bool {
 func (p *Live) filtered() []streamItem {
 	out := make([]streamItem, 0, len(p.merged))
 	for _, e := range p.merged {
-		// A source filter stood here — all → local → cloud. Everything is from one
+		// A source filter stood here, all → local → cloud. Everything is from one
 		// file, so it filtered that file from itself.
 		if !p.matches(e) || !p.signalOK(e) {
 			continue
@@ -1156,7 +1156,7 @@ func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 			return liveActionResult{gen: gen, text: "✗ " + err.Error(), level: "bad"}
 		}
 		// Active-policy gate for BOTH sources, mirroring the API: with no policy
-		// active nothing is granted — not allow, not deny. Resolved fresh on
+		// active nothing is granted, not allow, not deny. Resolved fresh on
 		// every action so deactivating in the dashboard applies immediately.
 		active, err := client.Policies.Active(ctx, "")
 		if err != nil {
@@ -1164,13 +1164,13 @@ func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 		}
 		if active.Policy == nil || active.Policy.ID == "" {
 			return liveActionResult{gen: gen, level: "bad",
-				text: "✗ no active policy — rule NOT added. Activate a policy first (Policies section)."}
+				text: "✗ no active policy, rule NOT added. Activate a policy first (Policies section)."}
 		}
 		// THE SAME RULE THE AUDIT BROWSER WOULD MAKE. This had two branches: an entry
 		// from the store went through Audit.Whitelist/Block, which builds the rule from
 		// the recorded arguments and REFUSES when there is nothing to narrow on; an
 		// entry read off the log got a local extractor that looked for no url and took
-		// only the BASENAME of a path — and, when it found nothing, left Kind "tool"
+		// only the BASENAME of a path, and, when it found nothing, left Kind "tool"
 		// and silently allowed every call to that tool forever.
 		//
 		// The store branch went dead when the second read did, so every `w` was taking
@@ -1206,8 +1206,8 @@ func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 
 // extractTarget lived here: a second reader of a call's target, over the DISPLAY string
 // rather than the recorded arguments. It differed from the store's in two ways that
-// decided how wide a policy got — no url, and the basename of a path instead of the path
-// — so whitelisting one denial from the stream and from the audit browser produced two
+// decided how wide a policy got, no url, and the basename of a path instead of the path
+//, so whitelisting one denial from the stream and from the audit browser produced two
 // different rules. api.RuleSpecFor is the one answer now.
 
 func (p *Live) export(visible []streamItem, now int64) {
@@ -1240,7 +1240,7 @@ func (p *Live) export(visible []streamItem, now int64) {
 
 // The WHOLE frame must fit in ctx.Rows, which the shell already set to one less
 // than the terminal's height. At the terminal's full height Ink abandoned
-// in-place diffing and did clearTerminal plus a full rewrite on every render —
+// in-place diffing and did clearTerminal plus a full rewrite on every render,
 // a constant flicker that showed up as "glitching" as soon as bright content
 // (rate-limit and DLP columns, alert banners) was on screen. The thresholds
 // below are the terminal heights from the TypeScript, minus that one row.
@@ -1294,8 +1294,8 @@ func (p *Live) activeAction(now int64) *flashMsg {
 // Hint is what the boxed layout shows while Live is selected but not opened.
 func (p *Live) Hint(ctx PanelContext) string {
 	return strings.Join([]string{
-		renderRow(ctx.Cols, sgb("▶ REALTIME CONSOLE — THIS MACHINE", theme.AccentBright)),
-		renderRow(ctx.Cols, sg("Fullscreen live monitor — streaming tool calls, active charts,", theme.Dim)),
+		renderRow(ctx.Cols, sgb("▶ REALTIME CONSOLE: THIS MACHINE", theme.AccentBright)),
+		renderRow(ctx.Cols, sg("Fullscreen live monitor, streaming tool calls, active charts,", theme.Dim)),
 		renderRow(ctx.Cols, sg("counters, DLP hits and denial alerts. Updates every 2s.", theme.Dim)),
 		"",
 		renderRow(ctx.Cols, plain("press "), sg("enter", theme.Accent), plain(" to go live")),
@@ -1342,14 +1342,14 @@ func (p *Live) titleBar(ctx PanelContext, width int, now int64, spin string) str
 		{text: " SOLONGATE LIVE ", fg: lipgloss.Color("15"), bg: lipgloss.Color(hexTitleBG), bold: true},
 		// `· api <n>ms` stood here, the round trip of the audit fetch. What is worth a
 		// place in the title is what ENFORCEMENT costs, which is measured per call and
-		// recorded in every entry — see the GUARD COST pane.
+		// recorded in every entry, see the GUARD COST pane.
 		{text: " " + spin + " up " + fmtUp(now-p.start.UnixMilli()) + " · " + hhmmss(now) +
 			" · guard " + strconv.Itoa(p.evalNow()) + "ms ", fg: theme.White, bg: lipgloss.Color(hexPanelBG)},
 	}
 	lastDeny := p.lastDeny()
 	switch {
 	case p.frozen:
-		segs = append(segs, seg{text: " ⏵ COPY MODE — screen frozen, select & copy freely · space resume ",
+		segs = append(segs, seg{text: " ⏵ COPY MODE, screen frozen, select & copy freely · space resume ",
 			fg: lipgloss.Color(hexOKFG), bg: lipgloss.Color(hexOKBG), bold: true})
 	case now < p.pausedUntil:
 		segs = append(segs, seg{text: " RATE LIMITED · backing off ",
@@ -1366,7 +1366,7 @@ func (p *Live) titleBar(ctx PanelContext, width int, now int64, spin string) str
 // WHAT ENFORCEMENT COSTS, in milliseconds per decision.
 //
 // These were latNow and latMedian over p.lat, which held the round-trip time of the
-// audit fetch — a read of a file on this machine, so the number was a measure of the
+// audit fetch, a read of a file on this machine, so the number was a measure of the
 // local disk and was labelled "API LATENCY". It charted nothing anybody could act on.
 //
 // The guard measures its own decision time and writes it into every entry, which is the
@@ -1445,7 +1445,7 @@ var liveHelp = []helpGroup{
 func (p *Live) viewHelp(ctx PanelContext, width int, now int64) []string {
 	lines := []string{
 		p.titleBar(ctx, width, now, spinFrames[p.tick%len(spinFrames)]),
-		renderRow(width, sgb("LIVE — all keys", theme.AccentBright)),
+		renderRow(width, sgb("LIVE, all keys", theme.AccentBright)),
 		"",
 	}
 	lines = append(lines, helpBlock(liveHelp, 20, width)...)
@@ -1488,7 +1488,7 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 	}
 	head = append(head, sg("  ← back", theme.Dim))
 
-	evalText := "—"
+	evalText := ", "
 	evalColor := lipgloss.TerminalColor(nil)
 	if e.EvalMs != nil {
 		evalText = num(*e.EvalMs) + "ms"
@@ -1498,20 +1498,20 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 	}
 	perm := e.Permission
 	if perm == "" {
-		perm = "—"
+		perm = ", "
 	}
 	agent := e.Agent
 	if agent == "" {
-		agent = "—"
+		agent = ", "
 	}
 	session := e.Session
 	if session == "" {
-		session = "—"
+		session = ", "
 	}
 	rule := e.Rule
 	ruleColor := lipgloss.TerminalColor(theme.Dim)
 	if rule == "" {
-		rule = "—"
+		rule = ", "
 	} else if e.Decision != "ALLOW" {
 		ruleColor = theme.Bad
 	}
@@ -1682,7 +1682,7 @@ func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) [
 	// full-width red bar across the panel for seven hits. It read as an
 	// emergency and measured nothing, because a bar compares and there was
 	// nothing to compare against. Naming the pattern beside it did not help
-	// either — with one pattern the name sat next to what was really the total,
+	// either, with one pattern the name sat next to what was really the total,
 	// so the row said "AWS access key" where it meant "all of them".
 	//
 	// The panel is a summary of the layers. How many hits, over what window, is
@@ -1769,7 +1769,7 @@ func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) [
 
 func orDash(n int) string {
 	if n == 0 {
-		return "—"
+		return ", "
 	}
 	return strconv.Itoa(n)
 }
@@ -1863,7 +1863,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	// TRAFFIC is always the LIVE window: 10-second buckets over the last 10
 	// minutes, anchored to wall-clock slots. Bars slide left as real time passes
 	// and age out naturally, so an hours-old deny can never paint a giant red
-	// column. There is no historical fallback — an idle window is an honest flat
+	// column. There is no historical fallback, an idle window is an honest flat
 	// floor, not a rescaled 24h chart.
 	nowSlot := now / 10_000
 	traffic := make([]int, 60)
@@ -1928,7 +1928,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		sg(padEnd(modeOr(dl.mode()), 7), modeColor(dl.mode())),
 		sg(strconv.Itoa(builtinN)+" builtin · "+strconv.Itoa(customN)+" custom", theme.Dim)))
 	// ONE LINE, AND NO BAR. Each pattern was drawn as a bar scaled against the
-	// busiest, which makes the busiest full width by construction — so a single
+	// busiest, which makes the busiest full width by construction, so a single
 	// pattern was a full-width red bar across the panel for seven hits, reading
 	// as an emergency and measuring nothing, because a bar compares and there was
 	// nothing to compare against. Ten columns of label cut "AWS access key" to
@@ -2008,7 +2008,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 
 	body := []string{p.searchRow(width, len(visible))}
 	switch {
-	// A "local logs off — enable: TUI → Settings or dashboard → Settings" row stood
+	// A "local logs off, enable: TUI → Settings or dashboard → Settings" row stood
 	// first here. Recording is unconditional: the setting chooses the folder and nothing
 	// else, so `off` is a state the writers cannot be in and the row could not appear.
 	case p.localOn != nil && *p.localOn && !p.localSetting.UsableHere:
@@ -2016,16 +2016,16 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		// another machine. Saying so beats showing a path nothing writes to.
 		body = append(body, renderRow(width,
 			sg("local logs on", theme.Warn),
-			sg(" — "+p.localSetting.ConfiguredPath+" is not a folder on this device · writing to "+
+			sg(", "+p.localSetting.ConfiguredPath+" is not a folder on this device · writing to "+
 				p.localSetting.File, theme.Dim)))
 	case p.localOn != nil && *p.localOn && len(p.local) == 0:
 		body = append(body, renderRow(width,
 			sg("local logs on", theme.OK),
-			sg(" — no entries yet · hooks write "+p.localSetting.File, theme.Dim)))
+			sg(", no entries yet · hooks write "+p.localSetting.File, theme.Dim)))
 	}
 	if len(visible) == 0 {
-		// A source filter used to make this ambiguous — "awaiting traffic" reads as
-		// "nothing is happening" when the stream is merely filtered — so it said which
+		// A source filter used to make this ambiguous, "awaiting traffic" reads as
+		// "nothing is happening" when the stream is merely filtered, so it said which
 		// source was selected. There is one source. The signal and search filters can
 		// still empty the view, and they are visible in the status bar.
 		body = append(body, renderRow(width, sg(spin+" awaiting traffic…", theme.Dim)))
@@ -2043,7 +2043,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	}
 
 	// A source indicator stood here, with the `f` key that cycled it, because the
-	// filter was otherwise discoverable only through the ? overlay — the stream looked
+	// filter was otherwise discoverable only through the ? overlay, the stream looked
 	// like it merged local and cloud with no way to separate them. It merged one file
 	// with itself.
 	localState := "off"
@@ -2060,7 +2060,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	}
 	top := joinCounts(topTools, " ")
 	if top == "" {
-		top = "—"
+		top = ", "
 	}
 	return append(lines, renderRow(width,
 		seg{text: " LIVE ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
@@ -2108,8 +2108,8 @@ func columnChart(series []int, hot []bool, height, width, floor int, color, hotC
 	// console ONE call drew a full-height bar. Technically a 100% increase over nothing,
 	// and useless: every reading looked like a spike, and a real spike looked the same.
 	//
-	// The floor is what the caller considers a normal maximum — the amber threshold for
-	// decision cost, a busy second's traffic for call counts — so a bar only approaches
+	// The floor is what the caller considers a normal maximum, the amber threshold for
+	// decision cost, a busy second's traffic for call counts, so a bar only approaches
 	// the top when it is genuinely near that. Above the floor the scale still grows, so
 	// nothing is ever clipped.
 	max := floor
@@ -2175,8 +2175,8 @@ func hbar(label string, value, max, width int, color lipgloss.TerminalColor, max
 // `height` lines.
 //
 // The height and the clipping have to happen HERE, on the row, not on the
-// individual columns. They used to be split — a fixed height on the row and
-// hidden overflow on the columns — which clips nothing: a column with no height
+// individual columns. They used to be split, a fixed height on the row and
+// hidden overflow on the columns, which clips nothing: a column with no height
 // of its own sizes to its content, so there was no boundary to clip against and
 // a column taller than the budget simply grew the whole frame past its limit.
 // That is the full repaint the budget exists to avoid, and it is why LAYERS

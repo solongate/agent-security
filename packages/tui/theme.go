@@ -32,7 +32,7 @@ var ansiNames = map[string]string{
 }
 
 // colorOf accepts what tui-config.json's `accent` may hold: a chalk colour name
-// or a hex string. Anything else falls back rather than erroring — an accent is
+// or a hex string. Anything else falls back rather than erroring, an accent is
 // decoration, and a typo in it must not stop the TUI from opening.
 func colorOf(name, fallback string) lipgloss.Color {
 	n := strings.TrimSpace(name)
@@ -98,7 +98,7 @@ func setAccent(accent string) {
 //
 // WHAT THIS DOES NOT TOUCH: the glyphs. ✓ ✗ ! and the block characters in the
 // graphs carry state as well as the colour does, which is why the rows stay
-// readable once the palette is flat — see the Live panel. A terminal that
+// readable once the palette is flat, see the Live panel. A terminal that
 // cannot draw them is a separate problem and this is not a fix for it.
 func noColor() bool {
 	if os.Getenv("NO_COLOR") != "" {
@@ -117,7 +117,7 @@ func flatten() {
 		return
 	}
 	// lipgloss renders an empty Color as no escape sequence at all, which is
-	// what NO_COLOR asks for — not a different colour, no colour.
+	// what NO_COLOR asks for, not a different colour, no colour.
 	var none lipgloss.Color
 	theme.Accent, theme.AccentBright = none, none
 	theme.OK, theme.Warn, theme.Bad = none, none, none
@@ -372,7 +372,7 @@ func agoAt(atMs int64, now time.Time) string {
 // The formats are the ones that actually arrive. ISO with a zone comes from the
 // hooks and from the API; the space-separated form is what SQLite hands back on
 // some routes and JavaScript reads it as LOCAL time, so it is parsed local here
-// too — reading it as UTC would slide every such row by the machine's offset
+// too, reading it as UTC would slide every such row by the machine's offset
 // and the two implementations would disagree about when a call happened.
 func parseMillis(s string) (int64, bool) {
 	v := strings.TrimSpace(s)

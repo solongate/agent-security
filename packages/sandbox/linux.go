@@ -72,7 +72,7 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 
 	// THE ABI IS PROBED RATHER THAN ASSUMED, and this is a correctness fix as
 	// much as a feature. BestEffort().RestrictPaths returns nil on a kernel with
-	// no Landlock at all — the library's own documented behaviour — and this
+	// no Landlock at all, the library's own documented behaviour, and this
 	// function used to set Enforced = true unconditionally after it. On a 5.12
 	// kernel, WSL1, or a distribution that leaves landlock out of CONFIG_LSM,
 	// `solongate run` printed its banner, reported "Landlock", and ran the agent
@@ -133,7 +133,7 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 		rep.Notes = append(rep.Notes,
 			"these directories are listable: "+strings.Join(walked, " "),
 			"nothing in them can be deleted, and a file created in one cannot then",
-			"be written — granting that would grant it on the protected file too.",
+			"be written, granting that would grant it on the protected file too.",
 			"`solongate sandbox` has none of these costs; see its --explain")
 	}
 
@@ -199,7 +199,7 @@ func allowRules(deny []string) ([]landlock.Rule, []string, error) {
 	// are the ones that matter here: REMOVE_FILE on a parent is exactly what
 	// `rm` needs to delete the child, so granting them would hand over the file
 	// this whole layer exists to keep. The denied child still has no rule of its
-	// own, so it cannot be opened, read, written or truncated either — the
+	// own, so it cannot be opened, read, written or truncated either, the
 	// directory being listable does not make its contents reachable.
 	//
 	// EXECUTE IS NOT GRANTED EITHER, for a smaller reason: a directory does not
@@ -209,7 +209,7 @@ func allowRules(deny []string) ([]landlock.Rule, []string, error) {
 	// WHAT THIS STILL CANNOT DO, and it is a limit of the model rather than of
 	// this list: a file CREATED in a walked directory cannot then be written.
 	// Creating needs MAKE_REG on the directory, which is granted; writing needs
-	// WRITE_FILE on the new file, which has no rule of its own — and the only
+	// WRITE_FILE on the new file, which has no rule of its own, and the only
 	// way to give it one is to grant WRITE_FILE on the directory, which Landlock
 	// applies to everything beneath it INCLUDING the protected child. So the
 	// choice is "list and create but not author" or "read and write everything,
@@ -300,7 +300,7 @@ func Describe() (string, []string) {
 // interface actually is, so this is three grants and nothing else: the
 // workspace read-write, the runtime-write set read-write, the runtime-read set
 // read-only. Anything not named gets no rule, and with no rule there is no
-// handle — open() returns EACCES whether the agent spells the path, globs it,
+// handle, open() returns EACCES whether the agent spells the path, globs it,
 // assembles it at runtime or compiles a program to call unlink on it.
 //
 // NO ANCESTOR WALK, and so none of the denylist's cost: a file created after
@@ -308,8 +308,8 @@ func Describe() (string, []string) {
 // the directory rather than on the children that existed when it started.
 //
 // IgnoreIfMissing throughout. The runtime sets are written for a range of
-// distributions — /lib64 does not exist on some, ~/.codex only after that
-// client is installed — and Landlock rejects a rule naming a path that is not
+// distributions, /lib64 does not exist on some, ~/.codex only after that
+// client is installed, and Landlock rejects a rule naming a path that is not
 // there, which would turn an absent optional directory into a refusal to start.
 func workspaceRules(p Plan) ([]landlock.Rule, error) {
 	ws := filepath.Clean(p.Workspace)

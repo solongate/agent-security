@@ -2,7 +2,7 @@
 
 package cli
 
-// `solongate sandbox <agent>` — the closed box.
+// `solongate sandbox <agent>`, the closed box.
 //
 // THE DIFFERENCE FROM `run`, because two commands that both say "confined" have
 // to be told apart in one line each:
@@ -12,7 +12,7 @@ package cli
 //	         machine. It is what macOS and Windows can do, and what Linux can
 //	         do without bubblewrap.
 //	sandbox  a new root. The project, a read-only runtime, a private /proc and
-//	         a /dev with five nodes. $HOME is not refused — it is not there.
+//	         a /dev with five nodes. $HOME is not refused, it is not there.
 //	         The network stays, so the agent can reach its model. Linux only.
 //
 // `run` protects what the protected-paths list names. `sandbox` protects
@@ -220,9 +220,9 @@ func explainBox(argv []string) int {
 	errln("  " + bold("The closed box") + dim(" · mount namespace (bubblewrap)"))
 	errln("")
 	if have {
-		net := "off — nothing can leave this box at all"
+		net := "off, nothing can leave this box at all"
 		if box.Network {
-			net = "on — the agent can reach its model"
+			net = "on, the agent can reach its model"
 		}
 		errln("  " + dim("box "+box.ID+": ") + box.Dir)
 		errln("  " + dim("network: ") + net)
@@ -255,7 +255,7 @@ func explainBox(argv []string) int {
 	errln("  " + dim("THE NETWORK IS THE ONE HOLE THAT IS NOT A FILESYSTEM HOLE, and it is"))
 	errln("  " + dim("each box's own choice. Off, nothing leaves and an agent that cannot"))
 	errln("  " + dim("reach its model can only do offline work. On, the agent works and"))
-	errln("  " + dim("what leaves is the DLP and egress layers' job — they read content,"))
+	errln("  " + dim("what leaves is the DLP and egress layers' job, they read content,"))
 	errln("  " + dim("which a mount namespace cannot."))
 	errln("")
 	return 0

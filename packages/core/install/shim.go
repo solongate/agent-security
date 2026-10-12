@@ -15,8 +15,8 @@ import (
 //
 // Secret redaction on the LLM path, made automatic for every TERMINAL Claude
 // session: a marked block in the shell config redefines `claude` to run through
-// the shield, which masks secrets in the request body — including the typed
-// prompt and any file or tool text in context — before it reaches the model. The
+// the shield, which masks secrets in the request body, including the typed
+// prompt and any file or tool text in context, before it reaches the model. The
 // hooks cannot do that; they only ever see tool calls, never the prompt.
 //
 // This is the SECONDARY layer. The main protection is the hook-based
@@ -31,7 +31,7 @@ const (
 var shimBlockRe = regexp.MustCompile(`(?s)` + regexp.QuoteMeta(shimBegin) + `.*?` + regexp.QuoteMeta(shimEnd) + `\r?\n?`)
 
 // InstallClaudeShim wires the shim into every shell config on this machine.
-// It reports false when Claude Code is not on PATH — there is nothing to wrap,
+// It reports false when Claude Code is not on PATH, there is nothing to wrap,
 // which is a reason to skip the shim and not a reason to fail an install.
 func InstallClaudeShim(shieldPath string) bool {
 	real := resolveRealClaude()
@@ -167,7 +167,7 @@ func resolveRealClaude() string {
 		return lines[0]
 	}
 	// The shield spawns the real claude through cmd.exe, which can only run a
-	// .cmd or .exe — NOT the npm-generated claude.ps1 or the extension-less bash
+	// .cmd or .exe. NOT the npm-generated claude.ps1 or the extension-less bash
 	// shim. `where` lists all of them, so the runnable one has to be picked out.
 	for _, ext := range []string{".cmd", ".exe", ".bat"} {
 		for _, l := range lines {

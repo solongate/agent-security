@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// gobin.mjs — where the Go toolchain actually is on this machine.
+// gobin.mjs, where the Go toolchain actually is on this machine.
 //
 // WHY THIS IS NOT JUST "go". Go installs itself in half a dozen shapes and only
 // one of them puts a binary on PATH by default. A machine that got its toolchain
-// through a module download - which is what `go` itself does when a go.mod names
-// a newer toolchain than the one installed - keeps it under the module cache,
+// through a module download, which is what `go` itself does when a go.mod names
+// a newer toolchain than the one installed, keeps it under the module cache,
 // with no symlink anywhere and nothing on PATH. Homebrew, the tarball, the
 // distribution package and a version manager each pick a different directory.
 //
@@ -53,7 +53,7 @@ function find() {
   // AND THE MODULE CACHE, which is where `go` puts a toolchain it downloaded
   // for a go.mod that asked for a newer one than the machine has. The directory
   // is named for the version and the platform, so the newest is picked by
-  // sorting the names - a machine that has fetched three of them should build
+  // sorting the names, a machine that has fetched three of them should build
   // with the one the newest module would have asked for.
   const cache = join(home, 'go', 'pkg', 'mod', 'golang.org');
   try {

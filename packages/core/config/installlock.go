@@ -4,7 +4,7 @@ package config
 
 // The installer has to lift these locks around its own writes: a (re)install
 // rewrites the very files self-protection pins read-only, and writing to a
-// pinned file fails with EPERM — which is how a reinstall could report success
+// pinned file fails with EPERM, which is how a reinstall could report success
 // while the old hook stayed on disk.
 //
 // The mechanism lives here, beside WriteProtectedFile, so there is exactly one

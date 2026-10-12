@@ -18,7 +18,7 @@ import (
 // Everything else is a positional, in order.
 //
 // Deliberately not Go's flag package. That one stops at the first positional,
-// rejects unknown flags, and prints its own usage to stderr on a parse error —
+// rejects unknown flags, and prints its own usage to stderr on a parse error,
 // three behaviours that would each be a visible change to a CLI whose commands
 // are `policy allow <id> --command curl` and whose usage text is hand-drawn.
 type parsedArgs struct {
@@ -70,7 +70,7 @@ func (p parsedArgs) flagNum(name string) int {
 //
 // Callers that write a SETTING have to use this one. `ratelimit set --minute
 // oops` parses to no number at all, and treating that as 0 would save a limit of
-// zero calls a minute — every request blocked, from a typo. The TypeScript gets
+// zero calls a minute, every request blocked, from a typo. The TypeScript gets
 // this from `undefined`; Go needs the second return value to say the same thing.
 func (p parsedArgs) flagNumOK(name string) (int, bool) {
 	s := p.flagStr(name)
@@ -97,7 +97,7 @@ func (p parsedArgs) flagBool(name string) bool {
 	return false
 }
 
-// positional returns the nth positional or "" — the CLI's arguments are almost
+// positional returns the nth positional or "", the CLI's arguments are almost
 // all optional and every call site would otherwise repeat the same bounds check.
 func (p parsedArgs) positional(i int) string {
 	if i < len(p.positionals) {

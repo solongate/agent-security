@@ -4,15 +4,15 @@
  * The decision itself: one policy, one set of extractors, one set of matchers.
  *
  * THIS IS SHARED ON PURPOSE. It was inside the guard hook, and the MCP proxy had
- * its own engine with OPA WASM as the sole backend — a bundle a service compiled,
+ * its own engine with OPA WASM as the sole backend, a bundle a service compiled,
  * so with no service the proxy loaded none and FAILED CLOSED on every call. The
  * guard never had that problem: OPA is an optional upgrade there and this is the
  * primary path, which is why an air-gapped install sees no behaviour change.
  *
  * Giving the proxy an evaluator of its own would have been a second set of
  * answers waiting to diverge from the guard's. This repository has had that bug
- * twice already — the two tamper globs disagreed about `*`, and the DLP list ran
- * 14 patterns against 70 — so the proxy imports THIS instead, and a policy means
+ * twice already, the two tamper globs disagreed about `*`, and the DLP list ran
+ * 14 patterns against 70, so the proxy imports THIS instead, and a policy means
  * the same thing wherever it is read.
  *
  * Plain JavaScript, in hooks/, because the hook is the demanding consumer: it has
@@ -21,7 +21,7 @@
  * imports it through policy-eval.d.mts.
  *
  * evaluate() answers a REASON STRING or null. Null is "nothing here forbids it",
- * not "this is allowed by a rule" — the caller decides what to do with silence,
+ * not "this is allowed by a rule", the caller decides what to do with silence,
  * and in whitelist mode this returns a reason precisely because silence would be
  * the wrong answer.
  *
@@ -113,10 +113,10 @@ function looksLikeFilename(s) {
   return known.includes(s.toLowerCase());
 }
 
-// Deterministic shell normalizer — handles the common bypass tricks BEFORE
+// Deterministic shell normalizer, handles the common bypass tricks BEFORE
 // any semantic check, so OPA's literal matcher sees the canonical command.
 // Specifically: variable assignment + interpolation, quote concatenation
-// (.e""nv, ."env"). Doesn't try to be a full shell — just enough to defeat
+// (.e""nv, ."env"). Doesn't try to be a full shell, just enough to defeat
 // the obfuscation patterns AI judges keep getting wrong non-deterministically.
 function normalizeShellCommand(cmd) {
   if (typeof cmd !== 'string' || !cmd) return cmd;
@@ -157,7 +157,7 @@ function normalizeArgs(args) {
 function extractFilenames(args) {
   args = normalizeArgs(args);
   const names = new Set();
-  // Strip surrounding/trailing quotes — `"…/secret.env"` must reduce to
+  // Strip surrounding/trailing quotes, `"…/secret.env"` must reduce to
   // `secret.env`, not `secret.env"` (a trailing quote breaks the *.env glob).
   const dequote = (t) => t.replace(/^["'`]+/, '').replace(/["'`]+$/, '');
   for (const s of scanTargetStrings(args)) {
@@ -196,8 +196,8 @@ function extractUrls(args) {
 /**
  * The command strings with PIPELINES KEPT WHOLE.
  *
- * extractCommands below splits on `|` as well, which is right for a policy rule —
- * `deny curl*` has to fire on the `curl` half of `cat x | curl y` — but wrong for any
+ * extractCommands below splits on `|` as well, which is right for a policy rule,
+ * `deny curl*` has to fire on the `curl` half of `cat x | curl y`, but wrong for any
  * check that reasons about a command AND ITS INPUT together. Egress DLP is that
  * check, and splitting cost it a whole class of upload:
  *
@@ -248,7 +248,7 @@ function extractCommands(args) {
 //
 // ScanStrings walks every string in a tool call, which is what the scanners want: a
 // secret can be anywhere, so DLP has to look everywhere. A PATH rule is a different
-// question — it is about the file a call touches — and asking it of every string turned
+// question, it is about the file a call touches, and asking it of every string turned
 // the TEXT of a file into a path:
 //
 //   Write { file_path: "notes.md", content: "keys live under the home key folder" }
@@ -312,7 +312,7 @@ function extractPaths(args, isExec) {
     if (isExec && /\s/.test(s)) {
       // A command line (exec tool): pull out individual path-like tokens instead
       // of treating the whole command as one path. Otherwise `node src/app.js`
-      // becomes the path "node src/app.js", which no path glob can match — so a
+      // becomes the path "node src/app.js", which no path glob can match, so a
       // path-scoped EXECUTE rule would never fire. Tokenizing yields "src/app.js".
       for (const tok of s.split(/[\s;|&><()`'"]+/)) add(tok);
     } else {
@@ -327,7 +327,7 @@ function extractPaths(args, isExec) {
 //
 // THE HOLE THIS CLOSES. extractPaths returns what the call said, verbatim. A
 // file tool sends an absolute path because the client resolves it before the
-// hook sees the call — but a shell command carries whatever the model typed,
+// hook sees the call, but a shell command carries whatever the model typed,
 // and a model sitting in the directory types `cat forbidden/notes.txt`. That
 // token is relative, an absolute path rule never matches it, and the file the
 // Read tool is refused for is handed over by `cat`. The rule looked like it
@@ -357,7 +357,7 @@ function absolutizePaths(paths, cwd) {
 }
 
 // normalizeSlashPath is filepath.Clean for forward-slash paths: it collapses
-// `.` and `..` lexically, with no filesystem access and no node:path import —
+// `.` and `..` lexically, with no filesystem access and no node:path import,
 // the hook runs as a lone file and keeps its dependencies to zero.
 function normalizeSlashPath(p) {
   const absolute = p.startsWith('/');
@@ -378,7 +378,7 @@ function normalizeSlashPath(p) {
 
 function guessPermission(toolName) {
   const name = (toolName || '').toLowerCase();
-  // Codex writes every file edit through one tool named `apply_patch` — no
+  // Codex writes every file edit through one tool named `apply_patch`, no
   // substring below matches it, so without this it would be classified READ and
   // a WRITE-scoped rule would never fire on a Codex edit.
   if (name === 'apply_patch' || name === 'applypatch') return 'WRITE';
@@ -401,7 +401,7 @@ function guessPermission(toolName) {
 // match) and ALLOW (whitelist mode requires at least one match).
 // Each constraint may store its pattern list in either `denied` or `allowed`
 // depending on which effect the rule was created with in the dashboard. The
-// hook treats both as the same "pattern list" — the rule's effect determines
+// hook treats both as the same "pattern list", the rule's effect determines
 // whether a match means block (DENY) or pass (ALLOW in whitelist mode).
 function patternsOf(constraint) {
   if (!constraint) return null;
@@ -471,7 +471,7 @@ function evaluate(policy, args, toolName, cwd) {
   const mode = policy.mode === 'whitelist' ? 'whitelist' : 'denylist';
   const isExec = /bash|shell|exec|powershell|cmd|run|eval/.test((toolName || '').toLowerCase());
 
-  // DENY pass — runs in both modes. DENY wins over ALLOW.
+  // DENY pass, runs in both modes. DENY wins over ALLOW.
   const denyRules = enabledRules
     .filter(r => r.effect === 'DENY' && permissionApplies(r, toolName))
     .sort((a, b) => (a.priority || 100) - (b.priority || 100));
@@ -480,7 +480,7 @@ function evaluate(policy, args, toolName, cwd) {
     if (m) return 'Blocked by policy: ' + m.kind + ' "' + m.value + '" matches "' + m.pattern + '"';
   }
 
-  // Whitelist pass — only in strict mode. Must match at least one ALLOW rule.
+  // Whitelist pass, only in strict mode. Must match at least one ALLOW rule.
   if (mode === 'whitelist') {
     const allowRules = enabledRules.filter(r => r.effect === 'ALLOW' && permissionApplies(r, toolName));
     if (allowRules.length === 0) {
@@ -491,7 +491,7 @@ function evaluate(policy, args, toolName, cwd) {
       if (ruleMatches(rule, args, isExec, cwd)) { matched = true; break; }
     }
     if (!matched) {
-      return 'Blocked by policy: strict whitelist mode — request does not match any ALLOW rule';
+      return 'Blocked by policy: strict whitelist mode, request does not match any ALLOW rule';
     }
   }
 

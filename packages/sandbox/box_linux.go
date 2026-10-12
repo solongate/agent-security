@@ -17,7 +17,7 @@ package sandbox
 // its own root: an empty tmpfs with the project bound into it, a read-only copy
 // of the runtime it needs to execute, a fresh /proc that shows only its own
 // processes, and a /dev with five device nodes. $HOME is not denied, /etc/passwd
-// is not denied, the sibling project is not denied — none of them is there.
+// is not denied, the sibling project is not denied, none of them is there.
 // `ls /` returns nine entries and every one of them was chosen.
 //
 // This is what Docker, Flatpak, Firejail and bubblewrap all are. It needs no
@@ -25,17 +25,17 @@ package sandbox
 // distributions for years, and the box is built inside one.
 //
 // IT SHELLS OUT TO bwrap RATHER THAN CALLING pivot_root DIRECTLY, and that is a
-// deliberate refusal to write this by hand. The sequence — unshare the user and
+// deliberate refusal to write this by hand. The sequence, unshare the user and
 // mount namespaces, map the uid, make the old root private, bind what belongs
 // in the new one, pivot, unmount the old, drop the remaining capabilities, set
-// no_new_privs, seccomp the rest — is about four hundred lines of ordering
+// no_new_privs, seccomp the rest, is about four hundred lines of ordering
 // where a single wrong step is a sandbox escape rather than a bug. bubblewrap
 // is the implementation Flatpak ships to hundreds of millions of desktops and
 // it has had that ordering reviewed by people who do this for a living. A
 // hand-rolled copy in this file would be a worse version of it with no reviewers.
 //
 // WHAT THAT COSTS: bwrap has to be installed. There is no fallback to a weaker
-// mode — a closed box that quietly became a permission layer would be the most
+// mode, a closed box that quietly became a permission layer would be the most
 // expensive kind of wrong, so a missing bwrap is a refusal with the package name
 // in it.
 
@@ -157,7 +157,7 @@ func BoxLaunch(p BoxPlan, env []string) (Report, error) {
 	// Giving it back is a decision per box, recorded in the policy file. With
 	// the network on, nothing outside the project is readable, writable or
 	// visible, and what leaves over the wire is the DLP and egress layers' job
-	// — they read content, which a mount namespace cannot. With it off the box
+	//, they read content, which a mount namespace cannot. With it off the box
 	// is sealed and the agent is useful only for work that needs no model.
 	if p.Network {
 		args = append(args, "--share-net")
@@ -223,7 +223,7 @@ func BoxLaunch(p BoxPlan, env []string) (Report, error) {
 			"leaves over it is the DLP and egress layers' job, not the box's.")
 	} else {
 		rep.Notes = append(rep.Notes,
-			"the network is unreachable too, so nothing can leave this box at all —",
+			"the network is unreachable too, so nothing can leave this box at all, ",
 			"and an agent that cannot reach its model can only do offline work.")
 	}
 

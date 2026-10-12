@@ -15,7 +15,7 @@ import (
 	"github.com/solongate/agent-security/packages/tui"
 )
 
-// No init(): DLP is not a section any more. See the note on NewRateLimit — a
+// No init(): DLP is not a section any more. See the note on NewRateLimit, a
 // policy carries its own, per variant, and NewDLP is mounted there.
 
 // The DLP panel, ported from tui/panels/Dlp.tsx. Draft-only edits, saved with
@@ -26,12 +26,12 @@ import (
 // (a add · d remove).
 //
 // Custom patterns take the SAME GLOB syntax as the built-in
-// patterns — `*` matches any run of characters — not regular expressions. The
+// patterns, `*` matches any run of characters, not regular expressions. The
 // field is named `re` on the wire, which is exactly why the prompts say glob
 // every time they are shown.
 //
 // The built-ins tile FOUR TO A ROW. There are seventy of them, and one per line
-// put the custom section four screens below the fold — nobody scrolled that far,
+// put the custom section four screens below the fold, nobody scrolled that far,
 // so nobody found it. The names are 23 characters at the longest, which fits
 // four across any terminal this TUI already asks for. The row is also the ↑↓
 // step; ←→ moves one cell, and ← from the leftmost column means back, because a
@@ -46,7 +46,7 @@ import (
 // The three things a scan can do, plus off. They are separate modes because
 // they are separate outcomes: detect leaves the call exactly as it was, redact
 // changes what the model sees, block stops the call. Two of these used to share
-// one name — "detect" masked everything it found — so choosing the weakest mode
+// one name, "detect" masked everything it found, so choosing the weakest mode
 // quietly applied the middle one.
 var dlpModes = []api.LayerMode{api.LayerOff, api.LayerDetect, api.LayerRedact, api.LayerBlock}
 
@@ -152,7 +152,7 @@ func (p *DLP) SetBound(sec api.SecurityLayers, available []string, dirty bool) {
 func (p *DLP) Bound() api.SecurityLayers { return p.dlp }
 
 // CapturingKeys is true while the add/edit prompt is open, so the shell leaves
-// every key — including q and esc — to the prompt.
+// every key, including q and esc, to the prompt.
 func (p *DLP) CapturingKeys() bool { return p.adding != dlpAddNone }
 
 // WantsLeft is whether ← means something here right now.
@@ -513,7 +513,7 @@ func starRight(on bool) (string, lipgloss.Style) {
 }
 
 // dlpLine is one rendered row plus the entries it selects: `entry` is the first
-// of them and `span` is how many it holds — one for a custom row, up to dlpCols
+// of them and `span` is how many it holds, one for a custom row, up to dlpCols
 // for a row of the built-in grid. `entry` is -1 for headers and help notes,
 // which the cursor skips.
 type dlpLine struct {
@@ -553,7 +553,7 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 	}
 	header("built-in secret patterns", fmt.Sprintf("%d/%d on · space toggles · A all · U none", onCount, len(p.available)))
 	// The cell is sized from the panel and floored, so a narrow terminal
-	// truncates names rather than wrapping a row — a wrapped row would push its
+	// truncates names rather than wrapping a row, a wrapped row would push its
 	// last cells past the clip, where they are unreachable but still selectable.
 	cellW := max(12, (p.cols-1)/dlpCols)
 	for r := 0; r < len(p.available); r += dlpCols {
@@ -590,7 +590,7 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 	header("custom patterns", "a add · d remove")
 	note("  * = any chars · green ✱ on a side = wildcard active there · e.g.  sk-*   *PRIVATE KEY*")
 	if len(p.dlp.DLP.Custom) == 0 {
-		note("  (none — press a to add a name + pattern)")
+		note("  (none, press a to add a name + pattern)")
 	}
 	for _, c := range p.dlp.DLP.Custom {
 		isCur := p.focused && ei == selC

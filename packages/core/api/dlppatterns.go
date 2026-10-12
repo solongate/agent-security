@@ -4,7 +4,7 @@ package api
 
 // The names of the built-in DLP patterns, in order.
 //
-// The CLI needs this list to offer the patterns a policy may enable — it used to
+// The CLI needs this list to offer the patterns a policy may enable, it used to
 // arrive from a service as `availablePatterns`, and there is no service. The
 // EXPRESSIONS live in packages/guard/dlp.go and in the three hooks; only the
 // names are a user-facing menu, so only the names are here.

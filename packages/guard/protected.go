@@ -115,7 +115,7 @@ func protectedReason(named, hit string) string {
 // environment variable's absence.
 //
 // What it used to do: trust the marker. The comment argued an agent gains
-// nothing by setting it, because the variable confines nothing — true of the
+// nothing by setting it, because the variable confines nothing, true of the
 // confinement and false of this check. The check refused on the marker's
 // ABSENCE, so an agent that exported SOLONGATE_SANDBOX was neither confined
 // nor refused. One line in a shell profile, inherited by every agent the
@@ -124,7 +124,7 @@ func protectedReason(named, hit string) string {
 //
 // What it does now: the marker says which confinement claims to be on, and the
 // kernel is asked whether it is. In a box, PID 1 is the box's own init rather
-// than the host's. Under `run`, a protected path cannot be opened for reading —
+// than the host's. Under `run`, a protected path cannot be opened for reading,
 // outside the domain it can, because `protect` locks against writing and
 // deleting and leaves a file readable. See shared.VerifiedInSandbox.
 //
@@ -151,7 +151,7 @@ func sandboxRequired(sec *shared.Security) string {
 		// sentence: somebody is either running a stale marker from a shell
 		// profile or trying it on, and the generic line would send them looking
 		// for a launcher problem that is not there.
-		return "Refused: this process carries a sandbox marker but is not confined — " +
+		return "Refused: this process carries a sandbox marker but is not confined, " +
 			"the kernel says otherwise. Start the agent with `solongate run` or " +
 			"`solongate sandbox`, and remove SOLONGATE_SANDBOX from your shell profile."
 	}

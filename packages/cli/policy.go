@@ -162,7 +162,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		}
 		// This used to go through c.Do for the response BODY, because the
 		// confirmation echoed the id the service said it had deleted rather than
-		// the one asked for — "the difference matters when the API resolves an
+		// the one asked for, "the difference matters when the API resolves an
 		// alias". There is no alias to resolve: one machine, one file.
 		if err := c.Policies.Remove(ctx, id); err != nil {
 			return 1, err
@@ -380,11 +380,11 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 			return 0, nil
 		}
 		if off {
-			okf("Deactivated - this project now enforces no policy.")
+			okf("Deactivated. This project now enforces no policy.")
 			errln(dim("    Pin one again with: solongate policy activate <id>"))
 			return 0, nil
 		}
-		okf("Enforcing %s — it is this machine's policy file.", id)
+		okf("Enforcing %s, it is this machine's policy file.", id)
 		return 0, nil
 
 	}
@@ -443,7 +443,7 @@ func printRules(rules api.Rules) {
 	// readable ones and saying nothing would show a policy that looks narrower
 	// than the one actually in force.
 	if rules.Unreadable > 0 {
-		errln(dim("  (" + strconv.Itoa(rules.Unreadable) + " rule(s) this version cannot read — they are kept, and visible in ~/.solongate/policy.json)"))
+		errln(dim("  (" + strconv.Itoa(rules.Unreadable) + " rule(s) this version cannot read, they are kept, and visible in ~/.solongate/policy.json)"))
 	}
 }
 
@@ -506,7 +506,7 @@ func mustJSON(v any) json.RawMessage {
 //
 //	DENY  100  rule-1791039653150  -
 //
-// — a rule that is enforcing something, in a list of what is enforced, with no way to
+// , a rule that is enforcing something, in a list of what is enforced, with no way to
 // tell what. The kind and the pattern are not decoration; they are the rule.
 //
 // Read from the constraint sets rather than parsed back out of the description, because

@@ -19,13 +19,13 @@ type Result struct {
 	Message string
 	// Notes carry a condition the caller should pass on: an install that
 	// succeeded, but did less than it usually does. Silence there would be the
-	// worst outcome — a machine that looks freshly installed and is not.
+	// worst outcome, a machine that looks freshly installed and is not.
 	Notes []string
 }
 
 // ErrNoLogin was returned when the machine had no credential to arm the guard
 // with. It is kept, unreturned, because the TUI and the repair report still
-// recognise it when deciding whether a failure is the user's to fix — and because
+// recognise it when deciding whether a failure is the user's to fix, and because
 // deleting it would silently turn "you need to log in" into an unrecognised error
 // string rather than into what it actually is now: nothing at all.
 //
@@ -36,8 +36,8 @@ var ErrNoLogin = errors.New("no login on this device")
 // Install lays the hooks down and registers them in every supported client.
 //
 // The sequence is the whole design. Everything that can fail is done first and
-// in memory — the credential, the node binary, the hook contents, and the merged
-// content of every client's config — so a failure at any of those points leaves
+// in memory, the credential, the node binary, the hook contents, and the merged
+// content of every client's config, so a failure at any of those points leaves
 // the machine exactly as it was. Only then is anything written, hooks before the
 // registrations that name them, so no client is ever pointed at a file that is
 // not there yet.
@@ -48,7 +48,7 @@ func Install() Result {
 	p := GlobalPaths()
 
 	// THE CREDENTIAL USED TO BE THE FIRST THING RESOLVED, and a machine without one
-	// got `no login on this device — add an account first (Accounts → + add)` and no
+	// got `no login on this device, add an account first (Accounts → + add)` and no
 	// install. On this build every machine is without one: nothing writes a
 	// credential, and the Accounts panel that message names is deleted. So the one
 	// command that arms the guard refused to run, on a product whose entire
@@ -87,7 +87,7 @@ func Install() Result {
 
 	// From here a failure has to put the locks back. Returning with them off
 	// would mean a failed install had quietly stripped the self-protection the
-	// PREVIOUS install put on — the machine would be left less protected than if
+	// PREVIOUS install put on, the machine would be left less protected than if
 	// this had never run, which is the one outcome that is worse than failing.
 	fail := func(msg string) Result {
 		if !locksDisabled() {
@@ -119,7 +119,7 @@ func Install() Result {
 			return fail(err.Error())
 		}
 		// Invoked as `/bin/sh <path>`, so the bit is a nicety rather than a
-		// requirement — which is deliberate: an install that could not chmod
+		// requirement, which is deliberate: an install that could not chmod
 		// still produces a launcher that runs.
 		_ = os.Chmod(filepath.Join(p.HooksDir, LauncherName), 0o755)
 		_ = os.MkdirAll(filepath.Join(p.SGDir, BeatDirName), config.DirMode)
@@ -139,7 +139,7 @@ func Install() Result {
 	}
 
 	// Best-effort from here on. A failure registering one of the other clients
-	// must not fail an install that has already armed Claude Code — and must not
+	// must not fail an install that has already armed Claude Code, and must not
 	// be silent either, which is why the repair report re-reads every client
 	// afterwards instead of trusting these calls.
 	if agErr == nil {
@@ -162,7 +162,7 @@ func Install() Result {
 	// it.
 	//
 	// Best-effort and quiet about it. It reports false when Claude Code is not on PATH
-	// — nothing to wrap — and the block is written between markers, so an install that
+	//, nothing to wrap, and the block is written between markers, so an install that
 	// runs twice replaces it rather than defining `claude` twice.
 	shimmed := InstallClaudeShim(filepath.Join(p.HooksDir, shieldHookName))
 
@@ -181,7 +181,7 @@ func Install() Result {
 		// Said out loud rather than folded into success. The registrations were
 		// rewritten against the hooks that were already installed, which is the
 		// right answer for the common repair (a deleted registration) and is NOT
-		// an answer for a tampered guard.mjs — this build has no packaged copy to
+		// an answer for a tampered guard.mjs, this build has no packaged copy to
 		// compare it with, let alone replace it.
 		res.Notes = append(res.Notes,
 			"The hook programs already on this device were re-registered but NOT rewritten: this build could not find the hook files to copy. Run ./install.sh from a checkout to replace them.")
@@ -189,8 +189,8 @@ func Install() Result {
 	// Said out loud when the fast path could NOT be armed, because nothing else
 	// would say it: a hook running its Node implementation behaves identically
 	// to one running the binary, only slower, so an absent binary is invisible
-	// from the outside. The install is still a success — the machine is guarded
-	// either way — and this is the difference between "slow" and "not working".
+	// from the outside. The install is still a success, the machine is guarded
+	// either way, and this is the difference between "slow" and "not working".
 	if len(goBins) == 0 {
 		res.Notes = append(res.Notes,
 			"No native binary for this platform, so the guard runs its Node implementation: same policy, a few tens of milliseconds slower per tool call.")
@@ -223,7 +223,7 @@ func Uninstall() Result {
 
 // resolveInstallCredential lived here. It looked in the environment, then the
 // active-key file, then the account list, and failed with ErrNoLogin when all three
-// were empty — which is every machine now. Deleted with the accounts it resolved
+// were empty, which is every machine now. Deleted with the accounts it resolved
 // from: see Install for why nothing takes its place.
 
 // writeFileAtomic writes through a temporary file in the same directory and
@@ -265,7 +265,7 @@ func writeFileAtomic(path string, data []byte) error {
 // warmPolicyCache lived here: one detached `guard.mjs <agent> --sg-refresh-policy`
 // per registered client, so the first tool call after an install was judged against
 // a policy already fetched rather than waved through while the fetch ran. That was a
-// measured bug — on a fresh `opencode` id the first denied command was allowed, and
+// measured bug, on a fresh `opencode` id the first denied command was allowed, and
 // the identical call blocked once the cache existed.
 //
 // There is no fetch and no cache. The guard reads a file, and a file needs no
@@ -277,7 +277,7 @@ func writeFileAtomic(path string, data []byte) error {
 // ~6h check for a newer bundle.
 //
 // Deleting it forces the guard to re-check, and install a newer bundle, on the
-// NEXT executed command — the exact thing the dashboard tells operators to `rm`
+// NEXT executed command, the exact thing the dashboard tells operators to `rm`
 // by hand. Idempotent: a missing stamp (already cleared, or an older guard that
 // auto-updates anyway) still counts as success. It is not one of the locked
 // files, so a plain delete works.

@@ -20,18 +20,18 @@ type LocalLogSetting struct {
 	// Enabled is ALWAYS TRUE, and the field is kept because Live and the Settings
 	// panel both read it.
 	//
-	// It used to mean what it says. While there was a service the choice was real —
-	// entries went to the service OR to a file, never both — so `localLogs.enabled:
+	// It used to mean what it says. While there was a service the choice was real,
+	// entries went to the service OR to a file, never both, so `localLogs.enabled:
 	// false` meant "do not write locally". With nowhere to send them, a false here
 	// stopped meaning "send them elsewhere" and started meaning "lose them", so both
 	// writers ignore it: the guard and the audit hook record unconditionally and the
 	// setting chooses only the FOLDER. A viewer that reported off would be describing
-	// a state the writers cannot be in — and worse, Live SKIPS READING THE FILE when
+	// a state the writers cannot be in, and worse, Live SKIPS READING THE FILE when
 	// this is false, so it showed nothing while entries landed correctly.
 	Enabled bool
 	// The folder the policy asks for, verbatim. Empty when the policy names none.
 	ConfiguredPath string
-	// False when that folder cannot be used HERE — a Windows path on Linux, or a
+	// False when that folder cannot be used HERE, a Windows path on Linux, or a
 	// directory that does not exist on this machine.
 	UsableHere bool
 	// The file entries actually land in, after any fallback.
@@ -49,7 +49,7 @@ var trailingSep = regexp.MustCompile(`[\\/]+$`)
 // somewhere else.
 //
 // IT READS THE POLICY FILE. It used to read the policy CACHES, newest first, because
-// that is where a service's answer was kept — and nothing has written one since the
+// that is where a service's answer was kept, and nothing has written one since the
 // refresh was removed, so this returned "off, default folder" on every machine. Which
 // is the same bug the paragraph above describes, arrived at from the other side: a
 // custom folder was ignored, and Live stopped reading the log at all.

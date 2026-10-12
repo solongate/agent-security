@@ -14,8 +14,8 @@ package main
 //     redacted copy to a temp path and point the read at the copy.
 //
 // The two differ in which way they fail, and that is the point. Egress fails
-// OPEN — a scan error must never break a legitimate command. Read redaction
-// fails CLOSED — a secret we could not redact becomes a block, because the
+// OPEN, a scan error must never break a legitimate command. Read redaction
+// fails CLOSED, a secret we could not redact becomes a block, because the
 // alternative is serving it unmasked.
 //
 // Ported from packages/hooks/guard.mjs (dlpViews, egressSecretCheck,
@@ -23,7 +23,7 @@ package main
 // `[REDACTED:…]` marker and the custom-glob compiler live in dlp.go and are
 // reused here rather than restated; guard.mjs's dlpGlobToRe is that file's
 // globToRegexp, and the two escape sets differ only in that Go's QuoteMeta
-// escapes a superset of the characters — same language, same matches.
+// escapes a superset of the characters, same language, same matches.
 
 import (
 	"crypto/sha256"
@@ -39,8 +39,8 @@ import (
 
 // THE DE-OBFUSCATION EXPRESSIONS LIVE IN packages/shared/dlp.go, one copy.
 //
-// Two of them were declared here as well — the shell-quote stripper and the
-// base64 token matcher — with the second carrying twenty lines explaining why
+// Two of them were declared here as well, the shell-quote stripper and the
+// base64 token matcher, with the second carrying twenty lines explaining why
 // its floor moved from sixteen characters to twelve. Nothing in this package
 // read either one; DLPScanViews in shared does the work and owns the pair. A
 // second copy of a threshold that a long comment argues for is the shape a
@@ -58,7 +58,7 @@ var (
 
 	// Local files a transfer command reads in order to send them: @file,
 	// -d/-T/--data* @file, `cat file`, `< file`. The alternation order in the
-	// second pattern is load-bearing — Go's regexp is leftmost-FIRST like
+	// second pattern is load-bearing. Go's regexp is leftmost-FIRST like
 	// JavaScript's, so `--data-binary` has to precede `--data`, which has to
 	// precede `-d`, or a long flag matches as its own prefix and the filename is
 	// captured one character off.
@@ -80,14 +80,14 @@ var (
 
 	// The reader list for read redaction is broad on purpose: agy cannot redact
 	// tool OUTPUT, so any text-processing tool that can print a file's contents is
-	// a redaction dodge if it is missing here — the model reached for `cut`/`awk`
+	// a redaction dodge if it is missing here, the model reached for `cut`/`awk`
 	// the moment `cat` was blocked. Enumerating every reader is a losing game
 	// (python -c, $(<f), while read, …); this covers the common ones and the glob
 	// path below fails closed.
 	dlpReaderCmd = regexp.MustCompile(`\b(cat|less|more|head|tail|bat|nl|od|xxd|hexdump|strings|grep|egrep|fgrep|rg|ag|cut|awk|gawk|sed|tr|sort|uniq|paste|join|comm|column|fold|tac|rev|pr|expand|unexpand|base64|base32|dd|mapfile|readarray)\b`)
 )
 
-// dlpHitRank moved with them — DLPScanViews cannot rank without it, and two
+// dlpHitRank moved with them. DLPScanViews cannot rank without it, and two
 // implementations of "which of two hits is the one to report" is a pair that can disagree
 // about what a person reads in a masked file.
 
@@ -97,12 +97,12 @@ var (
 // local file holding a secret, or "" to allow.
 //
 // Pattern DLP scans tool ARGUMENTS and tool OUTPUT, but `curl --data-binary
-// @.env <url>` reads the file ITSELF — the secret never appears in either, so
+// @.env <url>` reads the file ITSELF, the secret never appears in either, so
 // plain DLP misses it. Only runs when DLP block is configured and only for
 // transfer commands, so the extra file read is off the common hot path.
 func egressSecretCheck(args map[string]interface{}, sec *shared.Security, cwd string) (reason string) {
 	// Fail OPEN. Never break a legitimate command on a scan error, and never let
-	// one turn into a denial by way of a panic — exit status 2 IS the deny signal.
+	// one turn into a denial by way of a panic, exit status 2 IS the deny signal.
 	defer func() {
 		if recover() != nil {
 			reason = ""
@@ -184,15 +184,15 @@ func egressSecretCheck(args map[string]interface{}, sec *shared.Security, cwd st
 			//
 			// The path is one the AGENT put in a transfer command, so its size is
 			// the agent's choice. Reading it whole meant `curl -T big.bin` made
-			// this process allocate the whole file — and dlpScanViews then builds
+			// this process allocate the whole file, and dlpScanViews then builds
 			// de-obfuscated views of it, so the peak is a multiple of that. The
 			// guard runs before every tool call and is fail-closed, so an
 			// out-of-memory kill here is a stalled agent rather than a missed scan.
 			//
 			// dlpMaxFileBytes is not a new rule: it is already the ceiling on
 			// dlpRedactCopy in this same file. Only this spot was missing it. The
-			// trade is explicit — a secret in a file over the ceiling is not caught
-			// HERE — and it is the trade the other path already made.
+			// trade is explicit, a secret in a file over the ceiling is not caught
+			// HERE, and it is the trade the other path already made.
 			if st, err := os.Stat(abs); err != nil || !st.Mode().IsRegular() || st.Size() > dlpMaxFileBytes {
 				continue
 			}
@@ -235,7 +235,7 @@ func dlpRedactText(text string, cfg *shared.DLPConfig) string {
 		}{name, re}
 		// Literal replacement, not ReplaceAllString: a pattern name containing `$1`
 		// would otherwise be expanded as a capture-group reference and the marker
-		// would come out mangled — or empty, which reads as "nothing was redacted".
+		// would come out mangled, or empty, which reads as "nothing was redacted".
 		out = p.Re.ReplaceAllLiteralString(out, "[REDACTED:"+p.Name+"]")
 	}
 	for _, c := range cfg.Custom {
@@ -276,7 +276,7 @@ const dlpMaxFileBytes = 1048576
 // (hooks.md) and the Codex equivalent via `updatedInput`: agy cannot rewrite
 // tool OUTPUT, but it CAN rewrite the tool's ARGS before it runs. So when a read
 // would surface a secret file, we write a REDACTED copy to a temp path and point
-// the read at that copy — the agent sees `[REDACTED:…]` exactly like on Claude,
+// the read at that copy, the agent sees `[REDACTED:…]` exactly like on Claude,
 // no block needed. Works for the native read tool (swap the path arg) and shell
 // reads (swap the file token in the command). FAIL-CLOSED: any uncertainty is
 // `{Block: true}`, so a secret can never leak through a redaction that did not
@@ -286,7 +286,7 @@ const dlpMaxFileBytes = 1048576
 // happens at the callsite, and the parameter is kept so the two signatures match.
 //
 // It must run LAST, after policy evaluation. A file a DENY rule blocks (a `.env`
-// filename, a `secrets/` path) must never be served — not even redacted. Putting
+// filename, a `secrets/` path) must never be served, not even redacted. Putting
 // this before the policy, as it once was, let a redaction rewrite terminate the
 // hook and silently bypass the block.
 func dlpRedactReadPlan(toolName string, args map[string]interface{}, dlp *shared.DLPConfig, cwd string) (plan *redactPlan) {
@@ -312,7 +312,7 @@ func dlpRedactReadPlan(toolName string, args map[string]interface{}, dlp *shared
 	// a secret file for its redacted copy.
 	//
 	// Sorted keys, where the Node hook walks insertion order: Go map iteration is
-	// randomised, and this loop RETURNS on the first hit — leaving it random would
+	// randomised, and this loop RETURNS on the first hit, leaving it random would
 	// make a call carrying two path-ish args rewrite a different one run to run.
 	for _, k := range policy.SortedKeys(args) {
 		if k == "command" {
@@ -338,14 +338,14 @@ func dlpRedactReadPlan(toolName string, args map[string]interface{}, dlp *shared
 		return nil
 	}
 	newCmd, changed := cmd, false
-	// reGlobTokSplit is the extractor's `[\s'"|<>;&()]+` — the same shell
+	// reGlobTokSplit is the extractor's `[\s'"|<>;&()]+`, the same shell
 	// tokenisation the glob expander uses, kept shared so a token that is a path
 	// to one layer is a path to the other.
 	for _, tok := range policy.GlobTokenSplit.Split(cmd, -1) {
 		if tok == "" || strings.HasPrefix(tok, "-") || !strings.ContainsAny(tok, "./") {
 			continue
 		}
-		// A glob cannot be swapped for a single redacted copy — expand it and, if
+		// A glob cannot be swapped for a single redacted copy, expand it and, if
 		// ANY matched file holds a secret, BLOCK the whole read (fail-closed).
 		if policy.GlobChars.MatchString(tok) {
 			for _, f := range dlpExpandGlob(dlpAbsPath(tok, base)) {
@@ -418,7 +418,7 @@ func dlpRedactCopy(abs string, dlp *shared.DLPConfig) string {
 //
 // Globs are the classic redaction dodge: the filename rule cannot match
 // `staging.e*` against `*.env`, and a redacted-copy swap cannot stat a path with
-// a literal `*` in it — so a bare `cat staging.e*` would read the secret
+// a literal `*` in it, so a bare `cat staging.e*` would read the secret
 // unredacted. Expanding here closes it. A non-glob path is returned unchanged so
 // the caller can treat both the same way.
 func dlpExpandGlob(absGlob string) []string {
@@ -428,7 +428,7 @@ func dlpExpandGlob(absGlob string) []string {
 	// Clean BEFORE splitting and take the basename rather than slicing at the
 	// directory's length: filepath.Dir cleans its result, so on an uncleaned path
 	// (`/srv/./app/staging.e*`) the slice offset is wrong and yields a fragment
-	// containing a `/`, which no directory entry can match — the token is silently
+	// containing a `/`, which no directory entry can match, the token is silently
 	// dropped and the dodge reopens. Same bug expandCommandGlobs already carries a
 	// note about.
 	abs := filepath.Clean(absGlob)

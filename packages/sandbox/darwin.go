@@ -158,8 +158,8 @@ func Describe() (string, []string) {
 // honest shape: Seatbelt has a real default-deny and a real deny rule, so
 // "nothing except these" is one line rather than Landlock's enumeration.
 //
-// `(deny default)` first, then grants. Order does not decide it — in SBPL the
-// LAST matching rule wins — which is why every grant comes after the deny and
+// `(deny default)` first, then grants. Order does not decide it, in SBPL the
+// LAST matching rule wins, which is why every grant comes after the deny and
 // why nothing is granted twice with different rights.
 //
 // process-exec is granted on the read set rather than globally: the agent has

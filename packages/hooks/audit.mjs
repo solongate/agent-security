@@ -14,8 +14,8 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // ── Per-project scratch, kept OUT of the project ─────────────────────────────
 // The guard and the audit hook pass a few small flags to each other (the eval
 // ring, the last-eval measurement, the deny flag, the tool-call marker). These
-// used to be written to `./.solongate/` — relative to whatever directory the
-// agent happened to run in — which scattered a dot-folder through every folder
+// used to be written to `./.solongate/`, relative to whatever directory the
+// agent happened to run in, which scattered a dot-folder through every folder
 // an agent ever touched, config directories included, and put it inside repos
 // that had no ignore rule for it. It also read as "local logging is on" to
 // anyone who found one, which is a different setting entirely.
@@ -40,7 +40,7 @@ function projectFlagDir() {
 }
 
 
-// Bump on every audit hook change. Nothing serves it — the version is how the
+// Bump on every audit hook change. Nothing serves it, the version is how the
 // installed copy on a machine can be compared with the one in a checkout.
 // 29 collapses a run of `*` in a custom DLP glob before compiling it. That is a
 // HANG fix, so an installed hook must pick it up: see dlpGlobToRe.
@@ -62,7 +62,7 @@ const HOOK_VERSION = 33;
 // file; this hook logs the ALLOW path but can't time the guard itself, so it
 // reads that value back. The flag carries the tool (and session) it was measured
 // for, so a long-running tool (a 10-minute Bash build) still gets ITS eval time
-// instead of a stale-TTL zero. Returns null when no matching measurement exists —
+// instead of a stale-TTL zero. Returns null when no matching measurement exists,
 // an unknown eval time must be stored as null, not a fake 0 that drags averages.
 function readLastEvalMs(toolName, sessionId) {
   // Prefer the ring: average the recent same-session eval records. When several
@@ -106,9 +106,9 @@ function readLastEvalMs(toolName, sessionId) {
 // THE PATTERN LIST LIVES IN ./dlp.mjs, one copy for the three hooks that scan.
 //
 // Each of them carried its own, and they had drifted: the guard had 70 and each hook had
-// 14 — so on a machine without the Go binary, which is the default, a policy asking for
+// 14, so on a machine without the Go binary, which is the default, a policy asking for
 // most of the list was enforcing nothing. Compiled here with the flags THIS hook needs:
-// `g`, because this REPLACES every occurrence — without it only the first
+// `g`, because this REPLACES every occurrence, without it only the first
 // secret in a file is masked and the rest reach the model.
 const DLP_PATTERNS = dlpPatterns('g');
 
@@ -116,14 +116,14 @@ const DLP_PATTERNS = dlpPatterns('g');
 // Owner-only, and the same numbers the guard and shared use: several programs
 // create this ONE directory, and a mode applies only on CREATE, so whichever runs
 // first on a machine decides it for all of them. The local audit log is the
-// sharpest case — it records every command, path and URL a call carried.
+// sharpest case, it records every command, path and URL a call carried.
 const SG_DIR_MODE = 0o700;
 const SG_FILE_MODE = 0o600;
 
 // ── Where the security block comes from ──────────────────────────────────────
 //
 // THIS MACHINE'S OWN FILE, and nothing else. It used to be a cache a service filled,
-// with the file as a second look — and without that second look this hook read an
+// with the file as a second look, and without that second look this hook read an
 // empty cache and concluded there was no DLP configuration at all, which is not a
 // small miss: on a client that can rewrite a tool's result (Claude Code, Codex) the
 // GUARD deliberately leaves read-DLP to this hook and allows the call, so no
@@ -146,11 +146,11 @@ function localSecurity() {
 // THE FILE IS THE ONLY ANSWER, and a stale cache may not override it.
 //
 // This used to read the per-agent policy cache first, and a cache carrying the
-// `security` key AT ALL won — `null` included, because a service answering null meant
+// `security` key AT ALL won, `null` included, because a service answering null meant
 // "this project has no layers configured" and that outranked a local file. Nothing
 // writes that cache now, which made what remained a hazard rather than dead weight:
 // a cache left behind by an older install still outranked the file, so a machine that
-// upgraded could have the DLP its policy configures SWITCHED OFF by a stale reply —
+// upgraded could have the DLP its policy configures SWITCHED OFF by a stale reply,
 // silently, since the file would look correct to whoever wrote it.
 //
 // The guard stopped consulting it for the same reason. Two readers of one machine's
@@ -163,7 +163,7 @@ function loadDlpRedact() {
   try {
     const sec = loadSecurity();
     // dlpBlock is honoured as redaction too, and that is not a convenience.
-    // A service sends BOTH when DLP is on — blocking is the extra step over
+    // A service sends BOTH when DLP is on, blocking is the extra step over
     // redacting, so `dlpRedact` is always there. A file written by hand usually
     // carries only `dlpBlock`, which is the spelling that reads as "refuse
     // secrets": taking `dlpRedact` alone gave that file argument blocking and NO
@@ -182,7 +182,7 @@ function loadDlpRedact() {
 //
 // Every mode scans; they differ only in what happens next. Reading the config
 // through one function keeps a mode from silently losing its scan because the
-// key it writes was not in somebody's `||` chain — which is how detect came to
+// key it writes was not in somebody's `||` chain, which is how detect came to
 // record nothing while redacting everything.
 function loadDlpScan() {
   try {
@@ -193,7 +193,7 @@ function loadDlpScan() {
 }
 
 // ── DETECT-mode observation ──
-// In DETECT mode the guard doesn't block (and doesn't log) — the call is ALLOWED
+// In DETECT mode the guard doesn't block (and doesn't log), the call is ALLOWED
 // and reaches THIS PostToolUse hook. To make "detect" mean observe-AND-record
 // (not silent), we scan the ARGUMENTS for DLP hits and flag rate-limit bursts
 // here, on the ALLOW entry. Block-mode hits are DENIED upstream and carry their
@@ -265,7 +265,7 @@ function rateLimitObserveBurst(agentKey, limits) {
 }
 
 // Local log storage: a full copy of every audit entry, in a folder of the user's
-// choosing — `security.localLogs.path` in the policy file. One JSON object per line
+// choosing, `security.localLogs.path` in the policy file. One JSON object per line
 // (JSONL). Best-effort, and it never blocks the tool call.
 function loadLocalLogs() {
   // WHERE, never WHETHER. This used to answer null for "send it to the service
@@ -280,8 +280,8 @@ function loadLocalLogs() {
 }
 
 // Resolve the FOLDER local logs may be written into. It MUST be absolute on
-// THIS machine. A relative path — e.g. a Windows "C:/Users/…" path evaluated on
-// Linux, where Node treats it as relative — would be created under the agent's
+// THIS machine. A relative path, e.g. a Windows "C:/Users/…" path evaluated on
+// Linux, where Node treats it as relative, would be created under the agent's
 // current working directory and pollute whatever project it happens to run in.
 // When the configured path isn't absolute here, fall back to a fixed home folder
 // so entries are never lost and never leak into a project, and record the bad
@@ -293,7 +293,7 @@ function resolveLocalLogDir(rawPath) {
   const fallback = resolve(homedir(), '.solongate', 'local-logs');
   try {
     // Owner-only: this directory holds the policy and the audit trail, and every
-    // program that creates it has to agree on the mode — mkdirSync applies
+    // program that creates it has to agree on the mode, mkdirSync applies
     // one only when it CREATES, so the first one to run decides for all of them.
     // Same number as SG_DIR_MODE in the guard and shared.DirMode in Go.
     mkdirSync(resolve(homedir(), '.solongate'), { recursive: true, mode: 0o700 });
@@ -322,7 +322,7 @@ function appendLocalLog(cfg, entry) {
       // The folder is a PROJECT setting shared by every device, so a path that
       // is valid on one machine can be unwritable on another (a Linux "/home/me"
       // does not exist on macOS). Silently dropping the entry loses it for good,
-      // since local-only mode also skips the cloud POST — fall back to the
+      // since local-only mode also skips the cloud POST, fall back to the
       // per-device default folder and record the offending path.
       const fb = resolve(homedir(), '.solongate', 'local-logs');
       try { mkdirSync(fb, { recursive: true, mode: SG_DIR_MODE }); } catch { /* ignore */ }
@@ -343,7 +343,7 @@ function appendLocalLog(cfg, entry) {
 //
 // The audit row's `dlp` field used to come from dlpScanArgs alone, which reads
 // the ARGUMENTS. For `Read secrets.txt` the arguments are a file path and
-// nothing else, so the scan correctly found nothing and the row said dlp:no —
+// nothing else, so the scan correctly found nothing and the row said dlp:no,
 // while the redactor below masked an AWS key out of the file's contents on its
 // way to the model. The one place a secret was actually caught was the one
 // place nothing was written down, and the layers panel reported "no dlp hits in
@@ -394,7 +394,7 @@ function extractOutputText(toolResponse, toolOutput) {
     }
     // Native Glob delivers its hits as a `filenames` string[] with NO stdout/
     // content field, so getText() returned null and the DLP redaction silently
-    // skipped it — a secret-looking path then survived in the Glob listing the
+    // skipped it, a secret-looking path then survived in the Glob listing the
     // model saw. Join to one-path-per-line so dlpRedactText can act on it; the
     // PostToolUse updatedToolOutput then replaces the model-visible list.
     if (Array.isArray(r.filenames)) {
@@ -406,7 +406,7 @@ function extractOutputText(toolResponse, toolOutput) {
   return null;
 }
 
-// Small stable string hash (FNV-1a, hex). Duplicated verbatim in guard.mjs —
+// Small stable string hash (FNV-1a, hex). Duplicated verbatim in guard.mjs,
 // the two MUST produce the same value for the same tool_input (that is how a
 // PostToolUse call is matched to the guard's deny flag), so keep them in sync.
 function callFingerprint(s) {
@@ -421,7 +421,7 @@ function callFingerprint(s) {
 
 function guessPermission(toolName) {
   const name = (toolName || '').toLowerCase();
-  // Codex routes every file edit through `apply_patch` — no substring below
+  // Codex routes every file edit through `apply_patch`, no substring below
   // matches it, so it would otherwise be logged as a READ. Mirrors guard.mjs.
   if (name === 'apply_patch' || name === 'applypatch') return 'WRITE';
   if (name.includes('exec') || name.includes('shell') || name.includes('run') || name.includes('eval') || name === 'bash') return 'EXECUTE';
@@ -445,7 +445,7 @@ const AGENT_NAME = process.argv[3] || 'Claude Code';
 //
 //   And DLP MASKING OF TOOL OUTPUT never ran. On a client that can rewrite a
 //   result, the guard leaves read-DLP to this hook BY DESIGN and allows the call.
-//   With the hook gone the secret reached the model — so a `dlpBlock` in a local
+//   With the hook gone the secret reached the model, so a `dlpBlock` in a local
 //   policy protected an argument while doing nothing at all for a file read.
 //
 // The key itself is gone now too, along with the malformed-key check that made an
@@ -460,7 +460,7 @@ let input = '';
 try { input += readFileSync(0, 'utf-8'); } catch {}
 ;(async () => {
   // Safety backstop ONLY: the normal path exits by natural drain. Force-exit if the
-  // loop fails to drain — 8s > the 5s fetch timeout, so the threadpool is idle and
+  // loop fails to drain, 8s > the 5s fetch timeout, so the threadpool is idle and
   // exit() can't hit the Windows UV_HANDLE_CLOSING abort.
   try { setTimeout(() => { try { process.exit(process.exitCode || 0); } catch {} }, 8000).unref(); } catch {}
   try {
@@ -491,7 +491,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
     //
     // The match is per-CALL, not per-tool. Matching the tool name alone
     // mislabels the NEXT call whenever it shares the name and lands inside the
-    // 10s window — on Codex every shell call is "Bash", so an allowed
+    // 10s window, on Codex every shell call is "Bash", so an allowed
     // `echo merhaba` right after a blocked `cat …` was recorded as DENY
     // "blocked by policy guard" while it had actually run. The guard now writes
     // the call's tool_use_id and an argument fingerprint into the flag; we
@@ -509,7 +509,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
           try { fp = callFingerprint(JSON.stringify(data.tool_input || data.toolInput || data.params || {})); } catch { fp = ''; }
           if (flag.id && id) guardDenied = flag.id === id;
           else if (flag.fp && fp) guardDenied = flag.fp === fp;
-          else guardDenied = !flag.id && !flag.fp; // legacy flag — old behavior
+          else guardDenied = !flag.id && !flag.fp; // legacy flag, old behavior
         }
       }
     } catch {}
@@ -527,7 +527,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
 
       // Glob (and Grep in files mode) deliver a STRUCTURED result:
       //   { filenames: string[], numFiles, truncated, totalMatches, ... }
-      // Claude Code REJECTS a plain-string updatedToolOutput for such a tool —
+      // Claude Code REJECTS a plain-string updatedToolOutput for such a tool,
       // it prints "PostToolUse:Glob hook warning" and keeps the ORIGINAL result,
       // so the unredacted listing is what the model sees. The fix is to return
       // the SAME shape: the filenames array with secret-looking names masked,
@@ -557,7 +557,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
           // Never emit EMPTY content. When DLP stripping removes every line
           // (e.g. a grep/cat that hit only hidden or secret lines) and the tool
           // ALSO errored, the resulting tool_result is is_error:true with empty
-          // content — which the API rejects ("content cannot be empty if is_error
+          // content, which the API rejects ("content cannot be empty if is_error
           // is true") and hard-crashes the whole agent conversation. Fall back to
           // a bare newline: still looks like empty output, but is non-empty.
           if (out === '') out = '\n';
@@ -573,7 +573,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
           else if (tr && typeof tr === 'object' && Array.isArray(tr.content)) updated = { ...tr, content: [{ type: 'text', text: out }] };
           // Read / NotebookRead nest the file body at file.content. It's a STRUCTURED
           // result, so a bare-string replacement is rejected ("PostToolUse:Read hook
-          // warning") and the raw secret leaks through — preserve the shape instead.
+          // warning") and the raw secret leaks through, preserve the shape instead.
           else if (tr && typeof tr === 'object' && tr.file && typeof tr.file.content === 'string') updated = { ...tr, file: { ...tr.file, content: out } };
           else updated = out;
           EMITTED_PAYLOAD = JSON.stringify({
@@ -601,23 +601,23 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
 
     // Codex CANNOT rewrite tool output from PostToolUse: its output struct is
     // deny_unknown_fields and the only rewrite field it defines
-    // (updatedMCPToolOutput) is explicitly rejected as unsupported — so emitting
+    // (updatedMCPToolOutput) is explicitly rejected as unsupported, so emitting
     // our `updatedToolOutput` there wouldn't redact anything, it would just make
     // Codex report a failed hook on every single tool call. Drop the payload and
     // keep the audit log. The DLP protection Codex DOES get runs earlier, in the
-    // PreToolUse guard (secret reads redirected to a redacted copy) — see
+    // PreToolUse guard (secret reads redirected to a redacted copy), see
     // guard.mjs dlpRedactReadPlan.
     if (AGENT_ID === 'codex' && typeof EMITTED_PAYLOAD === 'string') EMITTED_PAYLOAD = null;
 
     // Flush the model-visible replacement to stdout, THEN exit. On Windows a
     // bare process.exit() can truncate an un-drained pipe write, so Claude Code
     // receives malformed hook JSON, prints "PostToolUse hook warning", and
-    // DISCARDS the replacement — leaving the unredacted output visible. So the exit
+    // DISCARDS the replacement, leaving the unredacted output visible. So the exit
     // is gated on the write's flush callback.
     //
     // It used to be gated on a second thing as well: `fetchDone`, the fire-and-forget
     // audit POST. That is gone, and with it the reason this could not simply call
-    // process.exit() — on Windows + Node 24, exiting in the same tick a fetch settled
+    // process.exit(), on Windows + Node 24, exiting in the same tick a fetch settled
     // aborted with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)`, because a
     // threadpool DNS worker was still mid-uv_async_send. Nothing is in flight now, but
     // the drain is kept as it is: it is correct, it is what the Go twin does, and the
@@ -645,7 +645,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
     const evaluationTimeMs = readLastEvalMs(toolName, sessionId);
 
     // DETECT-mode observation: record DLP matches / rate-limit bursts on this
-    // ALLOW entry so "detect" means observe-AND-log (not silent). Fail-safe —
+    // ALLOW entry so "detect" means observe-AND-log (not silent). Fail-safe,
     // any error leaves the fields off. Only meaningful on ALLOW (block-mode hits
     // are DENIED upstream with their own reason).
     let dlpMatches = [];
@@ -677,7 +677,7 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
     }
 
     // THE RECORD GOES TO THE FILE. There used to be a branch here that POSTed it
-    // instead, to whatever API_URL was — and that branch carried the tool, its
+    // instead, to whatever API_URL was, and that branch carried the tool, its
     // arguments and the reason off the machine. It is gone with the service that
     // received them, and so is the question of whether to record: the only thing
     // left to choose is the folder.

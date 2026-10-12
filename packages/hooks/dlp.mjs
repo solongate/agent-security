@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * THE BUILT-IN SECRET PATTERNS — one list, for the three hooks that scan.
+ * THE BUILT-IN SECRET PATTERNS, one list, for the three hooks that scan.
  *
  * There were three copies of this table, one per hook, and they had drifted: the guard
  * carried 70 patterns and each hook carried 14. Which is the wrong 56 to be missing,
- * because the HOOK is what ships as the installed guard — so on a machine without the Go
+ * because the HOOK is what ships as the installed guard, so on a machine without the Go
  * binary, the default, a policy asking for a Google API key or a Slack webhook was
  * enforcing nothing and said so nowhere. test/dlp-parity.mjs was written to catch that
  * by reading all four sources and comparing them; this removes three of the four.
@@ -16,14 +16,14 @@
  *   the guard   TESTS for a match, so no `g`. A `g` regex carries `lastIndex` between
  *               calls, and on a reused object that silently skips every second match.
  *   the others  REPLACE every occurrence, so `g` is mandatory. Without it only the first
- *               secret in a file is masked and the rest reach the model — which is a bug
+ *               secret in a file is masked and the rest reach the model, which is a bug
  *               this repository has already had.
  *
  * So `dlpPatterns(flags)` compiles the list with what the caller needs, fresh each call,
  * and neither consumer can pick up the other's flags by accident.
  *
- * A pattern's OWN flags travel with it. Exactly one has any — `Bearer token` is
- * case-insensitive — and it is carried per entry rather than applied to the list, because
+ * A pattern's OWN flags travel with it. Exactly one has any, `Bearer token` is
+ * case-insensitive, and it is carried per entry rather than applied to the list, because
  * a flag that belongs to one expression must not silently become a property of seventy.
  *
  * The ORDER is part of the contract: a scan reports the FIRST match, so two patterns that
@@ -134,7 +134,7 @@ export function dlpPatterns(extra) {
  * A RUN of `*` collapses to one, and that is a HANG fix rather than tidying. `*` becomes
  * `[^\s]*`, so `**` became two unbounded quantifiers over the same class back to back,
  * which backtracks catastrophically: measured on this converter, six stars cost 0.9s and
- * ten cost four minutes — on a pattern somebody types. Collapsing changes nothing about
+ * ten cost four minutes, on a pattern somebody types. Collapsing changes nothing about
  * what a glob accepts, because `[^\s]*[^\s]*` matches exactly what `[^\s]*` matches.
  *
  * Go's RE2 has no backtracking and was never at risk, and GlobToRegexp there collapses

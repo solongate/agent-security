@@ -10,13 +10,13 @@ import (
 )
 
 // Best-effort desktop toast for the Live console's security alerts (DENY, DLP,
-// rate limit). It only SHOWS a notification — clicking it does nothing. Every
+// rate limit). It only SHOWS a notification, clicking it does nothing. Every
 // platform uses a tool it already ships with and every failure is swallowed,
 // because a missing notifier must never disturb the TUI.
 //
-//	Linux   — notify-send (libnotify, present on GNOME and KDE desktops)
-//	Windows — a NotifyIcon balloon through the built-in PowerShell
-//	macOS   — the built-in osascript notification
+//	Linux, notify-send (libnotify, present on GNOME and KDE desktops)
+//	Windows, a NotifyIcon balloon through the built-in PowerShell
+//	macOS, the built-in osascript notification
 func desktopNotify(title, msg string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {

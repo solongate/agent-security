@@ -6,14 +6,14 @@ package main
 //
 // Runs BEFORE policy evaluation. Cannot be disabled by editing policies.
 // Even if all policy rules are removed, these stay enforced. The only switch is
-// the per-project cloud `selfProtect` flag, applied by the caller — and that
+// the per-project cloud `selfProtect` flag, applied by the caller, and that
 // fails safe: it stays ON when the cache cannot be read.
 //
 // Ported from the Node hook line for line so both implementations deny the same
 // call for the same reason. Nothing here is allowed to be "tightened up" in
 // translation: a path form this misses is a disarm vector, so the three shapes
-// of check — absolute prefix, glob, and a regex fallback that ignores where in
-// the tree the file sits — are all kept, even where they overlap.
+// of check, absolute prefix, glob, and a regex fallback that ignores where in
+// the tree the file sits, are all kept, even where they overlap.
 
 import (
 	"os"
@@ -53,7 +53,7 @@ const (
 )
 
 // resolve(homedir()) in the original: absolute, separator-normalised, lowered.
-// filepath.Abs is Node's resolve — it joins a relative value onto the working
+// filepath.Abs is Node's resolve, it joins a relative value onto the working
 // directory and cleans the result, so a trailing slash or a `.` segment cannot
 // shift every prefix comparison below by one character.
 var tamperHome = func() string {
@@ -77,14 +77,14 @@ var tamperProtectedAbs = []string{
 	tamperHome + tamperSG + "/hooks",
 	tamperHome + tamperSG + "/policy.json",
 	tamperHome + tamperSG + "/.policy-cache.json",
-	// The cloud credential (contains the API key) — never readable via a tool.
+	// The cloud credential (contains the API key), never readable via a tool.
 	tamperHome + tamperSG + "/cloud-guard.json",
 	// ITS UNPROTECTED SIBLING, which held the same kind of secret at 0644 while
 	// the file above was 0444 and on this list.
 	//
 	// accounts.json was the account layer's store: every account ever logged in
-	// on the device, each with its API key. That layer is gone — nothing in this
-	// repository reads or writes this file any more — and the file is still on
+	// on the device, each with its API key. That layer is gone, nothing in this
+	// repository reads or writes this file any more, and the file is still on
 	// every machine that ran a build which did. A credential nothing maintains
 	// is still a credential, and the one thing that must not happen to it is an
 	// agent reading it out and reporting the contents.
@@ -97,13 +97,13 @@ var tamperProtectedAbs = []string{
 }
 
 // Matched with MatchPathGlob, shared with the policy layer, which compiles the
-// pattern to a regex — so the `*` in the per-agent entries below is a real
+// pattern to a regex, so the `*` in the per-agent entries below is a real
 // wildcard here and those files match by path.
 //
 // THE JAVASCRIPT TWIN'S matchPathGlob DOES NOT DO THAT. It splits on `**` and
 // substring-tests each remaining piece, which leaves that `*` literal, so the
 // per-agent files did not match by path there at all. isProtectedPath now covers
-// them by basename in both, which is what closed it — see the block at the end
+// them by basename in both, which is what closed it, see the block at the end
 // of that function.
 var tamperProtectedGlobs = []string{
 	"**" + tamperCC + "/settings.json",
@@ -119,7 +119,7 @@ var tamperProtectedGlobs = []string{
 	// `.opa-wasm-*.json` and `.pi-config-cache.json` were listed here. Nothing writes
 	// either -- the WASM bundle came from a service, and the prompt-injection layer is not
 	// in this build -- so a lock on a file that cannot exist reads as protection and is not.
-	// The rate-limit counter. The extension is `.log`, not `.json` — this glob said
+	// The rate-limit counter. The extension is `.log`, not `.json`, this glob said
 	// `.ratelimit-*.json` and matched nothing the limiter writes. Protected anyway by
 	// the basename prefix rule, but a glob matching no real file is a line somebody will
 	// one day rely on.
@@ -142,13 +142,13 @@ var tamperProtectedGlobs = []string{
 }
 
 // Matched as SUBSTRINGS of a shell command, not as path components, which is
-// why the entries are already lowercase — the command is lowered before the
+// why the entries are already lowercase, the command is lowered before the
 // comparison.
 var tamperBasenames = []string{
 	"guard.mjs", "audit.mjs", "stop.mjs", "shield.mjs",
 	"policy.json",
 	// Prefixes (substring match) so per-agent runtime state can't be deleted or
-	// rewritten via a shell command either — `.policy-cache-<agent>.json` and
+	// rewritten via a shell command either, `.policy-cache-<agent>.json` and
 	// `.ratelimit-<agent>.log`. Deleting the counter resets the rate-limit window, so a
 	// limit of N calls/minute becomes N per deletion.
 	".policy-cache", ".ratelimit-",
@@ -191,7 +191,7 @@ var (
 	reTamperSGHooks    = regexp.MustCompile(`/\.solongate/hooks(/|$)`)
 	// The binary's DIRECTORY, for the same reason the hooks one above is covered:
 	// `rm -rf ~/.solongate/bin` names no protected basename and matches no `/bin/**`
-	// glob. Not a disarm on its own — with no binary the hook decides for itself — but
+	// glob. Not a disarm on its own, with no binary the hook decides for itself, but
 	// an agent should not be able to take the fast path away silently.
 	reTamperSGBin    = regexp.MustCompile(`/\.solongate/bin(/|$)`)
 	reTamperCXHooks  = regexp.MustCompile(`/\.codex/(hooks\.json|config\.toml)$`)
@@ -263,7 +263,7 @@ func isProtectedPath(p string) string {
 	//        per-agent entry above is a real wildcard and the file matches.
 	//   JS   matchPathGlob splits the pattern on `**` and then asks whether the
 	//        path CONTAINS each remaining piece, so that `*` stays a literal
-	//        asterisk — and no real filename contains one.
+	//        asterisk, and no real filename contains one.
 	//
 	// So the hook was reachable by PATH where this binary was not. Deleting the
 	// policy cache through a shell command was refused on both sides; a Write tool
@@ -275,8 +275,8 @@ func isProtectedPath(p string) string {
 	//
 	// This block is here anyway, for two reasons. The pair is meant to decide
 	// alike and a machine gets whichever one it has. And resting a protection on
-	// a subtlety of a glob engine that the policy layer also uses — and may
-	// legitimately change — is not where it should rest.
+	// a subtlety of a glob engine that the policy layer also uses, and may
+	// legitimately change, is not where it should rest.
 	//
 	// Scoped to the directory on purpose. The names are matched as PREFIXES, and
 	// `policy.json` is one somebody's own project may well use; protecting it
@@ -333,7 +333,7 @@ func commandTargetsProtected(cmd string) string {
 	return ""
 }
 
-// extractTargetPaths collects the paths a call declares as its TARGET — never
+// extractTargetPaths collects the paths a call declares as its TARGET, never
 // the free-form body, which would false-positive on any file that merely
 // mentions a protected path in its text.
 //
@@ -356,7 +356,7 @@ func extractTargetPaths(args map[string]interface{}) []string {
 		}
 		// Claude Code's MultiEdit and the Antigravity batch tools carry their real
 		// targets one level down, in an array of {file_path: …} objects. Only that
-		// one level, as in the original — a path buried deeper is the policy
+		// one level, as in the original, a path buried deeper is the policy
 		// layer's business, not this one's.
 		if arr, ok := v.([]interface{}); ok {
 			for _, item := range arr {
@@ -387,11 +387,11 @@ func tamperCheck(toolName string, args map[string]interface{}) string {
 	// `bash_tool`, `mcp__shell__exec` and the rest of the long tail of vendor
 	// names. isExecTool is that same pattern, shared with the policy layer.
 	isExec := tamperGuardToolsExec[tn] || policy.IsExecTool(toolName)
-	// ANY tool that targets a protected path is blocked — READ as well as write.
+	// ANY tool that targets a protected path is blocked. READ as well as write.
 	// An AI must not even read SolonGate's own protection files. This is enforced
 	// at the tool boundary; the hooks themselves are run by node directly (not via
 	// a Claude Code tool), so node still loads/executes them normally.
-	// Check the tool's TARGET PATH fields only (file_path, path, …) — never the
+	// Check the tool's TARGET PATH fields only (file_path, path, …), never the
 	// free-form content/body, which would false-positive on any file that merely
 	// mentions a protected path in its text.
 	for _, p := range extractTargetPaths(args) {
@@ -402,11 +402,11 @@ func tamperCheck(toolName string, args map[string]interface{}) string {
 	if isExec {
 		for _, cmd := range policy.ExtractCommands(args) {
 			if hit := commandTargetsProtected(cmd); hit != "" {
-				return `Tamper protection: command references protected resource "` + hit + `" — blocked`
+				return `Tamper protection: command references protected resource "` + hit + `", blocked`
 			}
 		}
 		if argsInvokeCLI(args) {
-			return `Tamper protection: command references protected resource "solongate-cli" — blocked`
+			return `Tamper protection: command references protected resource "solongate-cli", blocked`
 		}
 	}
 	return ""
@@ -420,8 +420,8 @@ func tamperCheck(toolName string, args map[string]interface{}) string {
 // It used to be stopped by the CLI itself, which refused whenever an agent marker was in
 // the environment. That refused the wrong people: an integrated terminal inherits the
 // agent's environment, so a HUMAN typing `solongate` in VS Code or Cursor was turned away
-// from their own tool. Here it is a fact about the caller — this check runs on a tool call
-// and nowhere else — rather than a guess about its environment, and it holds even if the
+// from their own tool. Here it is a fact about the caller, this check runs on a tool call
+// and nowhere else, rather than a guess about its environment, and it holds even if the
 // agent allocated a pseudo-terminal, which a TTY check alone does not.
 //
 // MATCHED AS AN INVOCATION, NOT AS A WORD, and that distinction is the whole design. Every
@@ -432,7 +432,7 @@ func tamperCheck(toolName string, args map[string]interface{}) string {
 //	npm install @solongate/proxy
 //
 // Not one of those runs anything. A substring rule refused all three, which would leave an
-// agent unable to so much as mention the product it is working on — a wall rather than a
+// agent unable to so much as mention the product it is working on, a wall rather than a
 // guard, and the kind of wall that gets a whole layer switched off. So this asks the only
 // question that matters: IS THE CLI THE PROGRAM BEING RUN?
 //
@@ -443,7 +443,7 @@ func tamperCheck(toolName string, args map[string]interface{}) string {
 //     have to be honoured, and their contents kept as one token stream.
 //   - WRAPPERS, AND THEIR ARGUMENTS. `sudo solongate` is the same invocation wearing a hat,
 //     and so are `timeout 5 solongate`, `sudo -u root solongate` and `bash -c "solongate
-//     policy delete"` — so a wrapper's own flags, flag values and numeric operands are
+//     policy delete"`, so a wrapper's own flags, flag values and numeric operands are
 //     stepped over to reach the program behind them.
 //   - RUNNERS THAT ACTUALLY RUN. `pnpm dlx @solongate/proxy policy delete` reaches the CLI
 //     without installing it; `npm install @solongate/proxy` names the same package and
@@ -474,7 +474,7 @@ var cliWrappers = map[string]bool{
 	"fish": true, "csh": true, "tcsh": true, "ash": true, "busybox": true,
 	// AND THE ONES THAT HAND A PROGRAM A TERMINAL. `script -c "solongate policy delete"`
 	// allocates a pty and runs the command inside it, which is how an agent would fake the
-	// interactive terminal the CLI asks for — the exact case the TTY check cannot see and
+	// interactive terminal the CLI asks for, the exact case the TTY check cannot see and
 	// the reason this guard rule exists at all. A rule that missed `script` would leave the
 	// product protected by nothing but the env sniff it replaced.
 	"script": true, "unbuffer": true, "expect": true, "socat": true,
@@ -486,7 +486,7 @@ var cliWrappers = map[string]bool{
 	// THE TAIL IS REAL AND THIS DOES NOT CLOSE IT. `screen -dmS name solongate policy
 	// delete` bundles its flags, so the scan stops on `name` and reads it as the program;
 	// so does any wrapper whose value-taking flag is not in the table below. Enumeration
-	// cannot win this outright — what it does is raise the cost, in front of a CLI that
+	// cannot win this outright, what it does is raise the cost, in front of a CLI that
 	// still refuses to run without a terminal, and beside the path and basename rules
 	// above that catch what such a command would have to touch.
 }
@@ -549,7 +549,7 @@ func commandInvokesCLIDepth(cmd string, depth int) bool {
 //
 // The splitter breaks on backticks, because `solongate policy delete` in backticks IS
 // a command substitution. Inside a heredoc whose delimiter is quoted it is not: the
-// shell expands nothing there, so backticks are punctuation — which is exactly how
+// shell expands nothing there, so backticks are punctuation, which is exactly how
 // anybody writing markdown uses them. The command that caught it was a script being
 // written to a file:
 //
@@ -567,7 +567,7 @@ func commandInvokesCLIDepth(cmd string, depth int) bool {
 // THE QUOTES MAY ALREADY BE GONE when this runs: extractCommands normalises a command before
 // the tamper rules see it, and normalising strips quoting. That is why brackets are TRIMMED
 // FROM TOKENS rather than split on. Splitting on a bare `(` turned the stripped form of
-// `python3 -c "print('solongate')"` — which arrives as `python3 -c print(solongate)` — into a
+// `python3 -c "print('solongate')"`, which arrives as `python3 -c print(solongate)`, into a
 // second command whose only token was the CLI's name. Trimming reaches `(solongate policy
 // delete)` just as well and leaves `print(solongate)` alone, and it gives the same answer
 // whether the quotes survived or not.
@@ -619,7 +619,7 @@ func splitCLICommands(cmd string) [][]string {
 			i++
 			endCommand()
 		// A heredoc: `<<WORD`, `<<'WORD'`, `<<-WORD`. Only the quoted forms are
-		// skipped — see the note above — and `<<<` is a herestring, not a heredoc.
+		// skipped, see the note above, and `<<<` is a herestring, not a heredoc.
 		case ch == '<' && i+1 < len(cmd) && cmd[i+1] == '<' && (i+2 >= len(cmd) || cmd[i+2] != '<'):
 			delim, quoted, after := readHeredocDelimiter(cmd, i+2)
 			if !quoted {
@@ -666,7 +666,7 @@ func fieldsInvokeCLI(fields []string, depth int) bool {
 		}
 		// filepath.ToSlash is NOT used here, and that is deliberate: it converts only on
 		// Windows, so on Linux `..\\bin\\solongate policy delete` kept its backslashes,
-		// filepath.Base returned the whole string, and the invocation went unseen — while
+		// filepath.Base returned the whole string, and the invocation went unseen, while
 		// the Node twin, which replaces unconditionally, caught it. A guard has to give the
 		// same answer on every platform, and a Windows-shaped path in a command is a real
 		// shape whoever is typing it.
@@ -731,7 +731,7 @@ func maybeRunnerRunsCLI(rest []string) bool {
 		if cliRunSubcommands[strings.ToLower(rest[j])] {
 			return restRunsCLIPackage(rest[j+1:])
 		}
-		return false // install, add, view — naming the package is not running it
+		return false // install, add, view, naming the package is not running it
 	}
 	return false
 }
@@ -779,7 +779,7 @@ func readHeredocDelimiter(cmd string, i int) (delim string, quoted bool, after i
 }
 
 // skipHeredocBody returns the index just past the line that closes the heredoc, or the
-// end of the string when nothing closes it — an unterminated heredoc has no commands
+// end of the string when nothing closes it, an unterminated heredoc has no commands
 // after it either way.
 func skipHeredocBody(cmd string, i int, delim string) int {
 	if delim == "" {
@@ -812,15 +812,15 @@ func skipHeredocBody(cmd string, i int, delim string) int {
 // ON THE RAW COMMAND, WHICH IS WHY THIS DOES NOT LIVE WITH THE RULES ABOVE.
 //
 // Every other tamper rule reads the NORMALISED command, and normalising strips
-// quoting — which is right for them, because a path is the same path whether or not
+// quoting, which is right for them, because a path is the same path whether or not
 // somebody quoted it. This check cannot use it. Two signals it depends on are
 // destroyed by the time the normalised text arrives:
 //
 //	<<'EOF'   becomes   <<EOF
 //
 // and a heredoc's quoting is the entire difference between a body that is text and a
-// body the shell expands. Reading the stripped form, the installer's own usage text —
-// a quoted heredoc with the product named in a markdown code span — looked like a
+// body the shell expands. Reading the stripped form, the installer's own usage text,
+// a quoted heredoc with the product named in a markdown code span, looked like a
 // command substitution, and writing that file was a blocked tool call.
 //
 // So this runs on the field values as the caller sent them.
@@ -838,7 +838,7 @@ func argsInvokeCLI(args map[string]interface{}) bool {
 
 // The same fields policy treats as commands. Named here rather than imported
 // because that list is unexported, and a copy that drifts is a rule that stops
-// seeing a whole class of tool call — so the conformance suite drives both.
+// seeing a whole class of tool call, so the conformance suite drives both.
 var cliCommandFields = map[string]bool{
 	"command": true, "cmd": true, "function": true, "script": true, "shell": true,
 }

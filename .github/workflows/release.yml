@@ -96,7 +96,7 @@ jobs:
 
       # AND A SIGNED STATEMENT OF WHERE THEY CAME FROM. The checksum says the
       # bytes did not change; the attestation says which workflow, at which
-      # commit, produced them — which is the half a checksum published beside
+      # commit, produced them, which is the half a checksum published beside
       # the artifact cannot establish on its own, because whoever replaced the
       # artifact could replace the checksum too.
       #

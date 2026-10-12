@@ -38,7 +38,7 @@ var (
 	stderr io.Writer = os.Stderr
 )
 
-// out is command OUTPUT — the thing a user pipes into jq.
+// out is command OUTPUT, the thing a user pipes into jq.
 func out(s string) { fmt.Fprintln(stdout, s) }
 
 // errln is everything a human reads: headings, tables, confirmations, errors.
@@ -189,7 +189,7 @@ func decisionColor(decision string) string {
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// displayWidth measures a cell for alignment, ignoring the colour codes in it —
+// displayWidth measures a cell for alignment, ignoring the colour codes in it,
 // otherwise every coloured cell pads nine characters too narrow and the table
 // shears.
 //
@@ -258,8 +258,8 @@ func cell(r []string, i int) string {
 // truncate shortens to n characters with an ellipsis.
 //
 // It cuts on rune boundaries even though it measures in UTF-16 units, because
-// the alternative — reproducing JavaScript's ability to slice a surrogate pair
-// in half — writes a broken character into the terminal to be faithful to a bug.
+// the alternative, reproducing JavaScript's ability to slice a surrogate pair
+// in half, writes a broken character into the terminal to be faithful to a bug.
 func truncate(s string, n int) string {
 	if displayWidth(s) <= n {
 		return s
@@ -306,7 +306,7 @@ func sparkline(values []int) string {
 	return b.String()
 }
 
-// fixed0 rounds to a whole number the way JavaScript's toFixed(0) does — half
+// fixed0 rounds to a whole number the way JavaScript's toFixed(0) does, half
 // away from zero. Go's %.0f rounds half to even, so a 0.5 KB log file printed
 // as 0KB there and 1KB in the CLI this replaces.
 func fixed0(v float64) string { return fmt.Sprintf("%d", int64(math.Round(v))) }

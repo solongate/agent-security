@@ -5,14 +5,14 @@ package panels
 // The Sandbox section: the closed boxes this machine has.
 //
 // WHY THIS IS A SECTION AND NOT A SETTING. Every other surface here tunes how a
-// tool call is JUDGED — which rules match, what counts as a secret, how many
+// tool call is JUDGED, which rules match, what counts as a secret, how many
 // calls a minute. All of it reads the strings in a call, and a string match is a
 // game with no end: `rm game.c` is caught and `x=gam; y=e; rm "$x$y.c"` is not,
 // nor is a script written to /tmp and run, nor a program the agent compiles that
 // calls unlink itself.
 //
 // A box does not read strings. It gives the agent a new root, and outside it
-// there is nothing to name. $HOME is not refused — it is not there.
+// there is nothing to name. $HOME is not refused, it is not there.
 //
 // WHAT THE PROTECTED PATHS LIST IS, BY CONTRAST: files somebody remembered. It
 // never contains ~/.ssh, a sibling customer's repository, or the credentials of
@@ -294,7 +294,7 @@ func (p *Sandbox) Hint() []string {
 	}
 	if len(p.boxes) == 0 {
 		return []string{
-			"▶ SANDBOX — CLOSED BOXES",
+			"▶ SANDBOX: CLOSED BOXES",
 			"",
 			"None yet. A box gives an agent one",
 			"directory and nothing else.",
@@ -303,10 +303,10 @@ func (p *Sandbox) Hint() []string {
 		}
 	}
 	if len(p.boxes) == 1 {
-		return []string{"▶ SANDBOX — CLOSED BOXES", "", "box " + p.boxes[0].ID, "",
+		return []string{"▶ SANDBOX: CLOSED BOXES", "", "box " + p.boxes[0].ID, "",
 			truncate(p.boxes[0].Dir, 44), "", "press → to manage"}
 	}
-	return []string{"▶ SANDBOX — CLOSED BOXES", "", itoa(len(p.boxes)) + " boxes", "", "press → to manage"}
+	return []string{"▶ SANDBOX: CLOSED BOXES", "", itoa(len(p.boxes)) + " boxes", "", "press → to manage"}
 }
 
 func (p *Sandbox) View(ctx tui.PanelContext) string {
@@ -362,7 +362,7 @@ func (p *Sandbox) view() string {
 		out = append(out, stWarn.Render("  No boxes."))
 		out = append(out, "")
 		out = append(out, stDim.Render("  A box gives an agent one directory and nothing else: no $HOME,"))
-		out = append(out, stDim.Render("  no /etc/passwd, no other project. Not refused — absent."))
+		out = append(out, stDim.Render("  no /etc/passwd, no other project. Not refused, absent."))
 		out = append(out, "")
 		out = append(out, stDim.Render("  press n, then type an absolute path"))
 		return joinLines(out)
@@ -383,7 +383,7 @@ func (p *Sandbox) view() string {
 			// the STRONGER box and also the one where the agent cannot reach
 			// its model. Somebody scanning this column needs to see which of
 			// their boxes will not run an agent that needs an API.
-			l.put(sbPad("—", 5), stWarn)
+			l.put(sbPad(", ", 5), stWarn)
 		}
 		l.put(truncate(b.Dir, sbWidth(p.cols-16)), stOK)
 		out = append(out, l.String())
@@ -394,10 +394,10 @@ func (p *Sandbox) view() string {
 		out = append(out, stDim.Render("  solongate sandbox "+b.ID+" claude"))
 		out = append(out, "")
 		if b.Network {
-			out = append(out, stDim.Render("  network ON — the agent can reach its model. What leaves over"))
+			out = append(out, stDim.Render("  network ON, the agent can reach its model. What leaves over"))
 			out = append(out, stDim.Render("  the wire is the DLP and egress layers' job, not the box's."))
 		} else {
-			out = append(out, stWarn.Render("  network OFF — nothing can leave this box at all, and an agent"))
+			out = append(out, stWarn.Render("  network OFF, nothing can leave this box at all, and an agent"))
 			out = append(out, stWarn.Render("  that cannot reach its model can only do offline work."))
 		}
 	}

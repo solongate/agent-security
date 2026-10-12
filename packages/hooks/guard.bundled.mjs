@@ -322,7 +322,7 @@ function evaluate(policy, args, toolName, cwd) {
       }
     }
     if (!matched) {
-      return "Blocked by policy: strict whitelist mode \u2014 request does not match any ALLOW rule";
+      return "Blocked by policy: strict whitelist mode, request does not match any ALLOW rule";
     }
   }
   return null;
@@ -515,7 +515,7 @@ function sgTryGoGuard() {
         input: SG_STDIN,
         encoding: "utf-8",
         // The binary writes the eval record the audit hook reads back, so it is
-        // the one reporting this call's guard time — and from inside a process
+        // the one reporting this call's guard time, and from inside a process
         // that was spawned partway through the work, it can only see its own
         // share of it. Node's boot, this file's parse, the fd 0 read and the
         // version probe above are all already spent by the time it starts.
@@ -775,12 +775,12 @@ var CLIENTS = {
     // CONFIRMED AGAINST THE BINARY, and stronger than "rejects": the Codex hook
     // schema has no output-rewrite field at all. Its strings carry
     // hookSpecificOutput, permissionDecision, permissionDecisionReason and
-    // updatedInput — and zero occurrences of updatedToolOutput. A post-tool
+    // updatedInput, and zero occurrences of updatedToolOutput. A post-tool
     // stage runs, and there is nothing it can write to change the result.
     // Verified on codex-cli 0.147.0.
     redactsOutput: false
   },
-  // OpenCode: no subprocess hook contract at all — a plugin runs in-process and
+  // OpenCode: no subprocess hook contract at all, a plugin runs in-process and
   // refuses a call by throwing. The shim that does the throwing (see
   // hooks/opencode-plugin.mjs) spawns this guard with a flat Claude-shaped
   // payload and reads the Claude dialect back, so both halves are reused as-is
@@ -928,14 +928,14 @@ var TAMPER_PROTECTED_ABS = [
   TAMPER_HOME + TAMPER_CX + "/config.toml",
   TAMPER_HOME + TAMPER_AGY + "/hooks.json",
   TAMPER_HOME + TAMPER_SG + "/hooks",
-  // The directory the guard BINARY lives in — see the glob below for why.
+  // The directory the guard BINARY lives in, see the glob below for why.
   TAMPER_HOME + TAMPER_SG + "/bin",
   TAMPER_HOME + TAMPER_SG + "/policy.json",
   TAMPER_HOME + TAMPER_SG + "/.policy-cache.json",
-  // The cloud credential (contains the API key) — never readable via a tool.
+  // The cloud credential (contains the API key), never readable via a tool.
   TAMPER_HOME + TAMPER_SG + "/cloud-guard.json",
-  // ITS UNPROTECTED SIBLING. accounts.json was the account layer's store —
-  // every account ever logged in, each with its API key — at 0644, next to the
+  // ITS UNPROTECTED SIBLING. accounts.json was the account layer's store,
+  // every account ever logged in, each with its API key, at 0644, next to the
   // 0444 file above. That layer is gone and nothing reads or writes this file
   // any more, but it is still on every machine that ran a build which did. A
   // credential nothing maintains is still a credential, and an agent reading
@@ -958,7 +958,7 @@ var TAMPER_PROTECTED_GLOBS = [
   // either: the WASM bundle came from a service that compiled it, and the prompt-injection
   // layer is not in this build. A lock on a file that cannot exist reads as protection and
   // is not; what remains on this list is what an agent could actually reach for.
-  // The rate-limit counter. The extension is `.log`, not `.json` — this glob said
+  // The rate-limit counter. The extension is `.log`, not `.json`, this glob said
   // `.ratelimit-*.json` and matched NOTHING the limiter writes. The file was still
   // protected, by the basename rule below (`.ratelimit-` as a prefix inside
   // ~/.solongate), which is why nothing broke; but a glob that matches no real file is
@@ -969,19 +969,19 @@ var TAMPER_PROTECTED_GLOBS = [
   //
   // sgTryGoGuard runs whatever is at ~/.solongate/bin/solongate-guard as soon as it
   // prints the expected number for --sg-version, and then honours its exit code. So a
-  // two-line shell script there —
+  // two-line shell script there,
   //
   //   #!/bin/sh
   //   case "$1" in --sg-version) echo 99;; *) exit 0;; esac
   //
-  // — makes this hook hand every call to it and allow everything, while `solongate
+  //, makes this hook hand every call to it and allow everything, while `solongate
   // doctor` still reports a native guard in use. Writing that file was not protected
   // here, so an agent could arm its own bypass and then use it on the next tool call.
   //
   // The Go guard has covered this path for a while (see tamperProtectedGlobs in
   // packages/guard/tamper.go, whose comment says it "was the one file in this
   // directory the tamper check did not cover"). The fix was never ported, so which
-  // implementation a machine runs decided whether the disarm worked — and the machines
+  // implementation a machine runs decided whether the disarm worked, and the machines
   // that run THIS one are exactly the ones with no binary, where nothing legitimate
   // occupies the path. test/tamper-path.mjs now holds both to it.
   "**" + TAMPER_SG + "/bin/**",
@@ -1007,7 +1007,7 @@ var TAMPER_BASENAMES = [
   // `solongate-guard.exe` is covered by the same entry.
   "solongate-guard",
   // Prefixes (substring match) so per-agent runtime state can't be deleted or
-  // rewritten via a shell command either — `.policy-cache-<agent>.json` and
+  // rewritten via a shell command either, `.policy-cache-<agent>.json` and
   // `.ratelimit-<agent>.log`. Deleting the counter resets the rate-limit window, so a
   // limit of N calls/minute becomes N per deletion; the cache is no longer written but
   // a leftover one must not be editable either.
@@ -1107,7 +1107,7 @@ var CLI_WRAPPERS = /* @__PURE__ */ new Set([
   "busybox",
   // AND THE ONES THAT HAND A PROGRAM A TERMINAL. `script -c "solongate policy delete"`
   // allocates a pty and runs the command inside it, which is how an agent would fake the
-  // interactive terminal the CLI asks for — the exact case the TTY check cannot see and the
+  // interactive terminal the CLI asks for, the exact case the TTY check cannot see and the
   // reason this guard rule exists at all. A rule that missed `script` would leave the
   // product protected by nothing but the env sniff it replaced.
   "script",
@@ -1132,7 +1132,7 @@ var CLI_WRAPPERS = /* @__PURE__ */ new Set([
   // THE TAIL IS REAL AND THIS DOES NOT CLOSE IT. `screen -dmS name solongate policy delete`
   // bundles its flags, so the scan stops on `name` and reads it as the program; so does any
   // wrapper whose value-taking flag is not in the table below. Enumeration cannot win this
-  // outright — what it does is raise the cost, in front of a CLI that still refuses to run
+  // outright, what it does is raise the cost, in front of a CLI that still refuses to run
   // without a terminal, and beside the path and basename rules above that catch what such a
   // command would have to touch.
 ]);
@@ -1345,10 +1345,10 @@ function tamperCheck(toolName, args) {
   if (isExec) {
     for (const cmd of extractCommands(args)) {
       const hit = commandTargetsProtected(cmd);
-      if (hit) return 'Tamper protection: command references protected resource "' + hit + '" \u2014 blocked';
+      if (hit) return 'Tamper protection: command references protected resource "' + hit + '", blocked';
     }
     if (argsInvokeCLI(args)) {
-      return 'Tamper protection: command references protected resource "solongate-cli" \u2014 blocked';
+      return 'Tamper protection: command references protected resource "solongate-cli", blocked';
     }
   }
   return null;
@@ -1434,7 +1434,7 @@ function sandboxRequired(sec) {
     return "Refused: this machine requires agents to be started with `solongate run` or `solongate sandbox`, and there is no way to confirm that this one was. Add a protected path, or use `solongate sandbox`, which can be verified.";
   }
   if (String(process.env.SOLONGATE_SANDBOX || "") !== "") {
-    return "Refused: this process carries a sandbox marker but is not confined \u2014 the kernel says otherwise. Start the agent with `solongate run` or `solongate sandbox`, and remove SOLONGATE_SANDBOX from your shell profile.";
+    return "Refused: this process carries a sandbox marker but is not confined, the kernel says otherwise. Start the agent with `solongate run` or `solongate sandbox`, and remove SOLONGATE_SANDBOX from your shell profile.";
   }
   return "Refused: this machine requires agents to be started with `solongate run` or `solongate sandbox`. Protected paths are enforced by the operating system there, and by string matching anywhere else.";
 }

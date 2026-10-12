@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SolonGate Shield (standalone hook) — secret redaction on the LLM request path.
+ * SolonGate Shield (standalone hook), secret redaction on the LLM request path.
  *
  * Wraps a command (the real `claude`) with a local proxy that masks secrets in
  * the request body BEFORE it reaches the Anthropic API, so the model never sees
  * them. The model's RESPONSE is streamed back untouched. Lifecycle is tied to
- * the wrapped process — no daemon. FAIL OPEN everywhere: any parse/redact/upstream
+ * the wrapped process, no daemon. FAIL OPEN everywhere: any parse/redact/upstream
  * error forwards the original bytes rather than breaking the model connection.
  *
  * Installed to ~/.solongate/hooks/shield.mjs and invoked by the `claude` shim
@@ -75,9 +75,9 @@ const log = (...a) => {
 // THE PATTERN LIST LIVES IN ./dlp.mjs, one copy for the three hooks that scan.
 //
 // Each of them carried its own, and they had drifted: the guard had 70 and each hook had
-// 14 — so on a machine without the Go binary, which is the default, a policy asking for
+// 14, so on a machine without the Go binary, which is the default, a policy asking for
 // most of the list was enforcing nothing. Compiled here with the flags THIS hook needs:
-// `g`, because this REPLACES every occurrence — without it only the first
+// `g`, because this REPLACES every occurrence, without it only the first
 // secret in a file is masked and the rest reach the model.
 const DLP_PATTERNS = dlpPatterns('g');
 
@@ -90,7 +90,7 @@ const DLP_PATTERNS = dlpPatterns('g');
 //
 //     return { patterns: DLP_PATTERNS.map((p) => p.name), custom: [] };
 //
-// — every built-in pattern and NO CUSTOM ONES. So a custom pattern in somebody's
+//, every built-in pattern and NO CUSTOM ONES. So a custom pattern in somebody's
 // policy was enforced by the guard, enforced by the audit hook, and silently ignored
 // on the one surface that sees the prompt itself. A custom pattern is what somebody
 // adds for a secret shaped like their own company's tokens, which is exactly the
@@ -115,8 +115,8 @@ const DLP_PATTERNS = dlpPatterns('g');
 // everything": an unconfigured machine has made no choice to respect.
 //
 // The fallback is unchanged and deliberate: WITH NO POLICY AT ALL, every built-in
-// pattern is masked. The shield is the LLM path — there is no call to allow or deny,
-// only text on its way to a model — so the safe default is to mask, and a machine
+// pattern is masked. The shield is the LLM path, there is no call to allow or deny,
+// only text on its way to a model, so the safe default is to mask, and a machine
 // that has not configured anything still does not leak its keys into a prompt.
 function loadCfg() {
   const defaults = () => ({ patterns: DLP_PATTERNS.map((p) => p.name), custom: [] });
@@ -175,15 +175,15 @@ function pickUpstream() {
 //
 // This proxy sits in front of the agent's own API traffic and carries the
 // user's API key in every request it forwards. It listened on 127.0.0.1 with no
-// authentication of any kind, so ANY process on the machine — a browser tab
+// authentication of any kind, so ANY process on the machine, a browser tab
 // with a local server, another user on a shared box, the agent's own shell
-// running something somebody pasted — could POST to it and have its request
+// running something somebody pasted, could POST to it and have its request
 // forwarded upstream with those credentials attached. Loopback is not a
 // boundary; it is an address.
 //
 // There is no header the agent can be made to send: the agent is the client and
 // it sends what it sends. What CAN be arranged is the URL, because the shim
-// decides it — the child is launched with ANTHROPIC_BASE_URL pointing here. So
+// decides it, the child is launched with ANTHROPIC_BASE_URL pointing here. So
 // the secret goes in the path, the agent carries it without knowing it has, and
 // a request arriving without it is refused.
 //
@@ -222,7 +222,7 @@ function startProxy(upstream) {
       return;
     }
     // Re-read the DLP config on every request (cheap: a small JSON) so editing the
-    // policy file takes effect WITHOUT restarting claude — the audit hook re-reads per
+    // policy file takes effect WITHOUT restarting claude, the audit hook re-reads per
     // call for the same reason. Loading once at startup left the shield stale for the
     // life of a session, which can be a whole day.
     const cfg = loadCfg();
@@ -234,14 +234,14 @@ function startProxy(upstream) {
         if (body.length && String(req.headers['content-type'] || '').includes('json')) {
           const parsed = JSON.parse(body.toString('utf-8'));
           // Redact EVERY request, not just the last message. Claude Code re-sends
-          // the ORIGINAL (unredacted) conversation on every call — it stores the raw
+          // the ORIGINAL (unredacted) conversation on every call, it stores the raw
           // history and rebuilds the request each time, so the shield must re-scan
           // it every request. Redacting only the newest message leaked any secret
           // sitting in an earlier message: the user's own turn often lands at
           // messages[0] with later messages after it, and a one-shot `-p` run has no
           // prior request in which history could have been redacted. Scan the system
           // prompt and every USER-role message (fresh input + tool results like an
-          // `ls`/Read result); skip ASSISTANT-role messages (model-generated prose —
+          // `ls`/Read result); skip ASSISTANT-role messages (model-generated prose,
           // the bulk of a long session and not a secret source) so cost stays low.
           if (parsed && typeof parsed === 'object' && Array.isArray(parsed.messages)) {
             if (parsed.system !== undefined) parsed.system = redactDeep(parsed.system, cfg);

@@ -76,7 +76,7 @@ func isatty(f *os.File) bool {
 // error to whatever is on the other end.
 func Log(msg string) { fmt.Fprintln(os.Stderr, msg) }
 
-// Out writes to stdout, for command OUTPUT — the thing a user pipes into jq.
+// Out writes to stdout, for command OUTPUT, the thing a user pipes into jq.
 func Out(msg string) { fmt.Fprintln(os.Stdout, msg) }
 
 var BannerFull = []string{

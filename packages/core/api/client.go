@@ -6,7 +6,7 @@ package api
 //
 // It was an HTTP client: a credential resolver, a retry that distinguished a
 // dropped socket from an answer, an error envelope decoder, and one method per
-// route. All of that is gone with the service — the namespaces below read and write
+// route. All of that is gone with the service, the namespaces below read and write
 // two files (see localstore.go), and the struct survives because every command and
 // every panel is written against `c.Policies.List(ctx)` and there is nothing to gain
 // from renaming that.
@@ -17,7 +17,7 @@ package api
 
 // Error is what a failure looks like to a caller.
 //
-// It kept its shape — a code, a message, an HTTP status — because two callers branch
+// It kept its shape, a code, a message, an HTTP status, because two callers branch
 // on it (cli and the Live panel), and because Status is still the
 // honest way to say "this is a not-found" without inventing a second vocabulary.
 // Nothing sets Status from a response any more; a local failure leaves it zero.
@@ -34,7 +34,7 @@ func (e *Error) Error() string { return e.Message }
 // hardcoded false, an `ErrNotAuthenticated` nothing returned, and an `IsAuth()`
 // reading a `Status` field no response ever set. Each was kept so a caller would
 // keep compiling, and together they read as an account system that was merely
-// switched off — `grep Authenticated` found a method, and the method was a lie
+// switched off, `grep Authenticated` found a method, and the method was a lie
 // about there being something to authenticate to.
 //
 // There is no service and no account. The three callers that asked have been

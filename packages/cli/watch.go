@@ -142,7 +142,7 @@ func runWatch(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 	}
 
 	if !jsonOut {
-		errln("  " + dim("watching guard stream - Ctrl+C to stop"))
+		errln("  " + dim("watching guard stream, Ctrl+C to stop"))
 	}
 	// Prime both sources before emitting anything: the backlog already on disk
 	// and in the cloud is history, and printing it on startup would bury the
@@ -303,7 +303,7 @@ func jsonTruthy(raw json.RawMessage) bool {
 }
 
 // jsonString reads a raw value as a string, tolerating the field being a number
-// or absent — the local log is written by several hook versions and a decision
+// or absent, the local log is written by several hook versions and a decision
 // or timestamp has been both at different times.
 func jsonString(raw json.RawMessage) string {
 	s := strings.TrimSpace(string(raw))

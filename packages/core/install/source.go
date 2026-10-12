@@ -15,8 +15,8 @@ import (
 // The TypeScript has neither question to answer: its hooks sit next to it in the
 // package, and the node running the installer is the node the hooks will run
 // under (process.execPath). This binary is not node and does not carry a copy of
-// the hooks — a second copy of a 297 KB bundle that self-updates from the cloud
-// is a guarantee of drift — so both have to be found, and a failure to find
+// the hooks, a second copy of a 297 KB bundle that self-updates from the cloud
+// is a guarantee of drift, so both have to be found, and a failure to find
 // either has to fail the install rather than register something that cannot run.
 
 // ErrNoHookSource means this binary could not find the hook programs it is
@@ -30,14 +30,14 @@ var ErrNoHookSource = errors.New(
 // without node they cannot run at all, so a registration naming one would be a
 // registration that silently never fires.
 var ErrNoNode = errors.New(
-	"node was not found on PATH — the guard hooks run under node; install Node 20+ (or set SOLONGATE_NODE) and try again")
+	"node was not found on PATH, the guard hooks run under node; install Node 20+ (or set SOLONGATE_NODE) and try again")
 
 // hookSourceDir finds the npm package's hooks folder.
 //
 // Deliberately several candidates, tried in the order they can be trusted: an
 // explicit override, then the binary's own folder, then the npm package the
 // binary ships beside, then a development checkout. A directory only qualifies
-// if it holds ALL of the files an install writes — a folder with half of them is
+// if it holds ALL of the files an install writes, a folder with half of them is
 // the state that produces a half-install, so it is not a candidate at all.
 func hookSourceDir() (string, bool) {
 	for _, dir := range hookSourceCandidates() {
@@ -190,7 +190,7 @@ func stageHooks(p Paths, node string) (staged, error) {
 // which exits non-2, which the shim reads as "allowed". The result was a guard
 // that never guarded and never said so.
 //
-// The value is escaped for a JavaScript string literal — a Windows path is full
+// The value is escaped for a JavaScript string literal, a Windows path is full
 // of backslashes and an unescaped one turns the plugin into a syntax error,
 // which OpenCode skips silently.
 func bakeNodePath(src []byte, node string) []byte {
@@ -206,7 +206,7 @@ func bakeNodePath(src []byte, node string) []byte {
 // the guard silently never runs.
 //
 // PATH comes first because that is the node the npm package would have recorded
-// — process.execPath is whatever node ran it — so both implementations end up
+// , process.execPath is whatever node ran it, so both implementations end up
 // naming the same binary and neither keeps rewriting the other's registration.
 // A node already recorded in a registration is the fallback, not the preference:
 // it is proof that node existed once, which is worth more than nothing when PATH

@@ -17,7 +17,7 @@ import (
 // LocalLogs, Security, Policy, PolicyCache and Credential are the
 // same declarations as packages/guard/config.go. They are copied because the
 // two modules do not depend on each other today, not because they are allowed
-// to drift — a field added on one side and not the other is a setting that
+// to drift, a field added on one side and not the other is a setting that
 // silently stops applying. They belong in one shared module; see the caveat in
 // the port notes.
 
@@ -37,25 +37,25 @@ type Security = shared.Security
 type Policy = shared.Policy
 
 // PolicyCache is the ENVELOPE the policy file may be written in:
-// `{policy, security, selfProtect}`. The name is historical — it mirrored
-// .policy-cache-<agent>.json, which a service filled — and it is kept because
+// `{policy, security, selfProtect}`. The name is historical, it mirrored
+// .policy-cache-<agent>.json, which a service filled, and it is kept because
 // shared calls it that and both guards decode the file into it.
 //
-// Security is a pointer on purpose. `null` there is an ANSWER — this machine
-// configures no layers — and it has to stay distinguishable from "the field was
+// Security is a pointer on purpose. `null` there is an ANSWER, this machine
+// configures no layers, and it has to stay distinguishable from "the field was
 // absent", which means defaults. HasSecurity carries that distinction, which a Go
 // pointer alone cannot.
 type PolicyCache = shared.PolicyCache
 
 // LoadPolicyCache and PolicyCachesNewestFirst lived here.
 //
-// The cache held a service's answer — the policy, the layers, the tamper flag — per
+// The cache held a service's answer, the policy, the layers, the tamper flag, per
 // agent, with the freshest file winning because its agent had spoken to the service
 // most recently. Nothing has written one since the refresh was removed, so every read
 // missed, and each reader then did something worse than nothing:
 //
 //	LocalLogsSetting    returned "off, default folder" on every machine, and Live
-//	                    SKIPS READING THE LOG when it is told off — so the guard
+//	                    SKIPS READING THE LOG when it is told off, so the guard
 //	                    wrote entries no viewer would show.
 //	audit.mjs           let a cache OUTRANK the policy file, so one left behind by an
 //	                    older install could switch off the DLP the file configures.
@@ -133,7 +133,7 @@ func SetUpdateRange(which string) error {
 }
 
 // LoadTUIConfig defaults notifications ON. The file says `false` to turn them
-// off, so an absent field must not read as off — that is why the raw decode
+// off, so an absent field must not read as off, that is why the raw decode
 // uses a pointer rather than the struct's zero value.
 func LoadTUIConfig() TUIConfig {
 	cfg := TUIConfig{Notifications: true}
@@ -200,7 +200,7 @@ func MarkSetupDone() {
 // looked, what version it saw, which versions npm had refused for permissions so they
 // were not retried forever, and an opt-in flag that defaulted OFF because a global
 // install usually needs sudo on macOS and a daily failed install nobody asked for is
-// worse than no update. There is nothing to update from — this build fetches nothing —
+// worse than no update. There is nothing to update from, this build fetches nothing,
 // and how a release reaches a machine is a decision for whoever ships it.
 //
 // Both were read and written by nothing outside this file.
@@ -211,7 +211,7 @@ func MarkSetupDone() {
 // kept working, which is invisible unless something says it out loud. Nothing writes a
 // marker, because nothing writes to a service.
 
-// writeJSONCompact was here — EnsureDir, json.Marshal, WriteFile 0644 — with a
+// writeJSONCompact was here. EnsureDir, json.Marshal, WriteFile 0644, with a
 // comment about matching the Node writers' unindented output. No caller. The
 // writers in this package that do reach disk build their own write because they
 // each need something it did not offer: a read-merge-write that preserves keys

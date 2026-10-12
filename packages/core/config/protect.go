@@ -9,14 +9,14 @@ import (
 )
 
 // Self-protection puts an OS-level lock on the files that keep the guard armed
-// — the installed hooks, the client settings, and cloud-guard.json. The lock
+// , the installed hooks, the client settings, and cloud-guard.json. The lock
 // exists to stop PROGRAMS (an agent, an editor, a stray script) from disarming
 // the guard; it is not aimed at the person at the terminal, and the CLI is
 // human-only, so the CLI is allowed to lift it around its own writes.
 //
 // Each mechanism works for the current user with no sudo or admin:
 //
-//	macOS:   chflags uchg — user-immutable, blocks delete and overwrite even by
+//	macOS:   chflags uchg, user-immutable, blocks delete and overwrite even by
 //	         the owner.
 //	Windows: an icacls deny to Everyone plus an OWNER_RIGHTS (S-1-3-4) ACE
 //	         pinned to read/execute, so the owner cannot rewrite the ACL back
@@ -79,7 +79,7 @@ func run(name string, args ...string) {
 // The lock is only lifted when the direct write actually fails, so a device
 // that has the lock disabled is left untouched, and only what was unlocked is
 // locked again. SOLONGATE_NO_OS_LOCK=1 is the developer opt-out and is honoured
-// here too — re-locking a file on a machine that asked for no locks would arm
+// here too, re-locking a file on a machine that asked for no locks would arm
 // something the user turned off.
 func WriteProtectedFile(file string, contents []byte) bool {
 	if os.WriteFile(file, contents, 0o644) == nil {

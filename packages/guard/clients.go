@@ -80,7 +80,7 @@ type Client struct {
 
 	// ReportsAfter is whether the client runs a POST-tool stage at all, which is
 	// what files the audit row for a call that was ALLOWED. False means the only
-	// records this client ever produces are the ones the guard writes itself —
+	// records this client ever produces are the ones the guard writes itself,
 	// so anything meant to be OBSERVED rather than blocked has to be recorded
 	// here, or it is not recorded anywhere.
 	ReportsAfter bool
@@ -105,14 +105,14 @@ var clients = map[string]*Client{
 		// CONFIRMED AGAINST THE BINARY, and stronger than "rejects": the Codex
 		// hook schema has no output-rewrite field at all. Its strings carry
 		// hookSpecificOutput, permissionDecision, permissionDecisionReason and
-		// updatedInput — and zero occurrences of updatedToolOutput. So a post-tool
+		// updatedInput, and zero occurrences of updatedToolOutput. So a post-tool
 		// stage runs (ReportsAfter) and there is nothing it can write to change
 		// the result. Masking is done before the tool runs, or the call is
 		// refused. Verified on codex-cli 0.147.0.
 		RedactsOutput: false,
 	},
 
-	// OpenCode: no subprocess hook contract at all — a plugin runs in-process and
+	// OpenCode: no subprocess hook contract at all, a plugin runs in-process and
 	// refuses a call by throwing. The shim that does the throwing (see
 	// hooks/opencode-plugin.mjs) spawns this guard with a flat Claude-shaped
 	// payload and reads the Claude dialect back, so both halves are reused as-is
@@ -130,7 +130,7 @@ var clients = map[string]*Client{
 		//     return V;
 		//
 		// and Plugin.trigger is `for (const h of hooks) await h(input, output);
-		// return output` — no clone anywhere, the hook is awaited, and the object
+		// return output`, no clone anywhere, the hook is awaited, and the object
 		// handed to it is the object returned to the model. So a hook that
 		// MUTATES a field of the result changes what the model reads. The plugin
 		// does exactly that now (hooks/opencode-plugin.mjs), and it awaits the
@@ -150,7 +150,7 @@ var clients = map[string]*Client{
 	// installer registers the audit hook on it now (install/clients.go).
 	//
 	// RedactsOutput stays false, and here the vendor limit is real: the
-	// PostToolUse contract's stdout "expects an empty JSON object {}" — there is
+	// PostToolUse contract's stdout "expects an empty JSON object {}", there is
 	// no field that rewrites the result. Masking on this client happens before
 	// the tool runs, through `overwrite` on PreToolUse, and anything that cannot
 	// be masked that way is refused instead.
@@ -180,8 +180,8 @@ func clientFor(agentType string) *Client {
 }
 
 // ── Payload field access ───────────────────────────────────────────────────
-// The adapters read fields the way the Node original does — `a || b || c` over
-// alternative spellings — which needs JS truthiness and the raw bytes, not a
+// The adapters read fields the way the Node original does, `a || b || c` over
+// alternative spellings, which needs JS truthiness and the raw bytes, not a
 // struct. A struct would also lose the argument object's KEY ORDER, and
 // neutralizeArgs resolves alias collisions (`command` vs `cmd`) in that order.
 
@@ -285,7 +285,7 @@ func dropArgKeys(args map[string]interface{}, order []string, drop ...string) (m
 
 // ── The Anthropic dialect (Claude Code, Codex, the OpenCode shim) ──────────
 // Two clients happen to share Anthropic's PreToolUse wire format. That is a fact
-// about those two clients, not a canonical format — the neutral CALL/DECISION
+// about those two clients, not a canonical format, the neutral CALL/DECISION
 // shapes above are the canonical ones. These helpers exist so the shared dialect
 // is written once.
 
@@ -307,7 +307,7 @@ func parseFlatPayload(raw []byte) parsedPayload {
 
 // Codex's decision struct is deny_unknown_fields: ONE extra key and the whole
 // decision is discarded and the tool runs. Deny and rewrite therefore get
-// separate shapes rather than one struct with omitempty — `updatedInput` must
+// separate shapes rather than one struct with omitempty, `updatedInput` must
 // be absent from a deny, and must still be written on a rewrite even when the
 // patch is empty, because Codex rejects a bare allow as unsupported.
 type hookDenyOutput struct {
@@ -408,8 +408,8 @@ func parseAntigravity(raw []byte) parsedPayload {
 }
 
 // Unknown client: parse by payload SHAPE. A nested toolCall is the Antigravity
-// dialect; anything else is read flat. The alternative — assuming one client's
-// rules for an unknown one — is how a payload gets read with the wrong field
+// dialect; anything else is read flat. The alternative, assuming one client's
+// rules for an unknown one, is how a payload gets read with the wrong field
 // names and the guard sees an empty call it has nothing to block.
 func parseGeneric(raw []byte) parsedPayload {
 	if isJSONish(rawFields(raw)["toolCall"]) {
@@ -502,7 +502,7 @@ func writeJSON(v interface{}) {
 // workspacePaths} come out identical here. EVERY tool call passes through this
 // before any check runs; the decision is emitted back per-client by Client.Emit
 // above (the output side of the translator). New client = extend only these two
-// ends — the checks in between never see client-specific shapes.
+// ends, the checks in between never see client-specific shapes.
 
 // Codex sends every file edit as ONE tool call: tool_name "apply_patch" with
 // tool_input { command: "*** Begin Patch\n*** Update File: src/a.ts\n…" }. The

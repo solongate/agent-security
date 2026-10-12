@@ -37,12 +37,12 @@ import (
 //
 // Deny is a denylist: everything is reachable, and the paths named here are
 // not. It protects what you remembered to name. Name nothing and it protects
-// nothing — the confinement is still entered, but every file on the machine is
+// nothing, the confinement is still entered, but every file on the machine is
 // still open to the agent.
 //
 // Workspace is an allowlist: ONE directory is writable and nothing else
 // outside a fixed runtime set is reachable at all. It protects everything you
-// did not name, which is the set that actually matters — nobody thinks to add
+// did not name, which is the set that actually matters, nobody thinks to add
 // ~/.ssh or a sibling customer's repository to a denylist, and those are
 // exactly what an agent reaching too far would find.
 //
@@ -56,7 +56,7 @@ type Plan struct {
 
 	// Workspace is the one directory the agent may write in, as an ABSOLUTE
 	// path. Everything outside it and outside the runtime set below is
-	// unreachable — not merely unwritable.
+	// unreachable, not merely unwritable.
 	//
 	// Must be absolute and already resolved: "~/projects/x" is not a path, it
 	// is a shell convention, and a sandbox keyed on a string the kernel will
@@ -71,7 +71,7 @@ type Plan struct {
 	RuntimeRead []string
 
 	// RuntimeWrite are the few paths outside the workspace that must stay
-	// writable for the agent to function at all — its own configuration and
+	// writable for the agent to function at all, its own configuration and
 	// session state, and a scratch directory. Kept separate from RuntimeRead so
 	// a reader can see exactly how far the writable surface extends past the
 	// project, which is the number that matters.
@@ -124,7 +124,7 @@ var ErrUnsupported = errors.New("no OS-level confinement is implemented for this
 // WHAT IS NOT ON IT, which is the half that matters: no $HOME, no /etc/shadow,
 // no /root, no /var, no /mnt or /media, no sibling project directory, and no
 // ~/.ssh, ~/.aws, ~/.gnupg, ~/.kube or ~/.docker. The agent cannot read a key it
-// cannot open, so these need no pattern and no rule — they are simply not
+// cannot open, so these need no pattern and no rule, they are simply not
 // granted, and in an allowlist not granted means not there.
 //
 // READ-ONLY, all of it. A readable toolchain is a toolchain the agent can use;
@@ -136,7 +136,7 @@ func DefaultRuntimeRead() []string {
 		// of a modern distribution; /bin, /lib, /sbin are usually symlinks into
 		// it and are listed for systems where they are not.
 		"/usr", "/bin", "/lib", "/lib64", "/sbin", "/opt",
-		// Name resolution, certificates, timezone and locale — NAMED FILES
+		// Name resolution, certificates, timezone and locale. NAMED FILES
 		// rather than /etc as a whole. The whole directory was granted here
 		// once, on the argument that every runtime reads a different subset of
 		// it. That is true and it is also how /etc/passwd, every service's
@@ -147,8 +147,8 @@ func DefaultRuntimeRead() []string {
 		"/etc/localtime", "/etc/ssl", "/etc/pki", "/etc/ca-certificates",
 		"/etc/ld.so.cache", "/etc/ld.so.conf", "/etc/ld.so.conf.d",
 		// Self-inspection, and ONLY self: /proc/self rather than /proc. The
-		// whole of /proc is every other process on the machine — their command
-		// lines, their environment, their open files — which is a reading of
+		// whole of /proc is every other process on the machine, their command
+		// lines, their environment, their open files, which is a reading of
 		// "the agent touches nothing outside the project" that nobody means.
 		// Go and Node read /proc/self at startup; /sys/devices/system/cpu is
 		// how they count cores.
@@ -165,7 +165,7 @@ func DefaultRuntimeRead() []string {
 //
 // This list used to hold /tmp, /var/tmp, ~/.claude, ~/.codex, ~/.gemini,
 // ~/.config/opencode, ~/.solongate, ~/.cache, ~/.npm, ~/.local/share/pnpm and
-// go/pkg/mod — the set a toolchain is comfortable with. Each entry was a place
+// go/pkg/mod, the set a toolchain is comfortable with. Each entry was a place
 // the agent could leave something behind, and two of them were worse than
 // that: /tmp is where an agent writes a script before running it, and
 // ~/.solongate is the guard's own state. Granting the second meant the
@@ -185,7 +185,7 @@ func DefaultRuntimeWrite(home string) []string { return nil }
 // DefaultRuntimeDevices are the character devices, and they are WRITABLE for a
 // reason that is not obvious and that cost a working sandbox to find.
 //
-// These were in the read-only set, which looked right — nobody needs to write
+// These were in the read-only set, which looked right, nobody needs to write
 // to /dev/urandom. It broke every subprocess the agent starts. Go's os/exec
 // opens /dev/null for WRITING to wire up any stream the caller left unset, so a
 // read-only /dev/null made `exec.Command(...).Run()` fail with EACCES before
@@ -203,7 +203,7 @@ func DefaultRuntimeWrite(home string) []string { return nil }
 //
 // NOT /dev/stdin, /dev/stdout, /dev/stderr OR /dev/fd, and leaving them out is
 // a fix rather than an omission. Each is a symlink into /proc/self/fd, so the
-// path resolves to whatever that descriptor currently is — and when stdout is a
+// path resolves to whatever that descriptor currently is, and when stdout is a
 // pipe, Landlock refuses to add a rule for it and the library returns
 // "BUG(go-landlock): file descriptor in bad state". Measured: `solongate run`
 // died before the agent started, with that message, any time its output was
@@ -211,7 +211,7 @@ func DefaultRuntimeWrite(home string) []string { return nil }
 //
 // They are not needed. Landlock governs OPENING a path, not writing to a
 // descriptor that is already open, and stdout and stderr are inherited from the
-// parent — the agent writes to them without ever naming them.
+// parent, the agent writes to them without ever naming them.
 func DefaultRuntimeDevices() []string {
 	return []string{
 		"/dev/null", "/dev/zero", "/dev/full", "/dev/random", "/dev/urandom",
@@ -230,7 +230,7 @@ func DefaultRuntimeDevices() []string {
 //
 // So the command is resolved and exactly what it resolves to is granted: the
 // name on PATH, the file the symlink points at, and the package directory that
-// file sits in — because a Node CLI is one entry file plus the tree beside it,
+// file sits in, because a Node CLI is one entry file plus the tree beside it,
 // and granting only the entry file gets MODULE_NOT_FOUND instead.
 //
 // READ AND EXECUTE, never write. The agent can run its own code and cannot

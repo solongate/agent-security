@@ -13,7 +13,7 @@ import (
 // of tui/panels/Policies.tsx.
 //
 // A rule is an EFFECT, ONE constraint type, and a set of permissions. Which
-// list a match value lands in — allowed or denied — follows the effect, so the
+// list a match value lands in, allowed or denied, follows the effect, so the
 // user never picks a side: a DENY rule fills `denied`, an ALLOW rule fills
 // `allowed`. Flipping the effect moves the values across.
 //
@@ -43,7 +43,7 @@ var permsAll = []string{"READ", "WRITE", "EXECUTE", "NETWORK"}
 //
 // The bytes are what gets written back for a rule nobody touched. Round-tripping
 // every rule through this version's struct would silently drop any field it does
-// not model — the wire rule already carries argumentConstraints and timestamps,
+// not model, the wire rule already carries argumentConstraints and timestamps,
 // and a policy edited from the terminal must not come back narrower than it went
 // in. Only an edited rule is re-serialised, and even then the merge writes over
 // the original object rather than replacing it.
@@ -132,7 +132,7 @@ func allowSide(r api.PolicyRule) bool { return r.Effect == "ALLOW" }
 // It used to write an empty list, so cycling the constraint type threw the rule's
 // patterns away. The field is cycled with ← and → while moving around the editor, so a
 // person navigating a rule could land on Constraint, press an arrow, and watch `curl*`
-// become `—`. Nothing warned them and nothing could bring it back; the only clue was the
+// become `, `. Nothing warned them and nothing could bring it back; the only clue was the
 // Match row turning into a dash two lines below where they were looking.
 //
 // A command pattern reinterpreted as a filename is a strange rule, but it is the one the
@@ -164,7 +164,7 @@ func writeItems(r *api.PolicyRule, t cType, items []string) {
 	}
 }
 
-// matchItems is the rule's value list, both sides together — a rule saved under
+// matchItems is the rule's value list, both sides together, a rule saved under
 // the other effect still shows its values instead of looking empty.
 func matchItems(r api.PolicyRule) []string {
 	switch currentCType(r) {
@@ -219,7 +219,7 @@ func flipStar(v, side string) string {
 }
 
 // permListOf is the rule's permissions, with "no permission field" expanded to
-// all four — that is what an absent field MEANS to the policy compiler, and a
+// all four, that is what an absent field MEANS to the policy compiler, and a
 // display that showed it as empty would read as "this rule matches nothing".
 func permListOf(r api.PolicyRule) []string {
 	ps := r.Permissions()
@@ -243,9 +243,9 @@ func permIsAny(r api.PolicyRule) bool {
 	return true
 }
 
-// togglePerm flips one permission. The list is never left empty — a rule with
+// togglePerm flips one permission. The list is never left empty, a rule with
 // no permission at all matches nothing, which is not what unticking the last
-// box means — and all four collapses back to the absent field.
+// box means, and all four collapses back to the absent field.
 func togglePerm(r *api.PolicyRule, p string) {
 	cur := permListOf(*r)
 	var next []string

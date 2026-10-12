@@ -8,8 +8,8 @@
  * Nothing else in this package records it.
  *
  * This is the surviving half of what used to be the conversation hook, which
- * recorded both what was said and what it cost. The transcript half is gone —
- * this product does not store what a person wrote to their agent — and the cost
+ * recorded both what was said and what it cost. The transcript half is gone,
+ * this product does not store what a person wrote to their agent, and the cost
  * half stayed, because spend is a fact about the work rather than a copy of it.
  *
  * WHERE THE FIGURE COMES FROM. Not from this hook counting anything: each client
@@ -21,8 +21,8 @@
  *
  * WHERE IT GOES. ~/.solongate/local-logs/token-usage-<date>.jsonl, one JSON object
  * per turn, beside the audit trail the other hooks write. NOTHING LEAVES THE MACHINE:
- * this used to POST each turn to /api/v1/token-usage — what a session cost and which
- * model ran it — and the send is gone with the service that received it.
+ * this used to POST each turn to /api/v1/token-usage, what a session cost and which
+ * model ran it, and the send is gone with the service that received it.
  *
  * For a while after that it collected the numbers and DROPPED them, which is worse
  * than either: the readers below are the substantial half of this hook and they ran
@@ -67,7 +67,7 @@ const TAIL_BYTES = 2 * 1024 * 1024;
 // One request per Stop carries at most this many turns.
 //
 // Forty rather than everything in the tail. The server keys on the turn id and
-// ignores a repeat, so re-sending is free of consequence but not of bytes —
+// ignores a repeat, so re-sending is free of consequence but not of bytes,
 // forty covers a missed Stop or two while keeping the request small, and the
 // ones before that were sent when they happened.
 const MAX_TURNS = 40;
@@ -124,7 +124,7 @@ function readClaudeCode(transcriptPath) {
     if (!u) continue;
 
     // requestId is the API request's identity. A few synthetic records carry
-    // none — API-error placeholders with all-zero usage — so the message id is
+    // none. API-error placeholders with all-zero usage, so the message id is
     // the fallback rather than letting them collide on null.
     const key = r.requestId || (r.message && r.message.id) || '';
     if (!key || seen.has(key)) continue;
@@ -140,15 +140,15 @@ function readClaudeCode(transcriptPath) {
     out.push({
       turn_key: key,
       // WHICH MODEL RAN IT. The counts alone do not say what a turn cost, because
-      // the price per token is per model — a record of tokens with no model named
+      // the price per token is per model, a record of tokens with no model named
       // cannot be turned into money later, which is most of why anybody keeps one.
       // Only Claude Code reports it; the others leave it empty rather than guessing.
       model: (r.message && typeof r.message.model === 'string') ? r.message.model : '',
       input, output, cache_read: cacheRead, cache_write: cacheWrite,
       reasoning: num(u.output_tokens_details && u.output_tokens_details.thinking_tokens),
-      // The three prompt buckets are DISJOINT — proven on real data, where
+      // The three prompt buckets are DISJOINT, proven on real data, where
       // cache_read[n+1] == cache_read[n] + cache_creation[n] holds to the
-      // token — so the sum is the whole prompt plus the completion.
+      // token, so the sum is the whole prompt plus the completion.
       total,
       at: stamp(r.timestamp),
     });
@@ -183,7 +183,7 @@ function readCodex(transcriptPath, sessionId) {
 
     // The record's OWN ordinal, never a count of what this read happened to
     // see. Counting within the tail renumbers every event the moment the file
-    // grows past the window — the same turn gets a new key, and a new key is a
+    // grows past the window, the same turn gets a new key, and a new key is a
     // second row. Older rollouts carry no ordinal, so those fall back to the
     // timestamp paired with the running total, which together do not repeat.
     const id = typeof r.ordinal === 'number'
@@ -192,11 +192,11 @@ function readCodex(transcriptPath, sessionId) {
 
     out.push({
       // Prefixed with the session, because an ordinal is only unique WITHIN a
-      // rollout. The server's key does not include the session — resuming a
-      // conversation would otherwise double every turn it copies forward — so
+      // rollout. The server's key does not include the session, resuming a
+      // conversation would otherwise double every turn it copies forward, so
       // a positional id has to carry its own scope.
       turn_key: (sessionId || 'codex') + ':' + id,
-      // input_tokens INCLUDES cached here, and output INCLUDES reasoning —
+      // input_tokens INCLUDES cached here, and output INCLUDES reasoning,
       // the opposite of Claude Code's disjoint buckets. The total is the
       // provider's own, so the difference never has to be reconciled.
       input: num(last.input_tokens),
@@ -266,7 +266,7 @@ function pbFields(buf, want) {
 }
 
 // The field numbers, and what each one is. See the file header for how they
-// were established — this is the one client whose mapping is not published, so
+// were established, this is the one client whose mapping is not published, so
 // it is the one where the evidence matters most.
 const AGY = {
   IN_UNCACHED: '1.4.2',
@@ -289,7 +289,7 @@ function readAntigravity(conversationId) {
   try {
     // Node 22+. On an older runtime there is no way to read this without a
     // native dependency, and adding one to a security tool to report a number
-    // is the wrong trade — the client simply reports nothing.
+    // is the wrong trade, the client simply reports nothing.
     ({ DatabaseSync } = require('node:sqlite'));
   } catch {
     return [];
@@ -363,7 +363,7 @@ function collectTokens(data, source) {
 /**
  * writeTokenUsage appends one line per turn to this machine's own record.
  *
- * It was sendTokens, and it POSTed the batch to /api/v1/token-usage — one request per
+ * It was sendTokens, and it POSTed the batch to /api/v1/token-usage, one request per
  * Stop whatever the count, silent on every failure including a missing credential.
  * Then it became an empty function, and the hook spent every turn reading a transcript
  * to produce numbers that went nowhere. Collecting a figure and discarding it is worse
@@ -386,7 +386,7 @@ function writeTokenUsage({ sessionId, agentId, agentName, source, turns }) {
     const day = now.toISOString().slice(0, 10);
     const lines = turns.map((t) => JSON.stringify({
       ts: now.toISOString(),
-      // The turn id, so a reader can drop a repeat the way the service did — a Stop
+      // The turn id, so a reader can drop a repeat the way the service did, a Stop
       // that fires twice for one exchange must not double somebody's count.
       turn_key: t.turn_key || '',
       session_id: sessionId || '',

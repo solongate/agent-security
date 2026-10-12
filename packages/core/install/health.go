@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Does the guard actually RUN? Not "is it registered" — that question was
+// Does the guard actually RUN? Not "is it registered", that question was
 // already answered, and it answered yes for the whole time nothing was enforced.
 //
 // Every check this CLI had reads a config file. A config file can name a node
@@ -57,24 +57,24 @@ func CheckHookRuntime() HookRuntime {
 		// whether that path is still on disk.
 		node := nodeFromRegistration(p)
 		if node == "" {
-			return HookRuntime{Detail: "no node recorded in any registration - run `solongate repair`"}
+			return HookRuntime{Detail: "no node recorded in any registration, run `solongate repair`"}
 		}
 		return HookRuntime{OK: true, Node: node, Detail: node}
 	}
 
 	launcher := filepath.Join(p.HooksDir, LauncherName)
 	if !Exists(launcher) {
-		return HookRuntime{Detail: "hook launcher missing - run `solongate repair`"}
+		return HookRuntime{Detail: "hook launcher missing, run `solongate repair`"}
 	}
 
 	cmd := exec.Command("/bin/sh", launcher, "--sg-doctor")
 	out, err := cmd.Output()
 	if err != nil {
-		return HookRuntime{Detail: "launcher found no node runtime - install node, or set SOLONGATE_NODE"}
+		return HookRuntime{Detail: "launcher found no node runtime, install node, or set SOLONGATE_NODE"}
 	}
 	node := strings.TrimSpace(string(out))
 	if node == "" {
-		return HookRuntime{Detail: "launcher found no node runtime - install node, or set SOLONGATE_NODE"}
+		return HookRuntime{Detail: "launcher found no node runtime, install node, or set SOLONGATE_NODE"}
 	}
 	return HookRuntime{OK: true, Node: node, Detail: node}
 }

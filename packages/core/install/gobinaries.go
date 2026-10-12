@@ -14,15 +14,15 @@ import (
 // THE PROBLEM THIS SOLVES, and it made the whole fast path unreachable for the
 // commonest install: a global install writes guard.mjs as a LONE FILE under
 // ~/.solongate/hooks, and a client launches it from whatever directory the agent
-// happens to be in. From there the hook's package lookup —
-// require.resolve("@solongate/guard-<platform>") — finds nothing, because there
+// happens to be in. From there the hook's package lookup,
+// require.resolve("@solongate/guard-<platform>"), finds nothing, because there
 // is no node_modules anywhere above it. So the hook fell back to its Node
 // implementation on every call, on every machine, and nothing said so: a
 // fallback looks exactly like a fast path that is merely slow.
 //
 // The hook's last candidate is ~/.solongate/bin, which is what this fills.
 //
-// WHERE THE BINARIES COME FROM is the part worth reading. Not a package lookup —
+// WHERE THE BINARIES COME FROM is the part worth reading. Not a package lookup,
 // this program IS one of them. The CLI and the guard ship in the same platform
 // package, side by side, so the guard is the file next to this executable. That
 // needs no resolver, works the same for npm, pnpm, yarn and bun, and cannot pick
@@ -39,7 +39,7 @@ import (
 // in this directory.
 //
 // A THIRD NAME USED TO BE HERE, `solongate-browser`, for a browser-side agent
-// that is not part of this release — nothing in this repository builds it. The
+// that is not part of this release, nothing in this repository builds it. The
 // copy loop below skips a name it cannot stat, so the only cost was a file that
 // never arrived and a comment explaining why it was everywhere. Both are better
 // gone than explained.
@@ -111,7 +111,7 @@ func sameFile(a, b string) bool {
 // copyExecutable writes to a temporary name and renames.
 //
 // A hook that fires mid-install must not be handed a half-written binary. It
-// would be refused — the version probe fails on a truncated file — and fall back
+// would be refused, the version probe fails on a truncated file, and fall back
 // to Node, which is safe but slow for no reason. A rename is atomic within a
 // directory, so the hook sees either the old binary or the new one.
 func copyExecutable(from, to string) error {

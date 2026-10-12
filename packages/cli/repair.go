@@ -10,8 +10,8 @@ import (
 )
 
 // RunRepair is `solongate repair`: restore the guard after tampering or
-// deletion. It needs no API client and no login round trip — the account already
-// on the device is reused — so it does not go through the command router above.
+// deletion. It needs no API client and no login round trip, the account already
+// on the device is reused, so it does not go through the command router above.
 func RunRepair([]string) int {
 	if code, refused := refuseUnderSudo(); refused {
 		return code
@@ -74,7 +74,7 @@ func RunRepair([]string) int {
 // Repair installs the guard hooks into the INVOKING user's home. Under sudo that
 // is root's home, so it would report success while the user's agents stayed
 // exactly as broken as before. This is easy to hit by momentum: the fix for a
-// root-owned npm folder is `sudo npm i -g …` followed by this command — which
+// root-owned npm folder is `sudo npm i -g …` followed by this command, which
 // must NOT be sudo.
 func refuseUnderSudo() (int, bool) {
 	if runtime.GOOS == "windows" || os.Getuid() != 0 || os.Getenv("SOLONGATE_INTERNAL") == "1" {
@@ -87,7 +87,7 @@ func refuseUnderSudo() (int, bool) {
 	errln("")
 	errln("  Do not run `solongate repair` with sudo.")
 	errln("  It installs the guard into your home directory, and as root it would")
-	errln("  arm root’s home instead" + whose + " — reporting success while nothing changed for you.")
+	errln("  arm root’s home instead" + whose + ", reporting success while nothing changed for you.")
 	errln("")
 	errln("  Run it as yourself:  solongate repair")
 	errln("")

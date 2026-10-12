@@ -14,7 +14,7 @@ type BoxPlan struct {
 	Runtime []string
 
 	// AgentTree is the agent's own install directory, bound read-only at
-	// /opt/agent — NOT at its host path. Binding it where it lives would mean
+	// /opt/agent. NOT at its host path. Binding it where it lives would mean
 	// /home/<user>/.local existed inside the box, which is the one thing this
 	// mode is for.
 	AgentTree string

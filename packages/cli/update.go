@@ -17,14 +17,14 @@ import (
 	"github.com/solongate/agent-security/packages/core/term"
 )
 
-// `solongate update` — fetch the newest source and reinstall from it.
+// `solongate update`, fetch the newest source and reinstall from it.
 //
 // WHY THIS COMMAND EXISTS AT ALL. `solongate doctor` has told people to run it for as
 // long as there has been a doctor, and until now there was no such command: the one
 // instruction the health check gives was a command that answered "Unknown command".
 //
-// And the thing it replaces is three steps somebody had to know by heart — change to a
-// directory they may not remember, pull, run the install script — none of which is the
+// And the thing it replaces is three steps somebody had to know by heart, change to a
+// directory they may not remember, pull, run the install script, none of which is the
 // user's problem. An update is one word.
 //
 // IT UPDATES FROM WHERE IT WAS INSTALLED FROM. The install writes that path down (see
@@ -58,7 +58,7 @@ func RunUpdate(args []string) int {
 	// THE INSTALL DIRTIES THE CHECKOUT IT WILL LATER PULL INTO.
 	//
 	// install.sh runs `pnpm install`, and pnpm rewrites pnpm-lock.yaml whenever the
-	// manifest and the lock disagree about anything — including an optional package
+	// manifest and the lock disagree about anything, including an optional package
 	// it decides to drop. The build script rewrites packages/hooks/package.json for
 	// the same class of reason. Both files are tracked, so one update later the
 	// checkout has modifications nobody made, and the NEXT update dies on
@@ -67,7 +67,7 @@ func RunUpdate(args []string) int {
 	// The user never typed anything to cause that and has nothing to decide about
 	// it, so the only honest behaviour is to put those files back and carry on. The
 	// test is narrow on purpose: ONLY the files an install is known to write are
-	// restored, and anything else stops the update exactly as it did before —
+	// restored, and anything else stops the update exactly as it did before,
 	// a real local edit is the user's and discarding it silently would be theft.
 	if code := restoreInstallArtifacts(root); code != 0 {
 		return code
@@ -410,7 +410,7 @@ func defaultBranch(root string) string {
 
 // restoreInstallArtifacts puts the generated files back so the pull can run.
 //
-// Returns 0 when the checkout is pullable — either it was already clean, or the
+// Returns 0 when the checkout is pullable, either it was already clean, or the
 // only modifications were files the install itself wrote. A modification
 // anywhere else is reported and the update stops: that is somebody's work, and
 // this command has no business choosing to lose it.
@@ -446,7 +446,7 @@ func restoreInstallArtifacts(root string) int {
 	if len(foreign) > 0 {
 		fmt.Fprintln(os.Stderr)
 		// MARKED, like every other outcome this command has. The three exits
-		// were [  OK  ] on success, [FAILED] on a step that broke, and — here —
+		// were [  OK  ] on success, [FAILED] on a step that broke, and, here,
 		// nothing at all: a hard stop printed as dim prose with no mark in the
 		// column every other line is aligned to. The indentation was right and
 		// the mark was missing, which made the one outcome somebody has to act

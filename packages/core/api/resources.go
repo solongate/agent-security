@@ -129,7 +129,7 @@ func (p PoliciesAPI) Update(ctx context.Context, id string, policy PolicySet) (P
 	// carries `security` inside it, per variant, which is what the editor reads
 	// and writes and what an exported policy arrives in. The FILE carries a
 	// top-level `security` block, and that is the one the guard reads on every
-	// tool call — both implementations of it, and `doctor`, and the CLI.
+	// tool call, both implementations of it, and `doctor`, and the CLI.
 	//
 	// The TUI only ever wrote the first. `Policies.Update` is its one
 	// layer-writing path (see the save in tui/panels/policies.go, which fills
@@ -138,7 +138,7 @@ func (p PoliciesAPI) Update(ctx context.Context, id string, policy PolicySet) (P
 	// went on reading the top-level block that nobody had touched. The panel
 	// printed a tick. `doctor` then read the nested block back through
 	// `guardSecurity`, which has no field for `dlp` at all and whose rateLimit
-	// has no `mode` — so DLP vanished and the rate limit survived as a non-nil
+	// has no `mode`, so DLP vanished and the rate limit survived as a non-nil
 	// block with every window at zero, which toLayers reads as block mode and
 	// doctor prints as StateOK: "rate limit: block · no window set".
 	//
@@ -148,7 +148,7 @@ func (p PoliciesAPI) Update(ctx context.Context, id string, policy PolicySet) (P
 	// is a mirror that is wrong as soon as there is a third.
 	//
 	// The ACTIVE variant's layers win, because that is the variant being
-	// enforced. A policy with no layers at all leaves the block alone — an
+	// enforced. A policy with no layers at all leaves the block alone, an
 	// empty editor is not a statement that this machine configures nothing, and
 	// clearing DLP from under somebody by saving a rule is the bug in the other
 	// direction.
@@ -168,7 +168,7 @@ func (p PoliciesAPI) Update(ctx context.Context, id string, policy PolicySet) (P
 // DefaultVariant names it; a policy with no variants carries its layers at the
 // top of its own document. Falling back to the first variant matches
 // mirrorRulesIntoDefaultVariant, so the rules and the layers that get mirrored
-// are always from the same variant — two mirrors disagreeing about which
+// are always from the same variant, two mirrors disagreeing about which
 // variant is live would enforce one variant's rules with another's DLP.
 func activeVariantLayers(p *PolicySet) *SecurityLayers {
 	if p == nil {
@@ -213,7 +213,7 @@ func (p PoliciesAPI) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
-// RuleSpec is the shorthand a caller sends — deny this command, allow this path —
+// RuleSpec is the shorthand a caller sends, deny this command, allow this path,
 // and this expands it into a full rule, so two callers cannot produce differently
 // shaped rules for the same request.
 type RuleSpec struct {
@@ -282,8 +282,8 @@ func (p PoliciesAPI) AddRule(ctx context.Context, id string, spec RuleSpec) (Rul
 	// it, the TUI lists it the same way, and the glob never matches a command
 	// that does not end in one.
 	//
-	// It is the same failure the permission check already refuses a typo for — a
-	// rule that looks right and is silently inert — and it is easier to produce,
+	// It is the same failure the permission check already refuses a typo for, a
+	// rule that looks right and is silently inert, and it is easier to produce,
 	// because a trailing space is invisible in the editor that made it.
 	//
 	// HERE RATHER THAN IN EACH CALLER. Three places build a RuleSpec: this CLI, the
@@ -293,7 +293,7 @@ func (p PoliciesAPI) AddRule(ctx context.Context, id string, spec RuleSpec) (Rul
 	spec.ToolPattern = strings.TrimSpace(spec.ToolPattern)
 
 	// An empty pattern is refused rather than stored. What it would mean depends on
-	// which field it landed in — everything, or nothing — and neither is what
+	// which field it landed in, everything, or nothing, and neither is what
 	// somebody who typed only spaces was asking for.
 	if spec.Value == "" && spec.Kind != "" && spec.Kind != "tool" {
 		return RuleMutation{}, errors.New("the " + spec.Kind + " pattern is empty")
@@ -424,7 +424,7 @@ func (p PoliciesAPI) RevokeRule(ctx context.Context, id, ruleID string) (RuleMut
 }
 
 // Active is what the guard would enforce on the next call, read from the same
-// file it reads — so this is not a report about what should happen, it is the
+// file it reads, so this is not a report about what should happen, it is the
 // input to what does.
 func (p PoliciesAPI) Active(ctx context.Context, agentID string) (ActivePolicy, error) {
 	s, err := readStore()
@@ -652,7 +652,7 @@ func (s SettingsAPI) Sandbox(ctx context.Context, id string) (shared.Sandbox, er
 		}
 	}
 	return shared.Sandbox{}, errors.New("there is no sandbox " + id +
-		" — `solongate sandbox list` shows the ones there are")
+		", `solongate sandbox list` shows the ones there are")
 }
 
 // NormalizeSandboxID turns what somebody typed into the stored form.
@@ -677,8 +677,8 @@ func NormalizeSandboxID(id string) string {
 
 // nextSandboxID is the LOWEST FREE number, not one past the highest.
 //
-// Deleting a box frees its id, and the next box takes it. The alternative — a
-// counter that only goes up — means a machine where boxes get made and removed
+// Deleting a box frees its id, and the next box takes it. The alternative, a
+// counter that only goes up, means a machine where boxes get made and removed
 // ends up typing "047" for its only sandbox, and the id is a thing somebody
 // types every time they start an agent. The number names a slot.
 //
@@ -710,7 +710,7 @@ func validateSandboxDir(dir string) (string, error) {
 		return "", errors.New("a sandbox needs a directory")
 	}
 	if strings.HasPrefix(dir, "~") {
-		return "", errors.New(`"~" is a shell convention, not a path the kernel can confine to — write it out in full`)
+		return "", errors.New(`"~" is a shell convention, not a path the kernel can confine to, write it out in full`)
 	}
 	if !filepath.IsAbs(dir) {
 		return "", errors.New("the directory must be an absolute path, like /home/you/projects/thing")
@@ -775,7 +775,7 @@ func (s SettingsAPI) SandboxCreate(ctx context.Context, dir, label string, netwo
 }
 
 // SandboxUpdate replaces a box's directory, label and network answer, keeping
-// its id — the id is what somebody types, so changing a box must not change it.
+// its id, the id is what somebody types, so changing a box must not change it.
 func (s SettingsAPI) SandboxUpdate(ctx context.Context, id, dir, label string, network bool) error {
 	clean, err := validateSandboxDir(dir)
 	if err != nil {
@@ -862,7 +862,7 @@ func (s SettingsAPI) SetRequireSandbox(ctx context.Context, on bool) error {
 
 // LocalLogsConfig is where the hooks write the record. On a machine with no
 // service this is the only destination there is, so it reads as ON with the
-// default folder unless somebody named another — the FOLDER is the part worth
+// default folder unless somebody named another, the FOLDER is the part worth
 // choosing.
 type LocalLogsConfig struct {
 	Enabled bool   `json:"enabled"`
@@ -1346,13 +1346,13 @@ func (a AuditAPI) List(ctx context.Context, q AuditQuery) (AuditList, error) {
 /*
  * There is no Remove and no RemoveAll. Both used to call DELETE /audit-logs;
  * the endpoint is gone, and an audit log the audited party can clear is not a
- * record of anything. On a machine the file is the record — somebody who owns
+ * record of anything. On a machine the file is the record, somebody who owns
  * the machine can always delete it, and the CLI does not have to help.
  */
 
 // ruleFromEntry turns one recorded call into a rule.
 //
-// `exact` narrows to what that call actually did — the command, the path, the URL
+// `exact` narrows to what that call actually did, the command, the path, the URL
 // the entry carries. `tool` covers the tool as a whole, which is the wider and
 // more dangerous of the two, so it is never the default.
 func ruleFromEntry(ctx context.Context, p PoliciesAPI, id, scope, effect string) (RuleMutation, error) {
@@ -1382,7 +1382,7 @@ func ruleFromEntry(ctx context.Context, p PoliciesAPI, id, scope, effect string)
 // Exported, and the only implementation, because the Live panel's `w`/`b` keys ask the
 // same question of an entry they are holding in memory rather than by id. They used to
 // answer it themselves, with a second extractor that differed in two ways that matter:
-// it did not look for a url at all, and for a path it took the BASENAME — so
+// it did not look for a url at all, and for a path it took the BASENAME, so
 // whitelisting the same denial from the stream and from the audit browser produced two
 // different rules. Whichever a person happened to use decided how wide their policy got.
 //

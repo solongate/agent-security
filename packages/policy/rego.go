@@ -5,7 +5,7 @@ package policy
 // The policy compiler: a SolonGate policy (JSON, as the dashboard writes it)
 // becomes Rego source here, in this process, on every call.
 //
-// The API can already do this — `/policies/:id/rego` exists and works — and
+// The API can already do this, `/policies/:id/rego` exists and works, and
 // fetching it would be less code. Compiling locally is the point: it takes the
 // network off the decision path entirely. A guard that has to ask a server what
 // the rules are is a guard that fails differently depending on the wifi, and
@@ -17,11 +17,11 @@ package policy
 // is what the Node hook actually evaluates. The near-identical copy at
 // packages/proxy/src/policy-engine/opa/json-to-rego.ts is the MCP-proxy
 // lineage; nothing compiles policies with it any more, and it differs in four
-// ways that each silently change a decision — see the marked sites below.
+// ways that each silently change a decision, see the marked sites below.
 //
 // The generated Rego is a priority-ordered `else` chain, so the first matching
 // rule wins, and it always ends with a `default decision` of DENY. That default
-// is NOT the policy's default — mode is re-applied after evaluation (see
+// is NOT the policy's default, mode is re-applied after evaluation (see
 // policy.go). Confusing those two makes every denylist policy block everything.
 
 import (
@@ -63,7 +63,7 @@ type PolicyRule struct {
 // The Rego compiler treats a missing `enabled` as disabled; the fallback
 // evaluator treats it as enabled. That difference is inherited from the Node
 // implementation, where the two paths were written years apart, and it is
-// preserved rather than reconciled — picking either answer here would change
+// preserved rather than reconciled, picking either answer here would change
 // which rules fire on somebody's live policy, which is not a change to make
 // while porting.
 func (r PolicyRule) enabledForRego() bool {
@@ -95,8 +95,8 @@ func normPathPattern(s string) string {
 	return EscapeRegoString("(?i)" + PathPatternRegex(s))
 }
 
-// rootDirectory is a literal prefix rather than a pattern — it is fed to
-// startswith, not to the matcher — so it only needs its separators normalised.
+// rootDirectory is a literal prefix rather than a pattern, it is fed to
+// startswith, not to the matcher, so it only needs its separators normalised.
 func normPathLiteral(s string) string {
 	return EscapeRegoString(strings.ReplaceAll(s, `\`, "/"))
 }
@@ -180,7 +180,7 @@ func quotedList(items []string, norm func(string) string) string {
 // does not cross a dot and `curl*` never matches `curl evil.example.com/x`.
 // Compiled to `^(?:curl.*)$` it does. Porting the wrong one here would have
 // left every command, filename and URL rule quietly weaker than the dashboard
-// shows it to be, and only for targets containing a dot — which is most of the
+// shows it to be, and only for targets containing a dot, which is most of the
 // interesting ones.
 var reGlobRegexEscape = regexp.MustCompile(`[.+^${}()|\[\]\\]`)
 
@@ -201,14 +201,14 @@ func ConvertRulesToRego(rules []PolicyRule) string {
 	sorted := make([]PolicyRule, len(rules))
 	copy(sorted, rules)
 	// DENY FIRST, THEN BY PRIORITY. The chain this emits decides on the first rule
-	// that matches, so ordering IS the semantics — and sorting by priority alone
+	// that matches, so ordering IS the semantics, and sorting by priority alone
 	// let an ALLOW written above a DENY of the same priority win.
 	//
 	// Which made this engine disagree with the other two about a real policy. The
 	// Node hook runs a DENY pass over every deny rule before it considers an
 	// ALLOW ("DENY wins over ALLOW", in both modes) and so does FallbackEvaluate
 	// twenty lines below. Measured before this: whitelist mode, `ALLOW *` above
-	// `DENY *secret*` at the same priority, `cat secret` — the hook blocked it and
+	// `DENY *secret*` at the same priority, `cat secret`, the hook blocked it and
 	// the binary allowed it, in denylist mode too. A machine runs whichever of the
 	// two it has.
 	//
@@ -241,8 +241,8 @@ func ConvertRulesToRego(rules []PolicyRule) string {
 		// THERE IS NO list_matches_any HELPER, and there was one: a glob.match
 		// loop emitted into every generated module and called by nothing. The
 		// list constraints (command, filename, URL) compile to an inline
-		// `regex.match` over a single alternation instead — see
-		// generateListConstraintConditions — because one expression per
+		// `regex.match` over a single alternation instead, see
+		// generateListConstraintConditions, because one expression per
 		// constraint beats one call per pattern, and because glob.match and
 		// RE2 do not agree about what `*` crosses. An unused helper in the
 		// generated source invited a future condition to call the semantics
@@ -253,7 +253,7 @@ func ConvertRulesToRego(rules []PolicyRule) string {
 	}
 
 	// The original keys the head-vs-else choice off the loop index, so a policy
-	// whose FIRST rule is disabled emits a chain that opens with `} else :=` —
+	// whose FIRST rule is disabled emits a chain that opens with `} else :=`,
 	// not parseable Rego. Keying it off "have we emitted a head yet" produces
 	// byte-identical output for every policy the original compiles, and valid
 	// output for the one it does not.
@@ -344,7 +344,7 @@ func generateConditions(rule PolicyRule) []string {
 
 	// One permission is an equality; several are a set membership. The proxy
 	// lineage interpolated the array straight into a string literal, producing
-	// `input.permission == "READ,WRITE"` — a value no input can ever equal — so
+	// `input.permission == "READ,WRITE"`, a value no input can ever equal, so
 	// a rule scoped to two permissions silently stopped enforcing entirely.
 	if perms := permissionList(rule.Permission); len(perms) == 1 {
 		conds = append(conds, fmt.Sprintf(`input.permission == "%s"`, EscapeRegoString(perms[0])))
@@ -383,12 +383,12 @@ func generateConditions(rule PolicyRule) []string {
 	return conds
 }
 
-// The tool selector is internal and fixed to "*" in the shipped product — no UI
+// The tool selector is internal and fixed to "*" in the shipped product, no UI
 // or CLI exposes it. Kept general for the engine.
 //
 // AN ABSENT SELECTOR MEANS EVERY TOOL, and it used to mean no tool at all. A
 // rule whose JSON omits `toolPattern` decodes to "" here, which fell past every
-// case below and compiled to `input.tool_name == ""` — a condition no call can
+// case below and compiled to `input.tool_name == ""`, a condition no call can
 // satisfy, so the rule never fired. Not a narrow case either: it applied to all
 // four constraint kinds and to denylist mode, which is the default, so a policy
 // file written by hand enforced NOTHING on a machine with the Go binary while
@@ -396,7 +396,7 @@ func generateConditions(rule PolicyRule) []string {
 // condition at all, so "" there has always meant every tool.
 //
 // It went unnoticed because the TUI stamps `ToolPattern: "*"` on every rule it
-// creates, so the rules the product makes for you were never affected — only
+// creates, so the rules the product makes for you were never affected, only
 // the ones somebody wrote, exported, or copied in.
 func generateToolPatternCondition(pattern string) []string {
 	if pattern == "*" || pattern == "" {
@@ -487,7 +487,7 @@ func generateArgumentConstraintConditions(constraints map[string]interface{}) []
 }
 
 // Path constraints are asymmetric on purpose. A DENY rule matches when the
-// constraints are VIOLATED — that is what makes it a denial. An ALLOW rule
+// constraints are VIOLATED, that is what makes it a denial. An ALLOW rule
 // matches only when EVERY path satisfies them, so one bad path in a batch
 // cannot ride along with the good ones.
 //
@@ -553,15 +553,15 @@ func generateListConstraintConditions(c *ListConstraints, inputField, effect str
 // parsePolicyRules decodes the rule array ONE RULE AT A TIME.
 //
 // Decoding it in a single Unmarshal meant one wrongly-typed field anywhere in
-// the policy — a `denied` written as a bare string, a quoted priority,
-// `enabled: 1` — failed the whole decode, and a policy that would not decode
+// the policy, a `denied` written as a bare string, a quoted priority,
+// `enabled: 1`, failed the whole decode, and a policy that would not decode
 // was being read as NO policy, i.e. allow everything. A hand-edited or uploaded
 // policy JSON could disarm the guard completely while the dashboard still
 // showed its rules as active. That is the one failure direction this port is
 // not allowed to have.
 //
 // A rule that will not decode at all is salvaged field by field, and only what
-// is well typed survives — which is what the Node hook effectively does by
+// is well typed survives, which is what the Node hook effectively does by
 // guarding each constraint with Array.isArray and ignoring the rest.
 func ParsePolicyRules(raw json.RawMessage) ([]PolicyRule, bool) {
 	if len(raw) == 0 {
@@ -592,7 +592,7 @@ func ParsePolicyRules(raw json.RawMessage) ([]PolicyRule, bool) {
 // A rule can only ever come out of here NARROWER than it was written, never
 // wider. Dropping a constraint that will not decode would otherwise leave a
 // rule with no conditions at all, and a rule with no conditions compiles to a
-// catch-all — so a single mistyped `denied` would turn one DENY rule into "deny
+// catch-all, so a single mistyped `denied` would turn one DENY rule into "deny
 // everything". The Node hook reaches the same end by a different route: its
 // constraint reader returns nothing for a non-array, and a rule with nothing to
 // match on never matches.

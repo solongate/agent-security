@@ -8,7 +8,7 @@
 #
 #   ./.sg-box-check.sh [/absolute/path/to/a/scratch/project]
 #
-# It defines two boxes over that directory — 001 with the network, 002 without —
+# It defines two boxes over that directory, 001 with the network, 002 without,
 # so the id addressing and the per-box network choice are both exercised.
 #
 # It builds the CLI from this checkout, points the sandbox at a throwaway
@@ -72,7 +72,7 @@ ask() { # ask LABEL EXPECT SHELL
 echo "what the box contains:"
 printf '  %s\n' "$("$APP" sandbox 001 /bin/sh -c 'ls / | tr "\n" " "' 2>/dev/null | tail -1)"
 echo
-echo "the project — must work:"
+echo "the project, must work:"
 ask "write in the project"        YES 'touch /workspace/box && echo YES || echo NO'
 ask "read it back"                YES 'cat /workspace/box >/dev/null && echo YES || echo NO'
 ask "run a binary"                YES '/usr/bin/true && echo YES || echo NO'
@@ -80,7 +80,7 @@ ask "resolve a name"              YES 'cat /etc/resolv.conf >/dev/null && echo Y
 ask "scratch in /tmp"             YES 'touch /tmp/x && echo YES || echo NO'
 
 echo
-echo "outside the project — must be GONE, not merely refused:"
+echo "outside the project, must be GONE, not merely refused:"
 ask "/home exists at all"         NO  'test -e /home && echo YES || echo NO'
 ask "\$HOME of the real user"      NO  'test -e /home/'"$(id -un)"' && echo YES || echo NO'
 ask "/etc/passwd exists"          NO  'test -e /etc/passwd && echo YES || echo NO'
@@ -90,13 +90,13 @@ ask "/mnt exists"                 NO  'test -e /mnt && echo YES || echo NO'
 ask "the host /tmp contents"      NO  'ls /tmp | grep -q . && echo YES || echo NO'
 # NOT "can it read /proc/1/cmdline". --unshare-all includes the pid namespace, so
 # PID 1 inside the box is the box's OWN first process and reading it leaks
-# nothing — the first version of this check asked that and failed a box that was
+# nothing, the first version of this check asked that and failed a box that was
 # working correctly. The real question is whether anything that is NOT in the box
 # is visible, which is a count and a name.
 ask "only the box's own processes"  YES 'n=$(ls /proc | grep -c "^[0-9]"); [ "$n" -le 5 ] && echo YES || echo NO'
 # ASKED OF comm, NOT cmdline, and the reason is a test that lied twice. PID 1's
 # cmdline inside the box is the whole bwrap argv, and the last argument of that
-# argv is THIS CHECK — so a grep for "systemd" found the word in its own command
+# argv is THIS CHECK, so a grep for "systemd" found the word in its own command
 # line and reported the host init as visible on a box that was isolating
 # correctly. /proc/1/comm is the process name alone: bwrap in the box, systemd
 # on the host, and nothing of the question inside the answer.

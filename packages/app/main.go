@@ -40,7 +40,7 @@ import (
 //
 // It has to be the version of the npm package that shipped this binary. The
 // Node side refuses a binary whose version does not match the package asking
-// for it and falls back to its own implementation — without that check a
+// for it and falls back to its own implementation, without that check a
 // machine can end up running two different implementations and which one
 // answers depends on install order.
 var buildVersion = "dev"
@@ -81,14 +81,14 @@ var runExplainArgs = map[string]bool{"--explain": true, "explain": true}
 // replaces the code that does the restricting.
 //
 // It is exempt because it re-runs the installer, and the installer writes to a
-// terminal — a progress line per step, with the captured output of a failure
+// terminal, a progress line per step, with the captured output of a failure
 // printed underneath it. Gated here, `solongate update` could not be the thing
 // the README tells people to run.
 //
 // SO IT DOES NOT REST ON THIS GATE, and that is the part that makes the
 // exemption survivable. The tamper layer refuses any tool call whose command
 // names the CLI, and it does not inspect the subcommand (see argsInvokeCLI in
-// guard/tamper.go) — so an agent reaching for `solongate update` is refused by
+// guard/tamper.go), so an agent reaching for `solongate update` is refused by
 // the guard on the way in, with or without a terminal. The gate here is the
 // second layer, not the only one.
 //
@@ -112,7 +112,7 @@ func main() { os.Exit(run(os.Args[1:])) }
 
 // WHO KNOWS THE GUARD'S VERSION NUMBERS. core/api declares GuardVersions as a
 // function variable, with a comment saying the install layer fills it in, and nothing
-// ever did — so it kept its default of (0, nil) on every machine. Everything reading
+// ever did, so it kept its default of (0, nil) on every machine. Everything reading
 // it therefore believed the installed guard was unknown and the newest available was
 // zero, which the live view renders literally:
 //
@@ -206,7 +206,7 @@ func run(args []string) int {
 	// Ctrl+C, a closed terminal and a reboot. Nothing else brings it back, so
 	// every human CLI run resurrects it unless the user explicitly disabled it
 	if isHumanCLI {
-		// The binaries beside the hook, brought level with THIS run - so an
+		// The binaries beside the hook, brought level with THIS run, so an
 		// update whose npm half landed but whose binary copy did not is
 		// finished here. A no-op when they already match (a size-and-mtime
 		// compare, see InstallGoBinaries), so it costs nothing on the runs
@@ -251,14 +251,14 @@ func run(args []string) int {
 // stdout, so there is no TTY on both ends; a person at a keyboard always has one.
 //
 // A SECOND SIGNAL USED TO REFUSE TOO, and it refused the wrong people: a list of
-// environment-variable prefixes — CLAUDECODE, CURSOR, CODEX_, ANTIGRAVITY and a dozen
-// more — any one of which turned the CLI away even with a real terminal on both ends.
+// environment-variable prefixes. CLAUDECODE, CURSOR, CODEX_, ANTIGRAVITY and a dozen
+// more, any one of which turned the CLI away even with a real terminal on both ends.
 // The comment on it said "a human running these commands from inside an agent's
 // integrated terminal is refused too. That is on purpose: no exceptions."
 //
 // It is not defensible. An integrated terminal INHERITS the agent's environment, so that
 // rule locked people out of their own tool in VS Code, Cursor, and any editor whose
-// terminal is a child of an agent process — while the thing it was guarding against, a
+// terminal is a child of an agent process, while the thing it was guarding against, a
 // tool call, was already refused by the TTY check. It was a guess about the environment
 // standing in for a fact about the caller, and the guess was wrong far more often than it
 // was right.
@@ -266,7 +266,7 @@ func run(args []string) int {
 // What it was protecting is now protected where every other protection in this product
 // lives: the GUARD refuses a tool call whose command invokes this CLI. See
 // reTamperCmdCLI in packages/guard/tamper.go and commandTargetsProtected in the hook.
-// That is a fact about the caller — it runs on a tool call and nowhere else — and it
+// That is a fact about the caller, it runs on a tool call and nowhere else, and it
 // holds whether or not the agent allocated a pseudo-terminal, which the old TTY check
 // alone did not.
 //
@@ -290,7 +290,7 @@ func assertHumanTerminal() {
 	w("  SolonGate is human-only.")
 	w("  These commands control your security policy, so they cannot be run by an AI")
 	w("  agent or any non-interactive process. Run them yourself, in a terminal.")
-	w("  (refused: no interactive terminal — stdin and stdout are not both a tty)")
+	w("  (refused: no interactive terminal, stdin and stdout are not both a tty)")
 	w("")
 	os.Exit(1)
 }
@@ -322,7 +322,7 @@ func table() []command {
 
 		// NOT HUMAN-GATED, for the same reason `run` is not: it only ever ADDS
 		// restriction. An agent that invokes it confines itself harder, and
-		// gating it would break the case the command exists for — a shim or an
+		// gating it would break the case the command exists for, a shim or an
 		// IDE launching the agent through it.
 		//
 		// A SECOND COMMAND RATHER THAN A FLAG ON `run`, because the two are not
@@ -357,7 +357,7 @@ func lookup(name string) (command, bool) {
 // launchTUI starts the Bubble Tea program.
 //
 // The one constraint, already paid for once: a frame must be no taller than
-// (terminal rows - 1). Ink repainted the entire screen on every render as soon
+// (terminal rows, 1). Ink repainted the entire screen on every render as soon
 // as a frame reached full height and it read as a glitch; Bubble Tea has the
 // same failure mode. tui enforces it by clipping every frame rather
 // than by trusting each panel's arithmetic.

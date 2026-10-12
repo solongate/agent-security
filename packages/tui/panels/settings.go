@@ -19,7 +19,7 @@ import (
 
 func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { return NewSettings(d) }) }
 
-// The Settings panel, ported from tui/panels/Settings.tsx — the dashboard
+// The Settings panel, ported from tui/panels/Settings.tsx, the dashboard
 // Settings page, TUI edition. Everything an operator configures, in ONE
 // single-cursor list:
 //
@@ -39,7 +39,7 @@ func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { ret
 // indistinguishable from a hung one.
 //
 // They were stubs until those modules existed, and the stubs said so on the row
-// rather than offering a button that quietly did nothing — the subject of every
+// rather than offering a button that quietly did nothing, the subject of every
 // one of these rows is whether this machine is protected.
 
 // doctorSteps is what the health check looks at, in the order CollectChecks
@@ -86,7 +86,7 @@ type (
 		rows []protectedLine
 	}
 	// setRunMsg is the answer to any one-shot action started by run(). hide is
-	// the row key to drop on success — applied HERE rather than in the request
+	// the row key to drop on success, applied HERE rather than in the request
 	// goroutine, which would be writing panel state while the update loop reads
 	// it.
 	setRunMsg struct {
@@ -174,7 +174,7 @@ type Settings struct {
 	installBusy bool
 
 	// repairReport is the last repair, rendered as read-only lines under the
-	// repair row — the same two lists `solongate repair` prints. Cleared when a
+	// repair row, the same two lists `solongate repair` prints. Cleared when a
 	// new repair starts so the old result cannot be read as the new one.
 	repairReport *install.Report
 
@@ -463,7 +463,7 @@ func (p *Settings) key(k tea.KeyMsg) tea.Cmd {
 	if p.editing != "" {
 		// esc abandons the prompt without writing. It is not in the Ink version,
 		// and it has to be here: the shell gives a capturing panel every key, so
-		// the only other way out of the path prompt would be to submit it — and
+		// the only other way out of the path prompt would be to submit it, and
 		// submitting an empty path CLEARS local logging.
 		if s == "esc" {
 			p.editing = ""
@@ -683,8 +683,8 @@ func (p *Settings) firstError() error {
 
 // authErrorShape matched an error worth keeping the panel open for: every loader here
 // spoke to a service, and a revoked key 401'd all of them at once. Rendering that
-// error INSTEAD of the rows hid the Accounts section — the only way to remove the dead
-// account and pair again — so a device revoked from the dashboard was stuck being told
+// error INSTEAD of the rows hid the Accounts section, the only way to remove the dead
+// account and pair again, so a device revoked from the dashboard was stuck being told
 // to use a panel it could not see.
 //
 // Nothing 401s. The loaders read a file, and the two failures a file has (absent,
@@ -704,8 +704,8 @@ func (p *Settings) viewList() string {
 	curKey := cur.key()
 
 	// Rows and their section headers are flattened into ONE line list, then
-	// windowed around the selected row. Anything that is not selectable — a
-	// header, a warning, the version at the bottom — carries an empty key.
+	// windowed around the selected row. Anything that is not selectable, a
+	// header, a warning, the version at the bottom, carries an empty key.
 	type flat struct {
 		text string
 		key  string
@@ -721,12 +721,12 @@ func (p *Settings) viewList() string {
 				push(" ", "")
 			}
 			lastSec = sec
-			push(stAccentB.Render(sec)+stDim.Render("  — "+p.sectionDesc(sec)), "")
+			push(stAccentB.Render(sec)+stDim.Render(", "+p.sectionDesc(sec)), "")
 			// A warning stood here for the WEBHOOKS and ALERTS sections: they fired
 			// server-side off the audit POST, which the guard skipped in local-log
 			// mode, so they were a silent no-op. sectionOf has produced only
 			// PROTECTION and LOCAL LOGS since those sections went, which made the
-			// branch unreachable — and its condition (`p.local.Enabled`) is now true
+			// branch unreachable, and its condition (`p.local.Enabled`) is now true
 			// on every machine, so it would have shown on all of them.
 		}
 		push(p.rowLine(r, r.key() == curKey && p.focused), r.key())
@@ -802,7 +802,7 @@ func (p *Settings) viewList() string {
 	if len(p.protected) > 0 {
 		push(" ", "")
 		push(stAccentB.Render("PROTECTED PATHS")+
-			stDim.Render("  — out of the agent's reach, by the OS where it can be"), "")
+			stDim.Render(", out of the agent's reach, by the OS where it can be"), "")
 		for _, r := range p.protected {
 			mark, st := "✗", stBad
 			switch {
@@ -919,8 +919,8 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 			break
 		}
 		// The cloud's view: the newest hook, what this project's devices last
-		// reported, and how many are behind. The LOCAL truth — which hook files
-		// this device actually has — is what `doctor` reads, and enter on this
+		// reported, and how many are behind. The LOCAL truth, which hook files
+		// this device actually has, is what `doctor` reads, and enter on this
 		// row installs through the same code path `solongate repair` uses.
 		installed := "unknown"
 		st := stWarn
@@ -968,7 +968,7 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 		l.put(pad("path", 11), stDim)
 		switch {
 		case !p.haveLocal || p.local.Path == "":
-			l.put("not set — enter to edit", stDim)
+			l.put("not set, enter to edit", stDim)
 		case p.local.Enabled && !p.llSetting.UsableHere:
 			// The folder is a PROJECT setting shared by every device on it, so
 			// it can name a path that only exists on another OS. The hooks then

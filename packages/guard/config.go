@@ -25,7 +25,7 @@ import (
 // whose. Nothing pairs and nothing read the stamp.
 //
 // loadPolicyCache read .policy-cache-<agent>.json. Nothing has written that file
-// since the refresh was removed, and nothing called this — it was dead code reading a
+// since the refresh was removed, and nothing called this, it was dead code reading a
 // file that cannot exist.
 //
 // The Node hook dropped the identical pair at the same time (hooks/guard.mjs). Both
@@ -51,7 +51,7 @@ import (
 // securityInsidePolicy pulls a `security` block out of a policy document.
 //
 // The second return is what separates "this document says nothing about the
-// layers" from "this document turns everything off" — the same distinction
+// layers" from "this document turns everything off", the same distinction
 // store.SecurityLayersIn draws, and for the same reason: guessing a default here
 // would quietly overwrite a configuration somebody wrote.
 func securityInsidePolicy(doc []byte) (*shared.Security, bool) {
@@ -82,7 +82,7 @@ func securityInsidePolicy(doc []byte) (*shared.Security, bool) {
 //
 // Both are accepted. A `policy` key is what tells them apart, so a bare policy
 // keeps working and nobody has to rewrite a file that already exists.
-// It took a `managed bool` and returned nil for a managed machine — no policy file at
+// It took a `managed bool` and returned nil for a managed machine, no policy file at
 // all, not even this machine's own. See main.go for why that is gone.
 func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
 	if cwd == "" {
@@ -101,7 +101,7 @@ func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
 			Policy json.RawMessage `json:"policy"`
 		}
 		// The PRESENCE of a `policy` key is what makes it the envelope, even when
-		// its value is null — an absent key decodes to a nil RawMessage and a null
+		// its value is null, an absent key decodes to a nil RawMessage and a null
 		// one to the four bytes "null", so the two are distinguishable here and
 		// have to be. A file with layers and no rules is a real configuration (DLP
 		// on, nothing forbidden), and requiring a non-null policy threw the whole
@@ -112,7 +112,7 @@ func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
 			if json.Unmarshal(b, &e) != nil {
 				continue
 			}
-			// A policy DOCUMENT may carry `security` inside it — that is how the
+			// A policy DOCUMENT may carry `security` inside it, that is how the
 			// service stores it (store.SecurityLayersIn reads exactly that), so
 			// it is the shape a policy exported from one arrives in. Reading the
 			// envelope only would make a hand-copied policy's DLP configuration

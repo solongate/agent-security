@@ -90,13 +90,13 @@ const defaultTailBytes = 131_072
 // parseLocalLines reads every line in the machine's own log.
 //
 // IT USED TO FILTER BY ACCOUNT. The log is one file per machine and carried an `acct`
-// tag — a hash prefix of the key — because after pairing a different account the
+// tag, a hash prefix of the key, because after pairing a different account the
 // previous one's calls kept showing up in Live; unstamped lines could not be
 // attributed, so they were dropped rather than pass as ours.
 //
 // Nothing stamps the tag now: there are no accounts, and both guards stopped reading a
 // credential. Keeping the filter would have been quietly destructive rather than
-// merely dead — a credential file left behind by an older install makes `mine`
+// merely dead, a credential file left behind by an older install makes `mine`
 // non-empty, and then every line written since would be dropped as somebody else's.
 // Live would go blank on exactly the machines that had been upgraded, while a machine
 // that had never been paired looked fine.
@@ -119,7 +119,7 @@ func parseLocalLines(lines []string) []localLogLine {
 
 // The guard writes a DENY reason like "Security layer (DLP): blocked -
 // arguments contain a Anthropic key" to BOTH the cloud and the local file at
-// block time, and it is never redacted — so it is the reliable signal source
+// block time, and it is never redacted, so it is the reliable signal source
 // when the dlp/burst fields are not stored and a re-scan of the arguments would
 // miss the value that was blocked or redacted.
 var (
@@ -223,18 +223,18 @@ func clearLocalLog() int {
 // why a burst of concurrent hooks never corrupts the log. The ONE unsafe
 // operation is this: read the whole file, decide what it should say, write it
 // back. Anything appended between the read and the write is inside neither the
-// old content nor the new, and it is gone — silently, which is the part that
+// old content nor the new, and it is gone, silently, which is the part that
 // matters for an audit trail.
 //
 // So the rewriter checks instead of locking: it remembers the size it read and
 // refuses to write if the file has grown since. The caller reports zero removed
-// and the row stays, which is the safe direction — a delete that did not happen
+// and the row stays, which is the safe direction, a delete that did not happen
 // is visible, a record that vanished is not.
 //
 // WHAT THIS DOES NOT CLOSE, stated rather than discovered: the window between
 // the stat and the write. An append landing in those microseconds is still
 // lost. Closing it needs the appenders to take a lock too, and that is the hot
-// path. What is closed is the case that actually happens — a delete pressed
+// path. What is closed is the case that actually happens, a delete pressed
 // while an agent is working, where the appends are milliseconds apart and the
 // read-decide-write is not.
 
@@ -258,7 +258,7 @@ func readLogWithSize(file string) ([]byte, int64, bool) {
 // rewriteLog replaces the file only if it is still the size it was read at.
 //
 // 0600, not the 0644 this used to pass. The mode only applies on create, so it
-// was usually moot — and "usually" is the wrong guarantee for a file that
+// was usually moot, and "usually" is the wrong guarantee for a file that
 // records every command an agent was refused, which is a log of what somebody
 // was working on. shared.FileMode is the number the rest of the product writes.
 func rewriteLog(file string, readSize int64, body []byte) bool {

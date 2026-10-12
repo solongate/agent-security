@@ -8,7 +8,7 @@
 // written in a different spelling, or a file written where the other
 // implementation does not look, corrupts state both are using. Everything here
 // matches what the hooks write today, and where it overlaps
-// packages/guard/config.go it matches that field for field — see the note in
+// packages/guard/config.go it matches that field for field, see the note in
 // state.go about which of the two should own the shared shapes.
 package config
 
@@ -60,7 +60,7 @@ func TUIConfigPath() string { return filepath.Join(Dir(), "tui-config.json") }
 
 // Five paths stood here, to files nothing on this machine writes:
 //
-//	.browser-agent.json / browser-agent.log   the Shadow AI browser agent — the
+//	.browser-agent.json / browser-agent.log   the Shadow AI browser agent, the
 //	                                          process a browser asked before it let
 //	                                          somebody paste. Not in this build.
 //	.self-update.json / self-update.log       a background `npm i -g`. This build
@@ -75,7 +75,7 @@ func TUIConfigPath() string { return filepath.Join(Dir(), "tui-config.json") }
 // comment correcting an older comment about a starter policy and a cloud cache.
 // It returned the same path as PolicyFilePath above and nothing called it. Two
 // functions naming one file is how a caller ends up reading the path that is not
-// the one being written — and this file in particular is spelled with a split
+// the one being written, and this file in particular is spelled with a split
 // literal up there so the guard's own tamper sweep does not match this source,
 // a precaution the duplicate did not take.
 func HooksDir() string { return filepath.Join(Dir(), "hooks") }
@@ -101,7 +101,7 @@ func DefaultLocalLogFile() string {
 //
 // The substitution runs over UTF-16 code units, not runes, because the hooks do
 // `(AGENT_ID || 'default').replace(/[^a-zA-Z0-9_-]/g, '_')` and a JavaScript
-// character class matches ONE code unit — so an agent id containing an emoji
+// character class matches ONE code unit, so an agent id containing an emoji
 // becomes two underscores there and would become one here if this iterated
 // runes. See the note under ProjectKey.
 func AgentKey(a string) string { return shared.AgentKey(a) }
@@ -117,7 +117,7 @@ func AgentKey(a string) string { return shared.AgentKey(a) }
 // `s.charCodeAt(i)`, and they are the ones writing the directories today, so
 // they are what this has to match. packages/guard hashes BYTES instead,
 // which agrees for an ASCII path and diverges the moment a path contains a
-// non-ASCII character — /home/müşteri/proj hashes to 98d8e9fc here and to
+// non-ASCII character, /home/müşteri/proj hashes to 98d8e9fc here and to
 // 1ec69c96 there. Matching the byte version to stay consistent with the other
 // Go module would have meant this CLI reading an empty flag directory on every
 // machine whose home directory is not ASCII.
@@ -143,19 +143,19 @@ func ProjectFlagDir() string {
 // EnsureDir creates ~/.solongate, owner-only.
 //
 // Owner-only because the credential files inside it are 0600 and a world-readable
-// directory still lets another account on the machine ENUMERATE them — which names
+// directory still lets another account on the machine ENUMERATE them, which names
 // the projects, the accounts and every agent that has run here.
 //
 // It delegates to shared, which is where the mode lives, because the GUARD
 // creates this same directory through that package and the two used to disagree:
 // 0700 here and 0755 there, so the mode a machine ended up with depended on which
-// program ran first — and the guard runs constantly.
+// program ran first, and the guard runs constantly.
 func EnsureDir() error { return shared.EnsureSGDir() }
 
 // ensureOwnerOnly was here: a best-effort chmod narrowing an existing path to
 // 0600 (0700 for a directory), written because Go's create-with-mode does
 // nothing to a path that already exists. Nothing called it, and that is worth
-// noticing rather than just deleting — the narrowing it describes IS needed, and
+// noticing rather than just deleting, the narrowing it describes IS needed, and
 // the places that need it do it themselves: guard/audit.go re-chmods the audit
 // log on every write, and the Node hook's detached log writer does the same.
 // An unused helper for a hardening step that is actually performed elsewhere

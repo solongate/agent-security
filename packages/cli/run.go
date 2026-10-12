@@ -73,8 +73,8 @@ func RunAgent(argv []string) int {
 	// `run` IS THE DENY LIST, and the closed box is a separate command.
 	//
 	// They were briefly one thing with a setting deciding which, and that was
-	// wrong: `run` is a permission layer over this machine — paths are refused,
-	// $HOME still exists, `ls /` still shows everything — and it works on three
+	// wrong: `run` is a permission layer over this machine, paths are refused,
+	// $HOME still exists, `ls /` still shows everything, and it works on three
 	// platforms. The box builds a new root and needs a Linux mount namespace.
 	// One flag standing for both would have hidden that difference behind a
 	// word, and the difference is the whole of what somebody is choosing.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// SolonGate guard — the decision path, in Go.
+// SolonGate guard, the decision path, in Go.
 //
 // Same contract as the Node hook it is replacing, deliberately: the client
 // spawns it, writes one JSON payload on stdin, and reads the verdict from the
@@ -12,7 +12,7 @@
 //
 // What this port is FOR is the per-call cost. The Node hook pays ~26ms starting
 // a runtime, ~17ms parsing a 291KB bundle and ~27ms instantiating an OPA WASM
-// module it then throws away — measured, per tool call. Embedded OPA here
+// module it then throws away, measured, per tool call. Embedded OPA here
 // prepares a policy in 640µs and decides in 14µs.
 package main
 
@@ -44,8 +44,8 @@ type call struct {
 // envelope leaves vendor names sitting inside the arguments, and then every
 // layer downstream is back to reasoning about client-specific shapes: a rule
 // written against `file_path` would miss a Codex `target_file` or an
-// Antigravity `absolutePath`, and `readReferencedFiles` — which looks the
-// `command` field up by name — would never see a `commandLine`.
+// Antigravity `absolutePath`, and `readReferencedFiles`, which looks the
+// `command` field up by name, would never see a `commandLine`.
 //
 // Unrecognised keys pass through untouched: they may still carry a path or a
 // secret, and the scanners have to keep seeing them.
@@ -145,7 +145,7 @@ func deny(reason string) { emit(decision{Type: "deny", Reason: reason}) }
 
 // Allow the call but REPLACE its input, so a read is pointed at a redacted copy
 // before the tool runs. The rewritten call is what executes, so no block is
-// needed — which is the whole point for DLP: the agent gets an answer, without
+// needed, which is the whole point for DLP: the agent gets an answer, without
 // the secret in it.
 func rewriteCall(patch map[string]interface{}) {
 	emit(decision{Type: "rewrite", Patch: clientArgNames(patch)})
@@ -157,7 +157,7 @@ func rewriteCall(patch map[string]interface{}) {
 // A rewrite is SHALLOW-MERGED into the call's own arguments by the client, so a
 // patch keyed `file_path` adds a new argument beside the `AbsolutePath` the
 // client is really going to read. The call then runs against the original file
-// and the rewrite does nothing at all — silently, because from the guard's side
+// and the rewrite does nothing at all, silently, because from the guard's side
 // it looks like it worked.
 //
 // For the DLP read-redaction path that is the worst failure this binary has: it
@@ -215,18 +215,18 @@ func observingDLP(sec *shared.Security) *observingCfg {
 //
 // It is NOT the npm version, and the difference is the entire point. The Node
 // hook self-updates from the cloud on its own schedule while the binary only
-// moves when npm moves it, so the two CAN diverge on a running machine — and
+// moves when npm moves it, so the two CAN diverge on a running machine, and
 // when they do, the decision logic is what diverged. HOOK_VERSION bumps on every
 // guard.mjs change, so comparing it answers the question that actually matters:
 // "does this binary decide the way the hook next to it would?" An npm version
-// would answer a different question and get this one wrong in both directions —
+// would answer a different question and get this one wrong in both directions,
 // falling back for a release that changed nothing here, and staying on the fast
 // path after a cloud self-update that changed everything.
 //
 // TestHookVersionMatchesTheNodeHook used to read the number out of the Node hook
 // so this could not drift without the build saying so. That test went with the
 // rest of the suite, so the two numbers are now kept level by hand, in the same
-// change — and a mismatch is not a build failure but a silent fall back to Node
+// change, and a mismatch is not a build failure but a silent fall back to Node
 // on every machine that has both.
 //
 // 109: the five places the two implementations decided differently. This side
@@ -285,7 +285,7 @@ func main() {
 	// gave, kept separately because the guard needs it before it decides which
 	// credential to trust.
 	//
-	// Nothing polls, so nothing writes it. What it still did was read — and on a machine
+	// Nothing polls, so nothing writes it. What it still did was read, and on a machine
 	// left with a stale `managed: true` from an older install, THIS GUARD ENFORCED
 	// NOTHING: loadLocalPolicyFile returned nil for a managed machine, which is every
 	// policy file including this machine's own. The Node hook never read the file at
@@ -304,7 +304,7 @@ func main() {
 
 	// THERE IS NO CREDENTIAL HERE AT ALL, and its absence is the point.
 	//
-	// This used to be `if cred.APIKey == "" { allow() }` — the key was the whole
+	// This used to be `if cred.APIKey == "" { allow() }`, the key was the whole
 	// test, on the reasoning that the key selects the project and therefore the
 	// policy. That holds for a machine with a service to ask. It makes the guard
 	// a NO-OP on every machine that has none, which is how this is ordinarily
@@ -314,7 +314,7 @@ func main() {
 	// EvaluatePolicy answers nothing and the call reaches allow() at the end; the
 	// refresh and the audit POST are both skipped where they are written, each on
 	// its own empty-key check. What the early exit ALSO skipped was the tamper
-	// guard, so a machine with no credential could not protect its own state —
+	// guard, so a machine with no credential could not protect its own state,
 	// and a local policy is kept in exactly that state.
 	//
 	// The credential itself is gone too, not just the gate. It was read on every
@@ -329,7 +329,7 @@ func main() {
 	nc := normalizeToolCall(activeClient, agentType, input)
 	c := nc.call
 	// THERE IS NO POLICY CACHE. It held a service's answer with a TTL, a bounded
-	// wait for a refresh, and a detached child to warm it for the next call — all
+	// wait for a refresh, and a detached child to warm it for the next call, all
 	// of it so a rule added on a dashboard would land within one call. Nothing
 	// writes it now, and while it still existed it was worse than dead: a service
 	// answering with an empty security block OUTRANKED the file, so a machine whose
@@ -349,7 +349,7 @@ func main() {
 		sec, hasSecurity = local.Security, true
 	}
 
-	// Hardcoded tamper protection, and it runs FIRST — before the policy is even
+	// Hardcoded tamper protection, and it runs FIRST, before the policy is even
 	// resolved. Two reasons, both learned the hard way. It cannot be switched off
 	// by editing a policy, so it must not be reachable only through the path that
 	// reads one. And doing the slow work first is what made the earliest guard
@@ -414,7 +414,7 @@ func main() {
 
 	if sec != nil && sec.DLPBlock != nil {
 		if hit := shared.DLPScan(argsText, sec.DLPBlock); hit != "" {
-			reason := "Security layer (DLP): blocked - arguments contain a " + hit +
+			reason := "Security layer (DLP): blocked, arguments contain a " + hit +
 				// A denial names what a person can change; see hooks/guard.mjs.
 				". Blocked by SolonGate (DLP). Edit ~/.solongate/policy.json to change what is refused."
 			record(sec, hasSecurity, c, agentType, agentName, reason, started)
@@ -426,13 +426,13 @@ func main() {
 		// decided below and in the post-tool stage, not here.
 		//
 		// The write only happens on a client with no post-tool stage, where
-		// nothing else will do it — see recordObserved. Before this, detect mode
+		// nothing else will do it, see recordObserved. Before this, detect mode
 		// on such a client observed nothing at all: reads were still redacted, so
 		// it looked like it was working, and an argument carrying a secret went
 		// out with no record anywhere that it had.
 		if hit := shared.DLPScan(argsText, cfg.cfg); hit != "" {
 			recordObserved(sec, hasSecurity, c, agentType, agentName,
-				"Security layer (DLP): detected - arguments contain a "+hit+". Allowed: DLP is in "+cfg.mode+" mode.",
+				"Security layer (DLP): detected, arguments contain a "+hit+". Allowed: DLP is in "+cfg.mode+" mode.",
 				started)
 		}
 	}
@@ -442,7 +442,7 @@ func main() {
 	// is invisible unless it is counted here.
 	//
 	// Before the block check so the two never both append to the counter file for
-	// one call — the API sets exactly one of the two, so only one runs anyway,
+	// one call, the API sets exactly one of the two, so only one runs anyway,
 	// and the ordering makes that impossible to get wrong later.
 	if sec != nil && sec.RateLimitObserve != nil && !activeClient.ReportsAfter {
 		if reason := rateLimitCheck(agentID, sec.RateLimitObserve); reason != "" {
@@ -464,7 +464,7 @@ func main() {
 	// so nothing about this decision depends on the network being there.
 	//
 	// The cloud cache is preferred, but a MISS falls through to the policy on
-	// disk rather than to "nothing to enforce" — a cache that is absent, or that
+	// disk rather than to "nothing to enforce", a cache that is absent, or that
 	// parses and carries a null policy, is the state every machine is in on its
 	// first call after install.
 	var pol *shared.Policy
@@ -474,14 +474,14 @@ func main() {
 	// AGENT SCOPING, which this binary did not honour and the hook always did.
 	// `agents` on the policy names the clients its RULES are for; an empty or
 	// absent list, or a "*" entry, means all of them. Ignoring the key here made
-	// one file mean two things depending on whether a machine had this binary —
-	// a policy scoped to Codex was enforced against Claude Code too — and the
+	// one file mean two things depending on whether a machine had this binary,
+	// a policy scoped to Codex was enforced against Claude Code too, and the
 	// hook is the reference for these shapes, so this side was the one that was
 	// wrong. See shared.Policy.AppliesTo.
 	//
 	// Scoped out means the RULES do not apply. It does not mean the call is
-	// waved through: everything above this line — tamper protection,
-	// require-sandbox, the protected paths, egress, DLP and the rate limit — has
+	// waved through: everything above this line, tamper protection,
+	// require-sandbox, the protected paths, egress, DLP and the rate limit, has
 	// already run, and the layers below still do. The hook used to return ALLOW
 	// for an out-of-scope client before any of them, which made a scoped policy
 	// a way to switch them off; that is fixed there rather than reproduced here.
@@ -555,7 +555,7 @@ func main() {
 	// scan was skipped there. Refusing cannot: by the time a post-tool stage
 	// runs, the file has been read. So block mode ran this on nobody who could
 	// redact, and `cat secrets.pem` came back masked and ALLOWED on exactly the
-	// clients most people use — block quietly degraded to redact, the same shape
+	// clients most people use, block quietly degraded to redact, the same shape
 	// of bug detect had.
 	if sec != nil {
 		blocking := sec.DLPBlock != nil
@@ -601,7 +601,7 @@ func main() {
 // This binary is NOT the process the client launched. The client launches the
 // Node hook; the hook reads stdin, probes this binary's version and only then
 // spawns it. By the time main() runs, the call has already paid for Node's boot
-// (~26ms), guard.mjs being parsed (~17ms) and two process spawns — and a clock
+// (~26ms), guard.mjs being parsed (~17ms) and two process spawns, and a clock
 // started here sees none of it. That is how the audit log came to report a flat
 // "1ms" on every row: the number was accurate about the policy arithmetic and
 // silent about everything the call actually waited for, which is where the
@@ -612,7 +612,7 @@ func main() {
 // down by guard.mjs (which takes it from performance.timeOrigin, stamped before
 // Node bootstraps). With it, what this binary reports is the whole hook.
 //
-// Without it — run directly, or spawned by a hook too old to send it — fall back
+// Without it, run directly, or spawned by a hook too old to send it, fall back
 // to this process's own start. That is less than the truth but never more, and
 // an under-report from an old hook is preferable to a guess.
 func hookStart() time.Time {
@@ -620,7 +620,7 @@ func hookStart() time.Time {
 		if ms, err := strconv.ParseInt(v, 10, 64); err == nil {
 			t := time.UnixMilli(ms)
 			// A value from the future, or from a minute ago, is not this call's
-			// origin — it is a stale variable inherited through an environment
+			// origin, it is a stale variable inherited through an environment
 			// that was built for something else. A duration is only worth
 			// reporting when the instant it came from is plausible.
 			if d := time.Since(t); d >= 0 && d < time.Minute {
@@ -635,7 +635,7 @@ func hookStart() time.Time {
 // decimal.
 //
 // time.Duration.Milliseconds() TRUNCATES, which on the old clock (see hookStart)
-// mapped everything under 1ms to 0 and everything under 2ms to 1 — so a column
+// mapped everything under 1ms to 0 and everything under 2ms to 1, so a column
 // of genuinely varying durations printed as an unbroken run of identical "1ms"
 // rows. Rounding a float keeps the variation that is actually there, and the
 // audit column is a real, so nothing downstream needs a whole number.
@@ -655,7 +655,7 @@ func record(sec *shared.Security, hasSecurity bool, c call, agentType, agentName
 }
 
 // recordObserved files a row for a call that was ALLOWED but carried a signal
-// worth keeping — a DLP pattern matched in detect mode, say.
+// worth keeping, a DLP pattern matched in detect mode, say.
 //
 // Only for clients with no post-tool stage. Everywhere else the audit hook files
 // the allow row and this would be a duplicate; on Antigravity nothing else ever

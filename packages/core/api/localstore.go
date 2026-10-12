@@ -54,7 +54,7 @@ func historyPath() string { return filepath.Join(config.Dir(), "rate-limit-histo
 // localLogFile is WHERE THE HOOKS ACTUALLY WRITE, which is not always the default
 // folder.
 //
-// This returned config.LocalLogsDir() + the filename unconditionally — the default —
+// This returned config.LocalLogsDir() + the filename unconditionally, the default,
 // while the hooks honour `security.localLogs.path` from the policy. So on a machine
 // that configured a folder, everything reading through this store read an empty file:
 // `solongate audit`, `solongate stats`, the audit panel's paged view and the Live
@@ -157,8 +157,8 @@ func readStore() (stored, error) {
 	body := b
 	// The PRESENCE of a `policy` key makes it the envelope, even when its value is
 	// null: an absent key decodes to a nil RawMessage and a null one to the four
-	// bytes "null". A file carrying layers and NO RULES is a real configuration —
-	// DLP on, nothing forbidden — and treating it as a bare policy read the whole
+	// bytes "null". A file carrying layers and NO RULES is a real configuration,
+	// DLP on, nothing forbidden, and treating it as a bare policy read the whole
 	// envelope AS the policy, which gave a nameless empty one instead of none.
 	//
 	// The guard's own loader draws the same line (guard/config.go). Two readers of
@@ -205,7 +205,7 @@ func writeStore(s stored) error {
 		doc["policy"] = s.Policy
 	} else if s.Policy != nil {
 		// Round-trip through the policy's own JSON so a field this version does
-		// not know about survives — Rules keeps its raw bytes for the same reason.
+		// not know about survives. Rules keeps its raw bytes for the same reason.
 		raw, err := json.Marshal(s.Policy)
 		if err != nil {
 			return err
@@ -234,7 +234,7 @@ func writeStore(s stored) error {
 		return err
 	}
 	// Through a temporary file and renamed. The guard reads this on EVERY tool
-	// call, and a half-written file there is not a stale policy — it is an
+	// call, and a half-written file there is not a stale policy, it is an
 	// unparseable one, which the guard reports as no policy at all.
 	tmp := PolicyPath() + ".tmp-" + strconv.Itoa(os.Getpid())
 	if err := os.WriteFile(tmp, append(body, '\n'), shared.FileMode); err != nil {
@@ -330,8 +330,8 @@ func fromLayers(l SecurityLayers, keep *guardSecurity) *guardSecurity {
 	// documents and this function used to break: block mode wrote DLPBlock AND
 	// DLPRedact.
 	//
-	// It was inert while it lasted — the guard checks DLPBlock first and never
-	// consults DLPRedact once it is set — and it was a trap one edit away from
+	// It was inert while it lasted, the guard checks DLPBlock first and never
+	// consults DLPRedact once it is set, and it was a trap one edit away from
 	// mattering. Any surface that cleared DLPBlock without knowing about the
 	// second copy would leave DLPRedact behind, and the machine would go from
 	// refusing a secret to quietly masking one, with nothing on disk or in
@@ -351,7 +351,7 @@ func fromLayers(l SecurityLayers, keep *guardSecurity) *guardSecurity {
 // ── the policy ─────────────────────────────────────────────────────────────
 
 // localVersion is the shape of this file, and it is WRITTEN now. It was a
-// declared constant nothing referenced — the version field the format did not
+// declared constant nothing referenced, the version field the format did not
 // have, sitting next to the format.
 //
 // WHAT IT IS FOR, which is not migration. Every field here is omitempty and
@@ -367,8 +367,8 @@ func fromLayers(l SecurityLayers, keep *guardSecurity) *guardSecurity {
 // difference between a mystery and a sentence.
 //
 // IT DOES NOT REFUSE. A guard that declined to read a policy it half-understood
-// would deny every tool call on the machine, and the half it does understand —
-// the tamper layer, the protected paths, the rules it can see — is worth more
+// would deny every tool call on the machine, and the half it does understand,
+// the tamper layer, the protected paths, the rules it can see, is worth more
 // than the certainty. A file from the future is read, used, and reported.
 const localVersion = 1
 
@@ -407,7 +407,7 @@ func hashOf(p *PolicySet) string {
 // resolveID checks an id against the one policy this machine has.
 //
 // Every command takes an id because a service had many policies. A machine has
-// one file, so the id in the file is the only id there is — and `local` is
+// one file, so the id in the file is the only id there is, and `local` is
 // accepted as a name for it, so nobody has to look an id up to edit their own.
 func resolveID(id string, p *PolicySet) error {
 	if p == nil {
@@ -463,7 +463,7 @@ type logLine struct {
 // END, because that is where the recent entries are.
 const maxLogBytes = 16 * 1024 * 1024
 
-// readLog answers newest first, with each line's ORIGINAL number as its id — so
+// readLog answers newest first, with each line's ORIGINAL number as its id, so
 // an id somebody saw still names the same entry after more lines are appended.
 func readLog() []logLine {
 	b, err := os.ReadFile(localLogFile())
@@ -618,7 +618,7 @@ func sortedCounts(m map[string]int, n int) []struct {
 // A policy document carries its rules at the top level AND inside a variant bundle, and
 // the top level is a mirror rather than a second source: three readers in the field take
 // only $.rules, so a document whose rules live only in the bundle compiles to an empty
-// rule set — which for a denylist denies nothing.
+// rule set, which for a denylist denies nothing.
 //
 // The TUI knew that and wrote both. The CLI wrote only the top level, so after
 // `solongate policy deny` the two disagreed, and each tool showed its own:
@@ -628,7 +628,7 @@ func sortedCounts(m map[string]int, n int) []struct {
 //
 // The silent half is worse than the confusing half. The TUI saves what it read, so
 // opening a policy it believed had one rule and pressing save would have written one rule
-// back — deleting thirteen that were being enforced, with no warning, because from inside
+// back, deleting thirteen that were being enforced, with no warning, because from inside
 // that panel nothing was being removed.
 //
 // So the mirror is maintained at the one point every writer goes through, rather than at

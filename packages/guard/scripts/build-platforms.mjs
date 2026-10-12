@@ -13,7 +13,7 @@
  *
  * The rule this exists to serve: a failed or missing binary must mean SLOW BUT
  * GUARDED. optionalDependencies is what makes that structural rather than
- * hopeful — npm does not fail an install when an optional dependency will not
+ * hopeful, npm does not fail an install when an optional dependency will not
  * install, so the Node hook is still there and still registered, and the
  * resolver simply does not find a binary and says so.
  *
@@ -121,7 +121,7 @@ if (!checkOnly) {
   const optional = Object.fromEntries(TARGETS.map((t) => [pkgName(t), version]));
   writeFileSync(join(outDir, 'optional-dependencies.json'), JSON.stringify({ optionalDependencies: optional }, null, 2) + '\n');
   console.log(`\nLayout in ${outDir}`);
-  console.log('Publish the platform packages FIRST, then @solongate/proxy — a package');
+  console.log('Publish the platform packages FIRST, then @solongate/proxy, a package');
   console.log('that declares an optionalDependency the registry does not have yet installs');
   console.log('with no binary, which is safe but pointlessly slow for everyone who updates.');
 }

@@ -29,7 +29,7 @@ func runAudit(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 
 	// whitelist and block are the same shape in both directions: take one logged
 	// call and turn it into a rule. Which rule depends on `--scope`, and the
-	// default is the narrow one — a whitelist that widened to the whole tool by
+	// default is the narrow one, a whitelist that widened to the whole tool by
 	// default would be a very quiet way to disarm a policy.
 	if sub == "whitelist" || sub == "block" {
 		id := p.positional(1)

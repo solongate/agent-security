@@ -38,7 +38,7 @@ import (
 // than paths: they are also the keys of the staged contents and the basenames
 // every client registration points at.
 const (
-	// GuardHookName is the PreToolUse hook — the one that decides.
+	// GuardHookName is the PreToolUse hook, the one that decides.
 	GuardHookName = "guard.mjs"
 	auditHookName = "audit.mjs"
 	stopHookName  = "stop.mjs"
@@ -55,7 +55,7 @@ const (
 	shieldHookName = "shield.mjs"
 	// THE SHARED DLP LIST, imported at runtime by audit.mjs and shield.mjs.
 	//
-	// Those two ship as LONE FILES — no bundle, no node_modules — so anything they import
+	// Those two ship as LONE FILES, no bundle, no node_modules, so anything they import
 	// has to be copied beside them or the hook dies on its import. A hook that fails to
 	// start exits non-2, and every client reads a non-2 exit as "allowed": forgetting this
 	// file would mean no post-tool masking and no prompt masking, reported as nothing.
@@ -84,7 +84,7 @@ type Paths struct {
 	ClaudeDir    string
 	SettingsPath string
 	// A ONE-TIME copy of the settings file as it was before the first install.
-	// Never restored automatically — see removeClaudeRegistration for why.
+	// Never restored automatically, see removeClaudeRegistration for why.
 	BackupPath string
 
 	// The active credential the installed hooks enforce with.
@@ -99,7 +99,7 @@ type Paths struct {
 
 	// Codex reads user-level hooks from hooks.json under CODEX_HOME. The JSON
 	// file rather than the [hooks] table in config.toml, so this never has to
-	// rewrite the user's TOML — which also holds the hook TRUST state Codex
+	// rewrite the user's TOML, which also holds the hook TRUST state Codex
 	// manages itself.
 	CodexDir        string
 	CodexHooksPath  string
@@ -186,7 +186,7 @@ func Exists(p string) bool {
 func (p Paths) GuardPath() string { return filepath.Join(p.HooksDir, GuardHookName) }
 
 // protectedTargets is what self-protection pins. Everything on this list is a
-// file that, if rewritten or removed, turns the guard off somewhere — including
+// file that, if rewritten or removed, turns the guard off somewhere, including
 // the OpenCode plugin, which IS its client's whole registration: delete it and
 // the guard is gone from that client with nothing left behind to notice.
 func (p Paths) protectedTargets() []string {
@@ -195,14 +195,14 @@ func (p Paths) protectedTargets() []string {
 		filepath.Join(p.HooksDir, auditHookName),
 		filepath.Join(p.HooksDir, stopHookName),
 		filepath.Join(p.HooksDir, shieldHookName),
-		// p.ConfigPath — the credential — was pinned here. Nothing writes that file, so
+		// p.ConfigPath, the credential, was pinned here. Nothing writes that file, so
 		// there is nothing to pin: the npm installer's list dropped it for the same
 		// reason, and a lock on a file that never exists is a no-op that reads as
 		// protection.
 		p.SettingsPath,
 		filepath.Join(p.HooksDir, tokensHookName),
 		// The shared DLP list. Installed hooks import it at RUNTIME, so whoever can
-		// rewrite it decides what those hooks scan for — which is the same disarm as
+		// rewrite it decides what those hooks scan for, which is the same disarm as
 		// rewriting a hook, through a file that used not to exist.
 		filepath.Join(p.HooksDir, dlpModuleName),
 		// The launcher, which is the enforcement path now: every hook command in
@@ -219,7 +219,7 @@ func (p Paths) protectedTargets() []string {
 		// The hook runs whatever sits at this path as soon as it prints the
 		// expected number for --sg-version, and then honours its exit code. A
 		// two-line stub there allows every call, and `solongate doctor` goes on
-		// reporting a native guard in use — so this was a disarm that left the
+		// reporting a native guard in use, so this was a disarm that left the
 		// diagnostics saying everything was fine.
 		filepath.Join(BinDir(), guardBinaryName()),
 	}

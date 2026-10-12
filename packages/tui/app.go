@@ -4,11 +4,11 @@
 // `solongate` with no arguments.
 //
 // It is the Bubble Tea port of packages/proxy/src/tui. The shell in this file
-// is App.tsx — the frame, the nav, the account switcher and the key routing —
+// is App.tsx, the frame, the nav, the account switcher and the key routing,
 // and the sections plug into it through the Panel interface below. Two rules
 // carry over from the Ink implementation and are not negotiable:
 //
-//  1. A frame is at most (terminal rows - 1) lines tall. Ink abandoned its diff
+//  1. A frame is at most (terminal rows, 1) lines tall. Ink abandoned its diff
 //     and did clearTerminal plus a full rewrite on EVERY render once a frame
 //     reached the terminal's height, which looked like a glitch whenever bright
 //     content was on screen. Bubble Tea repaints the same way. clampBlock below
@@ -50,8 +50,8 @@ type Deps struct {
 	// PLAIN DATA rather than as a package the TUI imports.
 	//
 	// THE TUI DOES NOT IMPORT packages/sandbox, and that is the point of this
-	// field. The Sandbox panel needs two facts — which kernel mechanism is
-	// available, and why a closed box cannot be built when it cannot — and
+	// field. The Sandbox panel needs two facts, which kernel mechanism is
+	// available, and why a closed box cannot be built when it cannot, and
 	// reaching for them directly meant the TUI module required go-landlock and
 	// libcap/psx for a panel that draws a list. Somebody reading the TUI found
 	// kernel confinement in it.
@@ -150,8 +150,8 @@ type SectionRequestMsg struct{ Label string }
 //
 // NOTHING SENDS IT in this build. The producer was a background `npm i -g` off a
 // version the service advertised, and it went with the service. The message and its
-// renderer are kept deliberately: they are the seam an update mechanism plugs into —
-// send one of these and the banner appears — and re-deriving the render path would be
+// renderer are kept deliberately: they are the seam an update mechanism plugs into,
+// send one of these and the banner appears, and re-deriving the render path would be
 // more work than leaving it. The banner cannot appear on its own.
 type UpdateStatusMsg struct {
 	// Kind is one of "idle", "available", "updating", "updated", "needs-admin".
@@ -166,12 +166,12 @@ type UpdateStatusMsg struct {
 //
 // Rate Limit and DLP are NOT in it any more, and their absence is the point. A
 // policy is rules AND a DLP configuration AND a rate limit, in
-// as many variants as a team keeps — so a rate limit that lived beside policies
+// as many variants as a team keeps, so a rate limit that lived beside policies
 // rather than inside one described enforcement that no longer exists. They are
 // levels of the Policies panel, on the variant they belong to.
 // SANDBOX IS ITS OWN SECTION, not a row under Settings, and the reason is what
 // it decides. Every other setting on this product tunes how a tool call is
-// JUDGED — which rules apply, what counts as a secret, how many calls a minute.
+// JUDGED, which rules apply, what counts as a secret, how many calls a minute.
 // The sandbox decides what the agent can reach at all, before any call is
 // judged, and it is the only setting whose answer the agent cannot argue with.
 // A one-line row beside "doctor" and "repair" described it as an option of the
@@ -194,7 +194,7 @@ var registry [sectionCount]func(Deps) Panel
 // Register installs a panel constructor for a section.
 //
 // Each panel file calls it from its own init(), so adding a section never means
-// editing this file — several people porting different panels at the same time
+// editing this file, several people porting different panels at the same time
 // would otherwise all be editing one list. A section with no constructor still
 // appears in the nav and says it is not ported yet, which is the honest answer
 // and keeps the numbering stable while the port is half done.
@@ -211,7 +211,7 @@ func Register(section int, ctor func(Deps) Panel) {
 // straight back builds a NEW panel of the SAME generation while the previous
 // one's ticker is still in flight. That tick is delivered to the new panel,
 // which re-arms it on top of the chain its own Init already started, and the
-// section quietly polls twice as often for the rest of the session — once more
+// section quietly polls twice as often for the rest of the session, once more
 // per visit. A panel that stamps its token on its ticks can tell them apart.
 //
 // Not atomic on purpose: Bubble Tea builds and updates models on one goroutine.
@@ -528,7 +528,7 @@ func (a *App) bannerLines(width int) []string {
 	if a.cols < 82 {
 		return []string{renderRow(width,
 			sgb("SolonGate", theme.AccentBright),
-			sg(" — security control center", theme.Dim))}
+			sg(", security control center", theme.Dim))}
 	}
 	out := make([]string, 0, len(term.BannerFull)+1)
 	for _, l := range term.BannerFull {
@@ -640,7 +640,7 @@ var shellHelp = []helpGroup{
 	{"Policies", [][2]string{
 		{"↑↓", "browse / select"},
 		{"a", "activate (pin) selected policy"},
-		{"x", "deactivate — no active policy"},
+		{"x", "deactivate, no active policy"},
 		{"enter", "open a policy → a layer → a rule"},
 		{"tab", "switch variant (v new · V remove)"},
 		{"space", "toggle a rule on/off"},
@@ -686,7 +686,7 @@ func (a *App) helpView() string {
 	if width < 20 {
 		width = 20
 	}
-	lines := []string{"", renderRow(width, sgb("SolonGate — keyboard shortcuts", theme.AccentBright)), ""}
+	lines := []string{"", renderRow(width, sgb("SolonGate, keyboard shortcuts", theme.AccentBright)), ""}
 	lines = append(lines, helpBlock(shellHelp, 16, width)...)
 	lines = append(lines, renderRow(width, sg("press any key to close", theme.Dim)))
 	for i, l := range lines {

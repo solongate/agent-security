@@ -95,6 +95,33 @@ func Repair() Report {
 		notes = append(notes, "Removed "+strconv.Itoa(swept)+
 			" leftover .solongate scratch folder(s) from earlier versions; per-call flags now live under ~/.solongate/projects.")
 	}
+	// THE STALE CREDENTIAL, removed rather than described.
+	//
+	// The account layer kept every account ever logged in on the device in
+	// accounts.json, each with its API key, at 0644. That layer was
+	// removed and nothing here reads or writes the file; every machine that ran
+	// a build which did still has it.
+	//
+	// `doctor` has been telling people to rotate the key and delete the file.
+	// That was the cautious call and it was the wrong one: the file is dead
+	// weight holding a live-format secret, and asking somebody to go and delete
+	// it by hand means most machines keep it forever. `repair` exists to put a
+	// machine into the state this version wants, so it does the deleting.
+	//
+	// IT STILL CANNOT ROTATE THE KEY, and the note says so. Deleting the file
+	// removes the copy on disk; whatever that key is good for, it is still good
+	// for it until somebody revokes it. That half is not ours to do, and a note
+	// that said only "removed" would read as finished.
+	if stale := filepath.Join(p.SGDir, "accounts.json"); Exists(stale) {
+		if err := os.Remove(stale); err == nil {
+			notes = append(notes, "Removed "+stale+", left over from the account layer. "+
+				"It held an API key: delete it at the provider too, because removing the file does not revoke it.")
+		} else {
+			notes = append(notes, "Could not remove "+stale+" ("+err.Error()+"). "+
+				"It is left over from the account layer and holds an API key; delete it and revoke the key.")
+		}
+	}
+
 	cx := CodexHooksStatus()
 	if cx.Registered && !cx.Trusted {
 		notes = append(notes, "Codex only: run `/hooks` inside Codex once and trust the SolonGate hooks (Codex skips any hook it has not been told to trust).")

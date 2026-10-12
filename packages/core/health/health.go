@@ -144,6 +144,20 @@ func protectedCheck(ctx context.Context, c *api.Client) []Check {
 				" fully locked · " + weakest})
 	}
 
+	// A FILE FROM A NEWER SOLONGATE, which is the one thing a version number on
+	// disk is for.
+	//
+	// The format is additive — every field omitempty, every reader probing for
+	// presence — so there is nothing to migrate and this does not refuse. What
+	// it prevents is the silent case: somebody configured a layer with a newer
+	// build, this one cannot see the key, and the guard enforces a policy with
+	// that part missing while the file says it is there. See api.localVersion.
+	if v, newer := api.NewerThanThisBuild(); newer {
+		out = append(out, Check{Name: "policy format", OK: StateWarn,
+			Detail: "written by a newer SolonGate (v" + strconv.Itoa(v) + ") · " +
+				"keys it added are being ignored by this build"})
+	}
+
 	// A CREDENTIAL FROM A FEATURE THAT IS GONE, which is the only place anybody
 	// finds out it is still there.
 	//
@@ -155,15 +169,19 @@ func protectedCheck(ctx context.Context, c *api.Client) []Check {
 	//
 	// It is unreadable from a tool call (the tamper layer covers it by path and
 	// by basename), so this is not a hole. It is a key sitting in a file nobody
-	// maintains, and the action is to rotate it and delete the file — which is
-	// the user's to take, not `repair`'s: deleting somebody's credential on
-	// their behalf has no undo.
+	// maintains.
+	//
+	// `repair` DELETES IT NOW, and this row says so rather than asking the
+	// reader to do it. Leaving the deletion to them was the cautious call and
+	// the wrong one: most machines would keep the file forever. What repair
+	// cannot do is revoke the key, so that is the half this row still asks for —
+	// removing the copy on disk does not make the secret stop working.
 	if home, err := os.UserHomeDir(); err == nil {
 		stale := filepath.Join(home, ".solongate", "acc"+"ounts.json")
 		if _, err := os.Stat(stale); err == nil {
 			out = append(out, Check{Name: "stale credential", OK: StateWarn,
-				Detail: stale + " is left over from the account layer · " +
-					"rotate the key in it and delete the file"})
+				Detail: stale + " holds an API key from the account layer · " +
+					"`solongate repair` deletes it; revoke the key at the provider"})
 		}
 	}
 

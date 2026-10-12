@@ -121,6 +121,11 @@ type stored struct {
 	Policy      *PolicySet
 	Security    *guardSecurity
 	SelfProtect *bool
+
+	// Version is the `_v` the file carried, 0 when it carried none. Written
+	// back as localVersion on every write, so a file touched by this build
+	// says which build touched it.
+	Version int
 	// envelope records the spelling, so a write puts it back the way it was.
 	envelope bool
 	absent   bool
@@ -142,12 +147,13 @@ func readStore() (stored, error) {
 		Policy   json.RawMessage `json:"policy"`
 		Security json.RawMessage `json:"security"`
 		Self     *bool           `json:"selfProtect"`
+		Version  int             `json:"_v"`
 	}
 	if err := json.Unmarshal(b, &probe); err != nil {
 		return stored{}, fmt.Errorf("%s is not valid JSON: %w", PolicyPath(), err)
 	}
 
-	out := stored{SelfProtect: probe.Self}
+	out := stored{SelfProtect: probe.Self, Version: probe.Version}
 	body := b
 	// The PRESENCE of a `policy` key makes it the envelope, even when its value is
 	// null: an absent key decodes to a nil RawMessage and a null one to the four
@@ -216,6 +222,9 @@ func writeStore(s stored) error {
 	if s.SelfProtect != nil {
 		doc["selfProtect"] = *s.SelfProtect
 	}
+	// Stamped on every write, so a file this build touched says so. See
+	// localVersion for what the number is and is not for.
+	doc["_v"] = localVersion
 
 	body, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
@@ -341,7 +350,50 @@ func fromLayers(l SecurityLayers, keep *guardSecurity) *guardSecurity {
 
 // ── the policy ─────────────────────────────────────────────────────────────
 
+// localVersion is the shape of this file, and it is WRITTEN now. It was a
+// declared constant nothing referenced — the version field the format did not
+// have, sitting next to the format.
+//
+// WHAT IT IS FOR, which is not migration. Every field here is omitempty and
+// every reader probes for presence, so the format is additive: a build that
+// does not know a key ignores it, and a build that knows one the file lacks
+// treats it as unset. There is nothing to migrate and no plan to need one.
+//
+// What it is for is TELLING SOMEBODY. A file written by a newer SolonGate may
+// configure a layer this build cannot see, and the failure mode is silence: the
+// person set something, the file says so, and the guard enforces a policy with
+// that part missing. The version makes `doctor` able to say "this file was
+// written by a newer version; keys it added are being ignored", which is the
+// difference between a mystery and a sentence.
+//
+// IT DOES NOT REFUSE. A guard that declined to read a policy it half-understood
+// would deny every tool call on the machine, and the half it does understand —
+// the tamper layer, the protected paths, the rules it can see — is worth more
+// than the certainty. A file from the future is read, used, and reported.
 const localVersion = 1
+
+// VersionOnDisk is the version the policy file claims, 0 when it claims none.
+//
+// Absent means 1: every file written before this constant was used has no `_v`,
+// and treating those as unversioned-and-unknown would make `doctor` warn about
+// every machine that has ever run SolonGate.
+func VersionOnDisk() int {
+	st, err := readStore()
+	if err != nil || st.absent {
+		return 0
+	}
+	if st.Version == 0 {
+		return 1
+	}
+	return st.Version
+}
+
+// NewerThanThisBuild reports whether the file was written by a version that
+// knows more than this one does.
+func NewerThanThisBuild() (int, bool) {
+	v := VersionOnDisk()
+	return v, v > localVersion
+}
 
 func hashOf(p *PolicySet) string {
 	raw, err := json.Marshal(p.Rules)

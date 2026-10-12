@@ -284,9 +284,16 @@ applies five gates, and the first two are environment switches:
 That version number is the interlock: it is what makes a half-upgraded machine
 fall back to Node instead of running a binary that decides differently from its
 hook. So the two have to agree, and a change to the decision path lands in both
-and bumps the number. Nothing in the repository checks that they still agree:
-there is no test suite here, and a change to the guard is only as good as what
-you ran it against by hand. [CONTRIBUTING.md](CONTRIBUTING.md) is the rest.
+and bumps the number.
+
+Two things check that they still agree, and neither is a test suite. Forty
+end-to-end cases drive both implementations through the same policy files and
+require the same verdict; forty-one Go tests cover the decisions a pure function
+can answer. Together they found the seventh divergence: an argument scan reading
+one view of the text where its twin read three, so a secret split across a quote
+boundary was refused by one guard and allowed by the other. What is left is what
+you ran it against by hand, and that is most of it.
+[CONTRIBUTING.md](CONTRIBUTING.md) is the rest.
 
 Reporting a vulnerability: [SECURITY.md](SECURITY.md), privately, never a public
 issue. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies everywhere.

@@ -136,18 +136,59 @@ jobs:
         working-directory: ${{ matrix.module }}
         run: go vet ./...
 
-      # There is no test step. The 56 _test.go files these four modules had are
-      # gone, so `go test ./...` would report "no test files" for every package
-      # and pass without looking at anything. A check that cannot fail reads as
-      # coverage, which is worse than the absence it would be papering over.
+      # THE TESTS, which this job did not have a step for until there were any.
+      #
+      # The comment here used to explain the absence: the 56 _test.go files these
+      # modules once had were removed, so `go test ./...` would have reported "no
+      # test files" for every package and passed without looking at anything, and
+      # a check that cannot fail reads as coverage.
+      #
+      # There are tests now, and they are deliberately only the things a pure
+      # function can answer: which view count a DLP scan uses, which directories
+      # the two Landlock regimes grant, what the tamper layer matches and what it
+      # leaves alone, how a rule with no toolPattern compiles, which sandbox slot
+      # is next. End to end behaviour stays in the check scripts, where it needs
+      # a kernel and two real binaries.
+      #
+      # -count=1 defeats the build cache. A cached PASS from an earlier commit is
+      # not a measurement of this one.
+      #
+      # Modules with no test files are not an error: this runs over eight and
+      # five of them have tests. `go test ./...` prints "no test files" and exits
+      # zero, which is the honest report.
+      - name: test
+        working-directory: ${{ matrix.module }}
+        run: go test -count=1 ./...
+
+      # AND ONE TEST THAT NEEDS CAPABILITIES NOBODY HAS ON A LAPTOP.
+      #
+      # The two-regime grant rests on an immutable inode flag, and setting one
+      # needs CAP_LINUX_IMMUTABLE. The end-to-end case skips itself for an
+      # ordinary user, which means the thing the whole feature depends on would
+      # be proved nowhere. A runner can sudo without a password, so it is proved
+      # here: the flag is set, the write is refused by the kernel, and the grant
+      # widens only then.
+      #
+      # Linux only, and only the module that has such a test.
+      - name: test (as root, for the immutable-flag cases)
+        if: matrix.module == 'packages/sandbox'
+        working-directory: ${{ matrix.module }}
+        run: sudo -E env "PATH=$PATH" go test -count=1 -run Frozen -v ./...
 
   # THE CHECKS THIS REPOSITORY HAS, run rather than committed and forgotten.
   #
-  # There is no test suite here: no _test.go anywhere, and the conformance suite
-  # that judged the two guard implementations against each other was removed with
-  # nothing replacing it. CONTRIBUTING asks a pull request to say what it ran by
-  # hand, and these two scripts are that written down. They were gitignored until
-  # recently, then committed, and still ran nowhere.
+  # These are the END TO END half, and the Go tests in the job above are the
+  # other. The split is by instrument rather than by taste: a shell check drives
+  # two real binaries through real policy files on a real kernel, which is the
+  # only way to answer "do the two implementations agree" and "is the box
+  # closed", and it cannot reach a function. A Go test can reach a function and
+  # cannot start a mount namespace.
+  #
+  # The division has already paid once. The divergence that cost the most this
+  # round, an argument scan reading one view of the text where its twin read
+  # three, was invisible to fourteen end-to-end cases and is one line in a unit
+  # test. The box being closed is invisible to any unit test and is twenty-two
+  # questions here.
   #
   # All three work on a runner, which is why this job can exist. The parity and
   # layers checks build the guard and need the hook bundle, both of which CI

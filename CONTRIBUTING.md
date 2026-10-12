@@ -55,13 +55,29 @@ pnpm install
 pnpm build          # bundles the hooks
 
 for m in guard policy shared sandbox core cli tui app; do
-  (cd "packages/$m" && gofmt -l . && go vet ./...)
+  (cd "packages/$m" && gofmt -l . && go vet ./... && go test -count=1 ./...)
 done
 ```
 
-There is no test suite in this repository: no `_test.go` anywhere, and the
-conformance suite that judged both guards against each other was removed with
-nothing replacing it. The commands above tell you the code compiles.
+Five of those eight modules have tests, and the three without are the ones whose
+work is a terminal: `cli`, `tui` and `app` print, prompt and exec. What is tested
+is what a pure function can answer, which is a deliberate line rather than an
+accident of effort:
+
+```
+shared    DLP patterns, the three views, the glob compiler
+sandbox   the two Landlock regimes and which directories each grants
+guard     what the tamper layer matches, and what it leaves alone
+policy    the Rego conditions, the exec-tool pattern, the path globs
+core/api  sandbox id allocation, directory validation, policy scoping
+```
+
+One of them needs capabilities an ordinary user does not have: the two-regime
+grant rests on an immutable inode flag, so the end-to-end case for it skips
+unless you are root. CI runs that one under sudo. Everything else runs anywhere.
+
+The conformance suite that once judged both guards against each other is still
+gone, and the four scripts below are what replaced it.
 
 Four checks do tell you something about what it decides. CI runs three of them
 on every push; the fourth needs a Mac and runs on one:
@@ -85,11 +101,18 @@ place parity had no case for: the Go argument scan read one view of the text
 where the Node one read three, so a secret split across a quote boundary was
 refused by one guard and allowed by the other.
 
-Still not coverage. Forty cases is more than fourteen and neither number is a
-test suite. What they catch is the class that has cost the most here: the two
-implementations drifting apart, a layer that is configured but inert, and a
-sandbox reporting confinement it is not applying. Everything else is still on
-the pull request.
+Still not coverage. Forty end-to-end cases and forty-one Go tests is more than
+what was here, and it is not a measurement of this product. What they catch is
+the class that has cost the most: the two implementations drifting apart, a
+layer that is configured but inert, and a sandbox reporting confinement it is
+not applying. Everything else is still on the pull request.
+
+The two instruments answer different questions and neither substitutes for the
+other. A shell check drives two real binaries on a real kernel and cannot reach
+a function. A Go test reaches a function and cannot start a mount namespace. The
+divergence that cost the most this round was invisible to fourteen end-to-end
+cases and is one line in a unit test; the box being closed is invisible to any
+unit test and is twenty-two questions in a script.
 
 Which puts the burden on the pull request. Run your change against a real agent
 and write down what you did: which client, which tool calls, what you expected,

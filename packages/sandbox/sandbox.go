@@ -76,6 +76,37 @@ type Plan struct {
 	// a reader can see exactly how far the writable surface extends past the
 	// project, which is the number that matters.
 	RuntimeWrite []string
+
+	// Immutable are the Deny paths that are ALREADY unwritable and undeletable
+	// through a mechanism this package does not mediate: chattr +i on Linux,
+	// chflags uchg on macOS, an icacls deny with an OWNER_RIGHTS ACE on Windows.
+	// A subset of Deny; naming a path here that is not in Deny does nothing.
+	//
+	// WHY A SANDBOX CARES WHAT A FILE FLAG SAYS, because it reads like a layering
+	// violation and is the opposite of one.
+	//
+	// Landlock has no deny rule. Rights are granted on a path and apply to
+	// everything beneath it, stacked rulesets intersect rather than subtract, and
+	// a file that does not exist yet can only be covered by a rule on its parent.
+	// So "this directory, except this one child" is not expressible, and the
+	// ancestors of a protected file were granted the create rights without
+	// WRITE_FILE: the agent could make a file next to the protected one and then
+	// not write it. That was the standing cost of `run`, and it was described as
+	// a limit of the model.
+	//
+	// It is a limit of Landlock ALONE. `solongate protect` also sets an immutable
+	// flag, and that check happens in the inode, below the LSM, where no granted
+	// right reaches it. When the flag is confirmed on every denied child beneath a
+	// directory, granting that directory read-write is safe: the write to the
+	// protected file is refused by the kernel for a reason Landlock is not
+	// involved in, and the write to the new file next to it succeeds.
+	//
+	// CONFIRMED, not assumed, and that distinction is the whole safety of this.
+	// The caller probes the live filesystem rather than reading its own config:
+	// Linux without CAP_LINUX_IMMUTABLE gets chmod 0444, which stops a write
+	// until the agent runs chmod, and does not stop rm at all. Such a path must
+	// not appear here, and the conservative grant stays in force for it.
+	Immutable []string
 }
 
 // Confined reports whether this plan asks for anything at all.

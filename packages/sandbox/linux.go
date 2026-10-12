@@ -96,7 +96,7 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 	if p.Allowlist() {
 		rules, err = workspaceRules(p)
 	} else {
-		rules, walked, err = allowRules(p.Deny)
+		rules, walked, _, err = allowRules(p.Deny, p.Immutable)
 	}
 	if err != nil {
 		rep.Err = err
@@ -156,23 +156,39 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 
 // allowRules turns a deny list into the allow list Landlock needs, and reports
 // which directories had to be walked through rather than granted whole.
-func allowRules(deny []string) ([]landlock.Rule, []string, error) {
+func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, error) {
 	denied := map[string]bool{}
 	for _, d := range deny {
 		abs, err := filepath.Abs(d)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		abs = filepath.Clean(abs)
 		if abs == "/" {
-			return nil, nil, errors.New(`refusing to deny "/": that is not a sandbox, it is a brick`)
+			return nil, nil, nil, errors.New(`refusing to deny "/": that is not a sandbox, it is a brick`)
 		}
 		denied[abs] = true
 	}
 	if len(denied) == 0 {
 		// Nothing to deny, but still a real Landlock domain: entering one
 		// blocks arbitrary mounts, which is worth having on its own.
-		return []landlock.Rule{landlock.RWDirs("/").WithRefer().WithIoctlDev()}, nil, nil
+		return []landlock.Rule{landlock.RWDirs("/").WithRefer().WithIoctlDev()}, nil, nil, nil
+	}
+
+	// Which denied paths the caller confirmed are immutable in the inode. Only
+	// entries that are actually denied count: a path named here and not there
+	// would otherwise widen a directory on the strength of a file this layer was
+	// never asked to protect.
+	frozen := map[string]bool{}
+	for _, d := range immutable {
+		abs, err := filepath.Abs(d)
+		if err != nil {
+			continue
+		}
+		abs = filepath.Clean(abs)
+		if denied[abs] {
+			frozen[abs] = true
+		}
 	}
 
 	// Every directory on the way to something denied. These cannot be granted
@@ -206,14 +222,19 @@ func allowRules(deny []string) ([]landlock.Rule, []string, error) {
 	// need it and including it would let a file created here be run, which is
 	// one of the routes the string-matching layers cannot see.
 	//
-	// WHAT THIS STILL CANNOT DO, and it is a limit of the model rather than of
-	// this list: a file CREATED in a walked directory cannot then be written.
-	// Creating needs MAKE_REG on the directory, which is granted; writing needs
-	// WRITE_FILE on the new file, which has no rule of its own, and the only
-	// way to give it one is to grant WRITE_FILE on the directory, which Landlock
-	// applies to everything beneath it INCLUDING the protected child. So the
-	// choice is "list and create but not author" or "read and write everything,
-	// protected file included", and the first is the one that keeps the promise.
+	// WHAT THIS LIST COSTS, and it is now conditional rather than permanent: a
+	// file CREATED in a walked directory cannot then be written. Creating needs
+	// MAKE_REG on the directory, which is granted; writing needs WRITE_FILE on
+	// the new file, which has no rule of its own, and the only way to give it one
+	// is to grant WRITE_FILE on the directory, which Landlock applies to
+	// everything beneath it INCLUDING the protected child.
+	//
+	// Inside Landlock that is the end of it, and it was described here as a limit
+	// of the model. It is a limit of Landlock alone: an immutable inode flag is
+	// checked below the LSM and no granted right reaches it, so a directory whose
+	// denied children are all frozen gets the full grant instead, a few lines
+	// down. This narrow set is what is left for paths that could not be frozen,
+	// which on Linux means an ordinary user without CAP_LINUX_IMMUTABLE.
 	//
 	// `solongate sandbox` does not have this shape at all: an allow-list grants
 	// the project read-write as one rule and never walks an ancestor.
@@ -224,8 +245,29 @@ func allowRules(deny []string) ([]landlock.Rule, []string, error) {
 
 	var rules []landlock.Rule
 	var walked []string
+	var narrow []string
 	for dir := range onPath {
 		walked = append(walked, dir)
+
+		// AND WHEN EVERY DENIED CHILD UNDER THIS DIRECTORY IS FROZEN IN THE
+		// INODE, the conservative grant is not buying anything and the full one
+		// is free.
+		//
+		// The reason the grant was narrow is that WRITE_FILE and REMOVE_FILE on a
+		// directory reach the protected child too. If that child is immutable,
+		// they reach it and the kernel refuses anyway, at the inode flag, in a
+		// check Landlock is not part of. So the cost disappears for exactly the
+		// paths that were locked properly, and stays for the ones that were not.
+		//
+		// EVERY denied child, not any: one unfrozen path under this directory is
+		// enough to make the full grant hand that path over, so the test is over
+		// the whole subtree and fails closed on an empty answer.
+		if frozenBelow(dir, denied, frozen) {
+			rules = append(rules, landlock.RWDirs(dir).WithRefer().WithIoctlDev().IgnoreIfMissing())
+			continue
+		}
+
+		narrow = append(narrow, dir)
 		rules = append(rules, landlock.PathAccess(walkedAccess, dir).IgnoreIfMissing())
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -249,7 +291,32 @@ func allowRules(deny []string) ([]landlock.Rule, []string, error) {
 		}
 	}
 	sort.Strings(walked)
-	return rules, walked, nil
+	sort.Strings(narrow)
+	return rules, walked, narrow, nil
+}
+
+// frozenBelow reports whether every denied path at or beneath dir is immutable.
+//
+// False when nothing denied is beneath dir at all, which cannot happen for a
+// directory that got here through onPath but is the right answer for a caller
+// that asks about an unrelated path: "no denied children" must not read as "all
+// of them are safe".
+func frozenBelow(dir string, denied, frozen map[string]bool) bool {
+	prefix := dir
+	if prefix != "/" {
+		prefix += "/"
+	}
+	found := false
+	for d := range denied {
+		if d != dir && !strings.HasPrefix(d, prefix) {
+			continue
+		}
+		found = true
+		if !frozen[d] {
+			return false
+		}
+	}
+	return found
 }
 
 // setNoNewPrivs is PR_SET_NO_NEW_PRIVS: execve may not grant this process, or
@@ -270,18 +337,43 @@ func setNoNewPrivs() error {
 // discover as a bug, so the enumeration runs twice: once to report, once to
 // apply. It is one ReadDir per ancestor directory.
 func Preview(p Plan) []string {
-	_, walked, err := allowRules(p.Deny)
+	_, walked, narrow, err := allowRules(p.Deny, p.Immutable)
 	if err != nil {
 		return []string{"could not read the filesystem: " + err.Error()}
 	}
 	if len(walked) == 0 {
 		return nil
 	}
+
+	// TWO REGIMES, AND THE DIFFERENCE IS WORTH PRINTING, because it is the one
+	// cost of this command a person runs into by accident.
+	//
+	// A directory whose denied children are all immutable in the inode is
+	// granted whole: the protected file is held by a check below the LSM, so
+	// nothing is lost by granting the parent read-write, and a file created there
+	// is writable immediately. A directory holding a path that could NOT be
+	// frozen is granted entry by entry, and that is where a newly created file
+	// cannot be written afterwards.
+	//
+	// When every walked directory is in the first regime there is no cost left to
+	// report, and saying so is the point: the note used to be unconditional and
+	// described a limit that no longer applies to a properly locked path.
+	if len(narrow) == 0 {
+		return []string{
+			"Every protected path is immutable in the inode, so the directories on",
+			"the way to them are granted whole: " + strings.Join(walked, " "),
+			"A file created in one of them is writable immediately. The protected",
+			"paths stay out of reach through the OS lock, which Landlock does not",
+			"mediate and the agent cannot remove.",
+		}
+	}
 	return []string{
 		"Landlock has no deny rule, so these directories are granted entry by",
-		"entry rather than whole: " + strings.Join(walked, " "),
+		"entry rather than whole: " + strings.Join(narrow, " "),
 		"A file created directly in one of them from now on is out of the agent's",
 		"reach too, until it restarts. Anything inside a subdirectory is fine.",
+		"This applies to a protected path that is not immutable in the inode. Run",
+		"`solongate protect` again with sudo and the directory is granted whole.",
 	}
 }
 

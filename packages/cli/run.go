@@ -80,7 +80,28 @@ func RunAgent(argv []string) int {
 	// word, and the difference is the whole of what somebody is choosing.
 	//
 	// See `solongate sandbox`.
-	plan := sandbox.Plan{Deny: deny}
+	// AND WHICH OF THEM THE OS HAS ALREADY FROZEN, probed here rather than read
+	// out of the config file.
+	//
+	// `solongate protect` sets an immutable flag as well as recording the path,
+	// and the two can disagree: a file restored from a backup, moved to another
+	// filesystem, or locked on a machine where the user had no
+	// CAP_LINUX_IMMUTABLE and got chmod 0444 instead. CheckLock asks the live
+	// filesystem, and only Immutable counts, which is the field that means
+	// deletion is blocked and not merely writing. chmod 0444 is not enough: it
+	// stops a write until the agent runs chmod, and does not stop rm at all.
+	//
+	// What the sandbox does with it is widen the grant on the ancestor
+	// directories of frozen paths, which is what lets a file created next to a
+	// protected one actually be written. See Plan.Immutable.
+	var frozen []string
+	for _, d := range deny {
+		if config.CheckLock(d).Immutable {
+			frozen = append(frozen, d)
+		}
+	}
+
+	plan := sandbox.Plan{Deny: deny, Immutable: frozen}
 
 	mech, _ := sandbox.Describe()
 	if mech == "" {
@@ -188,10 +209,19 @@ func explainSandbox() int {
 	deny, err := api.New().Settings.ProtectedPaths(ctx)
 	if err == nil && len(deny) > 0 {
 		errln("  " + bold("Would be put out of reach"))
+		// The same probe the launch path runs, and it is printed next to each
+		// path because the two answers are connected: a frozen path is the one
+		// whose directory gets the full grant, so what the preview says about
+		// walked directories depends on this column.
+		var frozen []string
 		for _, d := range deny {
-			errln("  " + dim("  ") + d + dim("   os lock: "+config.CheckLock(d).Summary()))
+			lock := config.CheckLock(d)
+			if lock.Immutable {
+				frozen = append(frozen, d)
+			}
+			errln("  " + dim("  ") + d + dim("   os lock: "+lock.Summary()))
 		}
-		for _, n := range sandbox.Preview(sandbox.Plan{Deny: deny}) {
+		for _, n := range sandbox.Preview(sandbox.Plan{Deny: deny, Immutable: frozen}) {
 			errln("  " + dim(n))
 		}
 		errln("")

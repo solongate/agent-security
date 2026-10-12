@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/solongate/agent-security/packages/core/config"
+	"github.com/solongate/agent-security/packages/shared"
 )
 
 // Reading the machine-local audit log the hooks write.
@@ -148,8 +149,8 @@ func reasonSignals(reason string) (dlp []string, burst bool) {
 // delete that destroys evidence.
 func deleteLocalEntry(at int64, tool, session string) int {
 	file := config.LocalLogFile()
-	b, err := os.ReadFile(file)
-	if err != nil {
+	b, size, ok := readLogWithSize(file)
+	if !ok {
 		return 0
 	}
 	removed := 0
@@ -183,7 +184,7 @@ func deleteLocalEntry(at int64, tool, session string) int {
 	if len(kept) > 0 {
 		body = strings.Join(kept, "\n") + "\n"
 	}
-	if os.WriteFile(file, []byte(body), 0o644) != nil {
+	if !rewriteLog(file, size, []byte(body)) {
 		return 0
 	}
 	return removed
@@ -192,8 +193,8 @@ func deleteLocalEntry(at int64, tool, session string) int {
 // clearLocalLog empties the local log and reports how many lines went.
 func clearLocalLog() int {
 	file := config.LocalLogFile()
-	b, err := os.ReadFile(file)
-	if err != nil {
+	b, size, ok := readLogWithSize(file)
+	if !ok {
 		return 0
 	}
 	n := 0
@@ -202,8 +203,71 @@ func clearLocalLog() int {
 			n++
 		}
 	}
-	if os.WriteFile(file, nil, 0o644) != nil {
+	if !rewriteLog(file, size, nil) {
 		return 0
 	}
 	return n
+}
+
+// ── rewriting a file the hooks are appending to ──────────────────────────────
+//
+// THE HOT PATH TAKES NO LOCK, AND MUST NOT. Every tool call on this machine
+// appends one line to this file, from a hook that has milliseconds before the
+// client kills it. A lock there would be a syscall and a contention point on
+// the critical path of every call, to protect against something that happens
+// when somebody presses x in a TUI.
+//
+// It does not need one. O_APPEND writes are atomic against each other, which is
+// why a burst of concurrent hooks never corrupts the log. The ONE unsafe
+// operation is this: read the whole file, decide what it should say, write it
+// back. Anything appended between the read and the write is inside neither the
+// old content nor the new, and it is gone — silently, which is the part that
+// matters for an audit trail.
+//
+// So the rewriter checks instead of locking: it remembers the size it read and
+// refuses to write if the file has grown since. The caller reports zero removed
+// and the row stays, which is the safe direction — a delete that did not happen
+// is visible, a record that vanished is not.
+//
+// WHAT THIS DOES NOT CLOSE, stated rather than discovered: the window between
+// the stat and the write. An append landing in those microseconds is still
+// lost. Closing it needs the appenders to take a lock too, and that is the hot
+// path. What is closed is the case that actually happens — a delete pressed
+// while an agent is working, where the appends are milliseconds apart and the
+// read-decide-write is not.
+
+func readLogWithSize(file string) ([]byte, int64, bool) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, 0, false
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return nil, 0, false
+	}
+	st, err := f.Stat()
+	if err != nil {
+		return nil, 0, false
+	}
+	return b, st.Size(), true
+}
+
+// rewriteLog replaces the file only if it is still the size it was read at.
+//
+// 0600, not the 0644 this used to pass. The mode only applies on create, so it
+// was usually moot — and "usually" is the wrong guarantee for a file that
+// records every command an agent was refused, which is a log of what somebody
+// was working on. shared.FileMode is the number the rest of the product writes.
+func rewriteLog(file string, readSize int64, body []byte) bool {
+	st, err := os.Stat(file)
+	if err != nil {
+		return false
+	}
+	if st.Size() != readSize {
+		// Something appended while this was being decided. Writing now would
+		// drop it, so nothing is written.
+		return false
+	}
+	return os.WriteFile(file, body, shared.FileMode) == nil
 }

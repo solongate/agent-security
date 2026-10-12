@@ -885,7 +885,14 @@ var TAMPER_PROTECTED_ABS = [
   TAMPER_HOME + TAMPER_SG + "/policy.json",
   TAMPER_HOME + TAMPER_SG + "/.policy-cache.json",
   // The cloud credential (contains the API key) — never readable via a tool.
-  TAMPER_HOME + TAMPER_SG + "/cloud-guard.json"
+  TAMPER_HOME + TAMPER_SG + "/cloud-guard.json",
+  // ITS UNPROTECTED SIBLING. accounts.json was the account layer's store —
+  // every account ever logged in, each with its API key — at 0644, next to the
+  // 0444 file above. That layer is gone and nothing reads or writes this file
+  // any more, but it is still on every machine that ran a build which did. A
+  // credential nothing maintains is still a credential, and an agent reading
+  // it out is the one thing that must not happen to it.
+  TAMPER_HOME + TAMPER_SG + "/accounts.json"
 ];
 var TAMPER_INSTALL = "/solongate";
 var TAMPER_PROTECTED_GLOBS = [
@@ -959,6 +966,11 @@ var TAMPER_BASENAMES = [
   ".policy-cache",
   ".ratelimit-",
   "cloud-guard.json",
+  // The stale credential store, on the COMMAND side too: the path rule above
+  // catches a Write or a Read naming it, this catches `cat` and every other
+  // way a shell reaches a file. Nothing writes this file any more; every
+  // machine that ran a build which did still has it, with a key in it.
+  "accounts.json",
   // Customer install: DB and wizard exe
   "solongate.db",
   "solongate.exe"

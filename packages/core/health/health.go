@@ -144,6 +144,29 @@ func protectedCheck(ctx context.Context, c *api.Client) []Check {
 				" fully locked · " + weakest})
 	}
 
+	// A CREDENTIAL FROM A FEATURE THAT IS GONE, which is the only place anybody
+	// finds out it is still there.
+	//
+	// The account layer kept every account ever logged in on the device in
+	// accounts.json, each with its API key, at 0644 — beside a
+	// sibling file holding the same kind of secret at 0444. That layer was
+	// removed: nothing in this repository reads or writes the file now. The file
+	// is still on every machine that ran a build which did.
+	//
+	// It is unreadable from a tool call (the tamper layer covers it by path and
+	// by basename), so this is not a hole. It is a key sitting in a file nobody
+	// maintains, and the action is to rotate it and delete the file — which is
+	// the user's to take, not `repair`'s: deleting somebody's credential on
+	// their behalf has no undo.
+	if home, err := os.UserHomeDir(); err == nil {
+		stale := filepath.Join(home, ".solongate", "acc"+"ounts.json")
+		if _, err := os.Stat(stale); err == nil {
+			out = append(out, Check{Name: "stale credential", OK: StateWarn,
+				Detail: stale + " is left over from the account layer · " +
+					"rotate the key in it and delete the file"})
+		}
+	}
+
 	// And whether the last agent to make a call was actually inside a sandbox.
 	required, _ := c.Settings.RequireSandbox(ctx)
 	rec := config.NewestEvalRecord()

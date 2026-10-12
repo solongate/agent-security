@@ -79,6 +79,21 @@ var tamperProtectedAbs = []string{
 	tamperHome + tamperSG + "/.policy-cache.json",
 	// The cloud credential (contains the API key) — never readable via a tool.
 	tamperHome + tamperSG + "/cloud-guard.json",
+	// ITS UNPROTECTED SIBLING, which held the same kind of secret at 0644 while
+	// the file above was 0444 and on this list.
+	//
+	// accounts.json was the account layer's store: every account ever logged in
+	// on the device, each with its API key. That layer is gone — nothing in this
+	// repository reads or writes this file any more — and the file is still on
+	// every machine that ran a build which did. A credential nothing maintains
+	// is still a credential, and the one thing that must not happen to it is an
+	// agent reading it out and reporting the contents.
+	//
+	// Listed rather than deleted by `repair`, because deleting somebody's
+	// credential file on their behalf is a decision with no undo. It is
+	// unreachable from a tool call now, and telling them to rotate it belongs
+	// in `doctor`.
+	tamperHome + tamperSG + "/accounts.json",
 }
 
 // Matched with MatchPathGlob, shared with the policy layer, which compiles the
@@ -144,6 +159,10 @@ var tamperBasenames = []string{
 	"solongate-guard",
 	"cloud-guard.json",
 	// Customer install: DB and wizard exe
+	// The stale credential store, on the command side too: the absolute-path
+	// rule above catches a Write or a Read naming it, this catches `cat` and
+	// every other way a shell reaches a file.
+	"accounts.json",
 	"solongate.db", "solongate.exe",
 }
 

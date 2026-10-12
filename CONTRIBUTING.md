@@ -59,10 +59,23 @@ for m in guard policy shared sandbox core cli tui app; do
 done
 ```
 
-That is all of it. There is no test suite in this repository. The conformance
-suite that used to judge both guards against each other was removed, and so was
-every Go test, and nothing replaced them. The commands above tell you the code
-compiles. They do not tell you it still decides the way it did yesterday.
+There is no test suite in this repository: no `_test.go` anywhere, and the
+conformance suite that judged both guards against each other was removed with
+nothing replacing it. The commands above tell you the code compiles.
+
+Three checks do tell you something about what it decides, and CI runs all
+three:
+
+```bash
+./.sg-parity-check.sh      # both guards, one policy file, fourteen verdicts
+./.sg-box-check.sh         # a closed box, twenty-two questions  (Linux, needs bwrap)
+./.sg-seatbelt-check.sh    # the Seatbelt profile confines        (macOS)
+```
+
+They are not coverage. Fourteen cases and one box is the two things somebody
+measured, kept measured, and what they catch is the class that has cost the
+most here: the two implementations drifting apart, and a sandbox reporting
+confinement it is not applying. Everything else is still on the pull request.
 
 Which puts the burden on the pull request. Run your change against a real agent
 and write down what you did: which client, which tool calls, what you expected,
@@ -113,9 +126,10 @@ No prefixes are required.
   fix cannot be reverted on its own.
 - Say what you ran, in detail. With no suite behind the change, a vague "tested
   locally" is not reviewable. Name the client, the calls, and the outcome.
-- CI runs gofmt and vet over the eight Go modules, the hook bundle, the release
-  build, and a secret scan. All of it has to be green, and all of it together
-  still says nothing about whether the guard decides correctly.
+- CI runs six jobs: gofmt and vet over the eight Go modules, a cross-compile of
+  all of them for six GOOS/GOARCH pairs, the two Linux checks above, the
+  Seatbelt check on a Mac, the release build, and a secret scan. All of it has
+  to be green.
 - If your change alters what a policy means, say so in the pull request title.
   Somebody's live policy will behave differently, and that is a release note.
 

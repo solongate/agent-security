@@ -141,6 +141,111 @@ jobs:
       # and pass without looking at anything. A check that cannot fail reads as
       # coverage, which is worse than the absence it would be papering over.
 
+  # THE TWO CHECKS THIS REPOSITORY HAS, run rather than committed and forgotten.
+  #
+  # There is no test suite here: no _test.go anywhere, and the conformance suite
+  # that judged the two guard implementations against each other was removed with
+  # nothing replacing it. CONTRIBUTING asks a pull request to say what it ran by
+  # hand, and these two scripts are that written down. They were gitignored until
+  # recently, then committed, and still ran nowhere.
+  #
+  # Both work on a runner, which is why this job can exist. The parity check
+  # builds the guard and needs the hook bundle, both of which CI already does.
+  # The box check needs bwrap and a shell that is not itself confined, and a
+  # GitHub runner is both.
+  #
+  # IT IS NOT A TEST SUITE AND THE NAME SAYS SO. Fourteen parity cases and
+  # twenty-two questions about one box is not coverage; it is the two things
+  # somebody measured, kept measured. What it catches is the class that has cost
+  # the most here: the two implementations drifting apart, and a sandbox that
+  # reports confinement it is not applying.
+  checks:
+    name: checks (parity, box)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          # The same literal the other jobs use. package.json says ">=22.0.0",
+          # which is a range rather than a version, and setup-node does not
+          # resolve one.
+          node-version: '22'
+          cache: pnpm
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: packages/guard/go.mod
+          cache-dependency-path: packages/guard/go.sum
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm build
+
+      # The closed box is built with bubblewrap, and a refusal naming the
+      # package is what a machine without it gets. Installing it here is what
+      # makes the box check able to answer rather than skip.
+      - name: bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      # Landlock has to be in the kernel for the parity check's protected-path
+      # cases to mean anything. Printed rather than asserted: the runner image
+      # decides, and a skipped reason in the log beats a green tick that proved
+      # nothing.
+      - name: what this kernel can do
+        run: |
+          echo "kernel: $(uname -r)"
+          echo "landlock in lsm: $(cat /sys/kernel/security/lsm 2>/dev/null || echo unknown)"
+          echo "userns: $(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo unknown)"
+
+      # Fourteen cases: both guards judged against the same policy file, on
+      # protected paths, require-sandbox, agent scoping, the .last-deny flag and
+      # the version handshake. A divergence here is the bug this repository keeps
+      # finding, so it fails the build.
+      - name: the two guards agree
+        run: ./.sg-parity-check.sh
+
+      # Twenty-two questions about a closed box: what is absent, what still
+      # works, the per-box network answer, and whether an unknown id is refused.
+      - name: the box closes
+        run: ./.sg-box-check.sh
+
+  # THE SEATBELT HALF, on a machine that has Seatbelt.
+  #
+  # packages/sandbox carries four platform files and until now one of them was
+  # measured. The cross job proves the darwin file compiles; compiling is not
+  # confining, and a profile that `sandbox-exec` accepts and then enforces
+  # nothing would pass it. The Seatbelt file's own header admits the mechanism is
+  # deprecated with no removal date and is still the only option, which is
+  # exactly the kind of thing that stops working quietly.
+  #
+  # So this runs `solongate run` on a Mac and asks it the questions the Linux
+  # side is already asked: can the agent read the protected file, write it,
+  # delete it, reach it through a symlink or a script it wrote, and do the
+  # ordinary things that have to keep working.
+  #
+  # The closed box is not covered and cannot be: it is a Linux mount namespace,
+  # macOS has no equivalent, and `solongate sandbox` refuses here. The last case
+  # checks that it refuses with a reason rather than running something weaker.
+  seatbelt:
+    name: seatbelt (macos)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: packages/app/go.mod
+          cache-dependency-path: packages/app/go.sum
+
+      - name: what this machine can do
+        run: |
+          echo "macos: $(sw_vers -productVersion)"
+          echo "sandbox-exec: $(command -v sandbox-exec || echo MISSING)"
+
+      - name: the profile confines
+        run: ./.sg-seatbelt-check.sh
+
   build:
     name: build
     runs-on: ubuntu-latest

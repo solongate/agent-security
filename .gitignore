@@ -83,6 +83,7 @@ id_ed25519
 # machine.
 !/.sg-parity-check.sh
 !/.sg-box-check.sh
+!/.sg-seatbelt-check.sh
 
 # ...except the installer, which is the first thing anybody runs.
 #

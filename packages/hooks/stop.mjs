@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SolonGate Stop Hook (Stop event) — intentionally does nothing.
+ * SolonGate Stop Hook (Stop event), intentionally does nothing.
  *
  * It used to POST one synthetic audit row named `_response` whenever a turn
  * ended with no tool calls, to record "the agent replied with text only". That
@@ -13,7 +13,7 @@
  *     list, and it inflated the call count with something no policy can act on.
  *   - it decided whether to write by looking for a flag file left by the audit
  *     hook, so any drift in where that flag lived turned "text-only turn" into
- *     "every turn" — which is exactly what happened when the per-call scratch
+ *     "every turn", which is exactly what happened when the per-call scratch
  *     moved out of the working directory.
  *
  * The registration is kept (it costs one process exit per turn and removing it

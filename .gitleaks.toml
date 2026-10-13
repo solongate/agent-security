@@ -28,6 +28,16 @@ disabledRules = ["generic-api-key"]
 # A SolonGate credential, by the only property that cannot be faked: length and
 # hex. A real key is `sg_live_`/`sg_test_` plus 48 or more hex digits.
 #
+# THE FORMAT IS LEGACY AND THE RULE STAYS. This product no longer has an API key
+# at all: no account, nothing paired with a service, nothing authenticated, and
+# everything that issued, read or validated a key is deleted. Nothing can produce
+# a new one of these.
+#
+# What is left is keys that already exist. Machines that ran a build with accounts
+# still have the files, `repair` deletes them, and in between somebody can paste
+# one into a config while debugging. A scanner for a format nothing issues costs
+# one regex and catches the only way one of these can still reach a commit.
+#
 # Every fixture in this repository fails that — they are short (`sg_live_aaaa`),
 # padded (`sg_live_example00000000`), or carry a word (`sg_test_local_only`) —
 # and all seven keys found in the old private history match it. There is no

@@ -21,9 +21,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/solongate/agent-security/packages/shared"
 )
 
 // ── /policies ──────────────────────────────────────────────────────────────
@@ -118,10 +121,75 @@ func (p PoliciesAPI) Update(ctx context.Context, id string, policy PolicySet) (P
 	next.ID = s.Policy.ID
 	next.Mode = policyMode(&next)
 	s.Policy = &next
+
+	// THE LAYERS ARE MIRRORED UP TO THE TOP-LEVEL BLOCK, and without this the
+	// TUI's DLP and rate-limit editors wrote to a place nothing enforces.
+	//
+	// There are two shapes on disk for the same configuration. The POLICY
+	// carries `security` inside it, per variant, which is what the editor reads
+	// and writes and what an exported policy arrives in. The FILE carries a
+	// top-level `security` block, and that is the one the guard reads on every
+	// tool call, both implementations of it, and `doctor`, and the CLI.
+	//
+	// The TUI only ever wrote the first. `Policies.Update` is its one
+	// layer-writing path (see the save in tui/panels/policies.go, which fills
+	// PolicySet.Security and PolicyVariant.Security and calls nothing else), so
+	// a DLP mode set in the panel landed in the policy document and the guard
+	// went on reading the top-level block that nobody had touched. The panel
+	// printed a tick. `doctor` then read the nested block back through
+	// `guardSecurity`, which has no field for `dlp` at all and whose rateLimit
+	// has no `mode`, so DLP vanished and the rate limit survived as a non-nil
+	// block with every window at zero, which toLayers reads as block mode and
+	// doctor prints as StateOK: "rate limit: block · no window set".
+	//
+	// Mirrored here rather than fixed in the panel, for the same reason
+	// mirrorRulesIntoDefaultVariant lives in writeStore: this is the one
+	// function both surfaces go through, and a mirror maintained by each caller
+	// is a mirror that is wrong as soon as there is a third.
+	//
+	// The ACTIVE variant's layers win, because that is the variant being
+	// enforced. A policy with no layers at all leaves the block alone, an
+	// empty editor is not a statement that this machine configures nothing, and
+	// clearing DLP from under somebody by saving a rule is the bug in the other
+	// direction.
+	if lay := activeVariantLayers(&next); lay != nil {
+		s.Security = fromLayers(*lay, s.Security)
+	}
+
 	if err := writeStore(s); err != nil {
 		return PolicyDetail{}, err
 	}
 	return detailOf(&next), nil
+}
+
+// activeVariantLayers is the layers of the variant this policy says is in
+// force, or nil when it carries none.
+//
+// DefaultVariant names it; a policy with no variants carries its layers at the
+// top of its own document. Falling back to the first variant matches
+// mirrorRulesIntoDefaultVariant, so the rules and the layers that get mirrored
+// are always from the same variant, two mirrors disagreeing about which
+// variant is live would enforce one variant's rules with another's DLP.
+func activeVariantLayers(p *PolicySet) *SecurityLayers {
+	if p == nil {
+		return nil
+	}
+	if len(p.Variants) == 0 {
+		return p.Security
+	}
+	i := 0
+	if p.DefaultVariant != "" {
+		for j, v := range p.Variants {
+			if v.ID == p.DefaultVariant {
+				i = j
+				break
+			}
+		}
+	}
+	if p.Variants[i].Security != nil {
+		return p.Variants[i].Security
+	}
+	return p.Security
 }
 
 // Remove deletes the rules. THE LAYERS SURVIVE: a rate limit and a DLP
@@ -145,7 +213,7 @@ func (p PoliciesAPI) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
-// RuleSpec is the shorthand a caller sends — deny this command, allow this path —
+// RuleSpec is the shorthand a caller sends, deny this command, allow this path,
 // and this expands it into a full rule, so two callers cannot produce differently
 // shaped rules for the same request.
 type RuleSpec struct {
@@ -214,8 +282,8 @@ func (p PoliciesAPI) AddRule(ctx context.Context, id string, spec RuleSpec) (Rul
 	// it, the TUI lists it the same way, and the glob never matches a command
 	// that does not end in one.
 	//
-	// It is the same failure the permission check already refuses a typo for — a
-	// rule that looks right and is silently inert — and it is easier to produce,
+	// It is the same failure the permission check already refuses a typo for, a
+	// rule that looks right and is silently inert, and it is easier to produce,
 	// because a trailing space is invisible in the editor that made it.
 	//
 	// HERE RATHER THAN IN EACH CALLER. Three places build a RuleSpec: this CLI, the
@@ -225,7 +293,7 @@ func (p PoliciesAPI) AddRule(ctx context.Context, id string, spec RuleSpec) (Rul
 	spec.ToolPattern = strings.TrimSpace(spec.ToolPattern)
 
 	// An empty pattern is refused rather than stored. What it would mean depends on
-	// which field it landed in — everything, or nothing — and neither is what
+	// which field it landed in, everything, or nothing, and neither is what
 	// somebody who typed only spaces was asking for.
 	if spec.Value == "" && spec.Kind != "" && spec.Kind != "tool" {
 		return RuleMutation{}, errors.New("the " + spec.Kind + " pattern is empty")
@@ -356,7 +424,7 @@ func (p PoliciesAPI) RevokeRule(ctx context.Context, id, ruleID string) (RuleMut
 }
 
 // Active is what the guard would enforce on the next call, read from the same
-// file it reads — so this is not a report about what should happen, it is the
+// file it reads, so this is not a report about what should happen, it is the
 // input to what does.
 func (p PoliciesAPI) Active(ctx context.Context, agentID string) (ActivePolicy, error) {
 	s, err := readStore()
@@ -557,6 +625,215 @@ func (s SettingsAPI) SetProtectedPaths(ctx context.Context, paths []string) erro
 	return writeStore(st)
 }
 
+// Sandboxes are the closed boxes this machine has defined, lowest id first.
+func (s SettingsAPI) Sandboxes(ctx context.Context) ([]shared.Sandbox, error) {
+	st, err := readStore()
+	if err != nil {
+		return nil, err
+	}
+	if st.Security == nil {
+		return nil, nil
+	}
+	out := append([]shared.Sandbox(nil), st.Security.Sandboxes...)
+	sort.Slice(out, func(a, b int) bool { return out[a].ID < out[b].ID })
+	return out, nil
+}
+
+// Sandbox returns one box by id.
+func (s SettingsAPI) Sandbox(ctx context.Context, id string) (shared.Sandbox, error) {
+	boxes, err := s.Sandboxes(ctx)
+	if err != nil {
+		return shared.Sandbox{}, err
+	}
+	id = NormalizeSandboxID(id)
+	for _, b := range boxes {
+		if b.ID == id {
+			return b, nil
+		}
+	}
+	return shared.Sandbox{}, errors.New("there is no sandbox " + id +
+		", `solongate sandbox list` shows the ones there are")
+}
+
+// NormalizeSandboxID turns what somebody typed into the stored form.
+//
+// `solongate sandbox 1 claude` and `solongate sandbox 001 claude` are the same
+// box: the padding is how the list lines up in a column, not part of the name,
+// and requiring it would mean a command that fails for a reason nobody can see.
+func NormalizeSandboxID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	n := 0
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return id // not a number; returned as-is so the lookup fails by name
+		}
+		n = n*10 + int(r-'0')
+	}
+	return fmt.Sprintf("%03d", n)
+}
+
+// nextSandboxID is the LOWEST FREE number, not one past the highest.
+//
+// Deleting a box frees its id, and the next box takes it. The alternative, a
+// counter that only goes up, means a machine where boxes get made and removed
+// ends up typing "047" for its only sandbox, and the id is a thing somebody
+// types every time they start an agent. The number names a slot.
+//
+// Three digits because 999 boxes is more than anybody has and a fixed width is
+// what makes the list a column rather than a ragged edge. Past 999 it keeps
+// counting and the column gets wider, which is better than refusing.
+func nextSandboxID(existing []shared.Sandbox) string {
+	taken := make(map[string]bool, len(existing))
+	for _, b := range existing {
+		taken[b.ID] = true
+	}
+	for n := 1; ; n++ {
+		id := fmt.Sprintf("%03d", n)
+		if !taken[id] {
+			return id
+		}
+	}
+}
+
+// validateSandboxDir refuses the paths that would look like confinement and not
+// be it.
+//
+// CHECKED WHEREVER A BOX IS WRITTEN, because the person setting it is at a
+// terminal and can be told, while the launch happens in front of an agent that
+// is about to start.
+func validateSandboxDir(dir string) (string, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return "", errors.New("a sandbox needs a directory")
+	}
+	if strings.HasPrefix(dir, "~") {
+		return "", errors.New(`"~" is a shell convention, not a path the kernel can confine to, write it out in full`)
+	}
+	if !filepath.IsAbs(dir) {
+		return "", errors.New("the directory must be an absolute path, like /home/you/projects/thing")
+	}
+	dir = filepath.Clean(dir)
+	if dir == string(filepath.Separator) {
+		return "", errors.New(`"/" as a sandbox confines nothing`)
+	}
+	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == dir {
+		return "", errors.New("the home directory cannot be a sandbox: it holds ~/.ssh and every " +
+			"other project, which is what a sandbox exists to keep the agent out of")
+	}
+	st, err := os.Stat(dir)
+	if err != nil {
+		return "", errors.New(dir + " cannot be read: " + err.Error())
+	}
+	if !st.IsDir() {
+		return "", errors.New(dir + " is not a directory")
+	}
+	return dir, nil
+}
+
+// SandboxCreate adds a box and returns it, with the id it was given.
+//
+// Network defaults to true, and the default is deliberate: a box with no
+// network cannot reach the model that drives the agent, so it is airtight and
+// unused. The surfaces that offer this say what the choice costs rather than
+// choosing quietly.
+func (s SettingsAPI) SandboxCreate(ctx context.Context, dir, label string, network bool) (shared.Sandbox, error) {
+	clean, err := validateSandboxDir(dir)
+	if err != nil {
+		return shared.Sandbox{}, err
+	}
+	st, err := readStore()
+	if err != nil {
+		return shared.Sandbox{}, err
+	}
+	if st.Security == nil {
+		st.Security = &guardSecurity{}
+	}
+	// One box per directory. Two boxes about the same directory differing only
+	// in whether the network is on is a way to run the confined agent
+	// unconfined-enough by typing the other number, and nothing about the list
+	// would show that had happened.
+	for _, b := range st.Security.Sandboxes {
+		if b.Dir == clean {
+			return shared.Sandbox{}, errors.New("sandbox " + b.ID + " is already " + clean)
+		}
+	}
+	box := shared.Sandbox{
+		ID:      nextSandboxID(st.Security.Sandboxes),
+		Dir:     clean,
+		Network: network,
+		Label:   strings.TrimSpace(label),
+	}
+	st.Security.Sandboxes = append(st.Security.Sandboxes, box)
+	st.absent = false
+	if err := writeStore(st); err != nil {
+		return shared.Sandbox{}, err
+	}
+	return box, nil
+}
+
+// SandboxUpdate replaces a box's directory, label and network answer, keeping
+// its id, the id is what somebody types, so changing a box must not change it.
+func (s SettingsAPI) SandboxUpdate(ctx context.Context, id, dir, label string, network bool) error {
+	clean, err := validateSandboxDir(dir)
+	if err != nil {
+		return err
+	}
+	st, err := readStore()
+	if err != nil {
+		return err
+	}
+	if st.Security == nil {
+		return errors.New("there are no sandboxes to update")
+	}
+	id = NormalizeSandboxID(id)
+	for i := range st.Security.Sandboxes {
+		if st.Security.Sandboxes[i].ID != id {
+			continue
+		}
+		for j, other := range st.Security.Sandboxes {
+			if j != i && other.Dir == clean {
+				return errors.New("sandbox " + other.ID + " is already " + clean)
+			}
+		}
+		st.Security.Sandboxes[i].Dir = clean
+		st.Security.Sandboxes[i].Label = strings.TrimSpace(label)
+		st.Security.Sandboxes[i].Network = network
+		st.absent = false
+		return writeStore(st)
+	}
+	return errors.New("there is no sandbox " + id)
+}
+
+// SandboxDelete removes a box and frees its id for the next one.
+func (s SettingsAPI) SandboxDelete(ctx context.Context, id string) error {
+	st, err := readStore()
+	if err != nil {
+		return err
+	}
+	if st.Security == nil {
+		return errors.New("there are no sandboxes to delete")
+	}
+	id = NormalizeSandboxID(id)
+	out := make([]shared.Sandbox, 0, len(st.Security.Sandboxes))
+	found := false
+	for _, b := range st.Security.Sandboxes {
+		if b.ID == id {
+			found = true
+			continue
+		}
+		out = append(out, b)
+	}
+	if !found {
+		return errors.New("there is no sandbox " + id)
+	}
+	st.Security.Sandboxes = out
+	st.absent = false
+	return writeStore(st)
+}
+
 // RequireSandbox is the fail-closed switch: refuse every call from an agent
 // that was not started by `solongate run`.
 func (s SettingsAPI) RequireSandbox(ctx context.Context) (bool, error) {
@@ -585,7 +862,7 @@ func (s SettingsAPI) SetRequireSandbox(ctx context.Context, on bool) error {
 
 // LocalLogsConfig is where the hooks write the record. On a machine with no
 // service this is the only destination there is, so it reads as ON with the
-// default folder unless somebody named another — the FOLDER is the part worth
+// default folder unless somebody named another, the FOLDER is the part worth
 // choosing.
 type LocalLogsConfig struct {
 	Enabled bool   `json:"enabled"`
@@ -1069,13 +1346,13 @@ func (a AuditAPI) List(ctx context.Context, q AuditQuery) (AuditList, error) {
 /*
  * There is no Remove and no RemoveAll. Both used to call DELETE /audit-logs;
  * the endpoint is gone, and an audit log the audited party can clear is not a
- * record of anything. On a machine the file is the record — somebody who owns
+ * record of anything. On a machine the file is the record, somebody who owns
  * the machine can always delete it, and the CLI does not have to help.
  */
 
 // ruleFromEntry turns one recorded call into a rule.
 //
-// `exact` narrows to what that call actually did — the command, the path, the URL
+// `exact` narrows to what that call actually did, the command, the path, the URL
 // the entry carries. `tool` covers the tool as a whole, which is the wider and
 // more dangerous of the two, so it is never the default.
 func ruleFromEntry(ctx context.Context, p PoliciesAPI, id, scope, effect string) (RuleMutation, error) {
@@ -1105,7 +1382,7 @@ func ruleFromEntry(ctx context.Context, p PoliciesAPI, id, scope, effect string)
 // Exported, and the only implementation, because the Live panel's `w`/`b` keys ask the
 // same question of an entry they are holding in memory rather than by id. They used to
 // answer it themselves, with a second extractor that differed in two ways that matter:
-// it did not look for a url at all, and for a path it took the BASENAME — so
+// it did not look for a url at all, and for a path it took the BASENAME, so
 // whitelisting the same denial from the stream and from the audit browser produced two
 // different rules. Whichever a person happened to use decided how wide their policy got.
 //

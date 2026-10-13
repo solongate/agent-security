@@ -5,7 +5,6 @@ package shared
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode/utf16"
 )
@@ -15,8 +14,8 @@ import (
 //
 // Owner-only, because this directory holds credentials and the policy cache. It
 // is declared HERE rather than at each call site because several programs create
-// the same directory — the guard through this package, the CLI through
-// core/config, the hooks in JavaScript — and the first one to run decides the
+// the same directory, the guard through this package, the CLI through
+// core/config, the hooks in JavaScript, and the first one to run decides the
 // mode. They disagreed: one used 0700 and another 0755, so which mode the
 // directory ended up with depended on which program a machine happened to run
 // first.
@@ -29,7 +28,7 @@ const (
 // already there.
 //
 // MkdirAll applies a mode only when it CREATES, so a directory made by an older
-// version — or by another one of these programs — keeps whatever it had. Chmod is
+// version, or by another one of these programs, keeps whatever it had. Chmod is
 // best effort: it must not stop the guard from working on a filesystem with no
 // POSIX bits.
 func EnsureSGDir() error {
@@ -124,28 +123,10 @@ func ProjectFlagDir() string {
 	return filepath.Join(SGDir(), "projects", ProjectKey(abs))
 }
 
-// A real key is sg_live_ or sg_test_ followed by hex.
-//
-// It matters more than a format check looks: an unusable key means "no project
-// selected", which means ALLOW, so a placeholder in a stray .env silently
-// disarms the guard rather than erroring. The sample files ship
-// `sg_live_your_key_here`, which passes a truthiness test and nothing else.
-var realKeyBody = regexp.MustCompile(`(?i)^[a-f0-9]{16,}$`)
-
-func IsRealKey(k string) bool {
-	v := strings.TrimSpace(k)
-	if !strings.HasPrefix(v, "sg_live_") && !strings.HasPrefix(v, "sg_test_") {
-		return false
-	}
-	body := v[len("sg_live_"):]
-	lower := strings.ToLower(body)
-	for _, bad := range []string{"your_key_here", "placeholder", "example"} {
-		if strings.Contains(lower, bad) {
-			return false
-		}
-	}
-	return realKeyBody.MatchString(body)
-}
+// IsRealKey was here, with the pattern that decided whether an API key counted.
+// It is gone with the key: this product has no account, pairs with no service
+// and authenticates to nothing, so there is no key to validate. See
+// core/install/repair.go for the two files an upgraded machine may still have.
 
 // GuessPermission is the ENFORCING classifier, and this is the one that has to
 // survive: it is `input.permission` in a compiled policy, so a rule scoped to
@@ -195,3 +176,45 @@ func GuessPermission(tool string) string {
 		return "READ"
 	}
 }
+
+// ── the audit log's lock ─────────────────────────────────────────────────────
+//
+// WHAT IT IS FOR, which is one operation and not the log in general. Every tool
+// call appends a line, and O_APPEND writes are atomic against each other, a
+// burst of concurrent hooks never corrupts the file and needs no lock. The one
+// unsafe operation is the TUI's delete and clear: read the whole file, decide
+// what it should say, write it back. Anything appended in between is in neither
+// version and is gone, silently, which for an audit trail is the part that
+// matters.
+//
+// WHY A LOCK IS AFFORDABLE HERE, when it would not be on the hot path. The
+// append does not happen in the hook: the hook hands a base64 payload to a
+// DETACHED CHILD and returns, so the verdict is already on its way to the agent
+// before the writer starts. A lock in that child costs the tool call nothing.
+//
+// THE RULES BOTH IMPLEMENTATIONS FOLLOW, and they have to be the same rules or
+// the lock is decoration:
+//
+//   - the lock is a FILE created with O_CREAT|O_EXCL, which is atomic on every
+//     filesystem either of these runs on. Holding it is holding the only
+//     successful create.
+//   - a lock older than AuditLockStaleAfter is broken and taken. A writer that
+//     was killed between creating it and removing it would otherwise stop every
+//     later write forever, and this is a log, not a ledger.
+//   - waiting is bounded by AuditLockWait. Past that the appender writes
+//     ANYWAY: losing the lock race must not lose the record, and an append
+//     landing during a rewrite is the old bug rather than a new one.
+//   - the rewriter does the opposite and gives up. A delete that did not happen
+//     is visible to the person who pressed the key; a record that vanished is
+//     not.
+const (
+	AuditLockName = ".solongate-audit.lock"
+
+	// Long enough that a normal rewrite finishes inside it, short enough that a
+	// killed writer does not hold the log hostage for a session.
+	AuditLockStaleAfterMS = 5000
+
+	// About as long as somebody will not notice. The appender is detached, so
+	// nothing is waiting on it.
+	AuditLockWaitMS = 2000
+)

@@ -14,16 +14,17 @@ import (
 
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/install"
+	"github.com/solongate/agent-security/packages/core/term"
 )
 
-// `solongate update` — fetch the newest source and reinstall from it.
+// `solongate update`, fetch the newest source and reinstall from it.
 //
 // WHY THIS COMMAND EXISTS AT ALL. `solongate doctor` has told people to run it for as
 // long as there has been a doctor, and until now there was no such command: the one
 // instruction the health check gives was a command that answered "Unknown command".
 //
-// And the thing it replaces is three steps somebody had to know by heart — change to a
-// directory they may not remember, pull, run the install script — none of which is the
+// And the thing it replaces is three steps somebody had to know by heart, change to a
+// directory they may not remember, pull, run the install script, none of which is the
 // user's problem. An update is one word.
 //
 // IT UPDATES FROM WHERE IT WAS INSTALLED FROM. The install writes that path down (see
@@ -44,9 +45,12 @@ func RunUpdate(args []string) int {
 
 	before := install.InstalledGuardVersion()
 
-	fmt.Println()
-	fmt.Println("  Updating SolonGate from " + root)
-	fmt.Println()
+	// EVERY LINE STARTS IN THE SAME COLUMN. A mark is [  OK  ] and a space,
+	// nine characters, so everything that is not a mark is indented nine. A
+	// header flush against the margin reads as a separate program's banner
+	// rather than the first line of this one.
+	fmt.Fprint(os.Stderr, "         "+term.Bold+"SolonGate"+term.Reset+"  ")
+	typeOut("updating from " + root)
 
 	// FETCH FIRST, AND SAY WHETHER ANYTHING CAME. A pull that changes nothing still costs
 	// a full rebuild, and somebody watching it has no way to tell a no-op from a real
@@ -54,7 +58,7 @@ func RunUpdate(args []string) int {
 	// THE INSTALL DIRTIES THE CHECKOUT IT WILL LATER PULL INTO.
 	//
 	// install.sh runs `pnpm install`, and pnpm rewrites pnpm-lock.yaml whenever the
-	// manifest and the lock disagree about anything — including an optional package
+	// manifest and the lock disagree about anything, including an optional package
 	// it decides to drop. The build script rewrites packages/hooks/package.json for
 	// the same class of reason. Both files are tracked, so one update later the
 	// checkout has modifications nobody made, and the NEXT update dies on
@@ -63,7 +67,7 @@ func RunUpdate(args []string) int {
 	// The user never typed anything to cause that and has nothing to decide about
 	// it, so the only honest behaviour is to put those files back and carry on. The
 	// test is narrow on purpose: ONLY the files an install is known to write are
-	// restored, and anything else stops the update exactly as it did before —
+	// restored, and anything else stops the update exactly as it did before,
 	// a real local edit is the user's and discarding it silently would be theft.
 	if code := restoreInstallArtifacts(root); code != 0 {
 		return code
@@ -72,8 +76,7 @@ func RunUpdate(args []string) int {
 	head, _ := gitOutput(root, "rev-parse", "HEAD")
 
 	rng := config.UpdateRangeOf(config.LoadTUIConfig())
-	fmt.Println("  Update range: " + rng + " · " + rangeOneLiner(rng))
-	fmt.Println()
+	typeOut("         range " + rng + ": " + rangeOneLiner(rng))
 
 	var code int
 	if rng == config.UpdateRangeShort {
@@ -87,7 +90,7 @@ func RunUpdate(args []string) int {
 
 	after, _ := gitOutput(root, "rev-parse", "HEAD")
 	if head != "" && head == after {
-		fmt.Println("  Already on the newest version.")
+		markOK("Already on the newest version.")
 	}
 
 	// REBUILD AND REINSTALL THROUGH install.sh, rather than repeating its steps here.
@@ -98,7 +101,7 @@ func RunUpdate(args []string) int {
 	// --yes because this is already the answer to "do you want to update".
 	script := filepath.Join(root, "install.sh")
 	if !install.Exists(script) {
-		fmt.Fprintln(os.Stderr, "  "+script+" is missing, so there is nothing to run.")
+		fmt.Fprintln(os.Stderr, "         "+script+" is missing, so there is nothing to run.")
 		return 1
 	}
 	if code := step(root, "Rebuilding and reinstalling", "sh", script, "--yes"); code != 0 {
@@ -106,19 +109,16 @@ func RunUpdate(args []string) int {
 	}
 
 	now := install.InstalledGuardVersion()
-	fmt.Println()
 	switch {
 	case before == nil && now != nil:
-		fmt.Println("  ✓ SolonGate installed, guard v" + strconv.Itoa(*now) + ".")
+		markOK("SolonGate installed, guard v" + strconv.Itoa(*now) + ".")
 	case before != nil && now != nil && *before != *now:
-		fmt.Println("  ✓ Updated: guard v" + strconv.Itoa(*before) + " → v" + strconv.Itoa(*now) + ".")
+		markOK("Updated: guard v" + strconv.Itoa(*before) + " to v" + strconv.Itoa(*now) + ".")
 	case now != nil:
-		fmt.Println("  ✓ Up to date: guard v" + strconv.Itoa(*now) + ".")
+		markOK("Up to date: guard v" + strconv.Itoa(*now) + ".")
 	default:
-		fmt.Println("  ✓ Done.")
+		markOK("Done.")
 	}
-	fmt.Println("    Open a new terminal — hooks load when a session starts.")
-	fmt.Println()
 	return 0
 }
 
@@ -140,15 +140,15 @@ func quietStep(dir, label, name string, args ...string) int {
 	var out strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &out
 
-	stop := spin("  " + label)
+	stop := spin(label)
 	err := cmd.Run()
 	stop()
 
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "  ✗ "+label)
+		markNo(label)
 		if text := strings.TrimSpace(out.String()); text != "" {
 			for _, line := range strings.Split(text, "\n") {
-				fmt.Fprintln(os.Stderr, "    "+line)
+				fmt.Fprintln(os.Stderr, "         "+line)
 			}
 		}
 		var exit *exec.ExitError
@@ -157,40 +157,92 @@ func quietStep(dir, label, name string, args ...string) int {
 		}
 		return 1
 	}
-	fmt.Fprintln(os.Stderr, "  ✓ "+label)
+	markOK(label)
 	return 0
 }
 
-// spin draws one frame every 90ms until the returned function is called.
+// THE SAME TWO MARKS install.sh USES. An update runs that script in the middle
+// of itself, so a run that printed ✓ for its own steps and [  OK  ] for the
+// script's would look like two programs taking turns. It is one.
+func markOK(text string) {
+	fmt.Fprintf(os.Stderr, "%s[  OK  ]%s ", term.Green, term.Reset)
+	typeOut(text)
+}
+
+func markNo(text string) {
+	fmt.Fprintf(os.Stderr, "%s[FAILED]%s ", term.Red, term.Reset)
+	typeOut(text)
+}
+
+// typeOut writes the letters one at a time, in order.
+//
+// An install is a sequence of things happening to somebody's machine, and a
+// line that appears all at once is a line that has already happened. Typed
+// out, it is happening while they read it, which is what it is.
+//
+// Both halves are needed and neither is enough on its own: the delay paces it,
+// and os.Stderr being unbuffered is what lets a partial line reach the screen
+// at all. Through a buffered writer every character would sit there until the
+// flush and the whole line would appear at once anyway.
+//
+// Not on a pipe: there is nobody watching a log file arrive, and a few hundred
+// one-byte writes into it buy nothing.
+func typeOut(text string) {
+	if !isTerminal(os.Stderr) {
+		fmt.Fprintln(os.Stderr, text)
+		return
+	}
+	for _, r := range text {
+		fmt.Fprintf(os.Stderr, "%c", r)
+		time.Sleep(typeDelay)
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
+const typeDelay = 3 * time.Millisecond
+
+// spin animates the dots at the end of the label until the returned function
+// is called.
+//
+// IT WAS A BRAILLE SPINNER AND THAT WAS WRONG TWICE. The frames are a single
+// character at a column of their own, and in a terminal font that draws braille
+// loosely they read as punctuation dropped on the line: ":" and ",". And a
+// character in its own column has to be cleared from its own column, which left
+// residue on any line the clear did not exactly cover. Dots after the label are
+// the same animation with neither problem, and they are what every other line
+// in this run already ends with.
+//
+// THE CLEAR IS \033[2K, not a counted run of spaces. Counting assumes the line
+// is exactly as wide as the text put there, and a terminal that echoes
+// something of its own onto it, an escape-sequence reply or a typed key, makes
+// that assumption wrong and leaves the difference on screen. Erase the line.
 //
 // ON STDERR, with the result lines. The spinner used to go to stdout while a
 // failure went to stderr, and a terminal receiving both interleaved them: the
 // clearing \r landed before the error text rather than after the spinner, and
-// the two ended up on one line reading "⠋ Fetching releases ✗ Fetching
-// releases". One stream, one order.
+// the two ended up on one line. One stream, one order.
 //
 // NOT ON A PIPE. Without a terminal there is nothing to overwrite, so \r turns
 // the animation into a few hundred copies of the same line in whatever log is
 // collecting it. There it prints the label once and nothing else.
 func spin(label string) func() {
 	if !isTerminal(os.Stderr) {
-		fmt.Fprintln(os.Stderr, label+"…")
+		fmt.Fprintln(os.Stderr, "         "+label+"...")
 		return func() {}
 	}
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		frames := []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 		for i := 0; ; i++ {
 			select {
 			case <-done:
-				fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", len(label)+6))
+				fmt.Fprint(os.Stderr, "\r\x1b[2K")
 				return
 			default:
 			}
-			fmt.Fprintf(os.Stderr, "\r  %c %s", frames[i%len(frames)], label)
-			time.Sleep(90 * time.Millisecond)
+			fmt.Fprintf(os.Stderr, "\r\x1b[2K         %s%s", label, strings.Repeat(".", i%3+1))
+			time.Sleep(350 * time.Millisecond)
 		}
 	}()
 	return func() { close(done); <-finished }
@@ -204,7 +256,7 @@ func isTerminal(f *os.File) bool {
 }
 
 func step(dir, label, name string, args ...string) int {
-	fmt.Println("  " + label + "…")
+	fmt.Fprintln(os.Stderr, "         "+label+"...")
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Stdin = os.Stdin
@@ -215,7 +267,7 @@ func step(dir, label, name string, args ...string) int {
 		if ok := asExitError(err, &exit); ok {
 			return exit.ExitCode()
 		}
-		fmt.Fprintln(os.Stderr, "  "+label+" failed: "+err.Error())
+		fmt.Fprintln(os.Stderr, "         "+label+" failed: "+err.Error())
 		return 1
 	}
 	return 0
@@ -296,8 +348,8 @@ func moveToBranchTip(root string) int {
 	}
 	if c := quietStep(root, "Fetching the newest commit", "git", "pull", "--ff-only"); c != 0 {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  The pull failed. Most often that is a local change in the checkout:")
-		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr, "         The pull failed. Most often that is a local change in the checkout:")
+		fmt.Fprintln(os.Stderr, "            cd "+root+" && git status")
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
@@ -321,15 +373,15 @@ func moveToNewestRelease(root string) int {
 	tag = strings.TrimSpace(strings.SplitN(tag, "\n", 2)[0])
 	if tag == "" {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  There are no release tags in this checkout, so the long range has")
-		fmt.Fprintln(os.Stderr, "  nothing to move to. `solongate range short` follows the branch instead.")
+		fmt.Fprintln(os.Stderr, "         There are no release tags in this checkout, so the long range has")
+		fmt.Fprintln(os.Stderr, "         nothing to move to. `solongate range short` follows the branch instead.")
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
 	if c := quietStep(root, "Checking out "+tag, "git", "checkout", "--detach", tag); c != 0 {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  The checkout failed. Most often that is a local change:")
-		fmt.Fprintln(os.Stderr, "    cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr, "         The checkout failed. Most often that is a local change:")
+		fmt.Fprintln(os.Stderr, "            cd "+root+" && git status")
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
@@ -358,7 +410,7 @@ func defaultBranch(root string) string {
 
 // restoreInstallArtifacts puts the generated files back so the pull can run.
 //
-// Returns 0 when the checkout is pullable — either it was already clean, or the
+// Returns 0 when the checkout is pullable, either it was already clean, or the
 // only modifications were files the install itself wrote. A modification
 // anywhere else is reported and the update stops: that is somebody's work, and
 // this command has no business choosing to lose it.
@@ -393,14 +445,21 @@ func restoreInstallArtifacts(root string) int {
 
 	if len(foreign) > 0 {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  The checkout has local changes that are not the install's:")
+		// MARKED, like every other outcome this command has. The three exits
+		// were [  OK  ] on success, [FAILED] on a step that broke, and, here,
+		// nothing at all: a hard stop printed as dim prose with no mark in the
+		// column every other line is aligned to. The indentation was right and
+		// the mark was missing, which made the one outcome somebody has to act
+		// on the one that looked like a comment.
+		markNo("Update stopped: the checkout has local changes.")
+		fmt.Fprintln(os.Stderr, "         Not the install's own, so they are yours to keep:")
 		for _, f := range foreign {
-			fmt.Fprintln(os.Stderr, "      "+f)
+			fmt.Fprintln(os.Stderr, "            "+f)
 		}
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  Those are yours, so nothing here will throw them away. Commit or")
-		fmt.Fprintln(os.Stderr, "  stash them and run update again:")
-		fmt.Fprintln(os.Stderr, "      cd "+root+" && git status")
+		fmt.Fprintln(os.Stderr, "         Those are yours, so nothing here will throw them away. Commit or")
+		fmt.Fprintln(os.Stderr, "         stash them and run update again:")
+		fmt.Fprintln(os.Stderr, "            cd "+root+" && git status")
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
@@ -412,9 +471,10 @@ func restoreInstallArtifacts(root string) int {
 	args := append([]string{"checkout", "--"}, generated...)
 	if _, ok := gitOutput(root, args...); !ok {
 		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "  Could not restore the files the last install rewrote:")
+		markNo("Update stopped: could not restore what the last install rewrote.")
+		fmt.Fprintln(os.Stderr, "         These are the files it writes every time:")
 		for _, g := range generated {
-			fmt.Fprintln(os.Stderr, "      "+g)
+			fmt.Fprintln(os.Stderr, "            "+g)
 		}
 		fmt.Fprintln(os.Stderr)
 		return 1

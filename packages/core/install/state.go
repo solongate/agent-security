@@ -14,7 +14,7 @@ import (
 //
 // Everything here is deliberately local. The cloud's guard-status reports the
 // version this device last REPORTED and keeps saying so for about a fortnight,
-// so a guard installed, updated or removed a minute ago is invisible to it —
+// so a guard installed, updated or removed a minute ago is invisible to it,
 // which is how the health check once announced an update that had already been
 // applied, one line above a row saying the guard was current.
 
@@ -41,7 +41,7 @@ func InstalledGuardVersion() *int {
 // ShippedGuardVersion is the HOOK_VERSION of the guard THIS BUILD would install,
 // read from the packaged hook source beside the binary.
 //
-// Nil when there is no package to read — a binary carried somewhere on its own —
+// Nil when there is no package to read, a binary carried somewhere on its own,
 // and the caller has to treat that as "cannot tell" rather than as zero. A zero
 // here is what made every machine report `v? → v0`: an unknown newest version,
 // compared against, and losing to, nothing at all.
@@ -69,7 +69,7 @@ func ShippedGuardVersion() *int {
 // this build ships, so the TUI can offer an update even when the API is
 // behind or unreachable.
 //
-// False when there is nothing to compare against — no guard installed, or no
+// False when there is nothing to compare against, no guard installed, or no
 // packaged source next to this binary. "I cannot tell" must not read as "yours
 // is out of date", which would send someone to reinstall the same file they
 // already have.

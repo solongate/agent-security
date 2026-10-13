@@ -169,10 +169,37 @@ func protectAdd(ctx context.Context, c *api.Client, path string) (int, error) {
 	errln("  " + dim("guard      ") + green("refuses a tool call that names it"))
 	errln("  " + dim("sandbox    ") + sandboxLine(false))
 	errln("")
+	// AND THE SECOND COST OF NOT BEING FROZEN, which is not about this file.
+	//
+	// Without the immutable flag `run` cannot grant this file's directory
+	// read-write, because that grant would reach the file. So the directory gets
+	// listing and creating and not writing, and a file the agent creates there
+	// cannot then be written for as long as that run lasts. Somebody protects one
+	// source file and later wonders why their agent can touch a new file in that
+	// folder and not write it.
+	//
+	// It was reported by `run --explain`, which is the wrong place: by then the
+	// choice is made and the person is starting an agent. It belongs here, at the
+	// moment the path is protected, next to the other consequence of the same
+	// missing capability.
 	if !lock.Immutable {
 		errln("  " + yellow("The file cannot be overwritten. It can still be deleted."))
 		errln("  " + dim("Start your agent with `solongate run -- <agent>` and the sandbox"))
 		errln("  " + dim("closes that too, for anything it starts."))
+		errln("")
+		errln("  " + dim("One more cost, inside `solongate run`: this file's directory is"))
+		errln("  " + dim("granted listing and creating but not writing, because a write"))
+		errln("  " + dim("grant on a directory reaches everything under it, this file"))
+		errln("  " + dim("included. A file your agent creates there cannot then be written"))
+		errln("  " + dim("until it restarts."))
+		errln("")
+		errln("  " + dim("Both costs come from the same missing capability, and both go"))
+		errln("  " + dim("away together:"))
+		errln("")
+		errln("      " + cyan("sudo chattr +i "+abs))
+		errln("")
+		errln("  " + dim("Then the flag holds the file in the inode, below the layer"))
+		errln("  " + dim("`run` works in, and the directory is granted whole."))
 		errln("")
 	}
 	return 0, nil
@@ -207,6 +234,19 @@ func askForRoot(path string) (bool, error) {
 	errln("")
 	errln("  " + dim("If you say no: the file is set to 0444, which stops it being"))
 	errln("  " + dim("overwritten and ") + yellow("does not stop it being deleted") + dim("."))
+	errln("")
+	// THE OTHER HALF OF THE SAME ANSWER, said where the answer is given.
+	//
+	// The flag is checked in the inode, below the layer `solongate run` works
+	// in, and that is what lets run grant this file's directory read-write
+	// without the grant reaching the file. Say no and the directory gets the
+	// narrow grant instead, which costs a created file its write. Somebody
+	// choosing here should know both things they are choosing between, not just
+	// the one about deletion.
+	errln("  " + dim("And inside `solongate run`: the flag is what lets this file's"))
+	errln("  " + dim("directory stay fully writable. Without it the directory is"))
+	errln("  " + dim("granted listing and creating only, so a file your agent makes"))
+	errln("  " + dim("there cannot then be written until it restarts."))
 	errln("")
 
 	if !askYes("  Run that one command as root? [y/N] ") {

@@ -8,14 +8,14 @@ package policy
 // This is where the care goes. Each one exists because something got through:
 // a command built out of quoted fragments, a glob standing in for the real
 // filename, a path buried in a nested argument object. The comments name the
-// dodge each layer closes — keep them if the code is touched, because none of
+// dodge each layer closes, keep them if the code is touched, because none of
 // this is guessable from the shape of the function.
 //
 // One deliberate difference from the Node original: wherever JavaScript walks
 // object keys in insertion order, this walks them sorted. Go map iteration is
 // randomised, and an extractor whose OUTPUT ORDER changes between runs makes a
-// denial reproducible only by luck. Order never changes a decision — the
-// generated Rego asks "does any item match" / "do all items match" — so sorting
+// denial reproducible only by luck. Order never changes a decision, the
+// generated Rego asks "does any item match" / "do all items match", so sorting
 // buys determinism at no behavioural cost.
 
 import (
@@ -58,7 +58,7 @@ var (
 	// GlobStarRun collapses `**` and longer to a single star. Exported because
 	// both glob expanders normalise with it before building a pattern.
 	// ONE DEFINITION, in shared. The DLP scanner moved there so the MCP proxy could
-	// use it, and its glob converter needs this same rule — shared cannot import this
+	// use it, and its glob converter needs this same rule, shared cannot import this
 	// module (this one imports shared), so the regexp lives there and this is the
 	// alias. Two copies of "how many stars is one star" is exactly the kind of pair that
 	// drifts.
@@ -96,7 +96,7 @@ func SortedKeys(m map[string]interface{}) []string {
 	return keys
 }
 
-// replaceSubmatch is JavaScript's String.replace(regexp, fn) — the standard
+// replaceSubmatch is JavaScript's String.replace(regexp, fn), the standard
 // library only hands ReplaceAllStringFunc the whole match, and every callsite
 // here needs the capture group.
 func replaceSubmatch(re *regexp.Regexp, s string, fn func(groups []string) string) string {
@@ -147,7 +147,7 @@ func ScanStrings(v interface{}) []string {
 //
 // ScanStrings walks every string in a tool call, which is what the scanners want: a
 // secret can be anywhere, so DLP has to look everywhere. A PATH rule is a different
-// question — it is about the file a call touches — and asking it of every string turned
+// question, it is about the file a call touches, and asking it of every string turned
 // the TEXT of a file into a path:
 //
 //	Write { file_path: "notes.md", content: "keys live under the home key folder" }
@@ -287,7 +287,7 @@ func dequote(t string) string {
 // Every whitespace-separated token is processed, not just the last `/` segment
 // of the whole string: `rm a b c` has to check all three, and only looking at
 // the tail let the other two through. Surrounding quotes are stripped because
-// `"…/secret.env"` must reduce to `secret.env` — a trailing quote is enough to
+// `"…/secret.env"` must reduce to `secret.env`, a trailing quote is enough to
 // break an `*.env` glob.
 func ExtractFilenames(args map[string]interface{}) []string {
 	normalized := NormalizeArgs(args)
@@ -357,8 +357,8 @@ func ExtractURLs(args map[string]interface{}) []string {
 
 // ExtractPipelines lists what a call would run WITH PIPELINES KEPT WHOLE.
 //
-// ExtractCommands splits on `|` as well, which is right for a policy rule — a rule
-// naming `curl` must fire on the `curl` half of `cat x | curl y` — and wrong for any
+// ExtractCommands splits on `|` as well, which is right for a policy rule, a rule
+// naming `curl` must fire on the `curl` half of `cat x | curl y`, and wrong for any
 // check that reasons about a command AND ITS INPUT together. Egress DLP is that
 // check, and the split cost it a whole class of upload:
 //
@@ -418,7 +418,7 @@ func ExtractCommands(args map[string]interface{}) []string {
 // otherwise `node src/app.js` becomes the single path "node src/app.js", which
 // no path glob can match, and a path-scoped EXECUTE rule never fires.
 // Backslashes are normalised to `/` because the compiled Rego patterns are, and
-// OPA's glob.match does no separator translation of its own — a raw `C:\…`
+// OPA's glob.match does no separator translation of its own, a raw `C:\…`
 // silently matched nothing.
 func ExtractPaths(args map[string]interface{}, isExec bool) []string {
 	paths := []string{}
@@ -449,7 +449,7 @@ func ExtractPaths(args map[string]interface{}, isExec bool) []string {
 // files it names, in that one directory.
 //
 // A filename or path rule matches literally, so `*.env` never matches the token
-// `staging.e*` — which means `cut config/staging.e*` sails past a rule that
+// `staging.e*`, which means `cut config/staging.e*` sails past a rule that
 // `cat config/staging.env` trips, with no cleverness required. Resolving the
 // glob here lets the rule see the real file whichever reader the model reached
 // for. Bounded to one directory level, and it fails open: this is hardening on
@@ -479,7 +479,7 @@ func ExpandCommandGlobs(args map[string]interface{}, cwd string) []string {
 			// Clean BEFORE splitting, and take the basename rather than slicing at
 			// the directory's length. filepath.Dir cleans its result, so on an
 			// uncleaned path (`/srv/./app/staging.e*`, `/srv//app/x*`) the slice
-			// offset was wrong and produced a fragment containing a `/` — which no
+			// offset was wrong and produced a fragment containing a `/`, which no
 			// directory entry can ever match, so the token was silently dropped and
 			// the glob dodge this function exists to close reopened.
 			abs := g
@@ -494,7 +494,7 @@ func ExpandCommandGlobs(args map[string]interface{}, cwd string) []string {
 			}
 			// The run of `*` collapses first, matching the JavaScript twin, where
 			// it is load-bearing: this token came off the AGENT's command line,
-			// and `[^/]*[^/]*…` backtracks catastrophically there — then gets
+			// and `[^/]*[^/]*…` backtracks catastrophically there, then gets
 			// tested once per directory entry. RE2 does not backtrack, so here it
 			// only keeps the two identical.
 			pattern := GlobStarRun.ReplaceAllString(b, "*")
@@ -528,7 +528,7 @@ type refFile struct {
 // readReferencedFiles returns the contents of scripts the call would EXECUTE,
 // in the order the command mentions them.
 //
-// Only a file actually handed to an interpreter counts — `bash x.sh`,
+// Only a file actually handed to an interpreter counts, `bash x.sh`,
 // `python x.py`, `source x`. A file that is merely an argument (`rm x`, `cp x
 // y`, a read target) is not run, and inlining its text there would block
 // deleting a file whose contents happen to mention a protected name.
@@ -536,7 +536,7 @@ type refFile struct {
 // The ORDER is part of the contract, which is why this returns a slice and not
 // a map. The contents are concatenated into one command string and then run
 // through normalizeShellCommand, which resolves variable assignments
-// left-to-right — so re-ordering two inlined scripts can change what `$x`
+// left-to-right, so re-ordering two inlined scripts can change what `$x`
 // resolves to, and with it which rule fires. Discovery order is what the Node
 // hook uses; sorting the names would have been deterministic and still wrong.
 func ReadReferencedFiles(args map[string]interface{}, cwd string) []refFile {
@@ -608,7 +608,7 @@ func ReadReferencedFiles(args map[string]interface{}, cwd string) []refFile {
 // say none of that. They carry a search ROOT and a query; the files whose
 // contents come back are never named. So a path rule that denies one file under
 // that root matches nothing, the search runs, and the file's contents are
-// returned — the rule holds against the read tool and is walked straight past by
+// returned, the rule holds against the read tool and is walked straight past by
 // the search tool beside it.
 //
 // Measured on Antigravity: `view_file` on a denied path is refused, and

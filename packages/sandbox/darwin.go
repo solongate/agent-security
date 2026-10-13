@@ -8,7 +8,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 )
@@ -51,9 +50,25 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 		return rep, rep.Err
 	}
 
-	profile, denied := seatbeltProfile(p.Deny)
-	if len(denied) == 0 {
-		rep.Notes = append(rep.Notes, "nothing to deny, so the profile only blocks nothing")
+	var profile string
+	if p.Allowlist() {
+		profile, err = seatbeltWorkspaceProfile(p)
+		if err != nil {
+			rep.Err = err
+			return rep, err
+		}
+		rep.Notes = append(rep.Notes,
+			"writable: "+p.Workspace,
+			"writable outside it: "+strings.Join(p.RuntimeWrite, " "),
+			"readable, never writable: "+strings.Join(p.RuntimeRead, " "),
+			"everything else is denied by default, including $HOME itself,",
+			"so ~/.ssh, ~/.aws and every other project are unreachable")
+	} else {
+		var denied []string
+		profile, denied = seatbeltProfile(p.Deny)
+		if len(denied) == 0 {
+			rep.Notes = append(rep.Notes, "nothing to deny, so the profile only blocks nothing")
+		}
 	}
 	rep.Enforced = true
 
@@ -61,56 +76,6 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 	err = syscall.Exec(exe, full, env)
 	rep.Err = err
 	return rep, err
-}
-
-// seatbeltProfile writes the SBPL. It returns the profile and the paths that
-// made it in, which is not always every path asked for: one that does not
-// exist cannot be canonicalised and is reported rather than silently dropped.
-func seatbeltProfile(deny []string) (string, []string) {
-	var b strings.Builder
-	b.WriteString("(version 1)\n(allow default)\n")
-
-	var got []string
-	ancestors := map[string]bool{}
-
-	for _, d := range deny {
-		abs, err := filepath.Abs(d)
-		if err != nil {
-			continue
-		}
-		abs = filepath.Clean(abs)
-		forms := map[string]bool{abs: true}
-		// The canonical form as well as the literal one. Seatbelt matches what
-		// the kernel resolves, so a symlink to the file is a way past a rule
-		// written against the name the user typed.
-		if real, err := filepath.EvalSymlinks(abs); err == nil {
-			forms[real] = true
-		}
-		for f := range forms {
-			b.WriteString("(deny file-read* (literal " + sbplString(f) + "))\n")
-			b.WriteString("(deny file-write* (literal " + sbplString(f) + "))\n")
-			b.WriteString("(deny file-read* (subpath " + sbplString(f) + "))\n")
-			b.WriteString("(deny file-write* (subpath " + sbplString(f) + "))\n")
-			for dir := filepath.Dir(f); dir != "/" && dir != "."; dir = filepath.Dir(dir) {
-				ancestors[dir] = true
-			}
-		}
-		got = append(got, abs)
-	}
-
-	// Resolving any path stats every directory above it, so the ancestors of a
-	// denied path keep their metadata readable. Without this, denying
-	// ~/game/game.c makes ~/game/readme.md unreachable as well, and the symptom
-	// is an agent that cannot see files nobody protected.
-	for dir := range ancestors {
-		b.WriteString("(allow file-read-metadata (literal " + sbplString(dir) + "))\n")
-	}
-	return b.String(), got
-}
-
-// sbplString quotes a path for SBPL, which is a Scheme dialect.
-func sbplString(s string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 // Preview is what Launch would cost. Seatbelt has real deny rules, so there

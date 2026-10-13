@@ -21,7 +21,7 @@ var trailingSep = regexp.MustCompile(`[\\/]+$`)
 // The folder is a PROJECT setting, so it reaches every device on the project: a
 // Windows path arrives on a Linux machine and is not a location there. Node
 // would treat it as relative and create it under the agent's working directory,
-// polluting whatever repo it happened to be in. Fall back instead — the entry
+// polluting whatever repo it happened to be in. Fall back instead, the entry
 // matters more than the location.
 func resolveLocalLogDir(raw string) string {
 	dir := trailingSep.ReplaceAllString(strings.TrimSpace(raw), "")
@@ -36,7 +36,7 @@ func resolveLocalLogDir(raw string) string {
 
 // accountMark hashed the key into the 16 characters stamped on each line as `acct`,
 // so a machine paired to two accounts could tell whose calls were whose. Nothing
-// pairs, and nothing ever read the stamp — see config.go.
+// pairs, and nothing ever read the stamp, see config.go.
 
 func writeLocalLog(sec *shared.Security, entry map[string]interface{}) {
 	dir := ""
@@ -47,7 +47,7 @@ func writeLocalLog(sec *shared.Security, entry map[string]interface{}) {
 		// No folder named, so the per-device default. RECORDING IS NOT OPTIONAL:
 		// this used to return when the configuration said local logging was off,
 		// which made sense while there was a service to POST to instead. With that
-		// gone, returning here loses the record entirely — the only thing the
+		// gone, returning here loses the record entirely, the only thing the
 		// setting can still choose is WHERE.
 		dir = filepath.Join(shared.SGDir(), "local-logs")
 	}

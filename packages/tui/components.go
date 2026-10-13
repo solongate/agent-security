@@ -3,7 +3,6 @@
 package tui
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
@@ -73,7 +72,7 @@ type StreamRow struct {
 //
 // `loc` tags where the record IS: LOC (a line in this machine's local log)
 // against CLD (the cloud audit log). With local storage off nothing is LOC,
-// which is the whole point of the setting — the label answers "where is this
+// which is the whole point of the setting, the label answers "where is this
 // stored", never "where did this happen". It was changed to the second reading
 // once and changed back.
 //
@@ -90,8 +89,8 @@ func streamLine(e StreamRow, selected, date bool, width int) string {
 	}
 	// A LOC/CLD column stood here, from a `loc bool` parameter. Every entry on every
 	// surface comes from this machine's own audit file, so the column distinguished
-	// nothing — and labelled some of them "cloud".
-	evalText, evalColor := "—", theme.Dim
+	// nothing, and labelled some of them "cloud".
+	evalText, evalColor := ", ", theme.Dim
 	if e.EvalMs != nil {
 		evalText = num(*e.EvalMs) + "ms"
 		if *e.EvalMs > 500 {
@@ -135,14 +134,16 @@ func streamLine(e StreamRow, selected, date bool, width int) string {
 	return renderRow(width, segs...)
 }
 
-// panelHeading is the boxed-panel title and the blank line under it.
-func panelHeading(title, subtitle string, width int) []string {
-	segs := []seg{sgb(title, theme.AccentBright)}
-	if subtitle != "" {
-		segs = append(segs, sg("  "+subtitle, theme.Dim))
-	}
-	return []string{renderRow(width, segs...), ""}
-}
+// panelHeading, table and bar were here: a boxed-panel title helper, a
+// fixed-width aligned table over Column/Cell, and a labelled horizontal bar.
+// Nothing called any of them. Each panel builds its rows from renderRow and the
+// seg helpers directly, because each needs its own column behaviour, the audit
+// browser ellipsises a reason, Solo Live right-aligns a duration, and a shared
+// table that none of them could use was a component in name only.
+//
+// The bar is the one worth a note: Solo Live draws its TRAFFIC and HEARTBEAT
+// graphs with block glyphs scaled per bucket, not with a labelled bar, and a
+// reader finding `bar` here would reasonably think that is what the graphs are.
 
 // dataView wraps panel content with the loading / error / empty handling every
 // panel shares. An error wins over a spinner: a panel that shows "loading…"
@@ -164,64 +165,6 @@ func dataView(loading bool, err error, empty bool, emptyText string, width int, 
 }
 
 // Column and Cell describe a fixed-width table.
-type Column struct {
-	Header string
-	Width  int
-}
-
-type Cell struct {
-	Value string
-	Color lipgloss.TerminalColor
-	Dim   bool
-	Bold  bool
-}
-
-// table renders a fixed-width aligned table: the header row followed by the
-// data rows, each cell padded or ellipsised to its column width.
-func table(columns []Column, rows [][]Cell, width int) []string {
-	out := make([]string, 0, len(rows)+1)
-	head := make([]seg, 0, len(columns))
-	for _, c := range columns {
-		head = append(head, sg(fit(c.Header, c.Width)+"  ", theme.Dim))
-	}
-	out = append(out, renderRow(width, head...))
-	for _, row := range rows {
-		segs := make([]seg, 0, len(row))
-		for i, cell := range row {
-			w := 10
-			if i < len(columns) {
-				w = columns[i].Width
-			}
-			s := seg{text: fit(cell.Value, w) + "  ", fg: cell.Color, bold: cell.Bold}
-			if cell.Dim && s.fg == nil {
-				s.fg = theme.Dim
-			}
-			segs = append(segs, s)
-		}
-		out = append(out, renderRow(width, segs...))
-	}
-	return out
-}
-
-// bar is a labelled horizontal bar scaled to max.
-func bar(label string, value, max, width int, color lipgloss.TerminalColor) string {
-	filled := 0
-	if max > 0 {
-		filled = int(float64(value)/float64(max)*float64(width) + 0.5)
-	}
-	if filled > width {
-		filled = width
-	}
-	if filled < 0 {
-		filled = 0
-	}
-	return renderRow(0,
-		plain(padEnd(label, 16)),
-		sg(strings.Repeat("█", filled), color),
-		sg(strings.Repeat("░", width-filled), theme.Dim),
-		sg("  "+strconv.Itoa(value), theme.Dim),
-	)
-}
 
 // keyHints is the footer legend: the key in the accent colour, its meaning dim.
 func keyHints(hints [][2]string, width int) string {
@@ -263,7 +206,7 @@ func helpBlock(groups []helpGroup, keyWidth, width int) []string {
 // whyBlock is the WHY of one entry, rendered above its arguments.
 //
 // The detail view used to open on the arguments alone. For a one-line command
-// that was almost readable — the rule id sat in the header and the rest could be
+// that was almost readable, the rule id sat in the header and the rest could be
 // guessed. For a real tool call it was a screen of JSON with the answer nowhere
 // on it: the reason the guard gave was recorded, and thrown away at display
 // time, because the row's `detail` field holds the arguments OR the reason and
@@ -271,7 +214,7 @@ func helpBlock(groups []helpGroup, keyWidth, width int) []string {
 //
 // So the three things that refuse a call now say so in words, before the
 // payload: which layer it was (policy rule, rate limit, DLP), and the guard's
-// own sentence explaining it. That sentence is the reliable one — it is written
+// own sentence explaining it. That sentence is the reliable one, it is written
 // at block time and never redacted, which is why reasonSignals reads the DLP
 // pattern name back out of it when the structured field is missing.
 //

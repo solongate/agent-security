@@ -38,7 +38,7 @@ var (
 	stderr io.Writer = os.Stderr
 )
 
-// out is command OUTPUT — the thing a user pipes into jq.
+// out is command OUTPUT, the thing a user pipes into jq.
 func out(s string) { fmt.Fprintln(stdout, s) }
 
 // errln is everything a human reads: headings, tables, confirmations, errors.
@@ -189,7 +189,7 @@ func decisionColor(decision string) string {
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// displayWidth measures a cell for alignment, ignoring the colour codes in it —
+// displayWidth measures a cell for alignment, ignoring the colour codes in it,
 // otherwise every coloured cell pads nine characters too narrow and the table
 // shears.
 //
@@ -258,8 +258,8 @@ func cell(r []string, i int) string {
 // truncate shortens to n characters with an ellipsis.
 //
 // It cuts on rune boundaries even though it measures in UTF-16 units, because
-// the alternative — reproducing JavaScript's ability to slice a surrogate pair
-// in half — writes a broken character into the terminal to be faithful to a bug.
+// the alternative, reproducing JavaScript's ability to slice a surrogate pair
+// in half, writes a broken character into the terminal to be faithful to a bug.
 func truncate(s string, n int) string {
 	if displayWidth(s) <= n {
 		return s
@@ -306,7 +306,7 @@ func sparkline(values []int) string {
 	return b.String()
 }
 
-// fixed0 rounds to a whole number the way JavaScript's toFixed(0) does — half
+// fixed0 rounds to a whole number the way JavaScript's toFixed(0) does, half
 // away from zero. Go's %.0f rounds half to even, so a 0.5 KB log file printed
 // as 0KB there and 1KB in the CLI this replaces.
 func fixed0(v float64) string { return fmt.Sprintf("%d", int64(math.Round(v))) }
@@ -315,3 +315,87 @@ func fixed0(v float64) string { return fmt.Sprintf("%d", int64(math.Round(v))) }
 // round-trips, and never an exponent at the magnitudes these fields carry. A
 // trust score of 75 has to read as 75, not 75.000000 and not 7.5e+01.
 func num(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
+// ── wrapping a line that is longer than the terminal ─────────────────────────
+
+// INDENTED CONTINUATION, because the alternative looked like a different
+// program had written the line.
+//
+// Every line this CLI prints is either a marked step or indented under one:
+//
+//	[  OK  ] guard hook file      present (v112)
+//	         open a new AI session for it to take effect
+//
+// Nine spaces is the width of the mark, so the unmarked lines sit in the column
+// the marked ones start in. That holds for as long as a line fits. The repair
+// note about a leftover credential does not, it is three sentences, and the
+// terminal wrapped it at column zero: the first line sat in the indented column
+// and the rest ran along the left margin, under the marks rather than beside
+// them.
+//
+// So the wrapping is done here, where the indent is known, rather than left to
+// the terminal, which does not know there is one.
+const markIndent = "         " // the width of "[  OK  ] "
+
+// termWidth is the usable width, or 0 when there is no terminal to measure.
+//
+// COLUMNS FIRST, because it is what the user set and what a pipe does not have.
+// The per-platform probe below is the real answer when the variable is absent,
+// and both are absent when this is a log file, which is the case that must not
+// wrap: a log has no width, and folding it at some assumed column makes every
+// line a guess.
+func termWidth() int {
+	if v := os.Getenv("COLUMNS"); v != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			return n
+		}
+	}
+	// stderr here is an io.Writer so tests can capture it, and a captured
+	// buffer has no file descriptor and no width.
+	f, ok := stderr.(*os.File)
+	if !ok || !isTerminal(f) {
+		return 0
+	}
+	return terminalColumns(f)
+}
+
+// wrapIndented folds text to the terminal width and puts every line, including
+// the first, in the indented column.
+//
+// Words longer than the available width are left alone rather than broken: they
+// are paths, and a path cut in half is a path somebody cannot copy. One long
+// path overflowing is a worse line; a broken one is a wrong line.
+func wrapIndented(text string) []string {
+	width := termWidth()
+	avail := width - len(markIndent)
+	// A narrow or unmeasurable terminal gets the text whole. Folding at a
+	// column that was guessed is not better than not folding.
+	if width == 0 || avail < 20 {
+		return []string{markIndent + text}
+	}
+
+	var out []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case len(line)+1+len(word) <= avail:
+			line += " " + word
+		default:
+			out = append(out, markIndent+line)
+			line = word
+		}
+	}
+	if line != "" {
+		out = append(out, markIndent+line)
+	}
+	return out
+}
+
+// noteln prints one unmarked line under the marked ones, wrapped.
+func noteln(text string) {
+	for _, l := range wrapIndented(text) {
+		errln(l)
+	}
+}

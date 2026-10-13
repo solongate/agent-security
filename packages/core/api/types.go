@@ -83,8 +83,8 @@ func (r PolicyRule) Permissions() []vocab.Permission {
 
 // Rules decodes a rule array one element at a time.
 //
-// A single `json.Unmarshal` over the array means one mistyped field anywhere —
-// a `denied` written as a bare string, a quoted priority — fails the whole
+// A single `json.Unmarshal` over the array means one mistyped field anywhere,
+// a `denied` written as a bare string, a quoted priority, fails the whole
 // decode and the caller sees a policy with no rules while the dashboard still
 // shows them as active. The guard learned this the expensive way: there, an
 // empty rule list means allow everything. Here it means a policy renders as
@@ -145,8 +145,8 @@ type PolicySet struct {
 	// contractor under a whitelist and everybody else under a denylist without
 	// being two policies that drift apart.
 	//
-	// Top-level Rules above is still the shape every installed guard reads —
-	// the API projects the chosen variant into it on the way out — so these
+	// Top-level Rules above is still the shape every installed guard reads,
+	// the API projects the chosen variant into it on the way out, so these
 	// three fields are what the EDITOR sees and never what a guard is served.
 	// A policy written before variants existed has none of them, which is why
 	// they are all omitempty: sending `"variants": null` back on a save would
@@ -163,7 +163,7 @@ type PolicySet struct {
 // own secret detectors, its own rate limit.
 //
 // Name is what a person picks from a list and ID is what a fleet grant pins, so
-// renaming a variant must not change its id — the dashboard does not offer the
+// renaming a variant must not change its id, the dashboard does not offer the
 // rename for exactly that reason.
 type PolicyVariant struct {
 	ID       string          `json:"id"`
@@ -177,7 +177,7 @@ type PolicyVariant struct {
 // A policy with no variants array still has a setting in force: its top-level
 // rules. Returning that as a variant named Base means every caller reads one
 // list rather than branching on whether the bundle exists, and the id is empty
-// because there is nothing for a grant to pin — an empty pin already means "the
+// because there is nothing for a grant to pin, an empty pin already means "the
 // default", which is what Base is.
 func (p PolicySet) VariantList() []PolicyVariant {
 	if len(p.Variants) == 0 {
@@ -228,8 +228,8 @@ type DLPSettings struct {
 }
 
 // ActivePolicySecurity mirrors the /policies/active security block. Every field
-// is a pointer because `null` there is an ANSWER — this project has no such
-// layer configured — and has to stay distinguishable from a field the API did
+// is a pointer because `null` there is an ANSWER, this project has no such
+// layer configured, and has to stay distinguishable from a field the API did
 // not send.
 type ActivePolicySecurity struct {
 	RateLimit *RateLimitSettings `json:"rateLimit"`

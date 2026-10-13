@@ -21,8 +21,8 @@ import (
 //	                                         "timeout"?: <seconds>,
 //	                                         "statusMessage"?: "…" } ] } ] } }
 //
-// Its PreToolUse contract is the one Claude Code uses — deny is exit 2 with the
-// reason on stderr, or a permissionDecision on stdout — so the guard's
+// Its PreToolUse contract is the one Claude Code uses, deny is exit 2 with the
+// reason on stderr, or a permissionDecision on stdout, so the guard's
 // claude-code branch already speaks it and the agent type only changes identity
 // and audit source. Codex fires the hooks for Bash, apply_patch (whose matcher
 // aliases Write/Edit), MCP tools and local function tools.
@@ -33,8 +33,8 @@ import (
 //
 // One-time trust: Codex refuses to RUN a non-managed hook until the user
 // reviews it with `/hooks`, keyed by a hash of the hook's config. The command
-// string is stable across guard updates — the file content changes, the
-// registration does not — so the trust survives every later update and is asked
+// string is stable across guard updates, the file content changes, the
+// registration does not, so the trust survives every later update and is asked
 // for exactly once.
 
 // The events registered here, in the order they are written.
@@ -49,7 +49,7 @@ const codexTimeoutSec = 30
 
 // Every event name Codex knows. Needed because a stray top-level event key makes
 // Codex reject the WHOLE file (deny_unknown_fields), silently dropping every
-// hook including ours — so the reader folds those keys into `hooks` instead of
+// hook including ours, so the reader folds those keys into `hooks` instead of
 // leaving a file that cannot be loaded.
 var codexAllEvents = map[string]bool{
 	"PreToolUse": true, "PermissionRequest": true, "PostToolUse": true,
@@ -156,11 +156,11 @@ func (f codexFile) encode() ([]byte, error) {
 
 // codexHookCommand has NO PowerShell call prefix, unlike the Claude and
 // Antigravity registrations. Codex runs a hook command through `$SHELL -lc` on
-// POSIX and cmd.exe on Windows, and cmd has no call operator — a `&` prefix
+// POSIX and cmd.exe on Windows, and cmd has no call operator, a `&` prefix
 // there would break the hook rather than fix it.
 func codexHookCommand(p Paths, node, script string) string {
 	// Codex runs a hook through `$SHELL -lc` on POSIX, so its environment DOES
-	// usually have node on PATH — but "usually" is what the last version of this
+	// usually have node on PATH, but "usually" is what the last version of this
 	// relied on. It goes through the launcher too, which tries PATH anyway.
 	//
 	// The one difference from the others: no PowerShell call prefix on Windows.
@@ -235,7 +235,7 @@ func planCodex(p Paths, node string) (registration, error) {
 }
 
 // removeCodexRegistration drops only our entries; anything the user configured
-// stays. Like the other clients the .bak is never restored — a backup taken
+// stays. Like the other clients the .bak is never restored, a backup taken
 // while the guard was registered would silently re-add it.
 func removeCodexRegistration(p Paths) error {
 	if !Exists(p.CodexHooksPath) {
@@ -267,7 +267,7 @@ func removeCodexRegistration(p Paths) error {
 }
 
 // isOurCodexGroup identifies our entries by the command pointing into
-// ~/.solongate, which is how the file itself says who owns a hook — there is no
+// ~/.solongate, which is how the file itself says who owns a hook, there is no
 // name to own, the way Antigravity has one.
 func isOurCodexGroup(raw json.RawMessage) bool {
 	var g struct {
@@ -327,7 +327,7 @@ func codexRegisteredCommand(p Paths) string {
 
 // CodexStatus is three separate questions because Codex has three separate ways
 // of not running a hook: it is not registered, hooks are switched off wholesale
-// in config.toml, or it is registered but never trusted — and Codex silently
+// in config.toml, or it is registered but never trusted, and Codex silently
 // SKIPS a hook it has not been trusted for. "Registered" alone does not mean the
 // guard is live there.
 type CodexStatus struct {

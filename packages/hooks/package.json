@@ -36,9 +36,6 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "dependencies": {
-    "@open-policy-agent/opa-wasm": "^1.10.0"
-  },
   "devDependencies": {
     "esbuild": "^0.28.2"
   },

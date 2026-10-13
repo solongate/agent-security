@@ -50,6 +50,7 @@ replace github.com/solongate/agent-security/packages/shared => ../shared
 require (
 	github.com/solongate/agent-security/packages/cli v0.0.0
 	github.com/solongate/agent-security/packages/core v0.0.0
+	github.com/solongate/agent-security/packages/sandbox v0.0.0-00010101000000-000000000000
 	github.com/solongate/agent-security/packages/tui v0.0.0
 )
 
@@ -58,3 +59,5 @@ replace github.com/solongate/agent-security/packages/core => ../core
 replace github.com/solongate/agent-security/packages/cli => ../cli
 
 replace github.com/solongate/agent-security/packages/tui => ../tui
+
+replace github.com/solongate/agent-security/packages/sandbox => ../sandbox

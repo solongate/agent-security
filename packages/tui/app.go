@@ -4,11 +4,11 @@
 // `solongate` with no arguments.
 //
 // It is the Bubble Tea port of packages/proxy/src/tui. The shell in this file
-// is App.tsx — the frame, the nav, the account switcher and the key routing —
+// is App.tsx, the frame, the nav, the account switcher and the key routing,
 // and the sections plug into it through the Panel interface below. Two rules
 // carry over from the Ink implementation and are not negotiable:
 //
-//  1. A frame is at most (terminal rows - 1) lines tall. Ink abandoned its diff
+//  1. A frame is at most (terminal rows, 1) lines tall. Ink abandoned its diff
 //     and did clearTerminal plus a full rewrite on EVERY render once a frame
 //     reached the terminal's height, which looked like a glitch whenever bright
 //     content was on screen. Bubble Tea repaints the same way. clampBlock below
@@ -45,6 +45,36 @@ import (
 type Deps struct {
 	API *api.Client
 	Cfg config.TUIConfig
+
+	// Confinement is what this machine can do about confining an agent, as
+	// PLAIN DATA rather than as a package the TUI imports.
+	//
+	// THE TUI DOES NOT IMPORT packages/sandbox, and that is the point of this
+	// field. The Sandbox panel needs two facts, which kernel mechanism is
+	// available, and why a closed box cannot be built when it cannot, and
+	// reaching for them directly meant the TUI module required go-landlock and
+	// libcap/psx for a panel that draws a list. Somebody reading the TUI found
+	// kernel confinement in it.
+	//
+	// The caller fills it. `app` links the sandbox package already, because the
+	// CLI it dispatches to does; asking there and passing the answer in costs
+	// one struct and removes a dependency from a module that only renders.
+	Confinement Confinement
+}
+
+// Confinement is the answer to "what can this machine do", flattened so no
+// layer above the sandbox package has to depend on it.
+type Confinement struct {
+	// Mechanism is the kernel feature `solongate run` would use here:
+	// "Landlock", "Seatbelt", "icacls deny (per run)", or "" where there is
+	// none.
+	Mechanism string
+
+	// BoxUnavailable is why `solongate sandbox` cannot build a closed box here,
+	// and nil when it can. A sentence, because it is printed: a missing bwrap
+	// names the package to install, and a kernel with no user namespaces says
+	// which sysctl said so.
+	BoxUnavailable error
 }
 
 // PanelContext is what the shell knows at the moment a panel updates or
@@ -120,8 +150,8 @@ type SectionRequestMsg struct{ Label string }
 //
 // NOTHING SENDS IT in this build. The producer was a background `npm i -g` off a
 // version the service advertised, and it went with the service. The message and its
-// renderer are kept deliberately: they are the seam an update mechanism plugs into —
-// send one of these and the banner appears — and re-deriving the render path would be
+// renderer are kept deliberately: they are the seam an update mechanism plugs into,
+// send one of these and the banner appears, and re-deriving the render path would be
 // more work than leaving it. The banner cannot appear on its own.
 type UpdateStatusMsg struct {
 	// Kind is one of "idle", "available", "updating", "updated", "needs-admin".
@@ -136,19 +166,27 @@ type UpdateStatusMsg struct {
 //
 // Rate Limit and DLP are NOT in it any more, and their absence is the point. A
 // policy is rules AND a DLP configuration AND a rate limit, in
-// as many variants as a team keeps — so a rate limit that lived beside policies
+// as many variants as a team keeps, so a rate limit that lived beside policies
 // rather than inside one described enforcement that no longer exists. They are
 // levels of the Policies panel, on the variant they belong to.
+// SANDBOX IS ITS OWN SECTION, not a row under Settings, and the reason is what
+// it decides. Every other setting on this product tunes how a tool call is
+// JUDGED, which rules apply, what counts as a secret, how many calls a minute.
+// The sandbox decides what the agent can reach at all, before any call is
+// judged, and it is the only setting whose answer the agent cannot argue with.
+// A one-line row beside "doctor" and "repair" described it as an option of the
+// same size as those.
 const (
 	SectionLive = iota
 	SectionPolicies
 	SectionAudit
+	SectionSandbox
 	SectionSettings
 	sectionCount
 )
 
 var sectionLabels = [sectionCount]string{
-	"Solo Live", "Policies", "Audit", "Settings",
+	"Solo Live", "Policies", "Audit", "Sandbox", "Settings",
 }
 
 var registry [sectionCount]func(Deps) Panel
@@ -156,7 +194,7 @@ var registry [sectionCount]func(Deps) Panel
 // Register installs a panel constructor for a section.
 //
 // Each panel file calls it from its own init(), so adding a section never means
-// editing this file — several people porting different panels at the same time
+// editing this file, several people porting different panels at the same time
 // would otherwise all be editing one list. A section with no constructor still
 // appears in the nav and says it is not ported yet, which is the honest answer
 // and keeps the numbering stable while the port is half done.
@@ -173,7 +211,7 @@ func Register(section int, ctor func(Deps) Panel) {
 // straight back builds a NEW panel of the SAME generation while the previous
 // one's ticker is still in flight. That tick is delivered to the new panel,
 // which re-arms it on top of the chain its own Init already started, and the
-// section quietly polls twice as often for the rest of the session — once more
+// section quietly polls twice as often for the rest of the session, once more
 // per visit. A panel that stamps its token on its ticks can tell them apart.
 //
 // Not atomic on purpose: Bubble Tea builds and updates models on one goroutine.
@@ -490,7 +528,7 @@ func (a *App) bannerLines(width int) []string {
 	if a.cols < 82 {
 		return []string{renderRow(width,
 			sgb("SolonGate", theme.AccentBright),
-			sg(" — security control center", theme.Dim))}
+			sg(", security control center", theme.Dim))}
 	}
 	out := make([]string, 0, len(term.BannerFull)+1)
 	for _, l := range term.BannerFull {
@@ -602,7 +640,7 @@ var shellHelp = []helpGroup{
 	{"Policies", [][2]string{
 		{"↑↓", "browse / select"},
 		{"a", "activate (pin) selected policy"},
-		{"x", "deactivate — no active policy"},
+		{"x", "deactivate, no active policy"},
 		{"enter", "open a policy → a layer → a rule"},
 		{"tab", "switch variant (v new · V remove)"},
 		{"space", "toggle a rule on/off"},
@@ -648,7 +686,7 @@ func (a *App) helpView() string {
 	if width < 20 {
 		width = 20
 	}
-	lines := []string{"", renderRow(width, sgb("SolonGate — keyboard shortcuts", theme.AccentBright)), ""}
+	lines := []string{"", renderRow(width, sgb("SolonGate, keyboard shortcuts", theme.AccentBright)), ""}
 	lines = append(lines, helpBlock(shellHelp, 16, width)...)
 	lines = append(lines, renderRow(width, sg("press any key to close", theme.Dim)))
 	for i, l := range lines {
@@ -685,9 +723,14 @@ func clampBlock(s string, cols, rows int) string {
 // The caller is responsible for the human-only gate: every command in this CLI
 // changes or reveals a security posture, and the TUI is the one that does
 // both. See assertHumanTerminal in main.go.
-func Run() error {
+// Run opens the TUI. The confinement facts are passed in rather than looked up:
+// see Deps.Confinement for why this module does not import the sandbox package.
+func Run(c Confinement) error {
 	cfg := config.LoadTUIConfig()
 	setAccent(cfg.Accent)
+	// NO_COLOR after the accent, so it wins over whatever tui-config.json asked
+	// for. A user who has turned colour off has turned it off.
+	flatten()
 
 	// Anything written to stderr lands on top of the frame, and the standard
 	// logger's default destination is stderr. Ink had the same problem with
@@ -701,7 +744,7 @@ func Run() error {
 		}
 	}
 
-	deps := Deps{API: api.New(), Cfg: cfg}
+	deps := Deps{API: api.New(), Cfg: cfg, Confinement: c}
 
 	// THE FIRST RUN COMES FIRST, and the TUI does not open behind it. See
 	// setup.go for why this is a gate rather than a section in the nav: the

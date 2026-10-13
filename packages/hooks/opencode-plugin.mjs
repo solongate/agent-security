@@ -8,7 +8,7 @@
  * process, and a tool call is refused by throwing from `tool.execute.before`.
  *
  * So this file is a shim, not an engine. It spawns the same guard every other
- * client runs and turns its answer into the shape OpenCode wants — which keeps
+ * client runs and turns its answer into the shape OpenCode wants, which keeps
  * one implementation of policy, DLP, rate limiting and auditing
  * instead of a second one that drifts.
  *
@@ -38,13 +38,25 @@ import { join } from 'node:path';
 const HOOKS_DIR = join(homedir(), '.solongate', 'hooks');
 const GUARD = join(HOOKS_DIR, 'guard.mjs');
 const AUDIT = join(HOOKS_DIR, 'audit.mjs');
-const CONVERSATION = join(HOOKS_DIR, 'conversation.mjs');
+// THE SPEND HOOK, AND IT WAS POINTED AT A FILE THAT DOES NOT EXIST.
+//
+// This was `conversation.mjs`, which recorded a turn's words as well as its
+// cost. The transcript half was dropped and the file was renamed for what is
+// left, which this plugin never followed: nothing produces `conversation.mjs`,
+// no build emits it, the installer does not stage it, so all three calls below
+// were spawning a path that is not there. runHook does not report that, so the
+// failure was silent and OpenCode was the one client reporting no spend at all.
+//
+// The payload the token call sends is exactly the shape the hook's `opencode`
+// branch reads: `{opencode: true, tokens: true, session_id, turn_key, ...}`.
+// Only the filename was wrong.
+const TOKENS = join(HOOKS_DIR, 'tokens.mjs');
 
 // The node binary, written in by the installer.
 //
 // NOT process.execPath: OpenCode runs plugins inside its own Bun-based binary,
 // so in here process.execPath is `.../opencode-ai/bin/opencode.exe`. Spawning
-// THAT with the guard as an argument does not run the guard — it re-runs
+// THAT with the guard as an argument does not run the guard, it re-runs
 // opencode with nonsense arguments, which exits non-2, which this shim reads as
 // "allowed". The result was a guard that never guarded and never said so.
 // Measured: execPath=/…/opencode-ai/bin/opencode.exe, versions.bun=1.3.14.
@@ -55,7 +67,7 @@ const NODE = NODE_BAKED.startsWith('__SOLONGATE') || !existsSync(NODE_BAKED) ? '
 // node at RUN time and leaves the beat every other client leaves.
 //
 // The baked path above is `process.execPath` from the install, and on a Mac
-// that is a Homebrew Cellar path or an nvm version directory — both deleted by
+// that is a Homebrew Cellar path or an nvm version directory, both deleted by
 // a routine upgrade. The `'node'` fallback then needs PATH to have one, which
 // is exactly the assumption that does not hold inside a hook environment. The
 // launcher tries the baked path first, then PATH, then everywhere a Mac keeps a
@@ -71,81 +83,21 @@ function spawnArgs(script) {
 }
 
 // The guard carries its own 8s backstop; this is the outer bound for the whole
-// round trip so a wedged process can never hang the editor.
-const GUARD_TIMEOUT_MS = 15000;
-
-/**
- * Run a hook with a JSON payload on stdin. Resolves to {code, stdout, stderr},
- * or null when the hook could not be run at all.
- */
-function runHook(script, payload, timeoutMs) {
-  return new Promise((resolve) => {
-    if (!existsSync(script)) return resolve(null);
-    let done = false;
-    const finish = (v) => { if (!done) { done = true; resolve(v); } };
-    let child;
-    try {
-      const [bin, argv] = spawnArgs(script);
-      child = spawn(bin, argv, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-      });
-    } catch {
-      return finish(null);
-    }
-    let stdout = '', stderr = '';
-    child.stdout.on('data', (d) => { stdout += d; });
-    child.stderr.on('data', (d) => { stderr += d; });
-    child.on('error', () => finish(null));
-    child.on('close', (code) => finish({ code, stdout, stderr }));
-    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} finish(null); }, timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
-    try { child.stdin.end(JSON.stringify(payload)); } catch { finish(null); }
-  });
-}
-
-/** The deny reason, preferring the structured field over the stderr line. */
-function denyReason(res) {
-  try {
-    const j = JSON.parse(res.stdout);
-    const r = j?.hookSpecificOutput?.permissionDecisionReason;
-    if (typeof r === 'string' && r.trim()) return r.trim();
-  } catch { /* not JSON — fall back to stderr */ }
-  const line = String(res.stderr || '').split('\n').map((s) => s.trim()).filter(Boolean).pop();
-  return line || 'Blocked by SolonGate.';
-}
-
-/** A rewrite instruction, when the guard asked for one (DLP read redaction). */
-function rewritePatch(res) {
-  try {
-    const j = JSON.parse(res.stdout);
-    const h = j?.hookSpecificOutput;
-    if (h?.permissionDecision === 'allow' && h.updatedInput && typeof h.updatedInput === 'object') {
-      return h.updatedInput;
-    }
-  } catch { /* no patch */ }
-  return null;
-}
-
-// The assistant text held between the part events and the message completing.
+// THE REPLY BUFFER AND THE TEXT JOINER WERE HERE, and both are gone with the
+// transcript recorder they fed.
 //
-// Keyed by message id, cleared on flush, and dropped whole past a bound: a
-// plugin that grows a buffer for the life of an editor session is a leak in
-// somebody's editor, which is a worse bug than a missing transcript.
-const pending = new Map();
-const MAX_PENDING = 64;
-
-// textOf joins the text parts of a message and ignores the rest — a file
-// attachment or a tool call is not something a person said. A synthetic part
-// is one OpenCode wrote itself, which is not either.
-function textOf(parts) {
-  if (!Array.isArray(parts)) return '';
-  return parts
-    .filter((x) => x && x.type === 'text' && typeof x.text === 'string' && !x.synthetic)
-    .map((x) => x.text)
-    .join('\n')
-    .trim();
-}
+// `pending` held each message's text by id so a completed message could be
+// flushed to a hook that recorded what was said. `textOf` joined a message's
+// text parts and skipped attachments, tool calls and the synthetic parts
+// OpenCode writes itself.
+//
+// Nothing records a transcript now, so the buffer was accumulating every reply
+// in the editor's own process for nothing to read. A bound kept it from growing
+// without end, which made it a small leak rather than a large one; neither is
+// worth having for a feature that does not exist.
+//
+// Spend is still reported, from `event` below, and that path never needed the
+// text.
 
 export const SolonGate = async ({ directory, worktree } = {}) => {
   const cwd = directory || worktree || process.cwd();
@@ -188,38 +140,35 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
     //
     // So the parts are held per message id and flushed when that message
     // completes.
-    'chat.message': async (input, output) => {
-      const text = textOf(output?.parts);
-      if (!text) return;
-      void runHook(CONVERSATION, {
-        opencode: true,
-        role: 'prompt',
-        body: text,
-        session_id: input?.sessionID ?? output?.message?.sessionID ?? '',
-      }, GUARD_TIMEOUT_MS);
-    },
+    // THE PROMPT AND REPLY CALLS ARE GONE, not repointed.
+    //
+    // They sent `{role: 'prompt', body: text}` and `{role: 'reply', body}` to
+    // the transcript recorder, and that feature was removed from this product:
+    // the hook they went to reads `tokens: true` and returns on anything else,
+    // so repointing them at it would send a turn's full text to a hook that
+    // drops it. Sending the words of every prompt and reply somewhere, for
+    // nothing to read, is the opposite of what this tool is for.
+    //
+    // `chat.message` has nothing else to do, so the handler goes with them.
+    // Spend is reported from `event` below, where OpenCode sends it.
 
     event: async ({ event } = {}) => {
       if (!event || typeof event !== 'object') return;
 
-      // A text part of a message. `text` is the WHOLE text so far rather than a
-      // delta, so the last one wins and nothing is concatenated.
       // numberOr keeps a missing or nonsense count out of a spend figure. A
-      // field this SDK version does not declare — info.tokens.total is one —
+      // field this SDK version does not declare, info.tokens.total is one,
       // arrives undefined rather than zero, and Number(undefined) is NaN.
       const numberOr = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
 
-      if (event.type === 'message.part.updated') {
-        const part = event.properties?.part;
-        if (part?.type === 'text' && part.messageID && typeof part.text === 'string') {
-          if (pending.size > MAX_PENDING) pending.clear();
-          pending.set(part.messageID, { text: part.text, sessionID: part.sessionID ?? '' });
-        }
-        return;
-      }
+      // `message.part.updated` was handled here, to hold each text part for the
+      // transcript recorder. With nothing holding text there is nothing to do
+      // with the event, and falling through to the completion check below would
+      // read a part as a finished message. Returning early on it is the one
+      // thing still needed.
+      if (event.type === 'message.part.updated') return;
 
-      // The message finished. Anything else — a user message, one still being
-      // written — is not a completed answer and is left alone.
+      // The message finished. Anything else, a user message, one still being
+      // written, is not a completed answer and is left alone.
       if (event.type === 'message.updated') {
         const info = event.properties?.info;
         if (!info || info.role !== 'assistant' || !info.time?.completed) return;
@@ -239,12 +188,12 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
           const reasoning = numberOr(t.reasoning);
           const cacheRead = numberOr(t.cache?.read);
           const cacheWrite = numberOr(t.cache?.write);
-          // OpenCode's own total when it sends one — it counts reasoning
+          // OpenCode's own total when it sends one, it counts reasoning
           // ALONGSIDE output rather than inside it, which is its convention and
           // not ours to reconcile.
           const total = numberOr(t.total) || input + output + reasoning + cacheRead + cacheWrite;
           if (total > 0) {
-            void runHook(CONVERSATION, {
+            void runHook(TOKENS, {
               opencode: true,
               tokens: true,
               session_id: info.sessionID || '',
@@ -259,22 +208,41 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
           }
         }
 
-        const held = pending.get(info.id);
-        pending.delete(info.id);
-        if (!held || !held.text.trim()) return;
-        void runHook(CONVERSATION, {
-          opencode: true,
-          role: 'reply',
-          body: held.text,
-          session_id: info.sessionID || held.sessionID || '',
-        }, GUARD_TIMEOUT_MS);
       }
     },
 
+    // MASKING THE RESULT, WHICH MEANS MUTATING `output` IN PLACE.
+    //
+    // This is why `opencode` declares redactsOutput. OpenCode calls
+    //
+    //     let V = {...result};
+    //     yield* trigger('tool.execute.after', {…}, V);
+    //     return V;
+    //
+    // and Plugin.trigger is `for (const h of hooks) await h(input, output);
+    // return output`, no clone, the hook is awaited, and the object handed to
+    // it is the one returned to the model. So assigning to a field of `output`
+    // here changes what the model reads. Verified against the installed binary
+    // (opencode 1.18.16): both the per-tool path and the MCP/subtask paths pass
+    // the same reference they return.
+    //
+    // TWO CONSEQUENCES, both deliberate:
+    //
+    // The audit call is AWAITED now, where it used to be fire-and-forget with a
+    // comment saying it must never delay the editor. A mask that arrives after
+    // the result has gone to the model is not a mask, so the wait is the
+    // feature; GUARD_TIMEOUT_MS still bounds it and a timeout leaves the output
+    // untouched.
+    //
+    // And it FAILS OPEN, unlike the pre-tool path. A pre-tool failure can
+    // refuse the call, which is the safe direction. Here the tool has already
+    // run and its result exists: there is nothing left to refuse, and throwing
+    // would lose the output entirely rather than protect it. Block mode is what
+    // covers the case where masking is not good enough, the guard refuses the
+    // read before it happens (see dlpRedactReadPlan), which is the half of this
+    // that cannot fail open.
     'tool.execute.after': async (input, output) => {
-      // The ALLOW-path audit record. Fire and forget: it must never delay the
-      // editor, and losing one line is better than a stalled tool.
-      void runHook(AUDIT, {
+      const res = await runHook(AUDIT, {
         tool_name: input?.tool ?? '',
         tool_input: input?.args ?? {},
         tool_response: output?.output ?? output?.metadata ?? {},
@@ -282,6 +250,23 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
         tool_use_id: input?.callID ?? '',
         cwd,
       }, GUARD_TIMEOUT_MS);
+      if (!res) return;
+      const masked = redactedOutput(res);
+      if (masked === null) return;
+      // The hook returns the shape it was given. It was given
+      // `output.output`, a string for every text-producing tool, so a string
+      // back is assigned straight to it. An object back means the hook
+      // preserved a structured result's shape, and the field it belongs in is
+      // the one it came from.
+      try {
+        if (typeof masked === 'string') {
+          if (typeof output?.output === 'string') output.output = masked;
+        } else if (masked && typeof masked === 'object' && output) {
+          if (typeof masked.stdout === 'string' && typeof output.output === 'string') output.output = masked.stdout;
+          else if (typeof masked.content === 'string' && typeof output.output === 'string') output.output = masked.content;
+          else if (output.metadata && typeof output.metadata === 'object') Object.assign(output.metadata, masked);
+        }
+      } catch { /* a result we cannot write to is one we leave alone */ }
     },
   };
 };

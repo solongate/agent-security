@@ -5,6 +5,7 @@ package tui
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,7 @@ var ansiNames = map[string]string{
 }
 
 // colorOf accepts what tui-config.json's `accent` may hold: a chalk colour name
-// or a hex string. Anything else falls back rather than erroring — an accent is
+// or a hex string. Anything else falls back rather than erroring, an accent is
 // decoration, and a typo in it must not stop the TUI from opening.
 func colorOf(name, fallback string) lipgloss.Color {
 	n := strings.TrimSpace(name)
@@ -73,9 +74,54 @@ var theme = palette{
 // because there is exactly one TUI per process and every renderer below
 // would otherwise have to thread a palette it never varies.
 func setAccent(accent string) {
+	if noColor() {
+		return
+	}
 	c := colorOf(accent, "7")
 	theme.Accent = c
 	theme.AccentBright = c
+}
+
+// noColor reports whether the user has asked for no colour, and the TUI did not
+// ask before.
+//
+// core/term honours NO_COLOR for the one-shot CLI, with a comment calling it a
+// one-line courtesy whose convention is widely enough followed that ignoring it
+// reads as an oversight. The TUI is the DEFAULT surface and never looked: there
+// was not one mention of NO_COLOR, CLICOLOR or a colour profile under
+// packages/tui, so whether it was honoured was a lipgloss default the product
+// had no opinion about.
+//
+// CLICOLOR=0 is here too because the older convention is still what some
+// terminals and CI images set, and a user who has turned colour off once does
+// not expect to have to do it twice.
+//
+// WHAT THIS DOES NOT TOUCH: the glyphs. ✓ ✗ ! and the block characters in the
+// graphs carry state as well as the colour does, which is why the rows stay
+// readable once the palette is flat, see the Live panel. A terminal that
+// cannot draw them is a separate problem and this is not a fix for it.
+func noColor() bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return true
+	}
+	return os.Getenv("CLICOLOR") == "0"
+}
+
+// flatten drops every colour out of the palette, keeping the shape.
+//
+// Called before the first render rather than checked at each one: a renderer
+// that asked would be a branch in every row, and the answer cannot change while
+// the process runs.
+func flatten() {
+	if !noColor() {
+		return
+	}
+	// lipgloss renders an empty Color as no escape sequence at all, which is
+	// what NO_COLOR asks for, not a different colour, no colour.
+	var none lipgloss.Color
+	theme.Accent, theme.AccentBright = none, none
+	theme.OK, theme.Warn, theme.Bad = none, none, none
+	theme.Dim, theme.White = none, none
 }
 
 // The fixed hexes the Live and Audit consoles paint their chrome with. Named
@@ -326,7 +372,7 @@ func agoAt(atMs int64, now time.Time) string {
 // The formats are the ones that actually arrive. ISO with a zone comes from the
 // hooks and from the API; the space-separated form is what SQLite hands back on
 // some routes and JavaScript reads it as LOCAL time, so it is parsed local here
-// too — reading it as UTC would slide every such row by the machine's offset
+// too, reading it as UTC would slide every such row by the machine's offset
 // and the two implementations would disagree about when a call happened.
 func parseMillis(s string) (int64, bool) {
 	v := strings.TrimSpace(s)

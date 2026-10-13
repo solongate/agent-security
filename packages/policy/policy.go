@@ -11,7 +11,7 @@ package policy
 //	        urls[], filenames[]}
 //	result {effect, matched_rule, reason}
 //
-// and the policy's MODE decides the default — denylist allows unless a DENY
+// and the policy's MODE decides the default, denylist allows unless a DENY
 // matched, whitelist denies unless an ALLOW did.
 
 import (
@@ -26,7 +26,7 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-// The fallback evaluator reads a missing priority as 100, not as 0 — an
+// The fallback evaluator reads a missing priority as 100, not as 0, an
 // unprioritised rule sorts with the ordinary ones rather than ahead of every
 // explicit priority anyone has set.
 func sortRulesByPriority(rules []PolicyRule) {
@@ -40,7 +40,7 @@ func sortRulesByPriority(rules []PolicyRule) {
 }
 
 // For a tool that does NOT execute its arguments, only these fields are an
-// access. Everything else — a question, a description, a file body — is data.
+// access. Everything else, a question, a description, a file body, is data.
 // Writing a document that mentions `.env` is not reading one, and matching body
 // text against filename rules is how that became a block.
 //
@@ -80,7 +80,7 @@ func BuildPolicyInput(args map[string]interface{}, toolName, cwd string) Input {
 
 	// A script the call would RUN is part of the call. `bash deploy.sh` executes
 	// whatever deploy.sh contains, so its lines are appended to the command and
-	// the same deterministic extractors see them — no model needed to notice that
+	// the same deterministic extractors see them, no model needed to notice that
 	// the dangerous part was one file away. Only for exec tools: for a read or a
 	// write the file is data, and inlining it there blocks reading a script that
 	// merely documents `rm -rf`.
@@ -201,7 +201,7 @@ func EvaluatePolicy(pol *shared.Policy, args map[string]interface{}, toolName, c
 		return reason
 	}
 
-	// OPA produced no decision at all — a policy that will not compile. The Node
+	// OPA produced no decision at all, a policy that will not compile. The Node
 	// hook runs its deterministic evaluator here rather than allowing, and so
 	// does this. A policy we cannot compile must not quietly disarm the guard:
 	// slow-but-guarded, never fast-but-unguarded.
@@ -239,11 +239,11 @@ func evaluateWithOPA(rules []PolicyRule, mode string, args map[string]interface{
 
 	// The generated Rego always defaults to DENY, which is whitelist semantics.
 	// Mode is re-applied HERE so a denylist policy keeps its default-ALLOW:
-	// under denylist, a DENY only blocks when a rule ACTUALLY matched — a
+	// under denylist, a DENY only blocks when a rule ACTUALLY matched, a
 	// default DENY means "nothing matched", which is exactly the case denylist
 	// exists to allow.
 	//
-	// REVIEW is an escalation to a judge, and cloud routing is binary — there is
+	// REVIEW is an escalation to a judge, and cloud routing is binary, there is
 	// no judge to escalate to. Under denylist an unresolved REVIEW is an allow;
 	// under whitelist it is not an ALLOW match, so the default-deny stands.
 	if mode == "denylist" {
@@ -355,7 +355,7 @@ func MatchGlob(str, pattern string) bool {
 // nesting markers and are consumed as such; `?` matches one non-separator
 // character.
 //
-// The expression is built from a lowercased pattern and carries no case flag —
+// The expression is built from a lowercased pattern and carries no case flag,
 // callers either lowercase the subject (Go) or compile case-insensitively (the
 // generated Rego prefixes `(?i)`).
 func PathPatternRegex(pattern string) string {
@@ -539,7 +539,7 @@ func ruleMatches(rule PolicyRule, args map[string]interface{}, isExec bool) *rul
 func FallbackEvaluate(rules []PolicyRule, mode string, args map[string]interface{}, toolName string) string {
 	isExec := IsExecTool(toolName)
 
-	// DENY pass — runs in both modes. A DENY always wins over an ALLOW.
+	// DENY pass, runs in both modes. A DENY always wins over an ALLOW.
 	var denyRules []PolicyRule
 	for _, r := range rules {
 		if r.enabledForFallback() && r.Effect == "DENY" && permissionApplies(r, toolName) {
@@ -575,5 +575,5 @@ func FallbackEvaluate(rules []PolicyRule, mode string, args map[string]interface
 			return ""
 		}
 	}
-	return "Blocked by policy: strict whitelist mode — request does not match any ALLOW rule"
+	return "Blocked by policy: strict whitelist mode, request does not match any ALLOW rule"
 }

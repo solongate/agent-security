@@ -45,30 +45,27 @@ func runRange(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 	}
 }
 
+// rangeShow prints the current range and nothing else.
+//
+// THE EXPLANATION IS IN THE TUI. A one-shot command answers the question it
+// was asked: which range is this machine on. Two paragraphs weighing the two
+// choices is the right thing to read ONCE, while deciding, which is the
+// Settings panel; printing it on every `solongate range` makes it the thing
+// somebody scrolls past to find the one word they came for.
 func rangeShow() (int, error) {
 	cur := config.UpdateRangeOf(config.LoadTUIConfig())
+	other := config.UpdateRangeShort
+	if cur == config.UpdateRangeShort {
+		other = config.UpdateRangeLong
+	}
 
 	errln("")
-	for _, r := range []struct {
-		name, line string
-		warn       bool
-	}{
-		{config.UpdateRangeLong, "tagged releases only. A maintainer named the state and the release job agreed.", false},
-		{config.UpdateRangeShort, "every commit on the branch. Fixes arrive the day they land, and so does whatever the next commit fixes.", true},
-	} {
-		mark, label := "  ", dim(r.name)
-		if r.name == cur {
-			mark = green("▸ ")
-			label = bold(r.name)
-			if r.warn {
-				label = yellow(r.name)
-			}
-		}
-		errln("  " + mark + label)
-		errln("      " + dim(r.line))
+	if cur == config.UpdateRangeShort {
+		errln("  " + yellow(cur) + dim("   every commit on the branch"))
+	} else {
+		errln("  " + green(cur) + dim("    tagged releases only"))
 	}
-	errln("")
-	errln("  " + dim("`solongate update` moves this checkout and reinstalls from it."))
+	errln("  " + dim("`solongate range "+other+"` to change it"))
 	errln("")
 	return 0, nil
 }

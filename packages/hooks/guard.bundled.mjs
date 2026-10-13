@@ -6,9 +6,8 @@
 // guard.mjs
 import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, mkdirSync, chmodSync, renameSync, appendFileSync, rmSync, rmdirSync, openSync, readSync, closeSync, accessSync, constants } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { resolve, join, dirname, isAbsolute } from "node:path";
+import { resolve, join, dirname, isAbsolute, normalize } from "node:path";
 import { homedir } from "node:os";
-import { createRequire } from "node:module";
 
 // policy-eval.mjs
 function matchGlob(str, pattern) {
@@ -322,7 +321,7 @@ function evaluate(policy, args, toolName, cwd) {
       }
     }
     if (!matched) {
-      return "Blocked by policy: strict whitelist mode \u2014 request does not match any ALLOW rule";
+      return "Blocked by policy: strict whitelist mode, request does not match any ALLOW rule";
     }
   }
   return null;
@@ -461,7 +460,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 108;
+var HOOK_VERSION = 113;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -482,13 +481,6 @@ function sgGuardCandidates() {
   const out = [];
   if (process.env.SOLONGATE_GUARD_BIN) out.push(process.env.SOLONGATE_GUARD_BIN);
   const exe = process.platform === "win32" ? "solongate-guard.exe" : "solongate-guard";
-  const os_ = process.platform === "win32" ? "win32" : process.platform;
-  const cpu = process.arch === "x64" ? "x64" : process.arch;
-  try {
-    const req = createRequire(import.meta.url);
-    out.push(join(dirname(req.resolve(`@solongate/guard-${os_}-${cpu}/package.json`)), exe));
-  } catch {
-  }
   out.push(resolve(homedir(), ".solongate", "bin", exe));
   return out;
 }
@@ -515,7 +507,7 @@ function sgTryGoGuard() {
         input: SG_STDIN,
         encoding: "utf-8",
         // The binary writes the eval record the audit hook reads back, so it is
-        // the one reporting this call's guard time — and from inside a process
+        // the one reporting this call's guard time, and from inside a process
         // that was spawned partway through the work, it can only see its own
         // share of it. Node's boot, this file's parse, the fd 0 read and the
         // version probe above are all already spent by the time it starts.
@@ -603,6 +595,44 @@ var AGENT_TYPE = process.argv[2] || "claude-code";
 var POLICY_SELECTOR = process.env.SOLONGATE_AGENT_ID || "";
 var AGENT_ID = POLICY_SELECTOR || AGENT_TYPE;
 var AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TYPE;
+var SG_LOCK_NAME = ".solongate-audit.lock";
+var SG_LOCK_STALE_MS = 5e3;
+var SG_LOCK_WAIT_MS = 2e3;
+function sgSleep(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+  }
+}
+function sgLockLog(dir) {
+  const lock = join(dir, SG_LOCK_NAME);
+  const until = Date.now() + SG_LOCK_WAIT_MS;
+  for (; ; ) {
+    try {
+      closeSync(openSync(lock, "wx", SG_FILE_MODE));
+      return () => {
+        try {
+          rmSync(lock, { force: true });
+        } catch {
+        }
+      };
+    } catch {
+      try {
+        const st = statSync(lock);
+        if (Date.now() - st.mtimeMs > SG_LOCK_STALE_MS) {
+          try {
+            rmSync(lock, { force: true });
+          } catch {
+          }
+          continue;
+        }
+      } catch {
+      }
+      if (Date.now() >= until) return null;
+      sgSleep(10);
+    }
+  }
+}
 {
   const _wi = process.argv.indexOf("--sg-log-write");
   if (_wi !== -1) {
@@ -619,8 +649,13 @@ var AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TY
         try {
           mkdirSync(_dir, { recursive: true, mode: SG_DIR_MODE });
           const _f = join(_dir, "solongate-audit.jsonl");
-          appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
-          _narrow(_f);
+          const _unlock = sgLockLog(_dir);
+          try {
+            appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+            _narrow(_f);
+          } finally {
+            if (_unlock) _unlock();
+          }
         } catch {
           const _fb = join(resolve(homedir(), ".solongate"), "local-logs");
           try {
@@ -629,8 +664,13 @@ var AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TY
           }
           try {
             const _f = join(_fb, "solongate-audit.jsonl");
-            appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
-            _narrow(_f);
+            const _unlock = sgLockLog(_fb);
+            try {
+              appendFileSync(_f, _pl.line, { mode: SG_FILE_MODE });
+              _narrow(_f);
+            } finally {
+              if (_unlock) _unlock();
+            }
           } catch {
           }
           try {
@@ -712,8 +752,9 @@ var CLIENTS = {
   "claude-code": {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
+    reportsAfter: true,
     redactsOutput: true
-    // audit.mjs rewrites the tool result at PostToolUse
+    // the post-tool hook rewrites the tool result
   },
   // Codex CLI: same decision dialect as Claude Code, different INPUT problem.
   // Every file edit arrives as one apply_patch call whose target paths live
@@ -722,10 +763,16 @@ var CLIENTS = {
   codex: {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
+    reportsAfter: true,
+    // CONFIRMED AGAINST THE BINARY, and stronger than "rejects": the Codex hook
+    // schema has no output-rewrite field at all. Its strings carry
+    // hookSpecificOutput, permissionDecision, permissionDecisionReason and
+    // updatedInput, and zero occurrences of updatedToolOutput. A post-tool
+    // stage runs, and there is nothing it can write to change the result.
+    // Verified on codex-cli 0.147.0.
     redactsOutput: false
-    // has a post-tool stage, but it rejects output rewrites
   },
-  // OpenCode: no subprocess hook contract at all — a plugin runs in-process and
+  // OpenCode: no subprocess hook contract at all, a plugin runs in-process and
   // refuses a call by throwing. The shim that does the throwing (see
   // hooks/opencode-plugin.mjs) spawns this guard with a flat Claude-shaped
   // payload and reads the Claude dialect back, so both halves are reused as-is
@@ -733,16 +780,30 @@ var CLIENTS = {
   opencode: {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
-    // tool.execute.after does hand the plugin the tool's result, but whether
-    // writing to it changes what the model sees is untested. Claiming the
-    // capability we have not proven would let a secret through masked-in-name-
-    // only; false makes any masking we cannot apply a block instead.
-    redactsOutput: false
+    reportsAfter: true,
+    // MEASURED, not assumed. This was false under a comment saying the
+    // capability was untested. It has now been proven against the installed
+    // opencode (1.18.16): the tool result is passed to `tool.execute.after` by
+    // reference and the SAME object is returned to the model, and
+    // Plugin.trigger awaits each hook without cloning. So a hook that mutates a
+    // field of the result changes what the model reads, which is what the
+    // plugin does now.
+    redactsOutput: true
   },
   // Antigravity CLI: nested payload, and a decision dialect of its own.
   antigravity: {
+    // reportsAfter WAS absent here and false on the Go side, under a comment
+    // saying this client has no post-tool stage at all. That was wrong, and it
+    // is why detect mode and every ALLOW row went missing on this client: the
+    // agy binary documents PostToolUse as a first-class event, matcher-grouped
+    // exactly like PreToolUse. The installer registers the post-tool hook on it
+    // now.
+    reportsAfter: true,
+    // The vendor limit here IS real: the PostToolUse contract's stdout "expects
+    // an empty JSON object {}", so nothing can rewrite the result. Masking on
+    // this client happens before the tool runs, via `overwrite` on PreToolUse,
+    // and what cannot be masked that way is refused instead.
     redactsOutput: false,
-    // no post-tool stage at all (its output is ignored)
     parse(raw) {
       const tc = raw.toolCall && typeof raw.toolCall === "object" ? raw.toolCall : {};
       const a = tc.args && typeof tc.args === "object" ? tc.args : {};
@@ -782,8 +843,14 @@ var CLIENTS = {
   // payload SHAPE and deny with the most widely enforced signal available
   // (JSON + exit 2). A client that needs anything else gets its own entry.
   generic: {
+    // BOTH FALSE ON PURPOSE, and neither is a gap waiting to be measured. An
+    // unknown client is one whose contract nobody has read: assuming it runs a
+    // post-tool stage means leaving the record to something that may not exist,
+    // and assuming it can mask its output means letting a secret through
+    // masked-in-name-only. Assume the weaker capability in both directions, so
+    // the record is written here and masking fails closed.
+    reportsAfter: false,
     redactsOutput: false,
-    // assume the weaker capability, so masking fails closed
     parse(raw) {
       return raw.toolCall && typeof raw.toolCall === "object" ? CLIENTS.antigravity.parse(raw) : parseFlatPayload(raw);
     },
@@ -853,12 +920,19 @@ var TAMPER_PROTECTED_ABS = [
   TAMPER_HOME + TAMPER_CX + "/config.toml",
   TAMPER_HOME + TAMPER_AGY + "/hooks.json",
   TAMPER_HOME + TAMPER_SG + "/hooks",
-  // The directory the guard BINARY lives in — see the glob below for why.
+  // The directory the guard BINARY lives in, see the glob below for why.
   TAMPER_HOME + TAMPER_SG + "/bin",
   TAMPER_HOME + TAMPER_SG + "/policy.json",
   TAMPER_HOME + TAMPER_SG + "/.policy-cache.json",
-  // The cloud credential (contains the API key) — never readable via a tool.
-  TAMPER_HOME + TAMPER_SG + "/cloud-guard.json"
+  // The cloud credential (contains the API key), never readable via a tool.
+  TAMPER_HOME + TAMPER_SG + "/cloud-guard.json",
+  // ITS UNPROTECTED SIBLING. accounts.json was the account layer's store,
+  // every account ever logged in, each with its API key, at 0644, next to the
+  // 0444 file above. That layer is gone and nothing reads or writes this file
+  // any more, but it is still on every machine that ran a build which did. A
+  // credential nothing maintains is still a credential, and an agent reading
+  // it out is the one thing that must not happen to it.
+  TAMPER_HOME + TAMPER_SG + "/accounts.json"
 ];
 var TAMPER_INSTALL = "/solongate";
 var TAMPER_PROTECTED_GLOBS = [
@@ -876,7 +950,7 @@ var TAMPER_PROTECTED_GLOBS = [
   // either: the WASM bundle came from a service that compiled it, and the prompt-injection
   // layer is not in this build. A lock on a file that cannot exist reads as protection and
   // is not; what remains on this list is what an agent could actually reach for.
-  // The rate-limit counter. The extension is `.log`, not `.json` — this glob said
+  // The rate-limit counter. The extension is `.log`, not `.json`, this glob said
   // `.ratelimit-*.json` and matched NOTHING the limiter writes. The file was still
   // protected, by the basename rule below (`.ratelimit-` as a prefix inside
   // ~/.solongate), which is why nothing broke; but a glob that matches no real file is
@@ -887,19 +961,19 @@ var TAMPER_PROTECTED_GLOBS = [
   //
   // sgTryGoGuard runs whatever is at ~/.solongate/bin/solongate-guard as soon as it
   // prints the expected number for --sg-version, and then honours its exit code. So a
-  // two-line shell script there —
+  // two-line shell script there,
   //
   //   #!/bin/sh
   //   case "$1" in --sg-version) echo 99;; *) exit 0;; esac
   //
-  // — makes this hook hand every call to it and allow everything, while `solongate
+  //, makes this hook hand every call to it and allow everything, while `solongate
   // doctor` still reports a native guard in use. Writing that file was not protected
   // here, so an agent could arm its own bypass and then use it on the next tool call.
   //
   // The Go guard has covered this path for a while (see tamperProtectedGlobs in
   // packages/guard/tamper.go, whose comment says it "was the one file in this
   // directory the tamper check did not cover"). The fix was never ported, so which
-  // implementation a machine runs decided whether the disarm worked — and the machines
+  // implementation a machine runs decided whether the disarm worked, and the machines
   // that run THIS one are exactly the ones with no binary, where nothing legitimate
   // occupies the path. test/tamper-path.mjs now holds both to it.
   "**" + TAMPER_SG + "/bin/**",
@@ -925,13 +999,18 @@ var TAMPER_BASENAMES = [
   // `solongate-guard.exe` is covered by the same entry.
   "solongate-guard",
   // Prefixes (substring match) so per-agent runtime state can't be deleted or
-  // rewritten via a shell command either — `.policy-cache-<agent>.json` and
+  // rewritten via a shell command either, `.policy-cache-<agent>.json` and
   // `.ratelimit-<agent>.log`. Deleting the counter resets the rate-limit window, so a
   // limit of N calls/minute becomes N per deletion; the cache is no longer written but
   // a leftover one must not be editable either.
   ".policy-cache",
   ".ratelimit-",
   "cloud-guard.json",
+  // The stale credential store, on the COMMAND side too: the path rule above
+  // catches a Write or a Read naming it, this catches `cat` and every other
+  // way a shell reaches a file. Nothing writes this file any more; every
+  // machine that ran a build which did still has it, with a key in it.
+  "accounts.json",
   // Customer install: DB and wizard exe
   "solongate.db",
   "solongate.exe"
@@ -1020,7 +1099,7 @@ var CLI_WRAPPERS = /* @__PURE__ */ new Set([
   "busybox",
   // AND THE ONES THAT HAND A PROGRAM A TERMINAL. `script -c "solongate policy delete"`
   // allocates a pty and runs the command inside it, which is how an agent would fake the
-  // interactive terminal the CLI asks for — the exact case the TTY check cannot see and the
+  // interactive terminal the CLI asks for, the exact case the TTY check cannot see and the
   // reason this guard rule exists at all. A rule that missed `script` would leave the
   // product protected by nothing but the env sniff it replaced.
   "script",
@@ -1045,7 +1124,7 @@ var CLI_WRAPPERS = /* @__PURE__ */ new Set([
   // THE TAIL IS REAL AND THIS DOES NOT CLOSE IT. `screen -dmS name solongate policy delete`
   // bundles its flags, so the scan stops on `name` and reads it as the program; so does any
   // wrapper whose value-taking flag is not in the table below. Enumeration cannot win this
-  // outright — what it does is raise the cost, in front of a CLI that still refuses to run
+  // outright, what it does is raise the cost, in front of a CLI that still refuses to run
   // without a terminal, and beside the path and basename rules above that catch what such a
   // command would have to touch.
 ]);
@@ -1245,9 +1324,12 @@ function extractTargetPaths(args) {
   }
   return out;
 }
-function tamperCheck(toolName, args) {
+function toolIsExec(toolName) {
   const tn = String(toolName || "").toLowerCase();
-  const isExec = TAMPER_GUARD_TOOLS_EXEC.has(tn) || /bash|shell|exec|powershell|cmd|run|eval/.test(tn);
+  return TAMPER_GUARD_TOOLS_EXEC.has(tn) || /bash|shell|exec|powershell|cmd|run|eval/.test(tn);
+}
+function tamperCheck(toolName, args) {
+  const isExec = toolIsExec(toolName);
   for (const p of extractTargetPaths(args)) {
     const hit = isProtectedPath(p);
     if (hit) return 'Tamper protection: access to "' + p + '" is blocked (protected: ' + hit + ")";
@@ -1255,13 +1337,98 @@ function tamperCheck(toolName, args) {
   if (isExec) {
     for (const cmd of extractCommands(args)) {
       const hit = commandTargetsProtected(cmd);
-      if (hit) return 'Tamper protection: command references protected resource "' + hit + '" \u2014 blocked';
+      if (hit) return 'Tamper protection: command references protected resource "' + hit + '", blocked';
     }
     if (argsInvokeCLI(args)) {
-      return 'Tamper protection: command references protected resource "solongate-cli" \u2014 blocked';
+      return 'Tamper protection: command references protected resource "solongate-cli", blocked';
     }
   }
   return null;
+}
+function underProtected(raw, norm) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const np = normTamperPath(normalize(s));
+  for (const p of norm) {
+    if (np === p || np.startsWith(p + "/")) return p;
+  }
+  return "";
+}
+function protectedReason(named, hit) {
+  if (named === hit) {
+    return 'Protected path: "' + hit + '" cannot be read, written or deleted by an agent';
+  }
+  return 'Protected path: "' + named + '" is inside "' + hit + '", which cannot be read, written or deleted by an agent';
+}
+function userProtectedCheck(toolName, args, sec) {
+  const list = sec && Array.isArray(sec.protectedPaths) ? sec.protectedPaths : null;
+  if (!list || list.length === 0) return null;
+  const norm = [];
+  for (const p of list) {
+    const t = String(p || "").trim();
+    if (t) norm.push(normTamperPath(normalize(t)));
+  }
+  if (norm.length === 0) return null;
+  for (const raw of extractTargetPaths(args)) {
+    const hit = underProtected(raw, norm);
+    if (hit) return protectedReason(raw, hit);
+  }
+  const isExec = toolIsExec(toolName);
+  for (const raw of extractPaths(args || {}, isExec)) {
+    const hit = underProtected(raw, norm);
+    if (hit) return protectedReason(raw, hit);
+  }
+  if (isExec) {
+    for (const cmd of extractCommands(args || {})) {
+      const c = normTamperPath(cmd);
+      for (const p of norm) {
+        if (c.includes(p)) return protectedReason(p, p);
+      }
+    }
+  }
+  return null;
+}
+function sandboxVerified(sec) {
+  const marker = String(process.env.SOLONGATE_SANDBOX || "");
+  if (marker === "") return { confined: false, conclusive: true };
+  const mode = marker.includes(":") ? marker.slice(0, marker.indexOf(":")) : "run";
+  if (mode === "box") {
+    try {
+      const init = readFileSync("/proc/1/comm", "utf-8").trim();
+      if (init === "systemd" || init === "init" || init === "launchd") {
+        return { confined: false, conclusive: true };
+      }
+      if (init === "") return { confined: false, conclusive: false };
+      return { confined: true, conclusive: true };
+    } catch {
+      return { confined: false, conclusive: false };
+    }
+  }
+  const paths = sec && Array.isArray(sec.protectedPaths) ? sec.protectedPaths : [];
+  for (const raw of paths) {
+    const pth = String(raw || "").trim();
+    if (!pth) continue;
+    try {
+      accessSync(pth, constants.R_OK);
+      return { confined: false, conclusive: true };
+    } catch (e) {
+      if (e && e.code === "ENOENT") continue;
+      return { confined: true, conclusive: true };
+    }
+  }
+  return { confined: false, conclusive: false };
+}
+function sandboxRequired(sec) {
+  if (!sec || sec.requireSandbox !== true) return null;
+  const { confined, conclusive } = sandboxVerified(sec);
+  if (confined && conclusive) return null;
+  if (!conclusive) {
+    return "Refused: this machine requires agents to be started with `solongate run` or `solongate sandbox`, and there is no way to confirm that this one was. Add a protected path, or use `solongate sandbox`, which can be verified.";
+  }
+  if (String(process.env.SOLONGATE_SANDBOX || "") !== "") {
+    return "Refused: this process carries a sandbox marker but is not confined, the kernel says otherwise. Start the agent with `solongate run` or `solongate sandbox`, and remove SOLONGATE_SANDBOX from your shell profile.";
+  }
+  return "Refused: this machine requires agents to be started with `solongate run` or `solongate sandbox`. Protected paths are enforced by the operating system there, and by string matching anywhere else.";
 }
 var DLP_PATTERNS = dlpPatterns("");
 var DLP_MAX_FILE_BYTES = 1048576;
@@ -1545,6 +1712,12 @@ function rateLimitCheck(agentKey, limits) {
     return null;
   }
 }
+function observingDLP(sec) {
+  if (!sec) return null;
+  if (sec.dlpRedact) return { cfg: sec.dlpRedact, mode: "redact" };
+  if (sec.dlpObserve) return { cfg: sec.dlpObserve, mode: "detect" };
+  return null;
+}
 function securityLayerCheck(toolName, args, cfg, agentKey) {
   if (!cfg) return null;
   try {
@@ -1562,7 +1735,6 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
   }
   return null;
 }
-var OPA_WASM_TTL_MS = 24 * 60 * 60 * 1e3;
 function applyPatchTargets(patch) {
   const out = [];
   if (typeof patch !== "string" || !patch.includes("*** ")) return out;
@@ -1615,8 +1787,6 @@ input += SG_STDIN;
   } catch {
   }
   try {
-    if (process.env.SOLONGATE_DEBUG) {
-    }
     const _evalStart = SG_ORIGIN_MS;
     try {
       const raw = JSON.parse(input);
@@ -1666,26 +1836,19 @@ input += SG_STDIN;
         }
       } catch {
       }
-      if (process.env.SOLONGATE_DEBUG) {
-      }
-      {
+      const policyInScope = (() => {
         const scope = policy && Array.isArray(policy.agents) && policy.agents.length > 0 ? policy.agents : ["*"];
-        if (!scope.includes("*") && !scope.includes(AGENT_TYPE)) {
-          allowTool();
-          return;
-        }
-      }
-      if (process.env.SOLONGATE_DEBUG) {
-      }
+        return scope.includes("*") || scope.includes(AGENT_TYPE);
+      })();
       let reason = selfProtectEnabled ? tamperCheck(toolName, args) : null;
+      if (!reason) reason = sandboxRequired(securityCfg);
+      if (!reason) reason = userProtectedCheck(toolName, args, securityCfg);
       if (!reason) reason = egressSecretCheck(args, securityCfg, call.cwd);
       if (!reason) reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
-      if (process.env.SOLONGATE_DEBUG) {
-      }
       let opaRoute = "white";
       if (reason) {
         opaRoute = "black";
-      } else if (policy && policy.rules) {
+      } else if (policy && policy.rules && policyInScope) {
         const verdict = evaluate(policy, args, toolName, hookCwd);
         if (typeof verdict === "string") {
           reason = verdict;
@@ -1737,6 +1900,30 @@ input += SG_STDIN;
         } catch {
         }
       } catch {
+      }
+      if (!reason && !CLIENT.reportsAfter && securityCfg && !securityCfg.dlpBlock) {
+        try {
+          const _obs = observingDLP(securityCfg);
+          if (_obs) {
+            const _hit = dlpScan(args, _obs.cfg);
+            if (_hit) {
+              writeLocalLog(securityCfg, {
+                ts: (/* @__PURE__ */ new Date()).toISOString(),
+                tool: toolName,
+                arguments: args,
+                decision: "ALLOW",
+                reason: "Security layer (DLP): detected - arguments contain a " + _hit + ". Allowed: DLP is in " + _obs.mode + " mode.",
+                permission: guessPermission(toolName),
+                source: `${AGENT_TYPE}-guard`,
+                agent_id: AGENT_TYPE,
+                agent_name: AGENT_NAME,
+                session_id: call.sessionId,
+                evaluation_time_ms: Date.now() - _evalStart
+              });
+            }
+          }
+        } catch {
+        }
       }
       if (reason) {
         if (true) {

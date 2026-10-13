@@ -119,7 +119,7 @@ func DLPPatternNames() []string {
 	return out
 }
 
-// DLPPatternAt is one pattern by index, for callers that walk the list themselves —
+// DLPPatternAt is one pattern by index, for callers that walk the list themselves,
 // the read-redaction planner needs each expression, not just a verdict.
 func DLPPatternAt(i int) (string, *regexp.Regexp) {
 	if i < 0 || i >= len(dlpPatterns) {
@@ -144,7 +144,7 @@ var RedactedMarker = regexp.MustCompile(`\[REDACTED:[^\]]*\]`)
 // GlobStarRun collapses `**` and longer to a single star.
 //
 // It lived in policy, which is the module the policy layer's own glob matching uses.
-// This module cannot import that one — policy imports THIS one — so the definition
+// This module cannot import that one, policy imports THIS one, so the definition
 // moved here and policy aliases it. One rule, one regexp, whichever side asks.
 var GlobStarRun = regexp.MustCompile(`\*{2,}`)
 
@@ -188,8 +188,8 @@ func DLPScan(text string, cfg *DLPConfig) string {
 // Custom DLP patterns are GLOBs, not regexes: `*` means any run of non-whitespace. Same
 // mechanic the policy layer uses, so a user who learns one has learned all three.
 //
-// A RUN of `*` collapses to one. It changes no answer — `\S*\S*` matches exactly what
-// `\S*` matches — and this engine is RE2, which has no backtracking and so was never at
+// A RUN of `*` collapses to one. It changes no answer, `\S*\S*` matches exactly what
+// `\S*` matches, and this engine is RE2, which has no backtracking and so was never at
 // risk from the repetition. It is here because the JavaScript twin MUST do it: there
 // `**` compiles to two adjacent unbounded quantifiers and the backtracking is
 // catastrophic, and a converter that normalises on one side and not the other is a pair
@@ -231,7 +231,7 @@ var (
 	// WHAT IT COSTS. More tokens get decoded, and ordinary long words now
 	// produce a few bytes of noise each. That noise still has to satisfy a
 	// CHECKSUM to become a hit, so the false alarm risk is arithmetic rather
-	// than shape - measured over 159k tokens of real source code, it added none.
+	// than shape, measured over 159k tokens of real source code, it added none.
 	// The token count is still bounded (see maxB64Tokens), so the CPU is too.
 	reB64Token = regexp.MustCompile(`[A-Za-z0-9+/]{12,}={0,2}`)
 )
@@ -239,7 +239,7 @@ var (
 // dlpViews returns de-obfuscated VIEWS of the scanned text, so an agent cannot
 // smuggle a secret past the literal patterns by SPLITTING it
 // (printf "AKIA""3XZ9…") or ENCODING it (echo <base64> | base64 -d). Every view
-// is scanned. Not exhaustive — pattern DLP can never be — but it closes the two
+// is scanned. Not exhaustive, pattern DLP can never be, but it closes the two
 // obvious bypasses.
 func dlpViews(text string) []string {
 	views := []string{text}
@@ -249,7 +249,7 @@ func dlpViews(text string) []string {
 	if dequoted != text {
 		views = append(views, dequoted)
 	}
-	// 2) Decode base64-looking tokens (from both the raw and the dequoted view —
+	// 2) Decode base64-looking tokens (from both the raw and the dequoted view,
 	//    the payload itself may be split too) and scan the decoded bytes.
 	src := text
 	if dequoted != text {
@@ -260,7 +260,7 @@ func dlpViews(text string) []string {
 	// per-call scan into a CPU sink.
 	for _, t := range reB64Token.FindAllString(src, 60) {
 		d := dlpB64Decode(t)
-		// Keep printable decodes only — random bytes are not a smuggled secret.
+		// Keep printable decodes only, random bytes are not a smuggled secret.
 		if len(d) > 0 && hasPrintableRun(d, 8) {
 			decoded.Write(d)
 			decoded.WriteByte('\n')
@@ -314,8 +314,8 @@ func hasPrintableRun(b []byte, n int) bool {
 // dlpScanViews is dlp.go's dlpScan applied to every view.
 //
 // The split exists because the Go dlpScan takes one text; the Node hook folded
-// the views into the scan itself, so every caller there — egress, read
-// redaction, read block — got them for free. This layer's callers scan FILE
+// the views into the scan itself, so every caller there, egress, read
+// redaction, read block, got them for free. This layer's callers scan FILE
 // CONTENT, where a split or base64-wrapped secret is exactly what a file
 // planted to defeat the scanner looks like, so they go through here.
 //
@@ -326,8 +326,8 @@ func hasPrintableRun(b []byte, n int) bool {
 // dlpScanViews is dlp.go's dlpScan applied to every view.
 //
 // The split exists because the Go dlpScan takes one text; the Node hook folded
-// the views into the scan itself, so every caller there — egress, read
-// redaction, read block — got them for free. This layer's callers scan FILE
+// the views into the scan itself, so every caller there, egress, read
+// redaction, read block, got them for free. This layer's callers scan FILE
 // CONTENT, where a split or base64-wrapped secret is exactly what a file
 // planted to defeat the scanner looks like, so they go through here.
 //
@@ -363,7 +363,7 @@ func DLPScanViews(text string, cfg *DLPConfig) string {
 // order first, then custom patterns in config order.
 //
 // It came here with DLPScanViews, which cannot rank without it. The guard had its own
-// copy and now calls this one — two implementations of "which of two hits is the one to
+// copy and now calls this one, two implementations of "which of two hits is the one to
 // report" is a pair that can disagree about what a person reads in a masked file.
 func DLPHitRank(name string, cfg *DLPConfig) int {
 	if i := DLPPatternIndex(name); i >= 0 {

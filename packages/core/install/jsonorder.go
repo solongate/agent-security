@@ -13,7 +13,7 @@ import (
 //
 // encoding/json cannot do that on its own. Decoding an object into a map sorts
 // the keys on the way out, so registering a hook in ~/.claude/settings.json
-// would silently reorder every setting the user has — and then the npm package
+// would silently reorder every setting the user has, and then the npm package
 // would put them back on its next install, leaving the two implementations
 // rewriting each other's file forever. jsonObject keeps the order the file
 // already had, replaces a key in place, and appends a new one at the end, which
@@ -32,7 +32,7 @@ func newJSONObject() *jsonObject {
 }
 
 // parseJSONObject decodes a top-level object, preserving key order. Anything
-// that is not an object — a truncated file, an array, a stray string — decodes
+// that is not an object, a truncated file, an array, a stray string, decodes
 // as "no object", and callers treat that the way the TypeScript's catch does:
 // start from empty.
 func parseJSONObject(b []byte) (*jsonObject, bool) {

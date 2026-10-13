@@ -19,7 +19,7 @@ import (
 //
 // A policy carries its own, per variant, which is what the guard reads and what
 // the dashboard edits. A section beside Policies described a layer that applied
-// to a project rather than to a policy — enforcement that no longer exists.
+// to a project rather than to a policy, enforcement that no longer exists.
 // NewRateLimit stays because the Policies panel mounts it on a variant.
 
 // The Rate Limit panel: the layer's own settings plus the dashboard's
@@ -27,12 +27,12 @@ import (
 //
 // Edits are draft-only: `s` writes and `x` throws the draft away. `x` is not a
 // convenience. ←→ is how a number is changed here, so ← cannot also mean back
-// while the cursor is on a field — and with no bursts recorded the cursor can
+// while the cursor is on a field, and with no bursts recorded the cursor can
 // only ever BE on a field, which left a dirty panel with no key that both
 // stopped editing and did not write. `x` is that key; esc is the one that leaves.
 //
-// The ↑↓ cursor is UNIFIED — indexes 0-3 are the editable fields and everything
-// after them is a burst row — so the list scrolls out of the fields rather than
+// The ↑↓ cursor is UNIFIED, indexes 0-3 are the editable fields and everything
+// after them is a burst row, so the list scrolls out of the fields rather than
 // needing a second cursor.
 
 var rlModes = []api.LayerMode{api.LayerOff, api.LayerDetect, api.LayerBlock}
@@ -652,7 +652,7 @@ func offOr(n int) string {
 
 // parseWhen reads the timestamps the insights endpoint sends. It accepts the
 // three shapes seen in the wild rather than one: a bucket that will not parse
-// renders as "—" instead of as 1970.
+// renders as ", " instead of as 1970.
 func parseWhen(s string) time.Time {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -672,7 +672,7 @@ func parseWhen(s string) time.Time {
 func whenLabel(s string) string {
 	t := parseWhen(s)
 	if t.IsZero() {
-		return "—"
+		return ", "
 	}
 	return t.Local().Format("Jan 2 15:04")
 }

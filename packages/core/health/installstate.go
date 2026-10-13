@@ -8,8 +8,8 @@ import (
 
 // What `doctor` asks about this machine's own installation.
 //
-// Every answer comes from core/install — the package that WRITES these files
-// — rather than from a second reader here. A disagreement between the two would
+// Every answer comes from core/install, the package that WRITES these files
+//, rather than from a second reader here. A disagreement between the two would
 // be worse than a missing feature: the health check would say the machine is
 // guarded while the installer thought it was not, and one of them would be wrong
 // about whether anything is watching.
@@ -37,15 +37,19 @@ func globalPaths() clientPaths {
 
 func pathExists(p string) bool { return install.Exists(p) }
 
-// guardHookName is the file the installer writes into ~/.solongate/hooks.
-const guardHookName = install.GuardHookName
-
+// Two more aliases stood here and had no caller: guardHookName, naming the hook
+// file the installer writes, and isCodexGuardInstalled. The second is the one
+// worth recording, `doctor`'s Codex row answers that question through
+// codexStatus below, which checks registration AND whether Codex trusts the
+// hook, because a registered hook Codex has not been told to trust is skipped.
+// A bare isCodexGuardInstalled sitting next to it was the shorter answer a
+// future row would have reached for, and it would have reported a guard that
+// never runs as installed.
 func isGuardInstalled() bool         { return install.ClaudeGuardInstalled() }
 func installedGuardVersion() *int    { return install.InstalledGuardVersion() }
 func codexDetected() bool            { return install.CodexDetected() }
 func opencodeDetected() bool         { return install.OpencodeDetected() }
 func isOpencodeGuardInstalled() bool { return install.OpencodeGuardInstalled() }
-func isCodexGuardInstalled() bool    { return install.CodexGuardInstalled() }
 
 // codexStatus keeps the three answers in the shape the doctor rows read them in.
 type codexStatus struct {

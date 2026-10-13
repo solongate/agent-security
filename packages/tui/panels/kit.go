@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package panels is the TUI's section panels in Bubble Tea: Policies,
-// Fleet and Settings, plus the two editors — DLP and Rate Limit — that are no
+// Fleet and Settings, plus the two editors. DLP and Rate Limit, that are no
 // longer sections of their own but folds of a policy variant, mounted BOUND by
 // the Policies panel.
 //
@@ -22,7 +22,7 @@
 // shell. Each file registers its section from init(), so the section table stays
 // one line per panel and several people can port different sections without
 // editing the same file. Something has to IMPORT this package for those init
-// functions to run — see the note on Version.
+// functions to run, see the note on Version.
 //
 // The theme and the small layout helpers here are a second copy of the shell's,
 // because the shell's are unexported. They should collapse into one exported set
@@ -109,7 +109,7 @@ var (
 //
 // Ink took CSS-ish colour NAMES; lipgloss takes an ANSI index or a hex, so the
 // handful of names anyone actually sets are mapped and anything else is passed
-// through — a hex works unchanged, and an unrecognised name falls back to white
+// through, a hex works unchanged, and an unrecognised name falls back to white
 // rather than rendering as a literal.
 func accentFromConfig() string {
 	named := map[string]string{

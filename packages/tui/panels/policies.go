@@ -26,7 +26,7 @@ func init() { tui.Register(tui.SectionPolicies, func(d tui.Deps) tui.Panel { ret
 //	         them. tab switches variant · v new variant · V delete · m mode
 //	rules  : a variant's rules. space on/off · e effect · d delete · n new ·
 //	         enter opens the rule · s save · x discard
-//	rule   : the rule editor, mirroring the dashboard — Effect, one Constraint
+//	rule   : the rule editor, mirroring the dashboard. Effect, one Constraint
 //	         type, Permissions, Priority, Description, Match
 //	match  : the constraint's value list, with [ ] wildcard toggles
 //	dlp    : that variant's secret detectors
@@ -35,7 +35,7 @@ func init() { tui.Register(tui.SectionPolicies, func(d tui.Deps) tui.Panel { ret
 // A POLICY IS NOT ONE SET OF RULES, and this is the part worth reading before
 // changing anything here. It is a set of interchangeable variants, each with
 // its own rules and its own layers, and a machine enforces exactly one of them
-// — which one is the host's choice, made on Fleet. The dashboard has said so
+//, which one is the host's choice, made on Fleet. The dashboard has said so
 // since the editor grew tabs; a terminal that showed only `$.rules` would be
 // showing the default variant and calling it the policy.
 //
@@ -91,7 +91,7 @@ var polFields = []polField{
 //
 // READ, WRITE, EXECUTE and NETWORK come from the TOOL a call was made with, so narrowing
 // by them says WHICH KIND of tool a rule covers. For a path or a filename that is a real
-// choice — block reading a directory but not writing to it, or the reverse. For the other
+// choice, block reading a directory but not writing to it, or the reverse. For the other
 // two kinds it is noise at best and a trap at worst: a rule about a command already only
 // matches a command, a rule about a URL already only matches a fetch, and the row sat
 // there showing all four lit as though somebody had chosen them.
@@ -197,7 +197,7 @@ type Policies struct {
 	// available is the built-in detector list and fallback is the project-wide
 	// block a policy written before variants existed inherits. Both are read
 	// once, from the settings endpoint the old DLP and Rate Limit sections used
-	// to own — every project that ever used those pages still has that row, and
+	// to own, every project that ever used those pages still has that row, and
 	// it is what their machines are enforcing today, so an old policy opens
 	// showing what is in force rather than a screen of defaults that would
 	// quietly turn DLP off on the first save.
@@ -396,8 +396,8 @@ func (p *Policies) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 		p.dirty = false
 		p.status = "✓ Saved"
 		// The draft is not replaced with the answer. A save returns the policy
-		// with its variants PROJECTED away — the default variant's rules moved
-		// to the top level, which is the shape a guard reads — so adopting it
+		// with its variants PROJECTED away, the default variant's rules moved
+		// to the top level, which is the shape a guard reads, so adopting it
 		// would collapse a policy with three variants into one. The reload
 		// below reads the stored document back instead.
 		var cmds []tea.Cmd
@@ -450,7 +450,7 @@ func (p *Policies) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 		return p, p.key(m)
 	}
 
-	// Anything left is one of the bound editors' own messages — the burst scan,
+	// Anything left is one of the bound editors' own messages, the burst scan,
 	// its clock. They are forwarded whatever level is on screen, so the chain
 	// a child started does not end the moment the cursor leaves its fold and
 	// have to be started again when it comes back.
@@ -489,7 +489,7 @@ func adoptRules(r api.Rules) []ruleDoc {
 		doc := ruleDoc{rule: item}
 		// The raw slice only lines up with the decoded one when every element
 		// decoded. When some did not, the bytes are not attached rather than
-		// attached to the wrong rule — and save() refuses anyway.
+		// attached to the wrong rule, and save() refuses anyway.
 		if r.Unreadable == 0 && i < len(r.Raw) {
 			doc.raw = r.Raw[i]
 		}
@@ -742,11 +742,11 @@ func (p *Policies) switchVariant(d int) {
 // addVariant copies the visible one rather than starting empty.
 //
 // A second variant is almost always "the same policy, with one thing different"
-// — a contractor on a whitelist, everybody else on a denylist — and starting
+// , a contractor on a whitelist, everybody else on a denylist, and starting
 // from nothing means retyping a rule set to change one rule in it.
 func (p *Policies) addVariant() {
 	if len(p.variants) >= polMaxVariants {
-		p.status = "✗ " + itoa(polMaxVariants) + " variants is the limit — a tab strip past that is a list"
+		p.status = "✗ " + itoa(polMaxVariants) + " variants is the limit, a tab strip past that is a list"
 		return
 	}
 	p.fold()
@@ -769,7 +769,7 @@ func (p *Policies) addVariant() {
 	p.vi = len(p.variants) - 1
 	p.unfold()
 	p.mutate()
-	p.status = "added " + next.name + " — a copy of what you were looking at"
+	p.status = "added " + next.name + ", a copy of what you were looking at"
 }
 
 // dropVariant refuses to remove the last one. A policy with no variants is a
@@ -777,7 +777,7 @@ func (p *Policies) addVariant() {
 // with one keystroke.
 func (p *Policies) dropVariant() {
 	if len(p.variants) < 2 {
-		p.status = "✗ a policy needs one variant — this is it"
+		p.status = "✗ a policy needs one variant, this is it"
 		return
 	}
 	name := p.variants[p.vi].name
@@ -785,7 +785,7 @@ func (p *Policies) dropVariant() {
 	p.vi = max(0, min(p.vi, len(p.variants)-1))
 	p.unfold()
 	p.mutate()
-	p.status = "removed " + name + " — anybody pinned to it falls back to " + p.variants[0].name
+	p.status = "removed " + name + ", anybody pinned to it falls back to " + p.variants[0].name
 }
 
 func (p *Policies) flipMode() {
@@ -826,7 +826,7 @@ func (p *Policies) layerKey(k tea.KeyMsg, s string) tea.Cmd {
 		case "esc":
 			// esc steps the level back unconditionally. ← cannot: both children
 			// spend it on editing (±1 on a rate-limit field, one cell left in the
-			// DLP grid), and the rate limit spends it on EVERY field — so a panel
+			// DLP grid), and the rate limit spends it on EVERY field, so a panel
 			// with no bursts recorded had no key at all that left it. Every other
 			// level here already treats esc this way.
 			p.syncFromLayer()
@@ -888,7 +888,7 @@ func (p *Policies) listKey(s string) tea.Cmd {
 			}
 			return polActionMsg{
 				genTag:        t,
-				status:        "✓ active policy: NONE — no rules enforced, w/b grants are refused",
+				status:        "✓ active policy: NONE, no rules enforced, w/b grants are refused",
 				refreshActive: true,
 			}
 		}
@@ -905,7 +905,7 @@ func (p *Policies) listKey(s string) tea.Cmd {
 		}
 		if p.pendingDel != sel.ID {
 			p.pendingDel = sel.ID
-			p.status = `⚠ d again to DELETE policy "` + sel.Name + `" — cannot be undone`
+			p.status = `⚠ d again to DELETE policy "` + sel.Name + `", cannot be undone`
 			return nil
 		}
 		p.pendingDel = ""
@@ -962,7 +962,7 @@ func (p *Policies) rulesKey(s string) tea.Cmd {
 		p.flipMode()
 	case "n":
 		// A fresh rule starts with a command constraint, exactly as the
-		// dashboard does, so it is never a blanket match waiting to be saved —
+		// dashboard does, so it is never a blanket match waiting to be saved,
 		// the user only has to fill in the value.
 		nr := api.PolicyRule{
 			ID:                 "rule-" + itoa(int(time.Now().UnixMilli())),
@@ -1051,7 +1051,7 @@ func (p *Policies) ruleKey(k tea.KeyMsg, s string) tea.Cmd {
 	// esc ALWAYS leaves the editor, on every field.
 	//
 	// It was not handled here at all, so it fell through to the app and moved focus to
-	// the section list — out of the panel entirely, with the rule still half-edited and
+	// the section list, out of the panel entirely, with the rule still half-edited and
 	// no way to answer the "unsaved (s save · x discard)" prompt the editor was showing.
 	// ← only leaves from three of the six fields, because on the other three it picks a
 	// value, so there was no key that reliably meant "get me out of here".
@@ -1245,7 +1245,7 @@ func (p *Policies) beginEdit(value string) {
 
 // editingKey drives the inline text editor: the Description field in the rule
 // view, and one value in the match list. esc abandons the edit and leaves the
-// value as it was — the shell gives a capturing panel every key, so there has
+// value as it was, the shell gives a capturing panel every key, so there has
 // to be a way out that does not write anything.
 func (p *Policies) editingKey(k tea.KeyMsg) tea.Cmd {
 	if k.String() == "esc" {
@@ -1365,12 +1365,12 @@ func (p *Policies) saveBody() (api.PolicySet, bool) {
 		// delete them from the policy while the dashboard still showed them as
 		// active.
 		if v.unreadable > 0 {
-			p.status = "✗ " + itoa(v.unreadable) + " rule(s)" + where + " cannot be read by this version — saving would delete them; edit ~/.solongate/policy.json directly"
+			p.status = "✗ " + itoa(v.unreadable) + " rule(s)" + where + " cannot be read by this version, saving would delete them; edit ~/.solongate/policy.json directly"
 			return api.PolicySet{}, false
 		}
 		for i, d := range v.rules {
 			if isBlanketRule(d.rule) {
-				p.status = "✗ rule " + itoa(i+1) + where + " matches EVERYTHING — pick a Constraint + Match value, or narrow Permissions"
+				p.status = "✗ rule " + itoa(i+1) + where + " matches EVERYTHING, pick a Constraint + Match value, or narrow Permissions"
 				return api.PolicySet{}, false
 			}
 		}
@@ -1403,7 +1403,7 @@ func (p *Policies) saveBody() (api.PolicySet, bool) {
 		// The top level carries the FIRST variant's rules and layers, and both
 		// are mirrors rather than a second source of truth. Three readers in
 		// the field take only $.rules, so a document whose rules live only
-		// inside the bundle compiles to an empty rule set — which for a
+		// inside the bundle compiles to an empty rule set, which for a
 		// denylist denies nothing. The server keeps this mirror true on every
 		// write; writing it here as well means the document is already
 		// consistent before it is sent.
@@ -1460,7 +1460,7 @@ func (p *Policies) viewListBody() string {
 		return dataView(false, p.listErr, false, "", "")
 	}
 	if empty {
-		return dataView(false, nil, true, "No policies yet — press n to create one.", "")
+		return dataView(false, nil, true, "No policies yet, press n to create one.", "")
 	}
 
 	head := 3
@@ -1506,7 +1506,7 @@ func (p *Policies) viewListBody() string {
 			al.put(" ("+p.activeBy+")", stDim)
 		}
 	default:
-		al.put("○ NONE — nothing enforced, grants refused", stBadB)
+		al.put("○ NONE, nothing enforced, grants refused", stBadB)
 	}
 	out = append(out, al.String())
 
@@ -1600,7 +1600,7 @@ func (p *Policies) layerSummary(layer int) (string, lipgloss.Style) {
 
 var polLayerNames = [layerCount]string{"Rules", "Secret detectors", "Rate limit"}
 
-// A second, dimmer line used to sit under each layer explaining what it was for —
+// A second, dimmer line used to sit under each layer explaining what it was for,
 // "what is allowed and what is denied" under Rules, and so on. It doubled the height
 // of the card to restate the three names next to it, and it never changed, so after
 // the first read it was three lines of furniture between the reader and the numbers
@@ -1665,7 +1665,7 @@ func (p *Policies) viewPolicyBody() string {
 
 	if p.unreadable > 0 {
 		// Never silently show fewer rules than the policy has.
-		out = append(out, stBad.Render("⚠ "+itoa(p.unreadable)+" rule(s) here cannot be read by this version — edit ~/.solongate/policy.json directly"))
+		out = append(out, stBad.Render("⚠ "+itoa(p.unreadable)+" rule(s) here cannot be read by this version, edit ~/.solongate/policy.json directly"))
 	}
 	if p.status != "" {
 		out = append(out, statusLine(p.status))
@@ -1840,7 +1840,7 @@ func (p *Policies) viewMatchBody() string {
 		rows = append(rows, l.String())
 	}
 	if len(items) == 0 {
-		out = append(out, stDim.Render("(no values — press a to add one)"))
+		out = append(out, stDim.Render("(no values, press a to add one)"))
 	} else {
 		// The Ink version drew every value and relied on the outer box to clip.
 		// This windows instead, so a long value list scrolls rather than pushing
@@ -1907,7 +1907,7 @@ func (p *Policies) viewRuleBody() string {
 			items := matchItems(rule)
 			preview := strings.Join(items, ", ")
 			if preview == "" {
-				l.put("—", stDim)
+				l.put(", ", stDim)
 				l.put("   (enter: add values)", stDim)
 			} else {
 				l.put(preview, stPlain)
@@ -1926,7 +1926,7 @@ func (p *Policies) viewRuleBody() string {
 			}
 			switch {
 			case val == "":
-				l.put("—", stDim)
+				l.put(", ", stDim)
 			case f.kind == "effect" && val == "ALLOW":
 				l.put(val, stOK)
 			case f.kind == "effect":

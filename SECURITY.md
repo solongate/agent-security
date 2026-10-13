@@ -149,6 +149,56 @@ Stated here so nobody has to find them the expensive way:
 - **A policy that will not compile does not disarm the guard.** Evaluation falls
   back to a deterministic evaluator rather than allowing. If you find a policy
   shape where it does allow, that is in scope above.
+- **The prompt shim is a local proxy, and the agent's model credential passes
+  through it.** That credential is the agent's own, issued by whoever serves its
+  model. SolonGate has no API key of its own: no account, nothing paired with a
+  service, nothing authenticated.
+
+  On Claude Code the shim starts a listener on `127.0.0.1`, points the agent at it, and
+  masks secrets in the outbound request body before forwarding. The agent's
+  credentials pass through it in cleartext, because that is what a proxy in
+  front of an API does.
+
+  A per-run token guards it: a 32-byte secret in the URL path, given to the
+  agent through its base URL, required on every request. Anything arriving
+  without it gets a 404 and never reaches upstream. Before that the listener
+  authenticated nothing, so any local process could have had a request
+  forwarded with those credentials attached, loopback is an address, not a
+  boundary. The token is never written to disk or logged.
+
+  The hop is encrypted. A certificate is generated for the run, named for
+  `127.0.0.1` by IP rather than by hostname, and handed to the agent through
+  `NODE_EXTRA_CA_CERTS`, which ADDS to its trust store rather than replacing it:
+  nothing else the agent would have trusted becomes untrusted, and this is not
+  `NODE_TLS_REJECT_UNAUTHORIZED=0`. The private key is unlinked as soon as the
+  listener has it and the certificate goes when the run ends.
+
+  This was left as cleartext for a while on the reasoning that capturing
+  loopback needs root and a root attacker can read the credential file anyway.
+  That argues the risk is small, not that it is zero. The usual objection to
+  TLS on loopback is that a client cannot be told to trust a local certificate,
+  and this shim serves one client, which is Node.
+
+  What it is not: authentication of the peer. The agent verifies the listener;
+  the listener does not verify the agent, and the run token is what does that.
+  A machine without `openssl` gets http and a line in the log saying so,
+  because refusing to start would take the agent down over a risk that needs
+  root to exploit.
+- **The shim fails open.** Any error parsing or redacting a request forwards the
+  original bytes. A payload shape the redactor does not recognise reaches the
+  model unmasked. That is deliberate, a shim that dropped requests would take
+  the agent down, and it is why `block` mode exists for the cases where masking
+  is not good enough.
+- **`solongate run` is a permission layer, not a box.** Paths are refused;
+  `$HOME` still exists and still returns EACCES, and `ls /` still shows the
+  machine. It protects the paths you named. `solongate sandbox` is the other
+  shape, a new root where nothing outside the project is there at all, and it
+  needs Linux and `bwrap`.
+- **A sandbox keeps the network.** The closed box is about files. An agent
+  inside one can still reach its model, and what leaves over the wire is the
+  DLP and egress layers' job, they read content, which a mount namespace
+  cannot. A box with the network off is available per box and means the agent
+  cannot reach a model at all.
 
 ## Credit
 

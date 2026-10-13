@@ -80,7 +80,7 @@ func CollectChecks(ctx context.Context, c *api.Client) []Check {
 		checks = append(checks, Check{Name: name, OK: ok, Detail: detail})
 	}
 
-	// The first check used to be `login`, and it failed with "not logged in — add
+	// The first check used to be `login`, and it failed with "not logged in, add
 	// your account in the Accounts panel". Everything below it was skipped on that
 	// failure, so a machine with no service reported nothing about itself at all.
 	// The first check is the file everything else comes from.
@@ -144,6 +144,50 @@ func protectedCheck(ctx context.Context, c *api.Client) []Check {
 				" fully locked · " + weakest})
 	}
 
+	// A FILE FROM A NEWER SOLONGATE, which is the one thing a version number on
+	// disk is for.
+	//
+	// The format is additive, every field omitempty, every reader probing for
+	// presence, so there is nothing to migrate and this does not refuse. What
+	// it prevents is the silent case: somebody configured a layer with a newer
+	// build, this one cannot see the key, and the guard enforces a policy with
+	// that part missing while the file says it is there. See api.localVersion.
+	if v, newer := api.NewerThanThisBuild(); newer {
+		out = append(out, Check{Name: "policy format", OK: StateWarn,
+			Detail: "written by a newer SolonGate (v" + strconv.Itoa(v) + ") · " +
+				"keys it added are being ignored by this build"})
+	}
+
+	// A CREDENTIAL FROM A FEATURE THAT IS GONE, which is the only place anybody
+	// finds out it is still there.
+	//
+	// There is no API key in this product: no account, nothing paired with a
+	// service, nothing authenticated. The key existed to connect a device to a
+	// site and that connection is gone, along with the type, the validator and
+	// every reader.
+	//
+	// Two files are left on machines that ran a build which had it, and both are
+	// checked because they held the same kind of secret: the account store at
+	// 0644 and the armed one at 0444. Neither is readable from a tool call, the
+	// tamper layer covers both by path and by basename, so this is not a hole.
+	// It is a key sitting in a file nobody maintains.
+	//
+	// `repair` DELETES THEM NOW, and these rows say so rather than asking the
+	// reader to do it. What repair cannot do is revoke the key, so that is the
+	// half still asked for: removing the copy on disk does not make the secret
+	// stop working.
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, name := range []string{"acc" + "ounts.json", "clou" + "d-guard.json"} {
+			stale := filepath.Join(home, ".solongate", name)
+			if _, err := os.Stat(stale); err != nil {
+				continue
+			}
+			out = append(out, Check{Name: "stale credential", OK: StateWarn,
+				Detail: stale + " holds an API key from when this product had accounts · " +
+					"`solongate repair` deletes it; revoke the key at whatever issued it"})
+		}
+	}
+
 	// And whether the last agent to make a call was actually inside a sandbox.
 	required, _ := c.Settings.RequireSandbox(ctx)
 	rec := config.NewestEvalRecord()
@@ -175,7 +219,7 @@ func plural(n int, one, many string) string {
 // activeWithObserve decodes /policies/active twice out of one response.
 //
 // The typed ActivePolicy does not carry `rateLimitObserve`, and reading only
-// `rateLimit` reports a project in DETECT mode as having no rate limit at all —
+// `rateLimit` reports a project in DETECT mode as having no rate limit at all,
 // the limits ride in one field when they block and the other when they only
 // flag. Rather than widen a type another part of the CLI owns, the raw body is
 // kept and the extra field read off it.
@@ -309,8 +353,8 @@ func guardHookCheck(ctx context.Context, c *api.Client) []Check {
 	}
 	here := installedGuardVersion()
 
-	// Latest is absent rather than zero when the API does not send it — no guard
-	// has ever been version 0 — in which case the local version is the newest
+	// Latest is absent rather than zero when the API does not send it, no guard
+	// has ever been version 0, in which case the local version is the newest
 	// thing anyone here knows about.
 	latest := g.Latest
 	if latest == 0 && here != nil {
@@ -342,7 +386,7 @@ func guardHookCheck(ctx context.Context, c *api.Client) []Check {
 // so a machine running several can see at a glance which one is unguarded.
 func clientChecks() []Check {
 	const registered = "guard registered"
-	const missing = "guard NOT registered - run `solongate repair`"
+	const missing = "guard NOT registered, run `solongate repair`"
 
 	claude := Check{Name: "Claude hooks", OK: StateFail, Detail: missing}
 	if isGuardInstalled() {
@@ -354,7 +398,7 @@ func clientChecks() []Check {
 	//
 	// The two rows below are: can the registered command actually START, and has
 	// a client ever run it. A machine where the first is no looks exactly like a
-	// machine with no guard on it — nothing enforced, nothing logged — and this
+	// machine with no guard on it, nothing enforced, nothing logged, and this
 	// page used to report that machine as healthy, because the config file said
 	// so and the config file was all anything read.
 	if isGuardInstalled() {
@@ -363,16 +407,16 @@ func clientChecks() []Check {
 			checks = append(checks, Check{Name: "hook runtime", OK: StateOK, Detail: "node " + rt.Detail})
 		} else {
 			checks = append(checks, Check{Name: "hook runtime", OK: StateFail,
-				Detail: rt.Detail + " - nothing is being enforced or logged"})
+				Detail: rt.Detail + ", nothing is being enforced or logged"})
 		}
 
 		switch beat := install.GuardBeat(); {
 		case beat == nil:
 			checks = append(checks, Check{Name: "guard fired", OK: StateWarn,
-				Detail: "never - open your agent, run one tool call, then check again"})
+				Detail: "never. Open your agent, run one tool call, then check again"})
 		case beat.Node == "no-node":
 			checks = append(checks, Check{Name: "guard fired", OK: StateFail,
-				Detail: install.Ago(beat.At) + ", but found no node to run with - run `solongate repair`"})
+				Detail: install.Ago(beat.At) + ", but found no node to run with. Run `solongate repair`"})
 		default:
 			checks = append(checks, Check{Name: "guard fired", OK: StateOK,
 				Detail: install.Ago(beat.At) + " · " + beat.Node})
@@ -398,7 +442,7 @@ func clientChecks() []Check {
 				Detail: "hooks disabled in ~/.codex/config.toml ([features] hooks = false)"})
 		case !cx.trusted:
 			checks = append(checks, Check{Name: "Codex hooks", OK: StateWarn,
-				Detail: "registered - run `/hooks` in Codex once and trust them (Codex skips untrusted hooks)"})
+				Detail: "registered. Run `/hooks` in Codex once and trust them (Codex skips untrusted hooks)"})
 		default:
 			checks = append(checks, Check{Name: "Codex hooks", OK: StateOK, Detail: "registered + trusted"})
 		}
@@ -419,9 +463,9 @@ func clientChecks() []Check {
 }
 
 // credentialCheck stood here, and reported `hook credential  rejected by <api> 3m ago
-// · key from <source> - nothing is being logged from there`. It read a marker the
+// · key from <source>, nothing is being logged from there`. It read a marker the
 // guard dropped on a 401 or a 403, which named which of three places the key had come
-// from — the point being that a stale key in the .env of whatever folder an agent
+// from, the point being that a stale key in the .env of whatever folder an agent
 // happened to start in silenced every audit write while enforcement kept working.
 //
 // Nothing writes to a service, so nothing is ever rejected. What could still silence
@@ -448,7 +492,7 @@ func localLogCheck() []Check {
 
 // roundHalfUp is JavaScript's Math.round: floor(v + 0.5), so a half always goes
 // up rather than away from zero. It only differs from math.Round for a negative
-// half, which here means a clock that moved backwards — rare, but rounding it
+// half, which here means a clock that moved backwards, rare, but rounding it
 // the same way as the CLI this stands beside is one less difference to explain.
 func roundHalfUp(v float64) int64 { return int64(math.Floor(v + 0.5)) }
 
@@ -463,13 +507,13 @@ func fixed0(v float64) string { return strconv.FormatInt(int64(math.Round(v)), 1
 // Go guard and the Node guard reach the same verdicts on the same policy, so a
 // machine falling back looks exactly like one that is not: same allows, same
 // denials, same audit rows, tens of milliseconds apart on a number nobody is
-// watching. That is not a detail to leave undisplayed — the binary is the entire
+// watching. That is not a detail to leave undisplayed, the binary is the entire
 // reason the port exists, and it reached nobody for a while precisely because
 // nothing here said so.
 //
 // It resolves the binary the way the HOOK resolves it, not the way this program
-// found itself. Those can differ — an override, a stale copy, a version that no
-// longer matches the hook — and the answer that matters is the one the hook will
+// found itself. Those can differ, an override, a stale copy, a version that no
+// longer matches the hook, and the answer that matters is the one the hook will
 // get on the next tool call.
 func nativeGuardCheck() []Check {
 	const name = "native guard"

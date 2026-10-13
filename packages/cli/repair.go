@@ -10,47 +10,69 @@ import (
 )
 
 // RunRepair is `solongate repair`: restore the guard after tampering or
-// deletion. It needs no API client and no login round trip — the account already
-// on the device is reused — so it does not go through the command router above.
+// deletion. It needs no API client and no login round trip, the account already
+// on the device is reused, so it does not go through the command router above.
 func RunRepair([]string) int {
 	if code, refused := refuseUnderSudo(); refused {
 		return code
 	}
 
+	// THE ONE STEP THAT CANNOT GO THROUGH install.sh's run(), AND SO HAD NO
+	// SPINNER. Everything else in an install is announced, captured and
+	// replaced by a mark. This is not: `repair` refuses to work unless it has a
+	// terminal on stdin and stdout, so capturing its output would take the
+	// terminal away and the step would fail explaining why an agent may not
+	// install the guard. It keeps the terminal, and the price was the longest
+	// silence in the run: it copies a 27MB binary into the store and registers
+	// four clients while the screen holds still.
+	stop := spin("Registering the guard with your agents")
 	rep := install.Repair()
+	stop()
 
-	errln("")
-	errln("  " + bold("SolonGate repair"))
-	errln("")
-	errln("  before:")
-	for _, l := range rep.Before {
-		errln("    " + padRight(l.Label, 20) + " " + l.Detail)
-	}
-	errln("")
-
+	// ONE LINE PER THING, AND EVERY ONE OF THEM A MARK.
+	//
+	// This used to print a "before" list, a blank line, a "restored" list, and
+	// a tick. Almost all of it was the same six rows twice over, and the only
+	// reader who benefited was somebody comparing them column by column. It
+	// runs in the middle of `solongate update` and of install.sh, both of which
+	// report a step as one [  OK  ] line, so three paragraphs of its own went
+	// past too fast to read and in a different voice from everything around it.
+	//
+	// So: the state the repair LEFT, one row at a time, in the same two marks
+	// the rest of the run uses. A client it could not register is the row worth
+	// seeing, and it is the one that says [FAILED] while the run carries on.
 	if !rep.OK {
-		errln("  " + red("✗ ") + rep.Message)
+		markNo(rep.Message)
 		return 1
 	}
-
-	errln("  restored:")
 	for _, l := range rep.After {
-		detail := l.Detail
-		// A client the repair could not register is the one line worth colouring:
-		// the run "succeeded" and that client is still unguarded.
+		line := padRight(l.Label, 20) + " " + l.Detail
 		if !l.OK {
-			detail = yellow(detail)
+			markNo(line)
+			continue
 		}
-		errln("    " + padRight(l.Label, 20) + " " + detail)
+		markOK(line)
 	}
-	errln("")
+	// Notes are conditions the repair cannot fix on the user's behalf, such as
+	// Codex needing `/hooks` run inside it once. They are not steps, so they do
+	// not get a mark; they are indented under the last one.
+	//
+	// WRAPPED, because their length is not known where they are written. Every
+	// note here used to be one short clause and this was a plain indent. The
+	// one about a leftover credential is three sentences and a path, the
+	// terminal folded it at column zero, and the continuation ran along the
+	// left margin underneath the marks instead of beside them. See
+	// wrapIndented.
 	for _, n := range rep.Notes {
-		errln("  " + n)
-		errln("")
+		noteln(n)
 	}
-
-	errln("  " + green("✓ ") + rep.Message)
-	errln("")
+	markOK(rep.Message)
+	// SAID HERE AND NOWHERE ELSE. A client reads its hooks when it starts, so a
+	// session that is already open is running under whatever was registered
+	// when it launched, and a repair it cannot see looks like a repair that did
+	// not work. install.sh and `solongate update` both reach this through the
+	// same binary, so putting it here says it once rather than in three voices.
+	typeOut("         open a new AI session for it to take effect")
 	return 0
 }
 
@@ -59,7 +81,7 @@ func RunRepair([]string) int {
 // Repair installs the guard hooks into the INVOKING user's home. Under sudo that
 // is root's home, so it would report success while the user's agents stayed
 // exactly as broken as before. This is easy to hit by momentum: the fix for a
-// root-owned npm folder is `sudo npm i -g …` followed by this command — which
+// root-owned npm folder is `sudo npm i -g …` followed by this command, which
 // must NOT be sudo.
 func refuseUnderSudo() (int, bool) {
 	if runtime.GOOS == "windows" || os.Getuid() != 0 || os.Getenv("SOLONGATE_INTERNAL") == "1" {
@@ -72,7 +94,7 @@ func refuseUnderSudo() (int, bool) {
 	errln("")
 	errln("  Do not run `solongate repair` with sudo.")
 	errln("  It installs the guard into your home directory, and as root it would")
-	errln("  arm root’s home instead" + whose + " — reporting success while nothing changed for you.")
+	errln("  arm root’s home instead" + whose + ", reporting success while nothing changed for you.")
 	errln("")
 	errln("  Run it as yourself:  solongate repair")
 	errln("")

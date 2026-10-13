@@ -14,7 +14,7 @@ import (
 
 // One guard, registered in every client that can run one. Only the response
 // contract differs per client, and the guard handles that from the agent type
-// baked into its second argument — so what changes below is where the entry
+// baked into its second argument, so what changes below is where the entry
 // goes and how that client spells a hook, never what decides.
 
 // hookHandler is one command entry. Claude Code and Antigravity carry only the
@@ -46,7 +46,7 @@ func matcher(s string) *string { return &s }
 // which reads a line STARTING with a quoted path as a string literal rather than
 // as a command: it fails to parse with "Unexpected token", the hook never
 // executes, and the guard silently never runs. `&` forces invocation. POSIX
-// shells run a quoted path directly, so there is no prefix there — and Codex is
+// shells run a quoted path directly, so there is no prefix there, and Codex is
 // the exception on Windows too, see codexHookCommand.
 func callPrefix() string {
 	if runtime.GOOS == "windows" {
@@ -85,7 +85,7 @@ func (r registration) commit() error {
 //
 // The distinction matters more than it looks. Every merge below starts from what
 // is on disk, and treating "I could not read your settings" as "you have no
-// settings" would REPLACE them with ours — a permission problem turning into
+// settings" would REPLACE them with ours, a permission problem turning into
 // data loss. Absent is a fresh start; unreadable is a refusal.
 func readIfPresent(path string) ([]byte, error) {
 	b, err := os.ReadFile(path)
@@ -149,7 +149,7 @@ func planClaude(p Paths, node string) (registration, error) {
 	// file for no reason.
 	//
 	// The list is what gets written, so the map naming an event the list does not
-	// means the file will not have it — and this object replaces the `hooks` key
+	// means the file will not have it, and this object replaces the `hooks` key
 	// wholesale, so a missing name here is a registration `solongate repair`
 	// quietly strips.
 	hooks := newJSONObject()
@@ -182,7 +182,7 @@ func planClaude(p Paths, node string) (registration, error) {
 // than restoring the backup.
 //
 // Restoring could re-ADD them: a backup taken while the guard was present would
-// make the TUI show "removed" while the guard still ran on every call —
+// make the TUI show "removed" while the guard still ran on every call,
 // which is exactly the bug the row was showing.
 func removeClaudeRegistration(p Paths) error {
 	raw, err := readIfPresent(p.SettingsPath)
@@ -257,7 +257,7 @@ func claudeRegisteredCommand(p Paths) string {
 // ── Antigravity CLI (`agy`) ──────────────────────────────────────────────────
 // Antigravity's hooks.json is a map of NAMED hook groups, each holding event
 // arrays. Its PreToolUse fires a local command before every tool call, which
-// blocks by writing {"decision":"deny"} to stdout and exits 0 — a dialect the
+// blocks by writing {"decision":"deny"} to stdout and exits 0, a dialect the
 // same guard.mjs produces when its agent type is "antigravity". We own ONE named
 // group and replace only that, so every other group the user configured survives.
 
@@ -265,6 +265,25 @@ const antigravityGroup = "solongate-guard"
 
 func antigravityHookCommand(p Paths, node string) string {
 	return hookCommand(p, node, GuardHookName, "antigravity", "Antigravity")
+}
+
+// antigravityAuditCommand is the POST-tool stage on this client.
+//
+// IT EXISTS, and this code said for a long time that it did not. The agy binary
+// documents PostToolUse as a first-class event, matcher-grouped exactly like
+// PreToolUse, stdin carrying the tool call plus `stepIdx` and an `error` when it
+// failed. Verified against the installed agy (the contract is embedded in the
+// binary). What it does NOT have is any way to rewrite the result: its stdout
+// "expects an empty JSON object {}", so there is no updatedToolOutput to write
+// and masking still has to happen before the tool runs, via the `overwrite`
+// field on PreToolUse. Hence ReportsAfter true, RedactsOutput false, see
+// guard/clients.go.
+//
+// What registering it buys: the ALLOW audit row and the detect-mode DLP record
+// now come from the same place they do on every other client, instead of only
+// from whatever the guard could write on the way in.
+func antigravityAuditCommand(p Paths, node string) string {
+	return hookCommand(p, node, auditHookName, "antigravity", "Antigravity")
 }
 
 // antigravityTokensCommand is the token reader on this client.
@@ -289,6 +308,12 @@ func planAntigravity(p Paths, node string) (registration, error) {
 	if err := group.setValue("PreToolUse", []hookGroup{{
 		Matcher: matcher(""),
 		Hooks:   []hookHandler{{Type: "command", Command: antigravityHookCommand(p, node)}},
+	}}); err != nil {
+		return registration{}, err
+	}
+	if err := group.setValue("PostToolUse", []hookGroup{{
+		Matcher: matcher(""),
+		Hooks:   []hookHandler{{Type: "command", Command: antigravityAuditCommand(p, node)}},
 	}}); err != nil {
 		return registration{}, err
 	}
@@ -318,7 +343,7 @@ func planAntigravity(p Paths, node string) (registration, error) {
 }
 
 // removeAntigravityRegistration deletes only our named group. As with Claude,
-// the .bak is never restored — a backup captured while the guard was present
+// the .bak is never restored, a backup captured while the guard was present
 // would silently re-add it.
 func removeAntigravityRegistration(p Paths) error {
 	raw, err := os.ReadFile(p.AntigravityHooksPath)
@@ -365,13 +390,13 @@ func antigravityRegisteredCommand(p Paths) string {
 // OpenCode has no subprocess hook contract: plugins are JS modules Bun loads
 // into the running process, and a call is refused by throwing from
 // tool.execute.before. The shipped plugin is a shim that spawns the same guard
-// every other client runs — one policy engine, not a second one that drifts.
+// every other client runs, one policy engine, not a second one that drifts.
 //
 // Installing is just writing the file; OpenCode scans the folder at startup, so
 // there is nothing to merge and nothing to register. Two limits, both measured
 // on 1.18.10 rather than read: `opencode --pure` runs with external plugins
 // disabled and switches the guard off (the client's own escape hatch), and the
-// plugin is as removable as any file under the user's config dir — the OS lock
+// plugin is as removable as any file under the user's config dir, the OS lock
 // is what makes removing it require intent.
 
 func installOpencodePlugin(p Paths, plugin []byte) error {

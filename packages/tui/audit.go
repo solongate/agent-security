@@ -21,7 +21,7 @@ import (
 	"github.com/solongate/agent-security/packages/core/config"
 )
 
-// Audit — the Live console's tool stream, over the FULL history.
+// Audit, the Live console's tool stream, over the FULL history.
 //
 // Rows use the SAME renderer as Live ([HH:MM:SS LOC|CLD] DECISION tool perm
 // eval agent dlp: rl: {args}) and enter opens the SAME entry inspector; the only
@@ -31,7 +31,7 @@ import (
 // n agent, / search, c clear. enter = full entry.
 //
 // There is ONE source: the JSONL file the hooks write on this machine, read through the
-// api-client store — the same path `solongate audit` reads, so the panel and the command
+// api-client store, the same path `solongate audit` reads, so the panel and the command
 // cannot disagree about what matches a filter. `s` used to toggle between that store and
 // a second in-memory read of the same file, labelled "cloud" against "local".
 
@@ -39,7 +39,6 @@ func init() { Register(SectionAudit, func(d Deps) Panel { return newAudit(d) }) 
 
 const (
 	auditPage      = 500
-	localMaxBytes  = 16 * 1024 * 1024 // read up to 16MB of local history
 	auditKeyColumn = 19
 )
 
@@ -107,7 +106,7 @@ func (r logRow) export() auditExport {
 	}
 }
 
-// stream is the shared row shape — identical rows to the Live console.
+// stream is the shared row shape, identical rows to the Live console.
 func (r logRow) stream() StreamRow {
 	detail := r.args
 	if detail == "" {
@@ -191,7 +190,7 @@ type Audit struct {
 
 	stats *api.Stats
 	// The page, and whether it is in flight. These were `cloud`/`cloudErr`/`cloudBusy`,
-	// beside a second set — `local`/`localErr`/`localBusy` — for the other source. Both
+	// beside a second set, `local`/`localErr`/`localBusy`, for the other source. Both
 	// read the same file, so one set is all there is to be in.
 	list *api.AuditList
 	err  error
@@ -295,7 +294,7 @@ func (p *Audit) loadLogsMode(quiet bool) tea.Cmd {
 	gen := p.gen
 	// A SECOND PATH stood here, reading the same file directly and filtering it in
 	// memory, selected by `p.source == "local"`. Both paths read
-	// security.localLogs.path now, so the only difference left was which one paged —
+	// security.localLogs.path now, so the only difference left was which one paged,
 	// and this one pages through the store, which is what `solongate audit` uses.
 	if !quiet {
 		p.busy = true
@@ -310,7 +309,7 @@ func (p *Audit) loadLogsMode(quiet bool) tea.Cmd {
 }
 
 // pageRows is the current page and the size of the whole result. Filtering and paging
-// happen in the store, against the file — so the panel and `solongate audit` cannot
+// happen in the store, against the file, so the panel and `solongate audit` cannot
 // disagree about what matches.
 func (p *Audit) pageRows() (rows []logRow, total int) {
 	if p.list == nil {
@@ -432,8 +431,8 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	if p.frozen {
 		return nil
 	}
-	// ^R refetches on demand, so an entry written since the last poll — or a policy
-	// edited in another terminal — shows up without waiting for one.
+	// ^R refetches on demand, so an entry written since the last poll, or a policy
+	// edited in another terminal, shows up without waiting for one.
 	if k.Type == tea.KeyCtrlR {
 		p.note = &auditNote{text: "⟳ refreshed " + ctx.Now.Format("15:04:05"), level: "ok"}
 		return tea.Batch(p.loadLogs(), p.loadStats())
@@ -519,7 +518,7 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 		if p.confirm == nil || p.confirm.kind != "one" || p.confirm.key != cur.id {
 			p.confirm = &confirmState{kind: "one", key: cur.id}
 			p.note = &auditNote{level: "bad", text: "x = delete ONLY the selected entry: " +
-				cur.decision + " " + cur.tool + " (" + agoAt(cur.at, ctx.Now) + " ago) — press x again"}
+				cur.decision + " " + cur.tool + " (" + agoAt(cur.at, ctx.Now) + " ago), press x again"}
 			return nil
 		}
 		p.confirm = nil
@@ -527,7 +526,7 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	case str == "X":
 		if p.confirm == nil || p.confirm.kind != "all" {
 			p.confirm = &confirmState{kind: "all", key: "all"}
-			p.note = &auditNote{level: "bad", text: "⚠ X = delete ALL matched entries — " +
+			p.note = &auditNote{level: "bad", text: "⚠ X = delete ALL matched entries, " +
 				"every one of the " + strconv.Itoa(total) + "! press X again"}
 			return nil
 		}
@@ -567,7 +566,7 @@ func (p *Audit) beginEdit(field string) tea.Cmd {
 }
 
 // editField runs the one-line filter editor. Enter commits and closes, esc
-// closes without discarding what was typed — Ink's text input answered neither
+// closes without discarding what was typed. Ink's text input answered neither
 // key, which left esc reaching the shell and unfocusing the panel mid-edit.
 func (p *Audit) editField(k tea.KeyMsg) tea.Cmd {
 	if k.Type == tea.KeyEnter || k.Type == tea.KeyEsc {
@@ -669,9 +668,24 @@ func (p *Audit) doExport(kind string, pageRows []logRow) tea.Cmd {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fail(err)
 		}
-		if err := os.WriteFile(file, []byte(b.String()), 0o644); err != nil {
+		// 0600 AND NOT 0644, and the mode matters more here than on the log it comes
+		// from.
+		//
+		// This file is WIDER than the audit log: the export row carries dlp[] and
+		// burst, which the log does not, so a reader who can open this learns which
+		// secrets a pattern matched and which calls tripped a limit. The log itself
+		// is 0600 inside a 0700 directory. An export of it at 0644 was the one file
+		// in the directory any local account could read, holding the most, and
+		// nothing chose that: 0644 is what os.WriteFile examples use.
+		if err := os.WriteFile(file, []byte(b.String()), 0o600); err != nil {
 			return fail(err)
 		}
+		// CHMOD AS WELL AS THE MODE, because WriteFile only applies a mode when it
+		// CREATES the file. An export written once at 0644 keeps 0644 through
+		// every rewrite after it, so changing the constant fixes new machines and
+		// leaves every machine that already exported one exactly as it was. The
+		// chmod is what reaches those.
+		_ = os.Chmod(file, 0o600)
 		return auditNoteResult{gen: gen, note: auditNote{
 			text: "✓ exported " + strconv.Itoa(len(rows)) + " rows → " + file, level: "ok"}}
 	}
@@ -697,8 +711,8 @@ var auditHelp = []helpGroup{
 	// A SESSIONS VIEW WAS ADVERTISED HERE AND DID NOT EXIST. `v` switched to it, `s`
 	// switched the source "cloud ↔ local file", and a five-key Sessions group listed
 	// how to filter and open the sessions you would find there. None of it was bound
-	// to anything: there is no second source — both paths read the same JSONL, as the
-	// comment at the top of this file says — and no sessions list to switch to.
+	// to anything: there is no second source, both paths read the same JSONL, as the
+	// comment at the top of this file says, and no sessions list to switch to.
 	//
 	// So the help taught keys that do nothing, the header offered "sessions (v)", and
 	// the footer hint spent room on it. Pressing the keys did nothing at all, which
@@ -739,16 +753,16 @@ func (p *Audit) hasRows() bool {
 func (p *Audit) viewHelp(ctx PanelContext) []string {
 	note := "· press any key to close · space = copy mode (works here too)"
 	if p.frozen {
-		note = "· screen frozen — space resumes, other keys are locked"
+		note = "· screen frozen, space resumes, other keys are locked"
 	}
 	lines := []string{}
 	if b := p.copyBanner(ctx.Cols); b != "" {
 		lines = append(lines, b)
 	}
 	lines = append(lines, renderRow(ctx.Cols,
-		sgb("AUDIT — all keys ", theme.AccentBright), sg(note, theme.Dim)), "")
+		sgb("AUDIT, all keys ", theme.AccentBright), sg(note, theme.Dim)), "")
 	// TWO columns, as in the TypeScript: the flat list is taller than the panel
-	// box, and the half that does not fit is not scrollable from here — it would
+	// box, and the half that does not fit is not scrollable from here, it would
 	// simply be cut off, which is a key reference that silently omits keys.
 	half := maxInt(20, (ctx.Cols-2)/2)
 	left := helpBlock(auditHelp[:1], auditKeyColumn, half)
@@ -762,7 +776,7 @@ func (p *Audit) copyBanner(width int) string {
 		return ""
 	}
 	return renderRow(width, seg{
-		text: " ⏵ COPY MODE — screen frozen, select & copy freely · space resume ",
+		text: " ⏵ COPY MODE, screen frozen, select & copy freely · space resume ",
 		fg:   lipgloss.Color(hexOKFG), bg: lipgloss.Color(hexOKBG), bold: true})
 }
 
@@ -780,7 +794,7 @@ func (p *Audit) strip(width int) string {
 			policies = strconv.Itoa(p.stats.ActivePolicies)
 		}
 		// The FILE is named, because "12 calls" with no path leaves the one question a
-		// person opening this panel has — am I looking at the right log? — unanswered,
+		// person opening this panel has, am I looking at the right log?, unanswered,
 		// and the answer moves with the policy.
 		return renderRow(width,
 			seg{text: calls, bold: true}, sg(" calls · ", theme.Dim),
@@ -791,7 +805,7 @@ func (p *Audit) strip(width int) string {
 }
 
 // srcChip rendered `src: cloud (s)` at the head of the list. There is one source, and
-// the file it is is named in the totals strip instead — which is the useful half of what
+// the file it is is named in the totals strip instead, which is the useful half of what
 // this was telling anybody.
 
 func chip(label, value string, on bool) []seg {
@@ -819,7 +833,7 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	bodyW := maxInt(20, ctx.Cols-4)
 	width := ctx.Cols - 2
 
-	// FULL CONTENT surfaces WHY — Audit's forensic value — ABOVE the arguments.
+	// FULL CONTENT surfaces WHY: Audit's forensic value. ABOVE the arguments.
 	// The same block the Live inspector uses, so the two never explain the same
 	// entry differently: which layer refused it, and the guard's own sentence.
 	why := whyBlock(e.decision, e.reason, e.rule, e.dlp, e.burst, bodyW)
@@ -853,7 +867,7 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	}
 	head = append(head, sg("  ← back", theme.Dim))
 
-	evalText, evalColor := "—", lipgloss.TerminalColor(nil)
+	evalText, evalColor := ", ", lipgloss.TerminalColor(nil)
 	if e.evalMs != nil {
 		evalText = num(*e.evalMs) + "ms"
 		if *e.evalMs > 500 {
@@ -862,7 +876,7 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	}
 	rule, ruleColor := e.rule, lipgloss.TerminalColor(theme.Dim)
 	if rule == "" {
-		rule = "—"
+		rule = ", "
 	} else if e.decision != "ALLOW" {
 		ruleColor = theme.Bad
 	}
@@ -971,7 +985,7 @@ func (p *Audit) viewLogs(ctx PanelContext) []string {
 			i == sel && ctx.Focused, true, width))
 	}
 	if len(rows) == 0 {
-		body = append(body, renderRow(width, sg("(no entries — c clears filters)", theme.Dim)))
+		body = append(body, renderRow(width, sg("(no entries, c clears filters)", theme.Dim)))
 	}
 	return dataView(p.logsLoading() && !p.frozen, p.logsError(), false, "", width, body)
 }
@@ -985,7 +999,7 @@ func orAll(s string) string {
 
 func orEmDash(s string) string {
 	if s == "" {
-		return "—"
+		return ", "
 	}
 	return s
 }

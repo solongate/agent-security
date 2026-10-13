@@ -7,13 +7,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+
+	"github.com/solongate/agent-security/packages/core/config"
 )
 
-// `solongate repair` — put the guard back after tampering or deletion.
+// `solongate repair`, put the guard back after tampering or deletion.
 //
 // It reports what was missing, rewrites every protection file, re-registers the
-// hooks in all four clients and re-locks. The logged-in account is reused, so
-// nothing has to be paired again.
+// hooks in all four clients and re-locks. Nothing has to be paired or logged in:
+// there is no account and no key, so a repair needs nothing from the user.
 
 // ReportLine is one row of the before/after listing.
 type ReportLine struct {
@@ -22,7 +24,7 @@ type ReportLine struct {
 	Detail string
 }
 
-// Report is the whole repair, with no printing in it — the same restore backs
+// Report is the whole repair, with no printing in it, the same restore backs
 // `solongate repair` and the TUI's Settings panel, and the TUI owns
 // the terminal while it is up.
 type Report struct {
@@ -60,7 +62,7 @@ func Repair() Report {
 	before := []ReportLine{
 		reportLine("guard hook file", Exists(p.GuardPath()), "present", "MISSING"),
 		// There was a `cloud credential` row here. It reported MISSING on every
-		// machine — nothing writes one — which is a red line on a healthy install,
+		// machine, nothing writes one, which is a red line on a healthy install,
 		// and a report with a permanent red line in it stops being read.
 		runtime(),
 		reportLine("Claude hooks", ClaudeGuardInstalled(), "guard registered", "guard NOT registered"),
@@ -90,22 +92,70 @@ func Repair() Report {
 	notes := append([]string{}, r.Notes...)
 	// Older versions kept per-call scratch next to the user's code. The guard
 	// clears the one in its own working directory, but a folder no agent visits
-	// again would keep it forever — so repair goes and looks.
+	// again would keep it forever, so repair goes and looks.
 	if swept := SweepStrayScratchDirs(p.Home); swept > 0 {
 		notes = append(notes, "Removed "+strconv.Itoa(swept)+
 			" leftover .solongate scratch folder(s) from earlier versions; per-call flags now live under ~/.solongate/projects.")
 	}
+	// EVERY FILE THAT EVER HELD AN API KEY, removed rather than described.
+	//
+	// There is no API key in this product. There is no account, nothing pairs
+	// with a service, and nothing authenticates: the key existed to connect a
+	// device to a site, that connection is gone, and the code that read, wrote
+	// and validated a key went with it.
+	//
+	// Two files are left on machines that ran a build which had it, and they are
+	// swept together because they held the same kind of secret and were found
+	// one at a time:
+	//
+	//	the account store  every account ever logged in on the device, each with
+	//	                   its key, at 0644.
+	//	the armed one      the key the installed hooks enforced with, at 0444 and
+	//	                   locked, which is why it needs the unlock before the
+	//	                   remove and why a plain os.Remove was not enough.
+	//
+	// `doctor` used to tell people to rotate and delete by hand. That was the
+	// cautious call and the wrong one: a file nothing maintains, holding a
+	// live-format secret, stays forever when its removal is somebody's chore.
+	// `repair` exists to put a machine into the state this version wants.
+	//
+	// IT STILL CANNOT REVOKE THE KEY, and the notes say so. Deleting the file
+	// removes the copy on disk; whatever that key opens, it opens until somebody
+	// revokes it at whatever issued it. That half is not ours, and a note saying
+	// only "removed" would read as finished.
+	for _, name := range []string{"accounts.json", "cloud-guard.json"} {
+		stale := filepath.Join(p.SGDir, name)
+		if !Exists(stale) {
+			continue
+		}
+		err := os.Remove(stale)
+		if err != nil {
+			// The armed one is locked, which is the whole reason the first
+			// attempt can fail on a file the user owns.
+			config.UnlockFile(stale)
+			err = os.Remove(stale)
+		}
+		if err == nil {
+			notes = append(notes, "Removed "+stale+", left over from when this product had accounts. "+
+				"It held an API key: revoke that key at whatever issued it, because deleting the file does not.")
+		} else {
+			notes = append(notes, "Could not remove "+stale+" ("+err.Error()+"). "+
+				"It is left over from when this product had accounts and holds an API key; "+
+				"delete it and revoke the key.")
+		}
+	}
+
 	cx := CodexHooksStatus()
 	if cx.Registered && !cx.Trusted {
 		notes = append(notes, "Codex only: run `/hooks` inside Codex once and trust the SolonGate hooks (Codex skips any hook it has not been told to trust).")
 	}
 	if cx.Disabled {
-		notes = append(notes, "Codex only: hooks are turned OFF in ~/.codex/config.toml ([features] hooks = false) - the guard cannot run there until that line is removed.")
+		notes = append(notes, "Codex only: hooks are turned OFF in ~/.codex/config.toml ([features] hooks = false). The guard cannot run there until that line is removed.")
 	}
 
 	return Report{
 		OK:      true,
-		Message: "guard repaired. Open a new AI session for it to take effect.",
+		Message: "guard repaired.",
 		Before:  before,
 		After:   after,
 		Notes:   notes,
@@ -129,7 +179,7 @@ const (
 	// levels down (…/repo/apps/web/src).
 	scratchMaxDepth = 6
 	// High enough that one big repo early in the walk cannot use the whole budget
-	// before the rest of home is reached — which is exactly what a smaller one
+	// before the rest of home is reached, which is exactly what a smaller one
 	// did. Only ever runs on an explicit repair.
 	scratchBudget = 40000
 )
@@ -138,7 +188,7 @@ const (
 // scattered around.
 //
 // The guard used to keep its per-call flags next to the user's code, so one of
-// these was left in every directory an agent had ever run in — config folders
+// these was left in every directory an agent had ever run in, config folders
 // and dotfile repos included. The guard now sweeps the folder in its own working
 // directory, which heals anywhere an agent goes again; somewhere like
 // ~/.config/ags may never be visited twice, so repair goes looking.
@@ -156,18 +206,18 @@ func sweepScratch(root string, maxDepth, budget int) int {
 	visited := 0
 	skip := map[string]bool{"node_modules": true, ".git": true, "dist": true, ".next": true, "build": true}
 	// The real store, which must never be a candidate. Excluded by PATH, not by
-	// name — excluding the name would skip every folder the sweep came for.
+	// name, excluding the name would skip every folder the sweep came for.
 	store := GlobalPaths().SGDir
 
 	// macOS TCC-protected personal folders, skipped by full path so the sweep
 	// never descends into them. Walking in makes the OS raise a permission
-	// prompt - Desktop, Documents, Downloads, the media library under Music, the
+	// prompt. Desktop, Documents, Downloads, the media library under Music, the
 	// Photos library under Pictures, iCloud Drive and third-party cloud mounts
-	// under Library - and each one BLOCKS THE SWEEP until somebody answers it:
+	// under Library, and each one BLOCKS THE SWEEP until somebody answers it:
 	// a dozen dialogs asking for access to a person's photos, raised by a
 	// security tool, in the middle of tidying up legacy scratch files.
 	//
-	// Stray scratch never lived in these anyway - it was left beside a user's
+	// Stray scratch never lived in these anyway, it was left beside a user's
 	// code. By full path, not by name, so a project directory deeper down that
 	// merely shares one of these names is still swept. Only on darwin, which is
 	// where the prompts are.

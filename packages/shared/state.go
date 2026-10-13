@@ -56,8 +56,8 @@ type Security struct {
 	// ever on disk and a mode cannot accidentally do a stronger mode's work.
 	//
 	// There used to be two modes wearing three names. "detect" set DLPRedact, so
-	// it masked the model's view of every secret it found — which is redacting,
-	// not detecting — and "block" set both, so the only difference between them
+	// it masked the model's view of every secret it found, which is redacting,
+	// not detecting, and "block" set both, so the only difference between them
 	// was whether an argument hit also refused the call. A read whose secret was
 	// in the FILE behaved identically in both: allowed, masked, and recorded as
 	// clean. Somebody asking for detect got redaction they did not ask for, and
@@ -73,7 +73,7 @@ type Security struct {
 	// present and a layer cannot accidentally enforce the observing one.
 	//
 	// Read by the post-tool audit hook on clients that have one, and by the
-	// guard itself on clients that do not — where nothing else runs, so a
+	// guard itself on clients that do not, where nothing else runs, so a
 	// detect-mode burst that is not counted here is not counted anywhere.
 	RateLimitObserve *RateLimit `json:"rateLimitObserve"`
 	LocalLogs        *LocalLogs `json:"localLogs"`
@@ -95,6 +95,24 @@ type Security struct {
 	// than implying the strongest case everywhere.
 	ProtectedPaths []string `json:"protectedPaths,omitempty"`
 
+	// Sandboxes are the closed boxes this machine has defined, each one a
+	// directory an agent can be confined to and nothing else.
+	//
+	// A LIST RATHER THAN ONE SETTING, because a machine has more than one
+	// project and they do not share a confinement. The box for a customer's
+	// repository and the box for a scratch experiment want different
+	// directories and often different answers about the network, and a single
+	// setting made somebody edit it every time they changed what they were
+	// working on, which is the kind of friction that ends with the feature
+	// switched off.
+	//
+	// THE OTHER WAY ROUND FROM ProtectedPaths, and that is the point of both
+	// of them. A protected list protects what somebody remembered to name,
+	// which is never ~/.ssh, never a sibling customer's repository, never the
+	// credentials of a tool they installed last month. A box protects
+	// everything they did not name.
+	Sandboxes []Sandbox `json:"sandboxes,omitempty"`
+
 	// RequireSandbox refuses every tool call from an agent that was not started
 	// through `solongate run`.
 	//
@@ -105,6 +123,42 @@ type Security struct {
 	RequireSandbox bool `json:"requireSandbox,omitempty"`
 }
 
+// Sandbox is one closed box: an id, a directory, and whether the agent inside
+// it can reach the network.
+type Sandbox struct {
+	// ID is what `solongate sandbox <id> <agent>` takes, zero-padded to three
+	// digits from "001".
+	//
+	// SHORT AND REUSED ON PURPOSE. It is typed every time an agent is started,
+	// so it has to be short enough to type and stable enough to remember; and
+	// deleting a box frees its number for the next one, so a machine that has
+	// made and removed boxes for a year still has small ids rather than "047".
+	// The number names a slot, not a history.
+	ID string `json:"id"`
+
+	// Dir is the directory the box is about, as an ABSOLUTE path. "~/x" is a
+	// shell convention rather than a path: the kernel does not expand it, so a
+	// box keyed on that string would be a box around a directory that does not
+	// exist.
+	Dir string `json:"dir"`
+
+	// Network is whether the agent in this box can reach the network.
+	//
+	// A PER-BOX CHOICE, because the right answer differs per project and
+	// neither answer is safe in general. Off is a box nothing can leave, and
+	// an agent that cannot reach its model cannot do anything either. On lets
+	// the agent work and leaves exfiltration to the DLP and egress layers,
+	// which read what is leaving, something a mount namespace cannot do.
+	//
+	// Defaults to ON when a box is created, because that is the box that works;
+	// the TUI says what the choice costs rather than choosing quietly.
+	Network bool `json:"network"`
+
+	// Label is an optional human name, for a list of boxes that would otherwise
+	// be a list of paths.
+	Label string `json:"label,omitempty"`
+}
+
 // Rules stays raw. The guard compiles it to Rego and the CLI passes it through;
 // decoding it into a struct here would mean a policy loses any field this
 // version does not know about the moment something round-trips it.
@@ -113,12 +167,49 @@ type Policy struct {
 	Name  string          `json:"name"`
 	Mode  string          `json:"mode"`
 	Rules json.RawMessage `json:"rules"`
+
+	// Agents scopes the RULES to named clients. Empty or absent means every
+	// client, and so does an entry of "*".
+	//
+	// Here because the JavaScript guard has honoured it since before this
+	// package existed and this one did not, so the same file meant two things
+	// depending on whether a machine had the binary: a policy scoped to one
+	// client was enforced against all of them here. The hook is the reference
+	// for these shapes (see the package comment), so the hook's reading is the
+	// correct one and this was the bug.
+	//
+	// It scopes the rules and nothing else. DLP, the rate limit, egress and the
+	// tamper flag are configured in a different block of the same file and are
+	// not the policy; a client out of scope still gets all of them. The hook
+	// returned ALLOW above those layers for an out-of-scope client, which turned
+	// a scoped policy into a way to disarm them, and that is fixed on its side
+	// rather than copied to this one.
+	Agents []string `json:"agents,omitempty"`
+}
+
+// AppliesTo reports whether this policy's rules are meant for the named client.
+//
+// Kept identical to the scope test in packages/hooks/guard.mjs: a missing or
+// empty list is every client, "*" is every client, and otherwise the client has
+// to be named exactly. Compared case-sensitively because the names are the
+// client ids the installer bakes into the hook registration, not something a
+// person types.
+func (p *Policy) AppliesTo(client string) bool {
+	if p == nil || len(p.Agents) == 0 {
+		return true
+	}
+	for _, a := range p.Agents {
+		if a == "*" || a == client {
+			return true
+		}
+	}
+	return false
 }
 
 // PolicyCache mirrors ~/.solongate/.policy-cache-<agent>.json.
 //
-// Security is a pointer on purpose. `null` there is an ANSWER — the API sent no
-// security block, so this project has none — and it has to stay distinguishable
+// Security is a pointer on purpose. `null` there is an ANSWER, the API sent no
+// security block, so this project has none, and it has to stay distinguishable
 // from "the field was absent". Collapsing the two is what once made a stale
 // device-wide marker decide where audit entries went.
 type PolicyCache struct {
@@ -144,9 +235,4 @@ func (c *PolicyCache) UnmarshalJSON(b []byte) error {
 		_, c.HasSecurity = probe["security"]
 	}
 	return nil
-}
-
-type Credential struct {
-	APIKey string `json:"apiKey"`
-	APIURL string `json:"apiUrl"`
 }

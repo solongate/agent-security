@@ -28,11 +28,19 @@ the tests.
 | `packages/guard` | The guard. Runs on every tool call and decides. |
 | `packages/policy` | The policy engine: JSON rules compiled to Rego, evaluated in process. |
 | `packages/shared` | Shapes more than one program has to agree about. No dependencies, on purpose. |
-| `packages/core` | What both surfaces stand on: config, the local store, install state, health, the sandbox. |
+| `packages/sandbox` | The kernel confinement: Landlock, Seatbelt, a Windows deny, and the closed box. |
+| `packages/core` | What both surfaces stand on: config, the local store, install state, health. |
 | `packages/cli` | The subcommands. Prints and exits. |
 | `packages/tui` | The TUI. Full screen, stays open. |
-| `packages/app` | The binary. 409 lines: dispatch, the human-only gate, and `--help`. |
+| `packages/app` | The binary: dispatch, the human-only gate, and `--help`. |
 | `packages/hooks` | The hook programs, and the scripts that build what ships. |
+
+`sandbox` is its own module rather than a directory under `core`, and the
+reason is measurable: it is the only package here that needs go-landlock, and
+`core` is one module, so while it lived there, everything that imported
+`core/api` resolved go-landlock too, which was four of the eight go.mod files
+for a dependency three of them never call. Nothing inside `core` imported it;
+only `cli` and `tui` do.
 
 `cli` and `tui` are siblings and neither imports the other. They are two
 surfaces onto the same thing, and when one reaches into the other what follows
@@ -46,15 +54,65 @@ edge that existed, the TUI calling the CLI for `doctor`, is why
 pnpm install
 pnpm build          # bundles the hooks
 
-for m in guard policy shared core cli tui app; do
-  (cd "packages/$m" && gofmt -l . && go vet ./...)
+for m in guard policy shared sandbox core cli tui app; do
+  (cd "packages/$m" && gofmt -l . && go vet ./... && go test -count=1 ./...)
 done
 ```
 
-That is all of it. There is no test suite in this repository. The conformance
-suite that used to judge both guards against each other was removed, and so was
-every Go test, and nothing replaced them. The commands above tell you the code
-compiles. They do not tell you it still decides the way it did yesterday.
+Five of those eight modules have tests, and the three without are the ones whose
+work is a terminal: `cli`, `tui` and `app` print, prompt and exec. What is tested
+is what a pure function can answer, which is a deliberate line rather than an
+accident of effort:
+
+```
+shared    DLP patterns, the three views, the glob compiler
+sandbox   the two Landlock regimes and which directories each grants
+guard     what the tamper layer matches, and what it leaves alone
+policy    the Rego conditions, the exec-tool pattern, the path globs
+core/api  sandbox id allocation, directory validation, policy scoping
+```
+
+One of them needs capabilities an ordinary user does not have: the two-regime
+grant rests on an immutable inode flag, so the end-to-end case for it skips
+unless you are root. CI runs that one under sudo. Everything else runs anywhere.
+
+The conformance suite that once judged both guards against each other is still
+gone, and the four scripts below are what replaced it.
+
+Four checks do tell you something about what it decides. CI runs three of them
+on every push; the fourth needs a Mac and runs on one:
+
+```bash
+./.sg-parity-check.sh      # both guards, one policy file, fourteen verdicts
+./.sg-layers-check.sh      # every layer that refuses, twenty-six cases
+./.sg-box-check.sh         # a closed box, twenty-two questions  (Linux, needs bwrap)
+./.sg-seatbelt-check.sh    # the Seatbelt profile confines        (macOS)
+```
+
+Three questions, not one. Parity asks whether the two implementations reach the
+same verdict. Layers asks whether the layers do what they claim: DLP in all four
+modes, the rate limit, tamper with no policy loaded, the four constraint kinds,
+whitelist mode. Box asks whether the closed box is closed.
+
+Parity was the only one for a long time and it can only ever answer the first
+question. Two implementations agreeing says nothing about whether either is
+right. The layers check found the seventh divergence on its first run, in a
+place parity had no case for: the Go argument scan read one view of the text
+where the Node one read three, so a secret split across a quote boundary was
+refused by one guard and allowed by the other.
+
+Still not coverage. Forty end-to-end cases and forty-one Go tests is more than
+what was here, and it is not a measurement of this product. What they catch is
+the class that has cost the most: the two implementations drifting apart, a
+layer that is configured but inert, and a sandbox reporting confinement it is
+not applying. Everything else is still on the pull request.
+
+The two instruments answer different questions and neither substitutes for the
+other. A shell check drives two real binaries on a real kernel and cannot reach
+a function. A Go test reaches a function and cannot start a mount namespace. The
+divergence that cost the most this round was invisible to fourteen end-to-end
+cases and is one line in a unit test; the box being closed is invisible to any
+unit test and is twenty-two questions in a script.
 
 Which puts the burden on the pull request. Run your change against a real agent
 and write down what you did: which client, which tool calls, what you expected,
@@ -105,9 +163,10 @@ No prefixes are required.
   fix cannot be reverted on its own.
 - Say what you ran, in detail. With no suite behind the change, a vague "tested
   locally" is not reviewable. Name the client, the calls, and the outcome.
-- CI runs gofmt and vet over the seven Go modules, the hook bundle, the release
-  build, and a secret scan. All of it has to be green, and all of it together
-  still says nothing about whether the guard decides correctly.
+- CI runs six jobs: gofmt and vet over the eight Go modules, a cross-compile of
+  all of them for six GOOS/GOARCH pairs, the two Linux checks above, the
+  Seatbelt check on a Mac, the release build, and a secret scan. All of it has
+  to be green.
 - If your change alters what a policy means, say so in the pull request title.
   Somebody's live policy will behave differently, and that is a release note.
 

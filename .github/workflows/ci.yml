@@ -45,65 +45,6 @@ jobs:
           - packages/cli
           - packages/tui
           - packages/app
-
-  # THE PLATFORM-SPECIFIC FILES WERE NEVER COMPILED BY ANYTHING, which is the
-  # gap this job exists to close.
-  #
-  # Three packages carry per-platform code behind build tags: sandbox has a
-  # Landlock file, a Seatbelt file, an icacls file and a refuse-everything
-  # fallback; guard and core/install each had a pair. Every CI job ran on
-  # ubuntu-latest, so the darwin and windows halves were checked by nothing at
-  # all, the Seatbelt profile and the Windows deny were as good as whatever
-  # somebody last typed into them. Cross-compiling here is cheap and catches the
-  # whole class: an undefined symbol, a syscall that does not exist on that GOOS,
-  # a constant renamed on one side of a tag.
-  #
-  # IT DOES NOT RUN ANYTHING, and the job name says compile for that reason.
-  # Landlock needs a Linux kernel, the closed box needs a mount namespace, and
-  # Seatbelt needs a Mac, so this proves the code builds for those platforms
-  # and nothing about whether the confinement holds there. The honest version of
-  # that is in the package comments, which say which platform has been measured.
-  cross:
-    name: compile (${{ matrix.goos }}/${{ matrix.goarch }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        goos: [darwin, windows, linux]
-        goarch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: packages/guard/go.mod
-          cache-dependency-path: packages/guard/go.sum
-
-      - name: build every module for this platform
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          # CGO off, which is what the release build uses too: there is no
-          # per-platform toolchain to install and nothing links libc.
-          CGO_ENABLED: '0'
-        run: |
-          for m in guard policy shared sandbox core cli tui app; do
-            echo "== packages/$m"
-            (cd "packages/$m" && go build ./...)
-          done
-
-      # vet understands build tags, so running it per GOOS is what actually
-      # reads the file that platform compiles. One pass on linux reads the
-      # linux file and skips the other three.
-      - name: vet for this platform
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
-        run: |
-          for m in guard policy shared sandbox core cli tui app; do
-            (cd "packages/$m" && go vet ./...)
-          done
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -174,6 +115,65 @@ jobs:
         if: matrix.module == 'packages/sandbox'
         working-directory: ${{ matrix.module }}
         run: sudo -E env "PATH=$PATH" go test -count=1 -run Frozen -v ./...
+
+  # THE PLATFORM-SPECIFIC FILES WERE NEVER COMPILED BY ANYTHING, which is the
+  # gap this job exists to close.
+  #
+  # Three packages carry per-platform code behind build tags: sandbox has a
+  # Landlock file, a Seatbelt file, an icacls file and a refuse-everything
+  # fallback; guard and core/install each had a pair. Every CI job ran on
+  # ubuntu-latest, so the darwin and windows halves were checked by nothing at
+  # all, the Seatbelt profile and the Windows deny were as good as whatever
+  # somebody last typed into them. Cross-compiling here is cheap and catches the
+  # whole class: an undefined symbol, a syscall that does not exist on that GOOS,
+  # a constant renamed on one side of a tag.
+  #
+  # IT DOES NOT RUN ANYTHING, and the job name says compile for that reason.
+  # Landlock needs a Linux kernel, the closed box needs a mount namespace, and
+  # Seatbelt needs a Mac, so this proves the code builds for those platforms
+  # and nothing about whether the confinement holds there. The honest version of
+  # that is in the package comments, which say which platform has been measured.
+  cross:
+    name: compile (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [darwin, windows, linux]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: packages/guard/go.mod
+          cache-dependency-path: packages/guard/go.sum
+
+      - name: build every module for this platform
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          # CGO off, which is what the release build uses too: there is no
+          # per-platform toolchain to install and nothing links libc.
+          CGO_ENABLED: '0'
+        run: |
+          for m in guard policy shared sandbox core cli tui app; do
+            echo "== packages/$m"
+            (cd "packages/$m" && go build ./...)
+          done
+
+      # vet understands build tags, so running it per GOOS is what actually
+      # reads the file that platform compiles. One pass on linux reads the
+      # linux file and skips the other three.
+      - name: vet for this platform
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          for m in guard policy shared sandbox core cli tui app; do
+            (cd "packages/$m" && go vet ./...)
+          done
 
   # THE CHECKS THIS REPOSITORY HAS, run rather than committed and forgotten.
   #

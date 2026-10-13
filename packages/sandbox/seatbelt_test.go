@@ -88,6 +88,32 @@ func TestSeatbeltProfileKeepsAncestorsReadable(t *testing.T) {
 	}
 }
 
+// THE DELETE THAT NEVER NAMES THE FILE.
+//
+// `rm /path/to/secret` unlinks by that literal path, which the rules above
+// already deny. `cd /path/to && rm secret`, and `find /path/to -delete`,
+// resolve the directory once and remove the entry through it, so the path
+// Seatbelt is asked to check is the directory's own, not secret's - a case
+// the literal/subpath denies on secret itself cannot see no matter which
+// canonical form they are written against.
+func TestSeatbeltProfileDeniesUnlinkThroughAncestorDirectories(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "a", "b")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(nested, "secret.txt")
+	if err := os.WriteFile(secret, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p, _ := seatbeltProfile([]string{secret})
+	for d := filepath.Dir(secret); d != "/" && d != "."; d = filepath.Dir(d) {
+		mustContain(t, p, `(deny file-write-unlink (literal "`+d+`"))`,
+			"a delete routed through "+d+" as an already-open directory names "+d+", not "+secret+", to the kernel")
+	}
+}
+
 // A PATH THAT DOES NOT EXIST IS REPORTED, NOT DROPPED.
 //
 // filepath.Abs succeeds on a name that is not there, so the path still reaches

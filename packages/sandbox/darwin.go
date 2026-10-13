@@ -72,6 +72,10 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 	}
 	rep.Enforced = true
 
+	if os.Getenv("SG_DEBUG_PROFILE") != "" {
+		os.Stderr.WriteString("--- SG_DEBUG_PROFILE ---\n" + profile + "--- end profile ---\n")
+	}
+
 	full := append([]string{"sandbox-exec", "-p", profile, "--"}, argv...)
 	err = syscall.Exec(exe, full, env)
 	rep.Err = err

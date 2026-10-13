@@ -242,6 +242,18 @@ jobs:
       - name: bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
 
+      # UBUNTU, NOT BWRAP, is why the box used to fail here. Ubuntu 24.04
+      # restricts unprivileged user namespaces to AppArmor-confined binaries by
+      # default (the CVE-2023-2640 mitigation), and the runner image is 24.04.
+      # bwrap --unshare-all needs exactly the capability that restriction
+      # takes away, so it died with EPERM before the box check's own probe for
+      # "can this shell make a mount namespace at all" even got a yes - the
+      # same failure a real Landlock-confined `solongate run` shell would hit,
+      # indistinguishable from this one without the sysctl this runner needs
+      # and a plain checkout does not have reason to set.
+      - name: allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       # Landlock has to be in the kernel for the parity check's protected-path
       # cases to mean anything. Printed rather than asserted: the runner image
       # decides, and a skipped reason in the log beats a green tick that proved

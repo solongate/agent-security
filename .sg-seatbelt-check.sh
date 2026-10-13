@@ -88,6 +88,21 @@ ask "reach it through a symlink"    NO "ln -sf '$PROTECTED' '$T/work/link' 2>/de
 ask "a script it wrote reaches it"  NO "printf '#!/bin/sh\ncat %s\n' '$PROTECTED' > '$T/work/e.sh'; chmod +x '$T/work/e.sh'; '$T/work/e.sh' >/dev/null 2>&1 && echo YES || echo NO"
 ask "find -delete over its folder"  NO "find '$(dirname "$PROTECTED")' -name '$(basename "$PROTECTED")' -delete 2>/dev/null; test -e '$PROTECTED' && echo NO || echo YES"
 
+if true; then
+  echo
+  echo "DEBUG: what the kernel resolves the parent dir to:"
+  echo "  dirname as typed:    $(dirname "$PROTECTED")"
+  echo "  pwd -P after cd:     $(cd "$(dirname "$PROTECTED")" && pwd -P)"
+  echo "  realpath of file:    $(cd "$(dirname "$PROTECTED")" 2>/dev/null; python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$PROTECTED")"
+  echo
+  echo "DEBUG: re-running find -delete with the generated profile dumped:"
+  echo 'int main(){return 0;}' > "$PROTECTED"
+  SG_DEBUG_PROFILE=1 "$APP" run -- /bin/sh -c "find '$(dirname "$PROTECTED")' -name '$(basename "$PROTECTED")' -delete" 2>"$T/debug-profile.txt" >/dev/null
+  echo "  file survived this debug re-run: $([ -e "$PROTECTED" ] && echo yes || echo no)"
+  sed -n '/SG_DEBUG_PROFILE/,/end profile/p' "$T/debug-profile.txt" | grep -i "work\|folders\|tmp\." | sed 's/^/  profile: /'
+  echo 'int main(){return 0;}' > "$PROTECTED"
+fi
+
 echo
 echo "and the ordinary things must keep working:"
 ask "read a sibling file"           YES "cat '$(dirname "$PROTECTED")/other.txt' >/dev/null 2>&1 && echo YES || echo NO"

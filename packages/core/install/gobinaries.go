@@ -58,16 +58,29 @@ func BinDir() string { return filepath.Join(GlobalPaths().SGDir, "bin") }
 // InstallGoBinaries copies the platform package's binaries beside the installed
 // hook. It returns the names it placed, for the install report.
 func InstallGoBinaries() []string {
-	self, err := os.Executable()
-	if err != nil {
+	dir, ok := selfBinDir()
+	if !ok {
 		return nil
 	}
-	// Symlinks matter here: a global npm install links the bin into a directory
+	return copyFrom(dir)
+}
+
+// selfBinDir is the directory this running binary sits in, symlinks resolved.
+//
+// Shared with state.go's ShippedGuardVersion, which needs the exact same
+// answer: the candidate binary a repair would install is whatever sits beside
+// the binary that is currently running, not a package lookup.
+func selfBinDir() (string, bool) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", false
+	}
+	// Symlinks matter here: a global install can link the bin into a directory
 	// on PATH, and the link's directory has no binaries next to it.
 	if resolved, err := filepath.EvalSymlinks(self); err == nil {
 		self = resolved
 	}
-	return copyFrom(filepath.Dir(self))
+	return filepath.Dir(self), true
 }
 
 // copyFrom is the copy itself, with the source named rather than discovered, so

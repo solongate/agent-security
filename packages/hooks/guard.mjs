@@ -20,9 +20,9 @@
  * everything that reached it. NEITHER FILE IS REQUIRED, with no policy at all
  * there is nothing to enforce and the call is allowed.
  *
- * The engine is the same whichever answered: OPA WASM, NIST SP 800-207 PDP,
- * fail-closed. Routing is binary. WHITE (allow) / BLACK (block). Nothing is
- * escalated to a model and there is no judge.
+ * The engine is the same whichever answered: hooks/policy-eval.mjs, a NIST
+ * SP 800-207 PDP, fail-closed. Routing is binary. WHITE (allow) / BLACK
+ * (block). Nothing is escalated to a model and there is no judge.
  *
  * Denials are recorded to disk, which is the only place they go. ALLOWs are
  * recorded by audit.mjs.
@@ -59,7 +59,6 @@ import {
   normalizeArgs,
   scanStrings,
 } from './policy-eval.mjs';
-import { gunzipSync } from 'node:zlib';
 
 // ── Per-project scratch, kept OUT of the project ─────────────────────────────
 // The guard and the audit hook pass a few small flags to each other (the eval
@@ -2474,64 +2473,6 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
   return null;
 }
 
-// ── Policy Evaluation ──
-
-
-
-
-
-// ── OPA IS OUT OF THE DECISION PATH ──
-//
-// It read a bundle a SERVICE compiled, and there is no service to compile one.
-// What decided when a bundle could not be obtained, which was every cold start,
-// every air-gapped install and now every call, is hooks/policy-eval.mjs, shared
-// with the MCP proxy so a policy cannot mean one thing to a hook and another to
-// the proxy.
-//
-// The bundle reader below stays: it is pure, it is tested, and reading a bundle
-// somebody supplies is a smaller step to take later than writing one again.
-
-// Extracts /policy.wasm from an OPA bundle. Mirrors
-// packages/policy-engine/src/opa/opa-evaluator.ts extractWasmFromBundle().
-// The bundle may be a gzipped tar (.tar.gz from `opa build -t wasm`) or raw WASM.
-function extractWasmFromBundle(buf) {
-  if (buf[0] === 0x1f && buf[1] === 0x8b) {
-    const tar = gunzipSync(buf);
-    let offset = 0;
-    while (offset < tar.length - 512) {
-      const nameEnd = tar.indexOf(0, offset);
-      const name = tar.subarray(offset, Math.min(nameEnd, offset + 100)).toString('utf-8');
-      if (!name || name.length === 0) break;
-      const sizeStr = tar.subarray(offset + 124, offset + 136).toString('utf-8').trim();
-      const size = parseInt(sizeStr, 8) || 0;
-      offset += 512;
-      if (name === 'policy.wasm' || name === './policy.wasm' || name.endsWith('/policy.wasm')) {
-        return Buffer.from(tar.subarray(offset, offset + size));
-      }
-      offset += Math.ceil(size / 512) * 512;
-    }
-    throw new Error('policy.wasm not found in OPA bundle');
-  }
-  if (buf[0] === 0x00 && buf[1] === 0x61 && buf[2] === 0x73 && buf[3] === 0x6d) {
-    return buf; // already raw WASM
-  }
-  throw new Error('Unknown OPA bundle format');
-}
-
-// Fetches the compiled WASM for this policy from the API, with a local cache
-// keyed by a fingerprint of the policy so updates propagate. Returns the raw
-// policy.wasm bytes (Uint8Array) or null when unavailable.
-// The WASM cache is keyed by `fp`, a fingerprint of the policy rules+mode, so a
-// real policy change invalidates it immediately regardless of age. The TTL is
-// therefore only a backstop for a server-side recompile that keeps the same
-// rules, a rare event, so we keep it long (24h) instead of re-downloading the
-// bundle every 30s on the hot path.
-const OPA_WASM_TTL_MS = 24 * 60 * 60 * 1000;
-
-// Lazily load the opa-wasm runtime. Returns the loadPolicy fn or null if the
-// package isn't installed in this environment (typical for air-gapped hooks).
-let _loadPolicyFn = null;
-let _loadPolicyTried = false;
 
 // ── Translator (input side) ──
 // Normalize ANY client's raw hook payload into ONE canonical shape the whole

@@ -24,10 +24,6 @@ importers:
         version: 2.11.7
 
   packages/hooks:
-    dependencies:
-      '@open-policy-agent/opa-wasm':
-        specifier: ^1.10.0
-        version: 1.10.0
     devDependencies:
       esbuild:
         specifier: ^0.28.2
@@ -191,9 +187,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@open-policy-agent/opa-wasm@1.10.0':
-    resolution: {integrity: sha512-ymR/nFS3nO9o24j9xowGGQaf+Gmb813QcxUpVZkfRlJkawKWqSIllnEH15agyWjijmOIyhA+OBErenx6N3jphw==}
-
   '@turbo/darwin-64@2.11.7':
     resolution: {integrity: sha512-Z2LFOxwbiJueD1miByXJS/BrW21vv6YaQXZustty5jEX4vQYw6zyh101Sz1QO7WG0mqBzKagZ/DoAeeujI0/Sw==}
     cpu: [x64]
@@ -229,16 +222,9 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  sprintf-js@1.1.3:
-    resolution: {integrity: sha512-Oo+0REFV59/rz3gfJNKQiBlwfHaSESl1pcGyABQsnnIfWOFt6JNj5gCog2U6MLZ//IGYD+nA8nI+mTShREReaA==}
-
   turbo@2.11.7:
     resolution: {integrity: sha512-RhXHbqfvY6o3xt/zSHCwSNwLrZlXiqHzewi4eAj9PtZ1T1CqgMJ2yIDb7SKPTG9IikTm925mfzL6hldQVdyNWw==}
     hasBin: true
-
-  yaml@1.10.3:
-    resolution: {integrity: sha512-vIYeF1u3CjlhAFekPPAk2h/Kv4T3mAkMox5OymRiJQB0spDP10LHvt+K7G9Ny6NuuMAb25/6n1qyUjAcGNf/AA==}
-    engines: {node: '>= 6'}
 
 snapshots:
 
@@ -320,11 +306,6 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@open-policy-agent/opa-wasm@1.10.0':
-    dependencies:
-      sprintf-js: 1.1.3
-      yaml: 1.10.3
-
   '@turbo/darwin-64@2.11.7':
     optional: true
 
@@ -372,8 +353,6 @@ snapshots:
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
 
-  sprintf-js@1.1.3: {}
-
   turbo@2.11.7:
     optionalDependencies:
       '@turbo/darwin-64': 2.11.7
@@ -382,5 +361,3 @@ snapshots:
       '@turbo/linux-arm64': 2.11.7
       '@turbo/windows-64': 2.11.7
       '@turbo/windows-arm64': 2.11.7
-
-  yaml@1.10.3: {}

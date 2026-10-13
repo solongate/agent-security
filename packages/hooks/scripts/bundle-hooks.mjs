@@ -3,14 +3,14 @@
 // Bundles the cloud guard hook into a single self-contained .mjs so it can run
 // from ~/.solongate/hooks/ WITHOUT a node_modules directory next to it.
 //
-// The guard hook evaluates policy through OPA WASM (@open-policy-agent/opa-wasm).
-// A GLOBAL install (init --global) drops the hook as a lone file referenced from
-// ~/.claude/settings.json, so the opa-wasm runtime must be inlined here at build
-// time, otherwise `import('@open-policy-agent/opa-wasm')` would MODULE_NOT_FOUND
-// on the host and enforcement would silently fail-closed (DENY everything).
+// guard.mjs imports its decision engine from the sibling policy-eval.mjs. A
+// GLOBAL install (init --global) drops the hook as a lone file referenced from
+// ~/.claude/settings.json, with no sibling beside it, so that import has to be
+// inlined here at build time or it would MODULE_NOT_FOUND on the host and
+// enforcement would silently fail-closed (DENY everything).
 //
-// Output (guard.bundled.mjs) is committed and shipped in the npm package; the
-// installer prefers it over the readable guard.mjs when present.
+// Output (guard.bundled.mjs) is committed; the installer prefers it over the
+// readable guard.mjs when present.
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';

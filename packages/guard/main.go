@@ -272,6 +272,23 @@ func main() {
 		return
 	}
 
+	// Reserved verbs, checked before the positional (agentType, agentName)
+	// dispatch below: none of the real agent types (claude-code, codex,
+	// opencode, antigravity, generic) collide with these three, so this is
+	// purely additive. Each subcommand is a separate PostToolUse/standalone
+	// entry point, not a PreToolUse decision, so it exits directly rather
+	// than falling into the call/policy machinery below.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "tokens":
+			os.Exit(runTokens(os.Args[2:]))
+		case "audit":
+			os.Exit(runAudit(os.Args[2:]))
+		case "shield":
+			os.Exit(runShield(os.Args[2:]))
+		}
+	}
+
 	agentType := "claude-code"
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") {
 		agentType = os.Args[1]

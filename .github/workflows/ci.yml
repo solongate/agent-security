@@ -326,10 +326,10 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
       # This bundles hooks/guard.mjs into hooks/guard.bundled.mjs, which is
-      # the file that installs as the guard: readGuard prefers it, with opa-wasm
-      # inlined. The unbundled hook imports two siblings and an npm package, and
-      # whether those resolve on a stranger's machine is not a thing to find out
-      # on the decision path.
+      # the file that installs as the guard: readGuard prefers it, with its
+      # sibling policy-eval.mjs inlined. The unbundled hook imports that
+      # sibling by relative path, and whether it resolves on a stranger's
+      # machine is not a thing to find out on the decision path.
       - name: build
         working-directory: packages/hooks
         run: pnpm build

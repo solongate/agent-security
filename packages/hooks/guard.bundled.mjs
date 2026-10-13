@@ -1735,7 +1735,6 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
   }
   return null;
 }
-var OPA_WASM_TTL_MS = 24 * 60 * 60 * 1e3;
 function applyPatchTargets(patch) {
   const out = [];
   if (typeof patch !== "string" || !patch.includes("*** ")) return out;

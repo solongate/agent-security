@@ -62,8 +62,19 @@ func seatbeltProfile(deny []string) (string, []string) {
 	// denied path keep their metadata readable. Without this, denying
 	// ~/game/game.c makes ~/game/readme.md unreachable as well, and the symptom
 	// is an agent that cannot see files nobody protected.
+	//
+	// file-write-unlink on each ancestor is a second rule for the same file,
+	// not a new protection. `rm` unlinks by the absolute path, which the
+	// literal/subpath denies above already catch. `cd`-then-delete and
+	// `find -delete` do not: both resolve the directory once and then remove
+	// the entry through that open directory, so the path Seatbelt is asked to
+	// check is the DIRECTORY's, not the file's, and nothing above denies that.
+	// Denying file-write-unlink on the exact ancestor path closes it without
+	// touching file-write-create, so a sibling can still be written through
+	// the same directory - only removing something through it is refused.
 	for dir := range ancestors {
 		b.WriteString("(allow file-read-metadata (literal " + sbplString(dir) + "))\n")
+		b.WriteString("(deny file-write-unlink (literal " + sbplString(dir) + "))\n")
 	}
 	return b.String(), got
 }

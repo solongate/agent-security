@@ -8,7 +8,6 @@ import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, mkdirSy
 import { spawn, spawnSync } from "node:child_process";
 import { resolve, join, dirname, isAbsolute, normalize } from "node:path";
 import { homedir } from "node:os";
-import { createRequire } from "node:module";
 
 // policy-eval.mjs
 function matchGlob(str, pattern) {
@@ -461,7 +460,7 @@ function sweepLegacyFlagDir() {
   } catch {
   }
 }
-var HOOK_VERSION = 112;
+var HOOK_VERSION = 113;
 var SG_DIR_MODE = 448;
 var SG_FILE_MODE = 384;
 var SG_STDIN = (() => {
@@ -482,13 +481,6 @@ function sgGuardCandidates() {
   const out = [];
   if (process.env.SOLONGATE_GUARD_BIN) out.push(process.env.SOLONGATE_GUARD_BIN);
   const exe = process.platform === "win32" ? "solongate-guard.exe" : "solongate-guard";
-  const os_ = process.platform === "win32" ? "win32" : process.platform;
-  const cpu = process.arch === "x64" ? "x64" : process.arch;
-  try {
-    const req = createRequire(import.meta.url);
-    out.push(join(dirname(req.resolve(`@solongate/guard-${os_}-${cpu}/package.json`)), exe));
-  } catch {
-  }
   out.push(resolve(homedir(), ".solongate", "bin", exe));
   return out;
 }

@@ -213,15 +213,16 @@ func observingDLP(sec *shared.Security) *observingCfg {
 // binary implements. It is what `--sg-version` prints and what the hook compares
 // itself against before handing a call over.
 //
-// It is NOT the npm version, and the difference is the entire point. The Node
-// hook self-updates from the cloud on its own schedule while the binary only
-// moves when npm moves it, so the two CAN diverge on a running machine, and
-// when they do, the decision logic is what diverged. HOOK_VERSION bumps on every
-// guard.mjs change, so comparing it answers the question that actually matters:
-// "does this binary decide the way the hook next to it would?" An npm version
-// would answer a different question and get this one wrong in both directions,
-// falling back for a release that changed nothing here, and staying on the fast
-// path after a cloud self-update that changed everything.
+// It is NOT the package version, and the difference is the entire point. The
+// Node hook self-updates from the cloud on its own schedule while the binary
+// only moves when `solongate update`/`repair` replaces it, so the two CAN
+// diverge on a running machine, and when they do, the decision logic is what
+// diverged. HOOK_VERSION bumps on every guard.mjs change, so comparing it
+// answers the question that actually matters: "does this binary decide the way
+// the hook next to it would?" A release version would answer a different
+// question and get this one wrong in both directions, falling back for a
+// release that changed nothing here, and staying on the fast path after a
+// cloud self-update that changed everything.
 //
 // TestHookVersionMatchesTheNodeHook used to read the number out of the Node hook
 // so this could not drift without the build saying so. That test went with the
@@ -243,7 +244,9 @@ func observingDLP(sec *shared.Security) *observingCfg {
 // shared.VerifiedInSandbox; the full note is on HOOK_VERSION in the hook.
 // 112: the audit log's lock. See HOOK_VERSION in the hook and
 // shared.AuditLockName for the rules both sides follow.
-const hookVersion = 112
+// 113: sgGuardCandidates dropped the npm platform package lookup, no decision
+// logic changed. See HOOK_VERSION in the hook.
+const hookVersion = 113
 
 // Stamped at build time: -ldflags "-X main.buildVersion=<npm version>". Printed
 // by --sg-build. Diagnostic only: nothing decides anything on it.

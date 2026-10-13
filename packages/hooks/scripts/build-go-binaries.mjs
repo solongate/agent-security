@@ -2,22 +2,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Cross-compile the Go guard and CLI, and lay them out as npm platform packages.
+ * Cross-compile the Go guard and CLI, and lay them out one directory per
+ * platform under packages/hooks/platforms/.
  *
  *   node scripts/build-go-binaries.mjs            # build every target
  *   node scripts/build-go-binaries.mjs linux-x64  # just one, for a quick loop
  *
- * WHY PLATFORM PACKAGES rather than a postinstall download: npm installs only
- * the optionalDependency whose `os`/`cpu` match the host, so a user downloads
- * one binary rather than six, and it arrives through the same registry, lockfile
- * and integrity hash as everything else. A postinstall that fetches from a
- * release URL is a second supply chain, and for a security tool that is the
- * wrong trade even when it is smaller.
+ * WHY A LOCAL LAYOUT rather than a postinstall download: this repository is
+ * not published to any registry (see the note near the bottom of this file),
+ * so there is no npm install step to hook a download into anyway. install.sh
+ * and `solongate repair` copy the binary for the running host straight out of
+ * the matching platforms/<tag>/ directory — a build-from-checkout, not a
+ * supply chain.
  *
- * Both binaries go in ONE platform package. They are separate programs, the
- * guard runs per tool call, the CLI is what a human types, but they ship and
- * version together, and two packages would let a machine hold one of each from
- * different releases.
+ * The package.json dropped into each platforms/<tag>/ directory is a leftover
+ * shape, not a registry artifact: its `os`/`cpu` fields are what let
+ * install.sh/repair pick the right directory for the host, nothing resolves it
+ * through node_modules.
+ *
+ * Both binaries go in ONE directory per platform. They are separate programs,
+ * the guard runs per tool call, the CLI is what a human types, but they ship
+ * and version together, and splitting them would let a machine hold one of
+ * each from different releases.
  *
  * The guard's version is NOT the npm version. It prints the HOOK_VERSION it
  * implements, because that is what the Node hook compares against before handing
@@ -127,9 +133,10 @@ for (const t of targets) {
 
   const built = PROGRAMS.map((p) => build(t, p));
 
-  // `os` and `cpu` are what make this an optionalDependency npm can decline:
-  // on a host that does not match, install skips it without failing, which is
-  // exactly the "no binary here, use Node" case the hook already handles.
+  // `os`/`cpu` read by nothing today — install.sh/repair pick the directory
+  // themselves, from `uname`, not from this file. They stay because they are
+  // what an npm registry would filter an optionalDependency on, if this is
+  // ever published again; see the note near the bottom of this file.
   writeFileSync(join(dir, 'package.json'), JSON.stringify({
     name: `@solongate/guard-${t.tag}`,
     version: pkg.version,
@@ -139,9 +146,6 @@ for (const t of targets) {
     os: [t.os],
     cpu: [t.cpu],
     files: built.map((b) => b.exe),
-    // No main, no exports: there is no JavaScript in here. The hook resolves
-    // this package.json and reads the binary beside it.
-    preferUnplugged: true,
   }, null, 2) + '\n');
 
   writeFileSync(join(dir, 'README.md'),

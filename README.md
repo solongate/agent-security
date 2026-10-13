@@ -274,7 +274,7 @@ applies five gates, and the first two are environment switches:
 
 - `SOLONGATE_NO_GO_GUARD=1` skips delegation and pins the decision to Node.
 - `SOLONGATE_GUARD_BIN` goes to the **front** of the candidate list, ahead of
-  the npm platform package and `~/.solongate/bin`.
+  `~/.solongate/bin`, which is the other candidate.
 - the candidate must exist and, off Windows, be executable.
 - `<binary> --sg-version` must print an integer **equal** to the hook's own
   `HOOK_VERSION`, within two seconds.

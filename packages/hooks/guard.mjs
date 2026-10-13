@@ -44,7 +44,6 @@ import { spawn, spawnSync } from 'node:child_process';
 // path is worse than both treating it the same way.
 import { resolve, join, dirname, isAbsolute, normalize } from 'node:path';
 import { homedir } from 'node:os';
-import { createRequire } from 'node:module';
 // The decision engine, shared with the MCP proxy so a policy cannot mean one
 // thing to a hook and another to the proxy. esbuild inlines this file.
 import {
@@ -203,7 +202,15 @@ import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
 // sides take an O_EXCL lock file now, this one in the DETACHED writer, where it
 // costs the tool call nothing. Past a bounded wait the appender writes anyway
 // and the rewriter gives up, which is the right direction for each.
-const HOOK_VERSION = 112;
+// 113 DROPS THE NPM PLATFORM PACKAGE FROM sgGuardCandidates. This repository
+// does not publish one to a registry anymore (see build-go-binaries.mjs), so
+// the `require.resolve('@solongate/guard-${os}-${cpu}/package.json')` this used
+// to try first could never succeed — it was a node_modules walk on every tool
+// call in service of a package that does not exist anywhere it would be found.
+// The two real candidates, SOLONGATE_GUARD_BIN and ~/.solongate/bin, are what
+// is left. No decision logic changed; this bumps because every change to this
+// file does.
+const HOOK_VERSION = 113;
 
 // SG_DIR_MODE is the mode for ~/.solongate.
 //
@@ -295,30 +302,15 @@ const SG_ORIGIN_MS = (() => {
 // Where a binary may legitimately live, in the order they are trusted.
 //
 // The env override is first so a build can be pointed at without reinstalling.
-// The platform package is the normal path for a project-local install. The copy
-// under ~/.solongate/bin is what a GLOBAL install has: the hook is written to
-// ~/.solongate/hooks as a lone file and launched from arbitrary working
-// directories, where resolving through node_modules finds nothing.
+// ~/.solongate/bin is what every install has, project-local or global: the
+// hook is written to ~/.solongate/hooks as a lone file and launched from
+// arbitrary working directories, so this is resolved from the home directory
+// rather than through node_modules — there is no npm package this binary ever
+// ships inside of to resolve through.
 function sgGuardCandidates() {
   const out = [];
   if (process.env.SOLONGATE_GUARD_BIN) out.push(process.env.SOLONGATE_GUARD_BIN);
   const exe = process.platform === 'win32' ? 'solongate-guard.exe' : 'solongate-guard';
-  const os_ = process.platform === 'win32' ? 'win32' : process.platform;
-  const cpu = process.arch === 'x64' ? 'x64' : process.arch;
-  try {
-    // The manifest, not a main entry: these packages contain a binary and
-    // nothing else, so there is no JavaScript in them to resolve.
-    //
-    // createRequire rather than import.meta.resolve: the latter is not a sync
-    // function on every Node 18 this package supports, and a hook is not the
-    // place to find that out. node:module is a builtin, so importing it cannot
-    // fail the way a real dependency could.
-    const req = createRequire(import.meta.url);
-    out.push(join(dirname(req.resolve(`@solongate/guard-${os_}-${cpu}/package.json`)), exe));
-  } catch {
-    // Not installed for this platform, which is what optionalDependencies does
-    // on a host with no published binary, and is not an error.
-  }
   out.push(resolve(homedir(), '.solongate', 'bin', exe));
   return out;
 }

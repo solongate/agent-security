@@ -11,16 +11,18 @@ import (
 
 // Put the Go binaries where the installed hook can find them.
 //
-// THE PROBLEM THIS SOLVES, and it made the whole fast path unreachable for the
+// THE PROBLEM THIS SOLVED, and it made the whole fast path unreachable for the
 // commonest install: a global install writes guard.mjs as a LONE FILE under
 // ~/.solongate/hooks, and a client launches it from whatever directory the agent
-// happens to be in. From there the hook's package lookup,
-// require.resolve("@solongate/guard-<platform>"), finds nothing, because there
-// is no node_modules anywhere above it. So the hook fell back to its Node
-// implementation on every call, on every machine, and nothing said so: a
-// fallback looks exactly like a fast path that is merely slow.
+// happens to be in. The hook used to have a package lookup there too,
+// require.resolve("@solongate/guard-<platform>"), which found nothing, because
+// there is no node_modules anywhere above it (and nothing published for it to
+// find even if there were). So the hook fell back to its Node implementation
+// on every call, on every machine, and nothing said so: a fallback looks
+// exactly like a fast path that is merely slow.
 //
-// The hook's last candidate is ~/.solongate/bin, which is what this fills.
+// The hook's package lookup is gone now; ~/.solongate/bin is its only
+// candidate besides SOLONGATE_GUARD_BIN, and this is what fills it.
 //
 // WHERE THE BINARIES COME FROM is the part worth reading. Not a package lookup,
 // this program IS one of them. The CLI and the guard ship in the same platform

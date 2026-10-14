@@ -45,7 +45,7 @@ command -v bwrap >/dev/null 2>&1 || { echo "bwrap is not installed"; exit 1; }
 # will say no to the box, and the reason is that something above this shell is
 # already confining it (Landlock from `solongate run`, a container without
 # CAP_SYS_ADMIN, user namespaces turned off).
-if ! bwrap --unshare-all --ro-bind /usr /usr --dev /dev /bin/true 2>/dev/null; then
+if ! bwrap --unshare-all --ro-bind /usr /usr --dev /dev /usr/bin/true 2>/dev/null; then
   echo "This shell cannot create a mount namespace, so there is nothing here"
   echo "that can build a box. Probed by running bwrap, which failed."
   echo

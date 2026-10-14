@@ -264,24 +264,6 @@ jobs:
       - name: allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: DEBUG userns diagnostics
-        run: |
-          echo "sysctl readback: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>&1)"
-          echo "--- plain unshare (util-linux), no bwrap involved ---"
-          unshare --user --map-root-user id 2>&1 || echo "unshare exit=$?"
-          echo "--- bwrap, stderr not discarded ---"
-          bwrap --unshare-all --ro-bind /usr /usr --dev /dev /bin/true 2>&1 || echo "bwrap exit=$?"
-          echo "--- capsh ---"
-          command -v capsh >/dev/null && capsh --print 2>&1 | head -20 || echo "no capsh"
-          echo "--- aa-status ---"
-          sudo aa-status 2>&1 | head -10 || echo "aa-status failed"
-          echo "--- id / whoami ---"
-          id; whoami
-          echo "--- apparmor profile for bwrap, if any ---"
-          cat /etc/apparmor.d/*bwrap* 2>&1 || echo "no dedicated apparmor profile file for bwrap"
-          echo "--- systemd-detect-virt ---"
-          systemd-detect-virt 2>&1 || true
-
       # Landlock has to be in the kernel for the parity check's protected-path
       # cases to mean anything. Printed rather than asserted: the runner image
       # decides, and a skipped reason in the log beats a green tick that proved

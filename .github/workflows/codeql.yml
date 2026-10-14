@@ -48,7 +48,7 @@ jobs:
           go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
-      - uses: github/codeql-action/init@66e692051da0915b214c5158091a226015d453f4 # v3.38.3
+      - uses: github/codeql-action/init@9f759ee644a3e7c15c1390abf49868036c00067b # v3.38.3
         with:
           languages: go
           build-mode: manual
@@ -57,7 +57,7 @@ jobs:
         working-directory: ${{ matrix.module }}
         run: go build ./...
 
-      - uses: github/codeql-action/analyze@66e692051da0915b214c5158091a226015d453f4 # v3.38.3
+      - uses: github/codeql-action/analyze@9f759ee644a3e7c15c1390abf49868036c00067b # v3.38.3
         with:
           category: "/language:go/${{ matrix.module }}"
 
@@ -70,11 +70,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: github/codeql-action/init@66e692051da0915b214c5158091a226015d453f4 # v3.38.3
+      - uses: github/codeql-action/init@9f759ee644a3e7c15c1390abf49868036c00067b # v3.38.3
         with:
           languages: javascript-typescript
           build-mode: none
 
-      - uses: github/codeql-action/analyze@66e692051da0915b214c5158091a226015d453f4 # v3.38.3
+      - uses: github/codeql-action/analyze@9f759ee644a3e7c15c1390abf49868036c00067b # v3.38.3
         with:
           category: "/language:javascript-typescript"

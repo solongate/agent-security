@@ -6,7 +6,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 )
 
 func auditUsage() string {
@@ -18,7 +18,7 @@ func auditUsage() string {
 	})
 }
 
-func runAudit(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runAudit(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	jsonOut := p.flagBool("json")
 	sub := p.positional(0)
 
@@ -41,7 +41,7 @@ func runAudit(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 			scope = "exact"
 		}
 		var (
-			res  api.RuleMutation
+			res  client.RuleMutation
 			err  error
 			verb = "Whitelisted"
 			kind = "ALLOW"
@@ -72,7 +72,7 @@ func runAudit(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 	if !ok {
 		limit = 30
 	}
-	res, err := c.Audit.List(ctx, api.AuditQuery{
+	res, err := c.Audit.List(ctx, client.AuditQuery{
 		Filter:    p.flagStr("filter"),
 		Tool:      p.flagStr("tool"),
 		Signal:    p.flagStr("signal"),

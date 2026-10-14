@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package api
+package client
 
 // The store behind every command and every panel: two files on this machine.
 //

@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/health"
 )
 
-func runDoctor(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runDoctor(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	checks := health.CollectChecks(ctx, c)
 
 	failed := 0

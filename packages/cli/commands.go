@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 )
 
 // Names is the subcommand set this router owns. main.go uses it to decide what
@@ -38,7 +38,7 @@ var LocalNames = []string{}
 // for failures that should be rendered the same way everywhere, an API
 // rejection, an unreachable cloud, a missing login. A command that simply has
 // nothing to show returns (0, nil) and prints its own line.
-type handler func(ctx context.Context, c *api.Client, p parsedArgs) (int, error)
+type handler func(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 
 func handlers() map[string]handler {
 	return map[string]handler{
@@ -73,7 +73,7 @@ func Run(name string, argv []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	code, err := h(ctx, api.New(), parse(argv))
+	code, err := h(ctx, client.New(), parse(argv))
 	// Ctrl+C during a request makes that request fail, and the API layer
 	// describes the failure as "cannot reach SolonGate". It was reached; the
 	// user stopped waiting. Checking the context first keeps an interrupt from
@@ -100,7 +100,7 @@ func Runner(name string) func([]string) int {
 // something this layer understands.
 //
 // There used to be a third case ahead of those: `errors.Is(e,
-// api.ErrNotAuthenticated)`, printing "not logged in". Nothing could return that
+// client.ErrNotAuthenticated)`, printing "not logged in". Nothing could return that
 // error, there is no service to authenticate to, so the branch was unreachable
 // and the only thing it did was tell a reader this CLI has a login.
 func report(e error) int {
@@ -109,7 +109,7 @@ func report(e error) int {
 		// reports for a process the user interrupted.
 		return 130
 	}
-	var ae *api.Error
+	var ae *client.Error
 	if errors.As(e, &ae) {
 		msg := ae.Message
 		if ae.Status != 0 {

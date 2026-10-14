@@ -1,9 +1,10 @@
 <div align="center">
-  <img src="docs/assets/hero.png" alt="SolonGate. For AI agents to execute tools safely. Make agents secure again." width="900">
+  <img src="assets/general/hero.png" alt="SolonGate. For AI agents to execute tools safely. Make agents secure again." width="900">
 </div>
 
 <p align="center">
   <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/solongate/agent-security/actions/workflows/codeql.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/codeql.yml/badge.svg" alt="codeql"></a>
   <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26%2B-00ADD8.svg" alt="Go 1.26+"></a>
@@ -11,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.bestpractices.dev/en/projects/15333/baseline-1"><img src="docs/assets/openssf-baseline.svg" alt="OpenSSF Security Baseline level 1, 24 of 24 controls" height="28"></a>
+  <a href="https://www.bestpractices.dev/en/projects/15333/baseline-1"><img src="assets/general/openssf-baseline.svg" alt="OpenSSF Security Baseline level 1, 24 of 24 controls" height="28"></a>
 </p>
 
 <p align="center">
@@ -40,7 +41,7 @@ table.
 Agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
 
 <div align="center">
-  <img src="docs/assets/flow.gif" alt="A tool call from an AI agent passes through SolonGate, which runs a policy check, DLP scan, rate limit and logging, then allows or blocks it before the tool runs" width="900">
+  <img src="assets/general/flow.gif" alt="A tool call from an AI agent passes through SolonGate, which runs a policy check, DLP scan, rate limit and logging, then allows or blocks it before the tool runs" width="900">
 </div>
 
 ## Install
@@ -48,7 +49,7 @@ Agents: **Claude Code**, **Codex**, **OpenCode**, **Antigravity**.
 ```bash
 git clone https://github.com/solongate/agent-security.git
 cd agent-security
-./install.sh
+./scripts/shell/install.sh
 ```
 
 Then open a new terminal: hooks load when a session starts, so an already open
@@ -77,7 +78,7 @@ A real Claude Code session: the agent reaches for a `.env`, the guard refuses it
 and the agent says so rather than quietly working around it.
 
 <div align="center">
-  <img src="docs/assets/claudecode.gif" alt="A Claude Code session in which SolonGate blocks access to a .env file and Claude reports the refusal instead of working around it" width="900">
+  <img src="assets/general/claudecode.gif" alt="A Claude Code session in which SolonGate blocks access to a .env file and Claude reports the refusal instead of working around it" width="900">
 </div>
 
 ## What it enforces
@@ -245,16 +246,16 @@ invokes them. Two are not gated that way:
 
 <table cellspacing="0" cellpadding="0" border="0" align="center">
   <tr>
-    <td><a href="https://claude.com/claude-code"><img src="docs/assets/cells/claude.png" width="200" alt="Claude Code"></a></td>
-    <td><a href="https://openai.com/codex"><img src="docs/assets/cells/codex.png" width="200" alt="Codex CLI"></a></td>
-    <td><a href="https://antigravity.google"><img src="docs/assets/cells/antigravity.png" width="200" alt="Antigravity CLI"></a></td>
-    <td><a href="https://opencode.ai"><img src="docs/assets/cells/opencode.png" width="200" alt="OpenCode"></a></td>
+    <td><a href="https://claude.com/claude-code"><img src="assets/cells/claude.png" width="200" alt="Claude Code"></a></td>
+    <td><a href="https://openai.com/codex"><img src="assets/cells/codex.png" width="200" alt="Codex CLI"></a></td>
+    <td><a href="https://antigravity.google"><img src="assets/cells/antigravity.png" width="200" alt="Antigravity CLI"></a></td>
+    <td><a href="https://opencode.ai"><img src="assets/cells/opencode.png" width="200" alt="OpenCode"></a></td>
   </tr>
   <tr>
-    <td><a href="https://openclaw.ai"><img src="docs/assets/cells/openclaw.png" width="200" alt="OpenClaw (soon)"></a></td>
-    <td><a href="https://hermes.nousresearch.com"><img src="docs/assets/cells/hermes.png" width="200" alt="Hermes (soon)"></a></td>
-    <td><a href="https://chainabit.com"><img src="docs/assets/cells/chainabit.png" width="200" alt="Chainabit (soon)"></a></td>
-    <td><a href="https://github.com/solongate/agent-security/issues"><img src="docs/assets/cells/yourtool.png" width="200" alt="Your tool"></a></td>
+    <td><a href="https://openclaw.ai"><img src="assets/cells/openclaw.png" width="200" alt="OpenClaw (soon)"></a></td>
+    <td><a href="https://hermes.nousresearch.com"><img src="assets/cells/hermes.png" width="200" alt="Hermes (soon)"></a></td>
+    <td><a href="https://chainabit.com"><img src="assets/cells/chainabit.png" width="200" alt="Chainabit (soon)"></a></td>
+    <td><a href="https://github.com/solongate/agent-security/issues"><img src="assets/cells/yourtool.png" width="200" alt="Your tool"></a></td>
   </tr>
 </table>
 

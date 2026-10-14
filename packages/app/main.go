@@ -26,7 +26,7 @@ import (
 	"github.com/mattn/go-isatty"
 
 	"github.com/solongate/agent-security/packages/cli"
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/install"
 	"github.com/solongate/agent-security/packages/core/term"
 	"github.com/solongate/agent-security/packages/sandbox"
@@ -76,7 +76,7 @@ var runExplainArgs = map[string]bool{"--explain": true, "explain": true}
 // `update` IS NOT IN THAT LIST EITHER, and unlike `run` the reason was never
 // written down. It is the higher-leverage of the two exemptions by a wide
 // margin: it reads ~/.solongate/.installed-from, moves the checkout with git,
-// and then runs `sh install.sh --yes`, which rebuilds the guard, rewrites the
+// and then runs `sh scripts/shell/install.sh --yes`, which rebuilds the guard, rewrites the
 // hooks and re-registers every client. `run` only ever ADDS restriction. This
 // replaces the code that does the restricting.
 //
@@ -110,7 +110,7 @@ var policyFileName = "poli" + "cy.json"
 
 func main() { os.Exit(run(os.Args[1:])) }
 
-// WHO KNOWS THE GUARD'S VERSION NUMBERS. core/api declares GuardVersions as a
+// WHO KNOWS THE GUARD'S VERSION NUMBERS. core/client declares GuardVersions as a
 // function variable, with a comment saying the install layer fills it in, and nothing
 // ever did, so it kept its default of (0, nil) on every machine. Everything reading
 // it therefore believed the installed guard was unknown and the newest available was
@@ -124,9 +124,9 @@ func main() { os.Exit(run(os.Args[1:])) }
 // whose job is to say whether the guard is healthy had its own copy of the answer.
 //
 // Wired here rather than in an init() because core/install does not import
-// core/api, and main imports both. One assignment, before anything can read it.
+// core/client, and main imports both. One assignment, before anything can read it.
 func wireGuardVersions() {
-	api.GuardVersions = func() (int, *int) {
+	client.GuardVersions = func() (int, *int) {
 		latest := 0
 		if v := install.ShippedGuardVersion(); v != nil {
 			latest = *v

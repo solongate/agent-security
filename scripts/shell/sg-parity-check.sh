@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Runs the Go guard and the bundled Node guard against the SAME machine policy
 # and compares verdicts. Exit 2 = deny, 0 = allow.
 #
@@ -6,12 +7,12 @@
 # evidence CONTRIBUTING.md asks a pull request to carry, written down so the next
 # person can re-run it instead of reconstructing it.
 #
-#   ./.sg-parity-check.sh [path-to-go-guard]
+#   ./scripts/shell/sg-parity-check.sh [path-to-go-guard]
 #
 # Builds the guard into a temp path if none is given.
 set -u
 
-REPO=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
 G=${1:-}
 if [ -z "$G" ]; then
   G=$(mktemp -d)/sg-guard
@@ -208,5 +209,5 @@ echo "WHAT THIS DOES NOT MEASURE: the enforcement layers themselves. Fourteen"
 echo "cases here, all of them about the two implementations reaching the same"
 echo "verdict on the same input. Whether DLP, the rate limit, the four policy"
 echo "constraint kinds and whitelist mode do what they claim is a separate"
-echo "question, and ./.sg-layers-check.sh is where it is asked."
+echo "question, and ./scripts/shell/sg-layers-check.sh is where it is asked."
 [ "$fail" = 0 ]

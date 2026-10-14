@@ -1,25 +1,14 @@
 # Contributing to SolonGate
 
-Thanks for being here. This is a security control: when it works, nothing
-happens, and a change that quietly weakens it looks exactly like a change that
-does nothing. Most of what follows exists to keep that from happening.
-
-Read this once before your first pull request. The code comments carry the rest:
-they say what a piece is defending against and what broke before it was written
-that way.
+Thanks for being here. Read this once before your first pull request please.
 
 ## Setting up
 
 ```bash
 git clone https://github.com/solongate/agent-security.git
 cd agent-security
-pnpm install
-pnpm build
+./scripts/shell/install.sh
 ```
-
-If you want the tool actually installed on your machine while you work on it,
-`./install.sh` does that from the checkout. You do not need it installed to run
-the tests.
 
 ### What lives where
 
@@ -35,173 +24,65 @@ the tests.
 | `packages/app` | The binary: dispatch, the human-only gate, and `--help`. |
 | `packages/hooks` | The hook programs, and the scripts that build what ships. |
 
-`sandbox` is its own module rather than a directory under `core`, and the
-reason is measurable: it is the only package here that needs go-landlock, and
-`core` is one module, so while it lived there, everything that imported
-`core/api` resolved go-landlock too, which was four of the eight go.mod files
-for a dependency three of them never call. Nothing inside `core` imported it;
-only `cli` and `tui` do.
-
-`cli` and `tui` are siblings and neither imports the other. They are two
-surfaces onto the same thing, and when one reaches into the other what follows
-is a check a person reads differently depending on which they opened. The one
-edge that existed, the TUI calling the CLI for `doctor`, is why
-`core/health` is its own package.
-
 ## Checking your change
 
 ```bash
-pnpm install
-pnpm build          # bundles the hooks
-
-for m in guard policy shared sandbox core cli tui app; do
-  (cd "packages/$m" && gofmt -l . && go vet ./... && go test -count=1 ./...)
-done
+./scripts/shell/sg-unit-check.sh
 ```
 
-Five of those eight modules have tests, and the three without are the ones whose
-work is a terminal: `cli`, `tui` and `app` print, prompt and exec. What is tested
-is what a pure function can answer, which is a deliberate line rather than an
-accident of effort:
+That runs the unit tests for `shared`, `sandbox`, `guard`, `policy` and `core`.
+`cli`, `tui` and `app` have none: they just print to the screen and run
+commands, so there's nothing to unit-test in them.
 
-```
-shared    DLP patterns, the three views, the glob compiler
-sandbox   the two Landlock regimes and which directories each grants
-guard     what the tamper layer matches, and what it leaves alone
-policy    the Rego conditions, the exec-tool pattern, the path globs
-core/api  sandbox id allocation, directory validation, policy scoping
-```
-
-One of them needs capabilities an ordinary user does not have: the two-regime
-grant rests on an immutable inode flag, so the end-to-end case for it skips
-unless you are root. CI runs that one under sudo. Everything else runs anywhere.
-
-The conformance suite that once judged both guards against each other is still
-gone, and the four scripts below are what replaced it.
-
-Four checks do tell you something about what it decides. CI runs three of them
-on every push; the fourth needs a Mac and runs on one:
+Four end-to-end scripts too (Seatbelt needs a Mac):
 
 ```bash
-./.sg-parity-check.sh      # both guards, one policy file, fourteen verdicts
-./.sg-layers-check.sh      # every layer that refuses, twenty-six cases
-./.sg-box-check.sh         # a closed box, twenty-two questions  (Linux, needs bwrap)
-./.sg-seatbelt-check.sh    # the Seatbelt profile confines        (macOS)
+./scripts/shell/sg-parity-check.sh      # the Go guard and the Node hook must agree
+./scripts/shell/sg-layers-check.sh      # every layer (DLP, rate limit, tamper, etc.) must block what it says it blocks
+./scripts/shell/sg-box-check.sh         # the sandbox must actually lock the agent in   (Linux, needs bwrap)
+./scripts/shell/sg-seatbelt-check.sh    # same check, for macOS's Seatbelt              (macOS)
 ```
 
-Three questions, not one. Parity asks whether the two implementations reach the
-same verdict. Layers asks whether the layers do what they claim: DLP in all four
-modes, the rate limit, tamper with no policy loaded, the four constraint kinds,
-whitelist mode. Box asks whether the closed box is closed.
-
-Parity was the only one for a long time and it can only ever answer the first
-question. Two implementations agreeing says nothing about whether either is
-right. The layers check found the seventh divergence on its first run, in a
-place parity had no case for: the Go argument scan read one view of the text
-where the Node one read three, so a secret split across a quote boundary was
-refused by one guard and allowed by the other.
-
-Still not coverage. Forty end-to-end cases and forty-one Go tests is more than
-what was here, and it is not a measurement of this product. What they catch is
-the class that has cost the most: the two implementations drifting apart, a
-layer that is configured but inert, and a sandbox reporting confinement it is
-not applying. Everything else is still on the pull request.
-
-The two instruments answer different questions and neither substitutes for the
-other. A shell check drives two real binaries on a real kernel and cannot reach
-a function. A Go test reaches a function and cannot start a mount namespace. The
-divergence that cost the most this round was invisible to fourteen end-to-end
-cases and is one line in a unit test; the box being closed is invisible to any
-unit test and is twenty-two questions in a script.
-
-Which puts the burden on the pull request. Run your change against a real agent
-and write down what you did: which client, which tool calls, what you expected,
-what happened. That description is the only evidence a reviewer has.
-
-Both directions, every time. A rule that blocks everything passes every "was it
-blocked?" check anybody can think of, so the call that must go through is the
-half that finds walls.
-
-Some of this was never scriptable anyway. The CLI needs a terminal on both
-stdin and stdout, and enforcement only happens on a real tool call. If your
-change touches the CLI surface or a client adapter, exercise it by hand and say
-on which clients.
+These scripts don't cover everything, so also try your change by hand against
+a real agent, and say in the pull request which client you used and whether
+the result matched what you expected.
 
 ## Code style
 
-- **Go**: `gofmt`, and `go vet` clean. No lint config beyond that.
-- **The hooks** are plain `.mjs`, node builtins only, no build step beyond the
-  bundler and nothing typechecking them. Edit `guard.mjs`, never the bundled
-  output, and run `pnpm build` so the two match. Formatting follows the file.
-- **Comments carry the reasoning.** This repository comments heavily and
-  deliberately: not what the code does, but what it is defending against, what
-  was tried before, and what broke. If you remove a guard clause, the comment
-  explaining why it was there is part of what you are removing, so make the pull
-  request say what replaced it.
-- **No new dependency on the decision path** without a reason in the pull
-  request. The guard runs before every tool call, and `packages/shared` has no
-  external dependencies on purpose.
+- **Go code**: run `gofmt` and make sure `go vet` is clean. No other linter.
+- **Hook files** (`.mjs`): edit `guard.mjs` directly, never the bundled file.
+  Rerun `./scripts/shell/install.sh` after so the bundle matches your edit.
+- **Comment the "why", not the "what"**: say what a piece of code is
+  protecting against, not what it does. If you delete a check, explain in the
+  pull request why it's safe to remove.
+- **Don't add new dependencies to the guard's decision path** (the code that
+  runs before every tool call) without explaining why in the pull request.
 
 ## Commit messages
 
-Commits here describe the behaviour, usually the wrong behaviour being fixed, as
-a plain sentence. A few from the log:
-
-```
-A denied call showed you its arguments and never said why
-Twelve rules went in and eight came out, and it said every one succeeded
-The rate limit had no key that stopped editing without writing
-```
-
-That style is not mandatory, but the property behind it is: the subject line
-should tell a reader what changed in the product, not which function was edited.
-No prefixes are required.
+Say what you did and why, in plain English. Keep the first sentence as a short
+summary, and add more detail below it if the change needs context.
 
 ## Pull requests
 
-- One concern per pull request. A refactor and a fix in the same diff means the
-  fix cannot be reverted on its own.
-- Say what you ran, in detail. With no suite behind the change, a vague "tested
-  locally" is not reviewable. Name the client, the calls, and the outcome.
-- CI runs six jobs: gofmt and vet over the eight Go modules, a cross-compile of
-  all of them for six GOOS/GOARCH pairs, the two Linux checks above, the
-  Seatbelt check on a Mac, the release build, and a secret scan. All of it has
-  to be green.
-- If your change alters what a policy means, say so in the pull request title.
-  Somebody's live policy will behave differently, and that is a release note.
+Keep one concern per pull request, so a fix can be reverted without taking a
+refactor with it. Say exactly what you tested, since there's no test suite to
+back that up. CI has to be fully green. And if the change affects what an
+existing policy means, say so in the title, since somebody's live setup will
+behave differently.
 
 ## Security issues
 
-Do not open a public issue or pull request for a guard bypass, a tamper
-protection hole, or a DLP pattern that can be walked past. Follow
-[SECURITY.md](SECURITY.md), which uses GitHub private advisories.
-
-A fix for a reported vulnerability is still a normal pull request once the
-advisory is resolved, and we will credit you in the release notes unless you ask
-us not to.
+Found a security bypass? Report it privately per [SECURITY.md](SECURITY.md),
+not as a public issue or pull request. Once it's fixed, the fix itself ships
+as a normal pull request.
 
 ## Licensing of contributions
 
-This project is licensed under the **Apache License 2.0**, and that licence says
-what happens to your contribution without anybody signing anything. Section 5:
-unless you state otherwise in writing, anything you deliberately submit for
-inclusion is under the same terms as the licence itself.
+This project is under the **Apache License 2.0**. By submitting a contribution,
+you agree it's licensed under the same terms, you keep the copyright, there's
+no CLA to sign, and nobody needs to assign anything.
 
-So there is no CLA and no copyright assignment. You keep the copyright in what
-you wrote.
-
-Two things Apache 2.0 carries that MIT did not, both worth knowing before you
-send a patch:
-
-- **A patent grant.** Contributing code grants everyone who uses this project a
-  licence to any of your patents that the contribution necessarily infringes. If
-  you are contributing on behalf of an employer who holds patents, that is their
-  decision to be aware of, not a formality.
-- **A patent retaliation clause.** Anybody who sues this project claiming it
-  infringes their patent loses their own licence to it.
-
-A `Signed-off-by` line is welcome and not required.
-
-## Behaviour
-
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies everywhere in this project.
+Apache 2.0 also grants a patent licence on your contribution to everyone who
+uses the project, and revokes that licence for anyone who sues the project
+over a patent claim.

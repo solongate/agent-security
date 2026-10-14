@@ -99,7 +99,7 @@ func RunUpdate(args []string) int {
 	// one that drifts is always the one nobody runs.
 	//
 	// --yes because this is already the answer to "do you want to update".
-	script := filepath.Join(root, "install.sh")
+	script := filepath.Join(root, "scripts", "shell", "install.sh")
 	if !install.Exists(script) {
 		fmt.Fprintln(os.Stderr, "         "+script+" is missing, so there is nothing to run.")
 		return 1
@@ -303,7 +303,7 @@ func noSourceToUpdateFrom() int {
 	fmt.Fprintln(w, "  the install script once; `update` will remember where it is:")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "      git clone https://github.com/solongate/agent-security")
-	fmt.Fprintln(w, "      cd agent-security && ./install.sh")
+	fmt.Fprintln(w, "      cd agent-security && ./scripts/shell/install.sh")
 	fmt.Fprintln(w)
 	return 1
 }

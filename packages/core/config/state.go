@@ -168,7 +168,7 @@ func LoadTUIConfig() TUIConfig {
 // READ, MERGE, WRITE, over a map rather than over TUIConfig. The struct models
 // the fields this build knows about; a future one will know more, and writing
 // the struct back would silently drop whatever it did not model. The same
-// reasoning as api.Rules keeping its Raw: a writer that cannot round-trip an
+// reasoning as client.Rules keeping its Raw: a writer that cannot round-trip an
 // unknown field is a writer that deletes it.
 //
 // Best effort. Failing to record this costs one extra first-run screen, which

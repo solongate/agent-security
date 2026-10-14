@@ -7,9 +7,9 @@
 // machine with an escalation guard, an HS256 CapabilityToken with per-tool and
 // per-path scopes, a typed error taxonomy, MCP tool and result shapes, an
 // execution-request envelope, and a second PolicyRule/PolicySet declaration
-// alongside the one in core/api. Around 570 lines of it. Nothing outside this
+// alongside the one in core/client. Around 570 lines of it. Nothing outside this
 // package ever referenced any of it, the only symbol another package used was
-// the Permission type below, for a conversion in core/api/types.go.
+// the Permission type below, for a conversion in core/client/types.go.
 //
 // None of it was dead by accident. It described the thing the guard was going to
 // be before the service was removed, and reading it gave the impression of
@@ -29,7 +29,7 @@ package vocab
 //
 // NOT THE ENFORCING CLASSIFIER. What a policy rule matches on is
 // `input.permission`, produced by shared.GuessPermission and the guard's own
-// copy; this type is the vocabulary those strings come from, and core/api
+// copy; this type is the vocabulary those strings come from, and core/client
 // converts into it when it reads a rule off disk. The classifier that used to
 // live here was a second, subtly different implementation of that decision,
 // it called a Codex `apply_patch` a READ, and a guess about a permission that

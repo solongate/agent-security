@@ -6,7 +6,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 )
 
 func statsUsage() string {
@@ -17,7 +17,7 @@ func statsUsage() string {
 	})
 }
 
-func runStats(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runStats(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	sub := p.positional(0)
 	if sub == "" {
 		sub = "overview"

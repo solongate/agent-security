@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Does each enforcement layer actually enforce?
 #
 # WHY THIS EXISTS. The parity check proves the two guards AGREE; it says nothing
@@ -11,13 +12,13 @@
 # This drives the real guard binary with real payloads on a throwaway HOME, one
 # policy file per case, and asserts the exit code: 2 is a refusal, 0 is not.
 #
-#   ./.sg-layers-check.sh
+#   ./scripts/shell/sg-layers-check.sh
 #
 # WHAT IT IS NOT. Still not coverage. It is one case per layer per mode, chosen
 # because each is a thing somebody could break without any other check noticing.
 set -u
 
-REPO=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
 
 G=$(mktemp -d)/guard
 (cd "$REPO/packages/guard" && go build -o "$G" .) || { echo "guard build failed"; exit 1; }

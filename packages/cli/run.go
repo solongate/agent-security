@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/sandbox"
 	"github.com/solongate/agent-security/packages/shared"
@@ -60,7 +60,7 @@ func RunAgent(argv []string) int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	client := api.New()
+	client := client.New()
 	deny, err := client.Settings.ProtectedPaths(ctx)
 	if err != nil {
 		errln("")
@@ -206,7 +206,7 @@ func explainSandbox() int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	deny, err := api.New().Settings.ProtectedPaths(ctx)
+	deny, err := client.New().Settings.ProtectedPaths(ctx)
 	if err == nil && len(deny) > 0 {
 		errln("  " + bold("Would be put out of reach"))
 		// The same probe the launch path runs, and it is printed next to each

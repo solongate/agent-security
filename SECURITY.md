@@ -14,42 +14,23 @@ That link opens a private advisory, visible only to you and the maintainers. It
 is the preferred route because the discussion, the fix and the credit all live in
 one place.
 
-If you cannot use GitHub advisories, write to **hello@solongate.com** with
+If you cannot use GitHub advisories, write to **cinar@solongate.com** with
 `security` in the subject.
 
 **Please do not** open a public issue, a pull request, or a discussion thread for
-a bypass, and please do not post it on social media before a fix is out. A public
-report on this project tells every prompt injected agent in the world how to
-switch off the thing watching it.
+a bypass, and please do not post it on social media before a fix is out.
 
 ### What to include
 
-As much of this as you have:
+Tell us what the control was supposed to do and what it did instead, the
+policy that was in force (secrets removed), and the exact tool call or agent
+prompt that triggered it. Also say which client and OS you were on, whether
+the Go binary or the Node hook made the call (`solongate doctor` shows this,
+and it matters since the two are separate implementations), and your version
+(`solongate --version`, or the commit hash).
 
-- What the control was supposed to do, and what it did instead.
-- The policy that was in force, with secrets removed.
-- The exact tool call, or the agent prompt that produced it.
-- Which client (Claude Code, Codex, OpenCode, Antigravity) and which operating
-  system.
-- Whether the Go binary or the Node hook decided the call. `solongate doctor`
-  prints this, and it matters: the two are separate implementations and a hole
-  in one is not automatically a hole in the other.
-- The version. `solongate --version`, or the commit hash if you built from
-  source.
-
-A reproducer is ideal and not required. A clear description of the mechanism is
-enough for us to try it ourselves.
-
-## Response
-
-| Stage | Target |
-| --- | --- |
-| Acknowledgement | within 3 working days |
-| First assessment, with a severity and a plan | within 10 working days |
-| Fix for a confirmed high severity issue | as fast as we can, and we will tell you the date we are working to |
-
-This is a small project. If you have not heard anything in a week, send a
-reminder rather than assuming the report was dismissed.
+A reproducer helps but isn't required; a clear description is enough for us
+to try it ourselves.
 
 ## Disclosure
 
@@ -81,124 +62,51 @@ version is checked against the current one before anything else.
 
 ## In scope
 
-These are the things this project claims to do, so a way around any of them is a
-vulnerability:
+A way around any of these is a vulnerability:
 
-- **Guard bypass.** A tool call that a policy should refuse and that runs anyway.
-- **Divergence between the two implementations.** The same policy and the same
-  call reaching different verdicts in Go and in the Node hook.
-- **Tamper protection bypass.** Reading, writing or deleting the guard's own
-  state from a tool call, by any path spelling or any tool.
-- **The human only gate.** An agent reaching the CLI, by any route, including an
-  environment variable or a wrapper that makes a tool call look interactive.
-- **DLP evasion that leaks a secret.** A secret that matches a built in pattern
-  reaching the model, or leaving the machine, while the configured mode says it
-  should not. Splitting a secret across string literals counts, and is tested.
-- **Egress bypass.** A transfer command that uploads a local file holding a
-  secret while `dlpBlock` is configured.
-- **Audit suppression or forgery.** A denied call that leaves no record, or a
-  record that misstates what happened.
-- **Rate limit bypass**, including through parallel calls.
-- **Privilege or path escalation through the installer**, the hooks, or the shell
-  shim: anything that writes outside the documented locations, or that a
-  non privileged local process can use to get code into a guarded session.
-- **A policy file inside a repository changing anything it is not allowed to
-  change.** A project `policy.json` may add rules and nothing else, because the
-  agent can write to it.
+- Guard bypass: a call a policy should refuse, running anyway.
+- The Go guard and the Node hook disagreeing on the same call.
+- Tampering with the guard's own state, through any tool.
+- An agent reaching the CLI by any route.
+- A secret matching a built-in pattern reaching the model or leaving the machine.
+- A transfer command uploading a secret while `dlpBlock` is on.
+- A denied call leaving no record, or a wrong one.
+- The rate limit being bypassable, including in parallel.
+- The installer or hooks writing outside their documented locations.
+- A project's `policy.json` changing more than adding rules.
 
 ## Out of scope
 
-Not because they do not matter, but because they are not claims this project
-makes:
+Not because they don't matter, but because they aren't claims this project makes:
 
-- **A permissive policy.** If a rule allows something, the guard allowing it is
-  the control working. We will happily discuss whether a documented default is
-  the wrong default, as a normal issue.
-- **DLP false negatives for secrets with no distinctive shape.** The scanner is
-  pattern based. A password that looks like an English word, or a token format
-  nobody has published a prefix for, will not be detected. Missing a format that
-  does have a distinctive prefix is a feature request, and a welcome one.
-- **What the model already has.** SolonGate sits in front of tool calls, and for
-  Claude Code in front of the outbound prompt body. Anything the client swept
-  into context before SolonGate was installed, and anything the model infers, is
-  outside the path.
-- **An attacker who already has your shell.** Everything here is a control over
-  an agent's tool calls, running with your own privileges. Someone with
-  unmediated local execution as your user can edit the policy, and that is the
-  threat model's boundary, not a flaw in it.
-- **Vulnerabilities in the agents themselves**, or in their hook mechanisms.
-  Report those to their vendors, and tell us if it changes what we should assume.
-- **Filling a disk, or exhausting memory**, by making the agent generate work.
-- **Dependency advisories with no reachable path** in this code. Send them in as
-  normal issues and we will update anyway.
+- A permissive policy doing what it's configured to do.
+- DLP missing a secret with no distinctive shape.
+- Anything the model already had in context before SolonGate was installed.
+- An attacker who already has your shell.
+- Vulnerabilities in the agents themselves.
+- Resource exhaustion from an agent generating work.
+- Dependency advisories with no reachable path in this code.
 
 ## Known limits
 
 Stated here so nobody has to find them the expensive way:
 
-- **The guard runs when the client calls it.** Hooks load at session start, so a
-  terminal that was already open before installation is not guarded. Open a new
-  one.
-- **Capabilities differ per client.** Masking a secret that is inside a file the
-  agent reads needs a post tool stage that can rewrite the result. Clients that
-  cannot do that get a block instead, which is the safe direction but a different
-  experience.
-- **`selfProtect: false` turns tamper protection off**, by design, and only from
-  the machine's own policy file. Do not set it unless you know why you are
-  setting it.
-- **A policy that will not compile does not disarm the guard.** Evaluation falls
-  back to a deterministic evaluator rather than allowing. If you find a policy
-  shape where it does allow, that is in scope above.
-- **The prompt shim is a local proxy, and the agent's model credential passes
-  through it.** That credential is the agent's own, issued by whoever serves its
-  model. SolonGate has no API key of its own: no account, nothing paired with a
-  service, nothing authenticated.
-
-  On Claude Code the shim starts a listener on `127.0.0.1`, points the agent at it, and
-  masks secrets in the outbound request body before forwarding. The agent's
-  credentials pass through it in cleartext, because that is what a proxy in
-  front of an API does.
-
-  A per-run token guards it: a 32-byte secret in the URL path, given to the
-  agent through its base URL, required on every request. Anything arriving
-  without it gets a 404 and never reaches upstream. Before that the listener
-  authenticated nothing, so any local process could have had a request
-  forwarded with those credentials attached, loopback is an address, not a
-  boundary. The token is never written to disk or logged.
-
-  The hop is encrypted. A certificate is generated for the run, named for
-  `127.0.0.1` by IP rather than by hostname, and handed to the agent through
-  `NODE_EXTRA_CA_CERTS`, which ADDS to its trust store rather than replacing it:
-  nothing else the agent would have trusted becomes untrusted, and this is not
-  `NODE_TLS_REJECT_UNAUTHORIZED=0`. The private key is unlinked as soon as the
-  listener has it and the certificate goes when the run ends.
-
-  This was left as cleartext for a while on the reasoning that capturing
-  loopback needs root and a root attacker can read the credential file anyway.
-  That argues the risk is small, not that it is zero. The usual objection to
-  TLS on loopback is that a client cannot be told to trust a local certificate,
-  and this shim serves one client, which is Node.
-
-  What it is not: authentication of the peer. The agent verifies the listener;
-  the listener does not verify the agent, and the run token is what does that.
-  A machine without `openssl` gets http and a line in the log saying so,
-  because refusing to start would take the agent down over a risk that needs
-  root to exploit.
-- **The shim fails open.** Any error parsing or redacting a request forwards the
-  original bytes. A payload shape the redactor does not recognise reaches the
-  model unmasked. That is deliberate, a shim that dropped requests would take
-  the agent down, and it is why `block` mode exists for the cases where masking
-  is not good enough.
-- **`solongate run` is a permission layer, not a box.** Paths are refused;
-  `$HOME` still exists and still returns EACCES, and `ls /` still shows the
-  machine. It protects the paths you named. `solongate sandbox` is the other
-  shape, a new root where nothing outside the project is there at all, and it
-  needs Linux and `bwrap`.
-- **A sandbox keeps the network.** The closed box is about files. An agent
-  inside one can still reach its model, and what leaves over the wire is the
-  DLP and egress layers' job, they read content, which a mount namespace
-  cannot. A box with the network off is available per box and means the agent
-  cannot reach a model at all.
+- The guard only runs once the client calls it: a terminal already open
+  before install isn't guarded.
+- What clients can do differs: some can mask a secret inside a file the
+  agent reads, others just block instead.
+- `selfProtect: false` turns off tamper protection, by design, from the
+  machine's own policy file.
+- A policy that fails to compile doesn't disarm the guard; it falls back to
+  a deterministic evaluator.
+- The prompt shim carries the agent's own model credential, not SolonGate's;
+  there's no SolonGate account anywhere in this project. A per-run token
+  guards every request, the hop is TLS-encrypted, and it fails open (a
+  request it can't parse goes through unmasked rather than breaking the
+  agent).
+- `solongate run` blocks named paths but isn't a box; `solongate sandbox` is
+  the closed-box version (Linux, needs `bwrap`) and still keeps the network,
+  since that's the DLP and egress layers' job.
 
 ## Credit
 

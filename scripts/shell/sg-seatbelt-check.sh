@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Does the Seatbelt profile this repository generates actually confine anything?
 #
 # MACOS ONLY, and it exists because nothing ever ran it. packages/sandbox has a
@@ -7,7 +8,7 @@
 # whatever somebody last typed into it: it compiled, and that was the whole of
 # what was known about it.
 #
-#   ./.sg-seatbelt-check.sh [/absolute/path/to/a/file/to/protect]
+#   ./scripts/shell/sg-seatbelt-check.sh [/absolute/path/to/a/file/to/protect]
 #
 # It builds the CLI, protects one file through the policy file, and asks
 # `solongate run` the questions the Linux side is already asked: can the agent
@@ -22,8 +23,8 @@ set -u
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "This check is for macOS. Seatbelt is the mechanism it exercises, and"
-  echo "this machine is $(uname -s). On Linux run ./.sg-parity-check.sh and"
-  echo "./.sg-box-check.sh instead."
+  echo "this machine is $(uname -s). On Linux run ./scripts/shell/sg-parity-check.sh and"
+  echo "./scripts/shell/sg-box-check.sh instead."
   exit 0
 fi
 
@@ -33,7 +34,7 @@ command -v sandbox-exec >/dev/null 2>&1 || {
   exit 1
 }
 
-REPO=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
 
 T=$(mktemp -d)
 export HOME="$T/home"
@@ -86,20 +87,16 @@ ask "write it"                      NO "echo x > '$PROTECTED' 2>/dev/null && ech
 ask "delete it"                     NO "rm -f '$PROTECTED' 2>/dev/null && test ! -e '$PROTECTED' && echo YES || echo NO"
 ask "reach it through a symlink"    NO "ln -sf '$PROTECTED' '$T/work/link' 2>/dev/null; cat '$T/work/link' >/dev/null 2>&1 && echo YES || echo NO"
 ask "a script it wrote reaches it"  NO "printf '#!/bin/sh\ncat %s\n' '$PROTECTED' > '$T/work/e.sh'; chmod +x '$T/work/e.sh'; '$T/work/e.sh' >/dev/null 2>&1 && echo YES || echo NO"
-ask "find -delete over its folder"  NO "find '$(dirname "$PROTECTED")' -name '$(basename "$PROTECTED")' -delete 2>/dev/null; test -e '$PROTECTED' && echo NO || echo YES"
-
-if true; then
-  echo
-  echo "DEBUG: what the kernel resolves the parent dir to:"
-  echo "  dirname as typed:    $(dirname "$PROTECTED")"
-  echo "  pwd -P after cd:     $(cd "$(dirname "$PROTECTED")" && pwd -P)"
-  echo "  realpath of file:    $(cd "$(dirname "$PROTECTED")" 2>/dev/null; python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$PROTECTED")"
-  echo
-  echo "DEBUG: re-running find -delete with the generated profile dumped:"
-  echo 'int main(){return 0;}' > "$PROTECTED"
-  SG_DEBUG_PROFILE=1 "$APP" run -- /bin/sh -c "find '$(dirname "$PROTECTED")' -name '$(basename "$PROTECTED")' -delete" 2>"$T/debug-profile.txt" >/dev/null
-  echo "  file survived this debug re-run: $([ -e "$PROTECTED" ] && echo yes || echo no)"
-  sed -n '/SG_DEBUG_PROFILE/,/end profile/p' "$T/debug-profile.txt" | grep -i "work\|folders\|tmp\." | sed 's/^/  profile: /'
+# Not `ask`: the file is read-denied, so a `test -e` run INSIDE the sandboxed
+# command cannot tell "deleted" from "exists but unreadable to me" -- it was
+# reporting every delete as successful even when the file plainly survived,
+# because the sandboxed process can't stat what it's denied from reading.
+# The only true answer is from out here, outside the sandbox, after the fact.
+"$APP" run -- /bin/sh -c "find '$(dirname "$PROTECTED")' -name '$(basename "$PROTECTED")' -delete 2>/dev/null" >/dev/null 2>&1
+if [ -e "$PROTECTED" ]; then
+  printf '  OK      %-44s %s\n' "find -delete over its folder" NO; pass=$((pass+1))
+else
+  printf '  WRONG   %-44s got %-6s wanted %s\n' "find -delete over its folder" YES NO; fail=$((fail+1))
   echo 'int main(){return 0;}' > "$PROTECTED"
 fi
 

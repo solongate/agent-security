@@ -26,7 +26,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/sandbox"
 	"github.com/solongate/agent-security/packages/shared"
 )
@@ -89,7 +89,7 @@ func SandboxAgent(argv []string) int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	box, err := api.New().Settings.Sandbox(ctx, id)
+	box, err := client.New().Settings.Sandbox(ctx, id)
 	if err != nil {
 		errln("")
 		errln("  " + red(err.Error()))
@@ -162,7 +162,7 @@ func SandboxAgent(argv []string) int {
 func listBoxes() int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	boxes, err := api.New().Settings.Sandboxes(ctx)
+	boxes, err := client.New().Settings.Sandboxes(ctx)
 	if err != nil {
 		errln("")
 		errln("  " + red("Could not read the sandboxes: ") + err.Error())
@@ -208,7 +208,7 @@ func explainBox(argv []string) int {
 	if len(argv) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		b, err := api.New().Settings.Sandbox(ctx, argv[0])
+		b, err := client.New().Settings.Sandbox(ctx, argv[0])
 		if err != nil {
 			errln("  " + red(err.Error()))
 			errln("")

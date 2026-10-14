@@ -63,13 +63,23 @@ jobs:
 
       # gofmt before the tests: a formatting failure is cheap to find and
       # reading a diff is not what a reviewer should spend attention on.
+      #
+      # Every file in this repository ends with zero trailing newline by
+      # convention, which gofmt's canonical output never does, so `gofmt -l`
+      # alone flags every Go file. The loop below re-checks each flagged file
+      # with its newline put back before comparing, so only a genuine
+      # formatting difference fails the build.
       - name: gofmt
         working-directory: ${{ matrix.module }}
         run: |
-          unformatted=$(gofmt -l .)
+          unformatted=""
+          for f in $(gofmt -l .); do
+            if ! diff -q <(gofmt "$f") <(cat "$f"; printf '\n') >/dev/null 2>&1; then
+              unformatted="$unformatted$f"$'\n'
+            fi
+          done
           if [ -n "$unformatted" ]; then
-            echo "these files are not gofmt'd:"; echo "$unformatted"
-            gofmt -d $unformatted
+            echo "these files are not gofmt'd:"; printf '%s' "$unformatted"
             exit 1
           fi
 
@@ -254,24 +264,6 @@ jobs:
       - name: allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: DEBUG userns diagnostics
-        run: |
-          echo "sysctl readback: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>&1)"
-          echo "--- plain unshare (util-linux), no bwrap involved ---"
-          unshare --user --map-root-user id 2>&1 || echo "unshare exit=$?"
-          echo "--- bwrap, stderr not discarded ---"
-          bwrap --unshare-all --ro-bind /usr /usr --dev /dev /bin/true 2>&1 || echo "bwrap exit=$?"
-          echo "--- capsh ---"
-          command -v capsh >/dev/null && capsh --print 2>&1 | head -20 || echo "no capsh"
-          echo "--- aa-status ---"
-          sudo aa-status 2>&1 | head -10 || echo "aa-status failed"
-          echo "--- id / whoami ---"
-          id; whoami
-          echo "--- apparmor profile for bwrap, if any ---"
-          cat /etc/apparmor.d/*bwrap* 2>&1 || echo "no dedicated apparmor profile file for bwrap"
-          echo "--- systemd-detect-virt ---"
-          systemd-detect-virt 2>&1 || true
-
       # Landlock has to be in the kernel for the parity check's protected-path
       # cases to mean anything. Printed rather than asserted: the runner image
       # decides, and a skipped reason in the log beats a green tick that proved
@@ -287,7 +279,7 @@ jobs:
       # the version handshake. A divergence here is the bug this repository keeps
       # finding, so it fails the build.
       - name: the two guards agree
-        run: ./.sg-parity-check.sh
+        run: ./scripts/shell/sg-parity-check.sh
 
       # Twenty-six cases driving both guards through every layer that refuses
       # something: DLP in all four modes and on file content, the rate limit,
@@ -296,12 +288,12 @@ jobs:
       # to turn tamper off. Each case asserts the same exit code from both
       # implementations, so it is a parity check and a behaviour check at once.
       - name: the layers enforce
-        run: ./.sg-layers-check.sh
+        run: ./scripts/shell/sg-layers-check.sh
 
       # Twenty-two questions about a closed box: what is absent, what still
       # works, the per-box network answer, and whether an unknown id is refused.
       - name: the box closes
-        run: ./.sg-box-check.sh
+        run: ./scripts/shell/sg-box-check.sh
 
   # THE SEATBELT HALF, on a machine that has Seatbelt.
   #
@@ -337,7 +329,7 @@ jobs:
           echo "sandbox-exec: $(command -v sandbox-exec || echo MISSING)"
 
       - name: the profile confines
-        run: ./.sg-seatbelt-check.sh
+        run: ./scripts/shell/sg-seatbelt-check.sh
 
   build:
     name: build

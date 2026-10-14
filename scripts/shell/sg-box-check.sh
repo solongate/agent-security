@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Does the closed box actually close?
 #
 # RUN THIS OUTSIDE A SANDBOX. A mount namespace cannot be created from inside a
@@ -6,7 +7,7 @@
 # with EPERM before it tests anything. If you are in a `solongate run` session,
 # open a plain terminal first.
 #
-#   ./.sg-box-check.sh [/absolute/path/to/a/scratch/project]
+#   ./scripts/shell/sg-box-check.sh [/absolute/path/to/a/scratch/project]
 #
 # It defines two boxes over that directory, 001 with the network, 002 without,
 # so the id addressing and the per-box network choice are both exercised.
@@ -15,7 +16,7 @@
 # directory, and asks the box the questions that matter.
 set -u
 
-REPO=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
 WS=${1:-}
 if [ -z "$WS" ]; then
   WS=$(mktemp -d)/projectX
@@ -44,7 +45,17 @@ command -v bwrap >/dev/null 2>&1 || { echo "bwrap is not installed"; exit 1; }
 # will say no to the box, and the reason is that something above this shell is
 # already confining it (Landlock from `solongate run`, a container without
 # CAP_SYS_ADMIN, user namespaces turned off).
-if ! bwrap --unshare-all --ro-bind /usr /usr --dev /dev /bin/true 2>/dev/null; then
+#
+# /usr alone is not quite the smallest: on a merged-usr system /lib and /lib64
+# are symlinks into /usr/lib*, and binding only /usr does not synthesize them,
+# so the dynamic linker can't be found and even /usr/bin/true fails to exec --
+# a "No such file or directory" that looks exactly like a denied namespace but
+# means nothing of the kind. Bind them too, same as the real box does.
+probe_binds="--ro-bind /usr /usr"
+for d in /lib /lib64; do
+  [ -e "$d" ] && probe_binds="$probe_binds --ro-bind $d $d"
+done
+if ! bwrap --unshare-all $probe_binds --dev /dev /usr/bin/true 2>/dev/null; then
   echo "This shell cannot create a mount namespace, so there is nothing here"
   echo "that can build a box. Probed by running bwrap, which failed."
   echo

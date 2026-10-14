@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/shared"
 )
 
@@ -140,7 +140,7 @@ func sameDir(a, b string) bool {
 	return clean(a) != "" && clean(a) == clean(b)
 }
 
-func runTrace(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runTrace(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	sub := p.positional(0)
 	if sub == "help" {
 		errln(traceUsage())

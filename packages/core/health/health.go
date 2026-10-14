@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/install"
 )
@@ -74,7 +74,7 @@ type Check struct {
 // anything it calls has to hand back data rather than write to the stream. And
 // `--json` needs the same values the human view renders, not a second
 // implementation of them that can drift.
-func CollectChecks(ctx context.Context, c *api.Client) []Check {
+func CollectChecks(ctx context.Context, c *client.Client) []Check {
 	var checks []Check
 	add := func(name string, ok CheckState, detail string) {
 		checks = append(checks, Check{Name: name, OK: ok, Detail: detail})
@@ -91,10 +91,10 @@ func CollectChecks(ctx context.Context, c *api.Client) []Check {
 	// policy yet" reported a tick instead, above a row saying no policy resolves.
 	// A guard with no policy allows every call, so this is the difference between
 	// a machine that is enforcing and one that is only watching.
-	if _, err := os.Stat(api.PolicyPath()); err != nil {
-		add("policy file", StateWarn, "none yet · "+api.PolicyPath()+" · run `solongate` to write one")
+	if _, err := os.Stat(client.PolicyPath()); err != nil {
+		add("policy file", StateWarn, "none yet · "+client.PolicyPath()+" · run `solongate` to write one")
 	} else {
-		add("policy file", StateOK, api.PolicyPath())
+		add("policy file", StateOK, client.PolicyPath())
 	}
 	checks = append(checks, policyChecks(ctx, c)...)
 	checks = append(checks, guardHookCheck(ctx, c)...)
@@ -114,7 +114,7 @@ func CollectChecks(ctx context.Context, c *api.Client) []Check {
 // neither is a promise that holds until the agent writes a two-line script.
 // Both print the word "protected" in the config file, so this is the row that
 // has to say which.
-func protectedCheck(ctx context.Context, c *api.Client) []Check {
+func protectedCheck(ctx context.Context, c *client.Client) []Check {
 	paths, err := c.Settings.ProtectedPaths(ctx)
 	if err != nil || len(paths) == 0 {
 		return nil
@@ -151,8 +151,8 @@ func protectedCheck(ctx context.Context, c *api.Client) []Check {
 	// presence, so there is nothing to migrate and this does not refuse. What
 	// it prevents is the silent case: somebody configured a layer with a newer
 	// build, this one cannot see the key, and the guard enforces a policy with
-	// that part missing while the file says it is there. See api.localVersion.
-	if v, newer := api.NewerThanThisBuild(); newer {
+	// that part missing while the file says it is there. See client.localVersion.
+	if v, newer := client.NewerThanThisBuild(); newer {
 		out = append(out, Check{Name: "policy format", OK: StateWarn,
 			Detail: "written by a newer SolonGate (v" + strconv.Itoa(v) + ") · " +
 				"keys it added are being ignored by this build"})
@@ -224,8 +224,8 @@ func plural(n int, one, many string) string {
 // flag. Rather than widen a type another part of the CLI owns, the raw body is
 // kept and the extra field read off it.
 type activeWithObserve struct {
-	api.ActivePolicy
-	rateLimitObserve *api.RateLimitSettings
+	client.ActivePolicy
+	rateLimitObserve *client.RateLimitSettings
 }
 
 // fetchActive reads what the guard would enforce, from the file the guard reads.
@@ -233,7 +233,7 @@ type activeWithObserve struct {
 // It used to go through c.Do for the raw body, because rateLimitObserve is not on
 // ActivePolicy and re-asking for it typed would have lost it. Reading the file
 // answers both in one pass: a detect-mode limit is `rateLimitObserve` there.
-func fetchActive(ctx context.Context, c *api.Client) (activeWithObserve, error) {
+func fetchActive(ctx context.Context, c *client.Client) (activeWithObserve, error) {
 	active, err := c.Policies.Active(ctx, "")
 	if err != nil {
 		return activeWithObserve{}, err
@@ -245,7 +245,7 @@ func fetchActive(ctx context.Context, c *api.Client) (activeWithObserve, error) 
 	}
 	var extra struct {
 		Security *struct {
-			RateLimitObserve *api.RateLimitSettings `json:"rateLimitObserve"`
+			RateLimitObserve *client.RateLimitSettings `json:"rateLimitObserve"`
 		} `json:"security"`
 	}
 	if json.Unmarshal(raw, &extra) == nil && extra.Security != nil {
@@ -254,7 +254,7 @@ func fetchActive(ctx context.Context, c *api.Client) (activeWithObserve, error) 
 	return out, nil
 }
 
-func policyChecks(ctx context.Context, c *api.Client) []Check {
+func policyChecks(ctx context.Context, c *client.Client) []Check {
 	active, err := fetchActive(ctx, c)
 	if err != nil {
 		// The guard reads this file too, and answers the same way: an unparseable
@@ -281,7 +281,7 @@ func policyChecks(ctx context.Context, c *api.Client) []Check {
 			Detail: "none · every call is allowed, and recorded"})
 	}
 
-	var rlBlock *api.RateLimitSettings
+	var rlBlock *client.RateLimitSettings
 	if active.Security != nil {
 		rlBlock = active.Security.RateLimit
 	}
@@ -324,7 +324,7 @@ func policyChecks(ctx context.Context, c *api.Client) []Check {
 	return append(checks, selfProt)
 }
 
-func rlWindows(l *api.RateLimitSettings) string {
+func rlWindows(l *client.RateLimitSettings) string {
 	var parts []string
 	if l.PerMinute != 0 {
 		parts = append(parts, strconv.Itoa(l.PerMinute)+"/min")
@@ -346,7 +346,7 @@ func rlWindows(l *api.RateLimitSettings) string {
 // exactly as before: the guard's own registration is reported below, and an
 // extra red line about an endpoint being down would not tell anyone anything
 // they can act on.
-func guardHookCheck(ctx context.Context, c *api.Client) []Check {
+func guardHookCheck(ctx context.Context, c *client.Client) []Check {
 	g, err := c.Settings.GetGuardStatus(ctx)
 	if err != nil {
 		return nil

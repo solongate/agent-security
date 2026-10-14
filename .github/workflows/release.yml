@@ -134,12 +134,31 @@ jobs:
             rm -rf "$d"
           done
 
+      # THE CHANGELOG ENTRY IS REQUIRED, NOT GENERATED. A bullet list of commit
+      # subjects is not a summary of what changed or what it means to
+      # upgrade -- it is the commit log with the hashes trimmed off. A human
+      # writes the matching `## vX.Y.Z` section in CHANGELOG.md before
+      # tagging; if it's missing, the release fails here instead of quietly
+      # shipping a notes.md nobody actually wrote.
+      - name: the changelog entry for this version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          body="$(awk -v ver="## v$version" '
+            $0 == ver { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md)"
+          if [ -z "$(echo "$body" | tr -d '[:space:]')" ]; then
+            echo "No CHANGELOG.md section for ## v$version -- add one before tagging" >&2
+            exit 1
+          fi
+          echo "$body" > changelog-entry.md
+
       - name: the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           prev="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
-          if [ -n "$prev" ]; then range="$prev..$GITHUB_REF_NAME"; else range="$GITHUB_REF_NAME"; fi
           {
             echo "Installed over git. This repository does not publish to a registry."
             echo
@@ -165,7 +184,11 @@ jobs:
             echo
             echo "## Changes"
             echo
-            git log --no-merges --format='- %s' "$range"
+            cat changelog-entry.md
+            if [ -n "$prev" ]; then
+              echo
+              echo "Full diff: https://github.com/$GITHUB_REPOSITORY/compare/$prev...$GITHUB_REF_NAME"
+            fi
           } > notes.md
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \

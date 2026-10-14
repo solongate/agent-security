@@ -115,15 +115,23 @@ jobs:
       # Scorecard's Signed-Releases check works -- never sees it there. This
       # downloads the same bundle the previous step just published and attaches
       # it next to each archive, so it verifies offline too.
+      #
+      # Each download runs in its own scratch directory: `gh attestation
+      # download` names its output by digest, not by the archive it came from,
+      # so a shared directory left five of six archives with no bundle -- the
+      # next iteration's own `*.jsonl` glob was deleting the previous one's
+      # already-renamed file along with the stale download.
       - name: download the attestation bundles
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd "$GITHUB_WORKSPACE"
           for f in *.tar.gz; do
-            rm -f -- *.jsonl
-            gh attestation download "$f" -R "$GITHUB_REPOSITORY"
-            mv -- *.jsonl "$f.intoto.jsonl"
+            d="$(mktemp -d)"
+            cp "$f" "$d/"
+            (cd "$d" && gh attestation download "$f" -R "$GITHUB_REPOSITORY")
+            mv "$d"/*.jsonl "$f.intoto.jsonl"
+            rm -rf "$d"
           done
 
       - name: the release

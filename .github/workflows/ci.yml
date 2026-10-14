@@ -75,8 +75,7 @@ jobs:
           unformatted=""
           for f in $(gofmt -l .); do
             if ! diff -q <(gofmt "$f") <(cat "$f"; printf '\n') >/dev/null 2>&1; then
-              unformatted="$unformatted$f
-"
+              unformatted="$unformatted$f"$'\n'
             fi
           done
           if [ -n "$unformatted" ]; then

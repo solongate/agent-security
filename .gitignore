@@ -77,6 +77,7 @@ deploy-package/
 !CONTRIBUTING.md
 !CODE_OF_CONDUCT.md
 !SECURITY.md
+!CHANGELOG.md
 !.github/ISSUE_TEMPLATE/*.md
 
 # Lock files (pnpm only)

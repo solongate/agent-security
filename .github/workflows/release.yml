@@ -108,6 +108,24 @@ jobs:
         with:
           subject-path: ${{ github.workspace }}/*.tar.gz
 
+      # AND THAT ATTESTATION ATTACHED TO THE RELEASE ITSELF, not just queryable
+      # through the API. `gh attestation verify` already works against the
+      # Sigstore transparency log without this, but a checkout with no network
+      # access -- or a scanner that only reads release assets, which is how
+      # Scorecard's Signed-Releases check works -- never sees it there. This
+      # downloads the same bundle the previous step just published and attaches
+      # it next to each archive, so it verifies offline too.
+      - name: download the attestation bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          for f in *.tar.gz; do
+            rm -f -- *.jsonl
+            gh attestation download "$f" -R "$GITHUB_REPOSITORY"
+            mv -- *.jsonl "$f.intoto.jsonl"
+          done
+
       - name: the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -133,6 +151,8 @@ jobs:
             echo '```'
             echo "sha256sum -c SHA256SUMS --ignore-missing"
             echo "gh attestation verify <archive> -R $GITHUB_REPOSITORY"
+            echo "# or offline, from the attached bundle:"
+            echo "gh attestation verify <archive> --bundle <archive>.intoto.jsonl"
             echo '```'
             echo
             echo "## Changes"
@@ -143,4 +163,5 @@ jobs:
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
             "$GITHUB_WORKSPACE"/*.tar.gz \
+            "$GITHUB_WORKSPACE"/*.intoto.jsonl \
             "$GITHUB_WORKSPACE/SHA256SUMS"

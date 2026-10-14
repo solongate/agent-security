@@ -264,16 +264,6 @@ jobs:
       - name: allow unprivileged user namespaces
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: DEBUG raw bwrap error
-        continue-on-error: true
-        run: |
-          bwrap --unshare-all --ro-bind /usr /usr --dev /dev /usr/bin/true
-          echo "exit=$?"
-          echo "--- bwrap apparmor profile, if any ---"
-          cat /etc/apparmor.d/*bwrap* 2>&1 || echo "no file"
-          echo "--- aa-status ---"
-          sudo aa-status 2>&1 | head -20
-
       # Landlock has to be in the kernel for the parity check's protected-path
       # cases to mean anything. Printed rather than asserted: the runner image
       # decides, and a skipped reason in the log beats a green tick that proved

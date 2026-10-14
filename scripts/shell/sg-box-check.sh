@@ -45,7 +45,17 @@ command -v bwrap >/dev/null 2>&1 || { echo "bwrap is not installed"; exit 1; }
 # will say no to the box, and the reason is that something above this shell is
 # already confining it (Landlock from `solongate run`, a container without
 # CAP_SYS_ADMIN, user namespaces turned off).
-if ! bwrap --unshare-all --ro-bind /usr /usr --dev /dev /usr/bin/true 2>/dev/null; then
+#
+# /usr alone is not quite the smallest: on a merged-usr system /lib and /lib64
+# are symlinks into /usr/lib*, and binding only /usr does not synthesize them,
+# so the dynamic linker can't be found and even /usr/bin/true fails to exec --
+# a "No such file or directory" that looks exactly like a denied namespace but
+# means nothing of the kind. Bind them too, same as the real box does.
+probe_binds="--ro-bind /usr /usr"
+for d in /lib /lib64; do
+  [ -e "$d" ] && probe_binds="$probe_binds --ro-bind $d $d"
+done
+if ! bwrap --unshare-all $probe_binds --dev /dev /usr/bin/true 2>/dev/null; then
   echo "This shell cannot create a mount namespace, so there is nothing here"
   echo "that can build a box. Probed by running bwrap, which failed."
   echo

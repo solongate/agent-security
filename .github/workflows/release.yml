@@ -19,17 +19,19 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  # The attestation is signed through Sigstore with a short-lived OIDC identity
-  # minted for this run, so there is no key here to manage or to leak. Both
-  # scopes are what that needs and nothing more: id-token to prove which
-  # workflow is asking, attestations to record the answer.
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # The attestation is signed through Sigstore with a short-lived OIDC
+      # identity minted for this run, so there is no key here to manage or to
+      # leak. Both scopes are what that needs and nothing more: id-token to
+      # prove which workflow is asking, attestations to record the answer.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

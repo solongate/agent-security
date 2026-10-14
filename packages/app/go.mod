@@ -1,6 +1,6 @@
 module github.com/solongate/agent-security/packages/app
 
-go 1.25.0
+go 1.26.0
 
 // DO NOT `go mod tidy` yet. Bubble Tea, bubbles and lipgloss are required here
 // for the TUI slice and nothing imports them until it lands, so tidy would
@@ -33,8 +33,8 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/solongate/agent-security/packages/shared v0.0.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.77 // indirect
 )
 

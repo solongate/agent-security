@@ -1,6 +1,6 @@
 {
   "name": "@solongate/hooks",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "The hook programs SolonGate installs into an agent's client, and the scripts that build what ships.",
   "type": "module",
   "files": [

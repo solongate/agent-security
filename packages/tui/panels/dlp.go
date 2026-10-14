@@ -3,15 +3,12 @@
 package panels
 
 import (
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/tui"
 )
 
@@ -48,7 +45,7 @@ import (
 // changes what the model sees, block stops the call. Two of these used to share
 // one name, "detect" masked everything it found, so choosing the weakest mode
 // quietly applied the middle one.
-var dlpModes = []api.LayerMode{api.LayerOff, api.LayerDetect, api.LayerRedact, api.LayerBlock}
+var dlpModes = []client.LayerMode{client.LayerOff, client.LayerDetect, client.LayerRedact, client.LayerBlock}
 
 // dlpCols is how many built-ins share a row. Fixed, not derived from the width:
 // the row is the ↑↓ stride, and a stride that changed with the terminal would
@@ -81,12 +78,12 @@ const (
 type (
 	dlpLoadedMsg struct {
 		genTag
-		data api.SecurityLayersResponse
+		data client.SecurityLayersResponse
 		err  error
 	}
 	dlpSavedMsg struct {
 		genTag
-		layers api.SecurityLayers
+		layers client.SecurityLayers
 		err    error
 	}
 	dlpTickMsg struct{ genTag }
@@ -100,12 +97,12 @@ type DLP struct {
 	focused    bool
 	gen, tok   int
 
-	server  api.SecurityLayersResponse
+	server  client.SecurityLayersResponse
 	haveSrv bool
 	loading bool
 	loadErr error
 
-	dlp       api.SecurityLayers // the draft; only the dlp part is edited
+	dlp       client.SecurityLayers // the draft; only the dlp part is edited
 	hasDraft  bool
 	available []string
 
@@ -140,7 +137,7 @@ var _ tui.Panel = (*DLP)(nil)
 // that reloaded the policy underneath cannot leave this editor showing the
 // draft it had a second ago. The prompt state is deliberately not touched: a
 // half-typed pattern belongs to the keyboard, not to the document.
-func (p *DLP) SetBound(sec api.SecurityLayers, available []string, dirty bool) {
+func (p *DLP) SetBound(sec client.SecurityLayers, available []string, dirty bool) {
 	p.bound = true
 	p.loading = false
 	p.available = available
@@ -149,7 +146,7 @@ func (p *DLP) SetBound(sec api.SecurityLayers, available []string, dirty bool) {
 }
 
 // Bound reads the draft back out.
-func (p *DLP) Bound() api.SecurityLayers { return p.dlp }
+func (p *DLP) Bound() client.SecurityLayers { return p.dlp }
 
 // CapturingKeys is true while the add/edit prompt is open, so the shell leaves
 // every key, including q and esc, to the prompt.
@@ -184,7 +181,7 @@ func (p *DLP) Init(ctx tui.PanelContext) tea.Cmd {
 func (p *DLP) load() tea.Cmd {
 	t := p.tag()
 	return func() tea.Msg {
-		r, err := p.deps.API.Settings.GetSecurityLayers(bg())
+		r, err := p.deps.Client.Settings.GetSecurityLayers(bg())
 		return dlpLoadedMsg{genTag: t, data: r, err: err}
 	}
 }
@@ -242,10 +239,10 @@ func (p *DLP) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd) {
 // adoptServer copies the server's answer into the draft. The slices are copied
 // rather than aliased: an edit to the draft must not mutate what the panel
 // compares against when discarding.
-func (p *DLP) adoptServer(l api.SecurityLayers) {
+func (p *DLP) adoptServer(l client.SecurityLayers) {
 	p.dlp = l
 	p.dlp.DLP.Patterns = append([]string(nil), l.DLP.Patterns...)
-	p.dlp.DLP.Custom = append([]api.CustomPattern(nil), l.DLP.Custom...)
+	p.dlp.DLP.Custom = append([]client.CustomPattern(nil), l.DLP.Custom...)
 	p.hasDraft = true
 }
 
@@ -272,436 +269,6 @@ func (p *DLP) current() (dlpEntry, bool) {
 	return e[p.selClamped()], true
 }
 
-func (p *DLP) mutated() {
-	p.dirty = true
-	p.status = ""
-}
-
-func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
-	if !p.hasDraft {
-		return nil
-	}
-	cur, hasCur := p.current()
-	selC := p.selClamped()
-
-	switch k.String() {
-	case "ctrl+r":
-		if p.bound {
-			return nil
-		}
-		p.status = "⟳ refreshed " + time.Now().Format("15:04:05")
-		return p.load()
-
-	// The built-ins are a GRID and the custom patterns are a list, so ↑↓ means a
-	// different distance in each. Crossing between them lands on the nearest edge
-	// of the other section rather than skipping over it.
-	case "up":
-		nB := len(p.available)
-		switch {
-		case selC >= nB && selC-1 >= nB:
-			p.sel = selC - 1
-		case selC >= nB:
-			p.sel = max(0, nB-1)
-		default:
-			p.sel = max(0, selC-dlpCols)
-		}
-
-	case "down":
-		nB, total := len(p.available), len(p.entries())
-		switch {
-		case selC >= nB:
-			p.sel = min(total-1, selC+1)
-		case selC+dlpCols < nB:
-			p.sel = selC + dlpCols
-		default:
-			p.sel = min(total-1, nB)
-		}
-
-	case "left":
-		if selC < len(p.available) {
-			p.sel = max(0, selC-1)
-		}
-
-	case "right":
-		if nB := len(p.available); selC < nB {
-			p.sel = min(nB-1, selC+1)
-		}
-
-	// All on / all off. The custom patterns are a different list and are left
-	// exactly as they were: "every built-in" is not "everything".
-	case "A":
-		p.dlp.DLP.Patterns = append([]string(nil), p.available...)
-		p.mutated()
-
-	case "U":
-		p.dlp.DLP.Patterns = nil
-		p.mutated()
-
-	case "m":
-		i := 0
-		for j, m := range dlpModes {
-			if m == p.dlp.DLP.Mode {
-				i = j
-			}
-		}
-		p.dlp.DLP.Mode = dlpModes[(i+1)%len(dlpModes)]
-		p.mutated()
-
-	case " ":
-		if hasCur && cur.kind == dlpBuiltin {
-			p.dlp.DLP.Patterns = toggleString(p.dlp.DLP.Patterns, cur.name)
-			p.mutated()
-		}
-
-	case "a":
-		p.newName = ""
-		p.editIdx = -1
-		p.beginInput(dlpAddName, "")
-
-	case "d":
-		if !hasCur {
-			return nil
-		}
-		switch cur.kind {
-		case dlpCustom:
-			p.dlp.DLP.Custom = append(p.dlp.DLP.Custom[:cur.i:cur.i], p.dlp.DLP.Custom[cur.i+1:]...)
-			p.mutated()
-			p.sel = max(0, selC-1)
-		}
-
-	case "e", "enter":
-		// Edit the selected entry in place.
-		if !hasCur {
-			return nil
-		}
-		switch cur.kind {
-		case dlpCustom:
-			if cur.i < len(p.dlp.DLP.Custom) {
-				p.editIdx = cur.i
-				p.newName = p.dlp.DLP.Custom[cur.i].Name
-				p.beginInput(dlpAddRe, p.dlp.DLP.Custom[cur.i].Re)
-			}
-		}
-
-	case "s":
-		if p.bound {
-			// The owner saves. Reaching the settings endpoint from here would
-			// write a project-wide row the policy does not read.
-			return nil
-		}
-		return p.save()
-
-	case "x":
-		if p.bound {
-			return nil
-		}
-		p.discard()
-	}
-	return nil
-}
-
-func (p *DLP) beginInput(mode dlpAdding, value string) {
-	p.adding = mode
-	p.input.SetValue(value)
-	p.input.CursorEnd()
-	p.input.Focus()
-}
-
-func (p *DLP) endInput() {
-	p.adding = dlpAddNone
-	p.editIdx = -1
-	p.input.Blur()
-	p.input.SetValue("")
-}
-
-// editKey drives the pinned prompt. Enter on an empty value cancels, as it did
-// in the Ink version; esc cancels too, which it could not there. The shell hands
-// a capturing panel every key, so without esc the only way out of this prompt
-// would be to submit it.
-func (p *DLP) editKey(k tea.KeyMsg) tea.Cmd {
-	if k.String() == "esc" {
-		p.endInput()
-		return nil
-	}
-	if k.String() != "enter" {
-		var cmd tea.Cmd
-		p.input, cmd = p.input.Update(k)
-		return cmd
-	}
-	v := strings.TrimSpace(p.input.Value())
-	switch p.adding {
-	case dlpAddName:
-		if v == "" {
-			p.endInput()
-			return nil
-		}
-		p.newName = v
-		p.beginInput(dlpAddRe, "")
-		return nil
-
-	default: // the pattern itself
-		if v != "" {
-			if p.editIdx >= 0 && p.editIdx < len(p.dlp.DLP.Custom) {
-				p.dlp.DLP.Custom[p.editIdx] = api.CustomPattern{Name: p.newName, Re: v}
-			} else {
-				p.dlp.DLP.Custom = append(p.dlp.DLP.Custom, api.CustomPattern{Name: p.newName, Re: v})
-			}
-			p.mutated()
-		}
-		p.endInput()
-		return nil
-	}
-}
-
-func (p *DLP) save() tea.Cmd {
-	if !p.hasDraft || !p.haveSrv {
-		return nil
-	}
-	p.status = "Saving…"
-	next := p.server.Layers
-	next.DLP = p.dlp.DLP
-	t := p.tag()
-	return func() tea.Msg {
-		got, err := p.deps.API.Settings.SetSecurityLayers(bg(), next)
-		return dlpSavedMsg{genTag: t, layers: got, err: err}
-	}
-}
-
-func (p *DLP) discard() {
-	if !p.haveSrv {
-		return
-	}
-	p.adoptServer(p.server.Layers)
-	p.dirty = false
-	p.status = "discarded"
-}
-
-// ── render ─────────────────────────────────────────────────────────────────
-
-// wcParts splits a glob into its leading/trailing wildcard state and its core,
-// so a row can show whether the `*` on either side is ON. It is the same
-// clarity the policy editor's Match field gives.
-func wcParts(pat string) (left bool, core string, right bool) {
-	s := pat
-	left = strings.HasPrefix(s, "*")
-	right = len(s) > 1 && strings.HasSuffix(s, "*")
-	core = s
-	if left {
-		core = strings.TrimLeft(core, "*")
-	}
-	if right {
-		core = strings.TrimRight(core, "*")
-	}
-	if core == "" {
-		core = s
-	}
-	return left, core, right
-}
-
-func starLeft(on bool) (string, lipgloss.Style) {
-	if on {
-		return "✱ ", stOK
-	}
-	return "· ", stDim
-}
-
-func starRight(on bool) (string, lipgloss.Style) {
-	if on {
-		return " ✱", stOK
-	}
-	return " ·", stDim
-}
-
-// dlpLine is one rendered row plus the entries it selects: `entry` is the first
-// of them and `span` is how many it holds, one for a custom row, up to dlpCols
-// for a row of the built-in grid. `entry` is -1 for headers and help notes,
-// which the cursor skips.
-type dlpLine struct {
-	text  string
-	entry int
-	span  int
-}
-
-func (p *DLP) View(ctx tui.PanelContext) string {
-	p.apply(ctx)
-	if !p.hasDraft {
-		return clip(dataView(p.loading, p.loadErr, false, "", ""), p.cols, p.rows)
-	}
-
-	enabled := map[string]bool{}
-	for _, s := range p.dlp.DLP.Patterns {
-		enabled[s] = true
-	}
-	selC := p.selClamped()
-
-	var lines []dlpLine
-	header := func(label, extra string) {
-		l := newLine(false)
-		l.put(label, stAccentB)
-		if extra != "" {
-			l.put("  "+extra, stDim)
-		}
-		lines = append(lines, dlpLine{l.String(), -1, 0})
-	}
-	note := func(text string) { lines = append(lines, dlpLine{stDim.Render(text), -1, 0}) }
-
-	onCount := 0
-	for _, name := range p.available {
-		if enabled[name] {
-			onCount++
-		}
-	}
-	header("built-in secret patterns", fmt.Sprintf("%d/%d on · space toggles · A all · U none", onCount, len(p.available)))
-	// The cell is sized from the panel and floored, so a narrow terminal
-	// truncates names rather than wrapping a row, a wrapped row would push its
-	// last cells past the clip, where they are unreachable but still selectable.
-	cellW := max(12, (p.cols-1)/dlpCols)
-	for r := 0; r < len(p.available); r += dlpCols {
-		end := min(r+dlpCols, len(p.available))
-		// newLine(false): the highlight is per CELL here, not per row, so each
-		// run carries its own background instead of the builder adding one.
-		l := newLine(false)
-		for i := r; i < end; i++ {
-			name := p.available[i]
-			on := enabled[name]
-			isCur := p.focused && i == selC
-			cursor, cursorStyle := " ", stDim
-			if isCur {
-				cursor, cursorStyle = "▸", stAccent
-			}
-			mark, markStyle := "○", stDim
-			nameStyle := stDim
-			if on {
-				mark, markStyle, nameStyle = "●", stOK, stPlain
-			}
-			if isCur {
-				cursorStyle = cursorStyle.Background(selColor).Bold(true)
-				markStyle = markStyle.Background(selColor).Bold(true)
-				nameStyle = nameStyle.Background(selColor).Bold(true)
-			}
-			l.put(cursor, cursorStyle)
-			l.put(mark, markStyle)
-			l.put(" "+pad(truncate(name, cellW-4), cellW-3), nameStyle)
-		}
-		lines = append(lines, dlpLine{l.String(), r, end - r})
-	}
-	ei := len(p.available)
-
-	header("custom patterns", "a add · d remove")
-	note("  * = any chars · green ✱ on a side = wildcard active there · e.g.  sk-*   *PRIVATE KEY*")
-	if len(p.dlp.DLP.Custom) == 0 {
-		note("  (none, press a to add a name + pattern)")
-	}
-	for _, c := range p.dlp.DLP.Custom {
-		isCur := p.focused && ei == selC
-		left, core, right := wcParts(c.Re)
-		l := newLine(isCur)
-		cursorStyle, cursor := stDim, "  "
-		if isCur {
-			cursorStyle, cursor = stAccent, "▸ "
-		}
-		l.put(cursor, cursorStyle.Bold(isCur))
-		l.put(c.Name, stAccent.Bold(isCur))
-		l.put("  ", stDim)
-		txt, st := starLeft(left)
-		l.put(txt, st.Bold(isCur))
-		l.put(truncate(core, max(6, p.cols-len([]rune(c.Name))-14)), stDim.Bold(isCur))
-		txt, st = starRight(right)
-		l.put(txt, st.Bold(isCur))
-		lines = append(lines, dlpLine{l.String(), ei, 1})
-		ei++
-	}
-
-	// ── header block (always visible) + windowed list ──────────────────────
-	editRows := 0
-	if p.adding != dlpAddNone {
-		editRows = 1
-	}
-	statusRows := 0
-	if p.status != "" {
-		statusRows = 1
-	}
-	headerRows := 2 + editRows + statusRows
-	budget := max(3, p.rows-headerRows-1)
-
-	selLine := 0
-	for i, l := range lines {
-		if l.entry >= 0 && selC >= l.entry && selC < l.entry+l.span {
-			selLine = i
-			break
-		}
-	}
-	texts := make([]string, len(lines))
-	for i, l := range lines {
-		texts[i] = l.text
-	}
-	win, above, below := window(texts, selLine, budget)
-
-	var out []string
-
-	modeLine := newLine(false)
-	modeLine.put("mode: ", stPlain)
-	modeLine.put(string(p.dlp.DLP.Mode), modeStyle(string(p.dlp.DLP.Mode)).Bold(true))
-	switch p.dlp.DLP.Mode {
-	case api.LayerOff:
-		modeLine.put("  (nothing is scanned)", stDim)
-	case api.LayerDetect:
-		modeLine.put("  (record the hit, change nothing)", stDim)
-	case api.LayerRedact:
-		modeLine.put("  (mask the secret, let the call through)", stDim)
-	default:
-		modeLine.put("  (refuse the call)", stDim)
-	}
-	if p.dirty {
-		modeLine.put("   ● unsaved (s save · x discard)", stWarn)
-	}
-	out = append(out, modeLine.String())
-
-	hint := "press → to edit"
-	if p.focused {
-		tail := " · s save · x discard · ^R refresh"
-		if p.bound {
-			tail = " · s save · x discard · esc back"
-		}
-		hint = "↑↓←→ move · space on/off · A all · U none · m mode · a add · e edit · d remove" +
-			tail + scrollTag(above, below)
-	}
-	out = append(out, stDim.Render(hint))
-
-	if p.adding != dlpAddNone {
-		l := newLine(false)
-		switch p.adding {
-		case dlpAddName:
-			l.put("new pattern name: ", stWarn)
-		default:
-			verb := "new"
-			if p.editIdx >= 0 {
-				verb = "edit"
-			}
-			l.put(verb+` pattern for "`+p.newName+`" (glob, * = any chars): `, stWarn)
-		}
-		v := p.input.Value()
-		if p.adding != dlpAddName {
-			txt, st := starLeft(strings.HasPrefix(v, "*"))
-			l.put(txt, st)
-		}
-		l.put(p.input.View(), stPlain)
-		if p.adding != dlpAddName {
-			txt, st := starRight(len(v) > 1 && strings.HasSuffix(v, "*"))
-			l.put(txt, st)
-		}
-		out = append(out, l.String())
-	}
-
-	out = append(out, "")
-	out = append(out, win...)
-	if p.status != "" {
-		out = append(out, statusLine(p.status))
-	}
-
-	return clip(joinLines(out), p.cols, p.rows)
-}
-
 // ── small slice helpers ────────────────────────────────────────────────────
 
 func containsString(list []string, v string) bool {
@@ -711,23 +278,4 @@ func containsString(list []string, v string) bool {
 		}
 	}
 	return false
-}
-
-// toggleString adds or removes one value, keeping the order of the rest. The
-// Ink version went through a Set, which preserves insertion order the same way;
-// re-sorting here would rewrite a saved pattern list on every toggle.
-func toggleString(list []string, v string) []string {
-	out := make([]string, 0, len(list)+1)
-	found := false
-	for _, s := range list {
-		if s == v {
-			found = true
-			continue
-		}
-		out = append(out, s)
-	}
-	if !found {
-		out = append(out, v)
-	}
-	return out
 }

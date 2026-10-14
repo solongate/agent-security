@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Does the Seatbelt profile this repository generates actually confine anything?
 #
 # MACOS ONLY, and it exists because nothing ever ran it. packages/sandbox has a
@@ -7,7 +8,7 @@
 # whatever somebody last typed into it: it compiled, and that was the whole of
 # what was known about it.
 #
-#   ./.sg-seatbelt-check.sh [/absolute/path/to/a/file/to/protect]
+#   ./scripts/shell/sg-seatbelt-check.sh [/absolute/path/to/a/file/to/protect]
 #
 # It builds the CLI, protects one file through the policy file, and asks
 # `solongate run` the questions the Linux side is already asked: can the agent
@@ -22,8 +23,8 @@ set -u
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "This check is for macOS. Seatbelt is the mechanism it exercises, and"
-  echo "this machine is $(uname -s). On Linux run ./.sg-parity-check.sh and"
-  echo "./.sg-box-check.sh instead."
+  echo "this machine is $(uname -s). On Linux run ./scripts/shell/sg-parity-check.sh and"
+  echo "./scripts/shell/sg-box-check.sh instead."
   exit 0
 fi
 
@@ -33,7 +34,7 @@ command -v sandbox-exec >/dev/null 2>&1 || {
   exit 1
 }
 
-REPO=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
 
 T=$(mktemp -d)
 export HOME="$T/home"

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 )
 
 func ratelimitUsage() string {
@@ -20,17 +20,17 @@ func ratelimitUsage() string {
 
 // modeColor: block is the only mode that stops anything, detect only records,
 // off is off. The colours say which of the three you are in without reading.
-func modeColor(m api.LayerMode) string {
+func modeColor(m client.LayerMode) string {
 	switch m {
-	case api.LayerBlock:
+	case client.LayerBlock:
 		return green(string(m))
-	case api.LayerDetect:
+	case client.LayerDetect:
 		return yellow(string(m))
 	}
 	return dim(string(m))
 }
 
-func runRateLimit(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runRateLimit(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	sub := p.positional(0)
 	if sub == "" {
 		sub = "show"
@@ -47,7 +47,7 @@ func runRateLimit(ctx context.Context, c *api.Client, p parsedArgs) (int, error)
 		// was. Doing them in sequence would double the wait on a cold API for a
 		// command whose whole job is one screen of text.
 		type histResult struct {
-			history []api.RateLimitChange
+			history []client.RateLimitChange
 			err     error
 		}
 		histCh := make(chan histResult, 1)
@@ -126,7 +126,7 @@ func runRateLimit(ctx context.Context, c *api.Client, p parsedArgs) (int, error)
 		}
 		next := cur.Layers
 		if mode != "" {
-			next.RateLimit.Mode = api.LayerMode(mode)
+			next.RateLimit.Mode = client.LayerMode(mode)
 		}
 		if hasMinute {
 			next.RateLimit.PerMinute = minute

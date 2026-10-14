@@ -184,7 +184,7 @@ func Install() Result {
 		// an answer for a tampered guard.mjs, this build has no packaged copy to
 		// compare it with, let alone replace it.
 		res.Notes = append(res.Notes,
-			"The hook programs already on this device were re-registered but NOT rewritten: this build could not find the hook files to copy. Run ./install.sh from a checkout to replace them.")
+			"The hook programs already on this device were re-registered but NOT rewritten: this build could not find the hook files to copy. Run ./scripts/shell/install.sh from a checkout to replace them.")
 	}
 	// Said out loud when the fast path could NOT be armed, because nothing else
 	// would say it: a hook running its Node implementation behaves identically

@@ -1,0 +1,80 @@
+name: codeql
+
+# Static analysis, not conformance. This does not decide whether the guard
+# refuses the right calls; ci.yml's own comment already says what does that
+# (nothing, right now). What this catches is the class CodeQL is built for:
+# memory and injection patterns in the Go modules, and the same in the .mjs
+# hook programs that ship outside the Go port.
+#
+# There is no root go.mod: eight independent modules live under packages/*,
+# so each is built and analyzed on its own rather than through one
+# `go build ./...` that assumes a single workspace.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: codeql (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - packages/guard
+          - packages/policy
+          - packages/shared
+          - packages/sandbox
+          - packages/core
+          - packages/cli
+          - packages/tui
+          - packages/app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - uses: github/codeql-action/init@66e692051da0915b214c5158091a226015d453f4 # v3.38.3
+        with:
+          languages: go
+          build-mode: manual
+
+      - name: build
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+
+      - uses: github/codeql-action/analyze@66e692051da0915b214c5158091a226015d453f4 # v3.38.3
+        with:
+          category: "/language:go/${{ matrix.module }}"
+
+  hooks:
+    name: codeql (packages/hooks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: github/codeql-action/init@66e692051da0915b214c5158091a226015d453f4 # v3.38.3
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@66e692051da0915b214c5158091a226015d453f4 # v3.38.3
+        with:
+          category: "/language:javascript-typescript"

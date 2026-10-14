@@ -84,5 +84,5 @@ func CheckoutRoot() (string, bool) {
 // isCheckout is deliberately strict about what counts: a directory with this product's
 // install script AND a git repository in it. Either alone is somebody else's directory.
 func isCheckout(dir string) bool {
-	return Exists(filepath.Join(dir, "install.sh")) && Exists(filepath.Join(dir, ".git"))
+	return Exists(filepath.Join(dir, "scripts", "shell", "install.sh")) && Exists(filepath.Join(dir, ".git"))
 }

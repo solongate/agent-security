@@ -15,7 +15,7 @@ package cli
 import (
 	"context"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/config"
 )
 
@@ -27,7 +27,7 @@ func rangeUsage() string {
 	})
 }
 
-func runRange(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runRange(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	switch arg := p.positional(0); arg {
 	case "":
 		return rangeShow()

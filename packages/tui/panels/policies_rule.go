@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 )
 
 // The rule model behind the Policies panel, ported from the helpers at the top
@@ -48,7 +48,7 @@ var permsAll = []string{"READ", "WRITE", "EXECUTE", "NETWORK"}
 // in. Only an edited rule is re-serialised, and even then the merge writes over
 // the original object rather than replacing it.
 type ruleDoc struct {
-	rule   api.PolicyRule
+	rule   client.PolicyRule
 	raw    json.RawMessage
 	edited bool
 }
@@ -91,7 +91,7 @@ func (d ruleDoc) marshal() (json.RawMessage, error) {
 	return json.RawMessage(b), nil
 }
 
-func setOrDelete(obj map[string]any, key string, c *api.Constraint) {
+func setOrDelete(obj map[string]any, key string, c *client.Constraint) {
 	if c != nil {
 		obj[key] = c
 	} else {
@@ -101,7 +101,7 @@ func setOrDelete(obj map[string]any, key string, c *api.Constraint) {
 
 // currentCType reads which constraint a rule carries. The order is the one the
 // dashboard uses; a rule that somehow carries two answers the first.
-func currentCType(r api.PolicyRule) cType {
+func currentCType(r client.PolicyRule) cType {
 	switch {
 	case r.FilenameConstraints != nil:
 		return cFilename
@@ -115,7 +115,7 @@ func currentCType(r api.PolicyRule) cType {
 	return cNone
 }
 
-func clearConstraints(r *api.PolicyRule) {
+func clearConstraints(r *client.PolicyRule) {
 	r.CommandConstraints = nil
 	r.PathConstraints = nil
 	r.FilenameConstraints = nil
@@ -123,7 +123,7 @@ func clearConstraints(r *api.PolicyRule) {
 }
 
 // allowSide reports whether values belong in `allowed` for this rule's effect.
-func allowSide(r api.PolicyRule) bool { return r.Effect == "ALLOW" }
+func allowSide(r client.PolicyRule) bool { return r.Effect == "ALLOW" }
 
 // setCType selects a constraint type: the others are cleared and the chosen one
 // is created empty, on the side the effect dictates.
@@ -137,7 +137,7 @@ func allowSide(r api.PolicyRule) bool { return r.Effect == "ALLOW" }
 //
 // A command pattern reinterpreted as a filename is a strange rule, but it is the one the
 // person typed and it is one keystroke from being fixed. Silently discarding it is not.
-func setCType(r *api.PolicyRule, t cType) {
+func setCType(r *client.PolicyRule, t cType) {
 	items := matchItems(*r)
 	clearConstraints(r)
 	if t == cNone {
@@ -147,26 +147,26 @@ func setCType(r *api.PolicyRule, t cType) {
 }
 
 // writeItems puts the value list on the effect's side of the given constraint.
-func writeItems(r *api.PolicyRule, t cType, items []string) {
+func writeItems(r *client.PolicyRule, t cType, items []string) {
 	allowed, denied := items, []string(nil)
 	if !allowSide(*r) {
 		allowed, denied = nil, items
 	}
 	switch t {
 	case cCommand:
-		r.CommandConstraints = &api.Constraint{Allowed: allowed, Denied: denied}
+		r.CommandConstraints = &client.Constraint{Allowed: allowed, Denied: denied}
 	case cFilename:
-		r.FilenameConstraints = &api.Constraint{Allowed: allowed, Denied: denied}
+		r.FilenameConstraints = &client.Constraint{Allowed: allowed, Denied: denied}
 	case cURL:
-		r.URLConstraints = &api.Constraint{Allowed: allowed, Denied: denied}
+		r.URLConstraints = &client.Constraint{Allowed: allowed, Denied: denied}
 	case cPath:
-		r.PathConstraints = &api.PathConstraint{Allowed: allowed, Denied: denied}
+		r.PathConstraints = &client.PathConstraint{Allowed: allowed, Denied: denied}
 	}
 }
 
 // matchItems is the rule's value list, both sides together, a rule saved under
 // the other effect still shows its values instead of looking empty.
-func matchItems(r api.PolicyRule) []string {
+func matchItems(r client.PolicyRule) []string {
 	switch currentCType(r) {
 	case cCommand:
 		return append(append([]string(nil), r.CommandConstraints.Allowed...), r.CommandConstraints.Denied...)
@@ -180,7 +180,7 @@ func matchItems(r api.PolicyRule) []string {
 	return nil
 }
 
-func setMatchItems(r *api.PolicyRule, items []string) {
+func setMatchItems(r *client.PolicyRule, items []string) {
 	t := currentCType(*r)
 	if t == cNone {
 		return
@@ -189,12 +189,12 @@ func setMatchItems(r *api.PolicyRule, items []string) {
 }
 
 // cValue is the comma-joined preview of the value list.
-func cValue(r api.PolicyRule) string { return strings.Join(matchItems(r), ", ") }
+func cValue(r client.PolicyRule) string { return strings.Join(matchItems(r), ", ") }
 
 // migrateEffect flips the effect and carries the current constraint's values to
 // the new side, so an ALLOW rule turned into a DENY still denies what it used to
 // allow rather than quietly becoming an empty rule.
-func migrateEffect(r *api.PolicyRule, next string) {
+func migrateEffect(r *client.PolicyRule, next string) {
 	t := currentCType(*r)
 	items := matchItems(*r)
 	r.Effect = next
@@ -221,7 +221,7 @@ func flipStar(v, side string) string {
 // permListOf is the rule's permissions, with "no permission field" expanded to
 // all four, that is what an absent field MEANS to the policy compiler, and a
 // display that showed it as empty would read as "this rule matches nothing".
-func permListOf(r api.PolicyRule) []string {
+func permListOf(r client.PolicyRule) []string {
 	ps := r.Permissions()
 	if len(ps) == 0 {
 		return append([]string(nil), permsAll...)
@@ -233,7 +233,7 @@ func permListOf(r api.PolicyRule) []string {
 	return out
 }
 
-func permIsAny(r api.PolicyRule) bool {
+func permIsAny(r client.PolicyRule) bool {
 	have := permListOf(r)
 	for _, p := range permsAll {
 		if !containsString(have, p) {
@@ -246,7 +246,7 @@ func permIsAny(r api.PolicyRule) bool {
 // togglePerm flips one permission. The list is never left empty, a rule with
 // no permission at all matches nothing, which is not what unticking the last
 // box means, and all four collapses back to the absent field.
-func togglePerm(r *api.PolicyRule, p string) {
+func togglePerm(r *client.PolicyRule, p string) {
 	cur := permListOf(*r)
 	var next []string
 	if containsString(cur, p) {
@@ -279,21 +279,21 @@ func togglePerm(r *api.PolicyRule, p string) {
 	r.Permission = json.RawMessage(b)
 }
 
-func permDisplay(r api.PolicyRule) string {
+func permDisplay(r client.PolicyRule) string {
 	if permIsAny(r) {
 		return "any (READ WRITE EXECUTE NETWORK)"
 	}
 	return strings.Join(permListOf(r), " ")
 }
 
-func ruleHasValues(r api.PolicyRule) bool { return len(matchItems(r)) > 0 }
+func ruleHasValues(r client.PolicyRule) bool { return len(matchItems(r)) > 0 }
 
 // isBlanketRule mirrors the dashboard's isBlanketRule.
-func isBlanketRule(r api.PolicyRule) bool { return !ruleHasValues(r) && permIsAny(r) }
+func isBlanketRule(r client.PolicyRule) bool { return !ruleHasValues(r) && permIsAny(r) }
 
 // ruleSummary is the CONSTRAINTS column: which constraint the rule carries and
 // how many values are in it.
-func ruleSummary(r api.PolicyRule) string {
+func ruleSummary(r client.PolicyRule) string {
 	var bits []string
 	if c := r.CommandConstraints; c != nil {
 		if n := len(c.Allowed) + len(c.Denied); n > 0 {

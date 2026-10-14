@@ -121,7 +121,7 @@ jobs:
             # clone itself. It was the literal "solongate" and stayed that way
             # through a rename, so the two lines of a three line install told
             # the reader to enter a directory the line above had not made.
-            echo "cd ${GITHUB_REPOSITORY#*/} && ./install.sh"
+            echo "cd ${GITHUB_REPOSITORY#*/} && ./scripts/shell/install.sh"
             echo '```'
             echo
             echo "Already installed: \`solongate update\`"

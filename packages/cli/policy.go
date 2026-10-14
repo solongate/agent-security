@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 )
 
 func policyUsage() string {
@@ -58,7 +58,7 @@ func parsePermissions(raw string) (perms []string, bad string) {
 	return perms, ""
 }
 
-func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	sub := p.positional(0)
 	jsonOut := p.flagBool("json")
 
@@ -88,7 +88,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		rows := make([][]string, 0, len(policies))
 		for _, pol := range policies {
 			mode := "denylist"
-			if pol.Mode == api.ModeWhitelist {
+			if pol.Mode == client.ModeWhitelist {
 				mode = green("whitelist")
 			}
 			by := pol.CreatedBy
@@ -125,7 +125,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 			errln("  " + dim(pol.Description))
 		}
 		mode := "denylist"
-		if pol.Mode == api.ModeWhitelist {
+		if pol.Mode == client.ModeWhitelist {
 			mode = green("whitelist")
 		}
 		errln("  mode: " + mode + "   rules: " + strconv.Itoa(rulesCount(pol.Rules)))
@@ -140,10 +140,10 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		}
 		// The id is generated here rather than by the API, matching the Node CLI.
 		// Changing that would give two clients two id schemes for the same action.
-		res, err := c.Policies.Create(ctx, api.PolicySet{
+		res, err := c.Policies.Create(ctx, client.PolicySet{
 			ID:   "policy-" + strconv.FormatInt(nowMillis(), 10),
 			Name: name,
-			Mode: api.ModeDenylist,
+			Mode: client.ModeDenylist,
 		})
 		if err != nil {
 			return 1, err
@@ -189,7 +189,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		// No constraint flag means a rule about the TOOL itself, which is what
 		// `kind: tool` with no value means to the API. The last flag given wins,
 		// matching the loop in the TypeScript.
-		spec := api.RuleSpec{ToolPattern: "*", Kind: "tool", Effect: effect}
+		spec := client.RuleSpec{ToolPattern: "*", Kind: "tool", Effect: effect}
 		for _, k := range []string{"command", "path", "filename", "url"} {
 			if v, ok := p.flags[k].(string); ok {
 				spec.Kind = k
@@ -251,7 +251,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		// know about, and a policy edited by a newer dashboard is exactly the
 		// case where that matters.
 		next := pol.PolicySet
-		next.Mode = api.PolicyMode(mode)
+		next.Mode = client.PolicyMode(mode)
 		saved, err := c.Policies.Update(ctx, id, next)
 		if err != nil {
 			return 1, err
@@ -399,7 +399,7 @@ func runPolicy(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 // table had no way to say so: a READ-scoped and a WRITE-scoped rule over one
 // path printed as the same line twice, which reads as a duplicate somebody
 // should clean up rather than the pair the policy actually needs.
-func permScope(r api.PolicyRule) string {
+func permScope(r client.PolicyRule) string {
 	perms := r.Permissions()
 	if len(perms) == 0 {
 		return dim("any")
@@ -412,7 +412,7 @@ func permScope(r api.PolicyRule) string {
 	return strings.Join(parts, "+")
 }
 
-func printRules(rules api.Rules) {
+func printRules(rules client.Rules) {
 	if rulesCount(rules) == 0 {
 		errln(dim("  (no rules)"))
 		return
@@ -449,14 +449,14 @@ func printRules(rules api.Rules) {
 
 // rulesCount is how many rules the API sent, including any this version could
 // not decode. len(Items) would under-report exactly when it matters most.
-func rulesCount(r api.Rules) int {
+func rulesCount(r client.Rules) int {
 	if r.Raw != nil {
 		return len(r.Raw)
 	}
 	return len(r.Items)
 }
 
-func setRuleEnabled(pol api.PolicySet, ruleID string, enabled bool) (api.PolicySet, bool) {
+func setRuleEnabled(pol client.PolicySet, ruleID string, enabled bool) (client.PolicySet, bool) {
 	found := false
 	raw := make([]json.RawMessage, len(pol.Rules.Raw))
 	copy(raw, pol.Rules.Raw)
@@ -484,7 +484,7 @@ func setRuleEnabled(pol api.PolicySet, ruleID string, enabled bool) (api.PolicyS
 	if !found {
 		return pol, false
 	}
-	pol.Rules = api.Rules{Raw: raw, Items: pol.Rules.Items}
+	pol.Rules = client.Rules{Raw: raw, Items: pol.Rules.Items}
 	return pol, true
 }
 
@@ -512,10 +512,10 @@ func mustJSON(v any) json.RawMessage {
 // Read from the constraint sets rather than parsed back out of the description, because
 // the description is a label and these are the thing itself. A rule with none of them
 // constrains the TOOL, which is what its tool pattern says.
-func ruleMatch(r api.PolicyRule) (kind, pattern string) {
+func ruleMatch(r client.PolicyRule) (kind, pattern string) {
 	for _, c := range []struct {
 		name string
-		set  *api.Constraint
+		set  *client.Constraint
 	}{
 		{"command", r.CommandConstraints},
 		{"filename", r.FilenameConstraints},

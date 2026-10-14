@@ -287,7 +287,7 @@ jobs:
       # the version handshake. A divergence here is the bug this repository keeps
       # finding, so it fails the build.
       - name: the two guards agree
-        run: ./.sg-parity-check.sh
+        run: ./scripts/shell/sg-parity-check.sh
 
       # Twenty-six cases driving both guards through every layer that refuses
       # something: DLP in all four modes and on file content, the rate limit,
@@ -296,12 +296,12 @@ jobs:
       # to turn tamper off. Each case asserts the same exit code from both
       # implementations, so it is a parity check and a behaviour check at once.
       - name: the layers enforce
-        run: ./.sg-layers-check.sh
+        run: ./scripts/shell/sg-layers-check.sh
 
       # Twenty-two questions about a closed box: what is absent, what still
       # works, the per-box network answer, and whether an unknown id is refused.
       - name: the box closes
-        run: ./.sg-box-check.sh
+        run: ./scripts/shell/sg-box-check.sh
 
   # THE SEATBELT HALF, on a machine that has Seatbelt.
   #
@@ -337,7 +337,7 @@ jobs:
           echo "sandbox-exec: $(command -v sandbox-exec || echo MISSING)"
 
       - name: the profile confines
-        run: ./.sg-seatbelt-check.sh
+        run: ./scripts/shell/sg-seatbelt-check.sh
 
   build:
     name: build

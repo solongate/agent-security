@@ -32,7 +32,6 @@ export function goBin() {
 function find() {
   if (process.env.GO_BIN) return process.env.GO_BIN;
 
-  // PATH first, because a machine that has it there has chosen it there.
   try {
     execFileSync('go', ['version'], { stdio: 'ignore' });
     return 'go';
@@ -50,11 +49,6 @@ function find() {
     if (existsSync(path)) return path;
   }
 
-  // AND THE MODULE CACHE, which is where `go` puts a toolchain it downloaded
-  // for a go.mod that asked for a newer one than the machine has. The directory
-  // is named for the version and the platform, so the newest is picked by
-  // sorting the names, a machine that has fetched three of them should build
-  // with the one the newest module would have asked for.
   const cache = join(home, 'go', 'pkg', 'mod', 'golang.org');
   try {
     const found = readdirSync(cache)
@@ -66,7 +60,5 @@ function find() {
     if (found.length) return found[0];
   } catch {}
 
-  // Nothing found. Answered as the bare name so the caller's own error is the
-  // familiar one, rather than this file inventing a path that does not exist.
   return 'go';
 }

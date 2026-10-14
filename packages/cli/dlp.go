@@ -6,7 +6,7 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 )
 
 func dlpUsage() string {
@@ -20,7 +20,7 @@ func dlpUsage() string {
 	})
 }
 
-func runDLP(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runDLP(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	sub := p.positional(0)
 	if sub == "" {
 		sub = "show"
@@ -41,7 +41,7 @@ func runDLP(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 	}
 	layers := cur.Layers
 
-	save := func(next api.SecurityLayers) (api.SecurityLayers, error) {
+	save := func(next client.SecurityLayers) (client.SecurityLayers, error) {
 		return c.Settings.SetSecurityLayers(ctx, next)
 	}
 
@@ -80,7 +80,7 @@ func runDLP(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 			return usageErr("Usage: dlp mode <off|detect|redact|block>")
 		}
 		next := layers
-		next.DLP.Mode = api.LayerMode(mode)
+		next.DLP.Mode = client.LayerMode(mode)
 		saved, err := save(next)
 		if err != nil {
 			return 1, err
@@ -135,7 +135,7 @@ func runDLP(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 			return usageErr("Usage: dlp add-custom --name <name> --re <regex>")
 		}
 		next := layers
-		next.DLP.Custom = append(withoutCustom(layers.DLP.Custom, name), api.CustomPattern{Name: name, Re: re})
+		next.DLP.Custom = append(withoutCustom(layers.DLP.Custom, name), client.CustomPattern{Name: name, Re: re})
 		saved, err := save(next)
 		if err != nil {
 			return 1, err
@@ -191,8 +191,8 @@ func togglePattern(patterns []string, name string, on bool) []string {
 	return next
 }
 
-func withoutCustom(custom []api.CustomPattern, name string) []api.CustomPattern {
-	next := make([]api.CustomPattern, 0, len(custom))
+func withoutCustom(custom []client.CustomPattern, name string) []client.CustomPattern {
+	next := make([]client.CustomPattern, 0, len(custom))
 	for _, c := range custom {
 		if c.Name != name {
 			next = append(next, c)

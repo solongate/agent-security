@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Does the closed box actually close?
 #
 # RUN THIS OUTSIDE A SANDBOX. A mount namespace cannot be created from inside a
@@ -6,7 +7,7 @@
 # with EPERM before it tests anything. If you are in a `solongate run` session,
 # open a plain terminal first.
 #
-#   ./.sg-box-check.sh [/absolute/path/to/a/scratch/project]
+#   ./scripts/shell/sg-box-check.sh [/absolute/path/to/a/scratch/project]
 #
 # It defines two boxes over that directory, 001 with the network, 002 without,
 # so the id addressing and the per-box network choice are both exercised.
@@ -15,7 +16,7 @@
 # directory, and asks the box the questions that matter.
 set -u
 
-REPO=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
 WS=${1:-}
 if [ -z "$WS" ]; then
   WS=$(mktemp -d)/projectX

@@ -17,7 +17,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,103 +29,6 @@ import (
 	"github.com/solongate/agent-security/packages/policy"
 	"github.com/solongate/agent-security/packages/shared"
 )
-
-type call struct {
-	Tool      string
-	Args      map[string]interface{}
-	Command   string
-	Cwd       string
-	SessionID string
-	CallID    string
-}
-
-// Argument KEYS are part of a client's dialect too. Translating only the
-// envelope leaves vendor names sitting inside the arguments, and then every
-// layer downstream is back to reasoning about client-specific shapes: a rule
-// written against `file_path` would miss a Codex `target_file` or an
-// Antigravity `absolutePath`, and `readReferencedFiles`, which looks the
-// `command` field up by name, would never see a `commandLine`.
-//
-// Unrecognised keys pass through untouched: they may still carry a path or a
-// secret, and the scanners have to keep seeing them.
-var argAliases = map[string]string{
-	"commandline":   "command",
-	"cmd":           "command",
-	"absolutepath":  "file_path",
-	"targetfile":    "file_path",
-	"filepath":      "file_path",
-	"target_file":   "file_path",
-	"notebook_path": "file_path",
-}
-
-// neutralizeArgs renames aliased keys, keeping the FIRST value for each neutral
-// name. First means first in the payload, which is why the key order is read
-// off the raw JSON rather than off a Go map: map iteration is randomised, so a
-// payload carrying both `command` and `cmd` would otherwise resolve to a
-// different one run to run.
-// argOriginals maps a NEUTRAL argument name back to the name the client used,
-// for the keys neutralizeArgs renamed. Package-level for the same reason
-// activeClient is: one process handles one call.
-var argOriginals = map[string]string{}
-
-func neutralizeArgs(args map[string]interface{}, order []string) map[string]interface{} {
-	if len(order) == 0 {
-		order = policy.SortedKeys(args)
-	}
-	out := make(map[string]interface{}, len(args))
-	for _, k := range order {
-		v, ok := args[k]
-		if !ok {
-			continue
-		}
-		nk := k
-		if alias, has := argAliases[strings.ToLower(k)]; has {
-			nk = alias
-		}
-		if _, exists := out[nk]; !exists {
-			out[nk] = v
-			if nk != k {
-				// First one wins here too: the winning value and the name it is
-				// written back under have to be the same argument.
-				argOriginals[nk] = k
-			}
-		}
-	}
-	return out
-}
-
-// decodeObject returns a JSON object both as a map and as its keys in source
-// order, which json.Unmarshal alone throws away.
-func decodeObject(raw json.RawMessage) (map[string]interface{}, []string) {
-	m := map[string]interface{}{}
-	if len(raw) == 0 {
-		return m, nil
-	}
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return map[string]interface{}{}, nil
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
-		return m, nil
-	}
-	var order []string
-	for dec.More() {
-		kt, err := dec.Token()
-		if err != nil {
-			break
-		}
-		k, ok := kt.(string)
-		if !ok {
-			break
-		}
-		order = append(order, k)
-		var skip interface{}
-		if err := dec.Decode(&skip); err != nil {
-			break
-		}
-	}
-	return m, order
-}
 
 // Which client is running, and therefore how a verdict is spelled. Set once in
 // main() from argv; the generic adapter until then, so a decision reached before
@@ -143,71 +45,7 @@ func emit(d decision) { os.Exit(activeClient.Emit(d)) }
 
 func deny(reason string) { emit(decision{Type: "deny", Reason: reason}) }
 
-// Allow the call but REPLACE its input, so a read is pointed at a redacted copy
-// before the tool runs. The rewritten call is what executes, so no block is
-// needed, which is the whole point for DLP: the agent gets an answer, without
-// the secret in it.
-func rewriteCall(patch map[string]interface{}) {
-	emit(decision{Type: "rewrite", Patch: clientArgNames(patch)})
-}
-
-// clientArgNames turns the guard's neutral argument names back into the ones the
-// client actually sent.
-//
-// A rewrite is SHALLOW-MERGED into the call's own arguments by the client, so a
-// patch keyed `file_path` adds a new argument beside the `AbsolutePath` the
-// client is really going to read. The call then runs against the original file
-// and the rewrite does nothing at all, silently, because from the guard's side
-// it looks like it worked.
-//
-// For the DLP read-redaction path that is the worst failure this binary has: it
-// only runs on clients that CANNOT mask tool output, so the rewrite is the only
-// thing standing between the agent and the secret. Antigravity (AbsolutePath)
-// and OpenCode (filePath) are both in that group. Only `command` was ever
-// translated back, which is why a rewrite of that key worked and a rewrite of
-// either of these did not.
-func clientArgNames(patch map[string]interface{}) map[string]interface{} {
-	if len(patch) == 0 || len(argOriginals) == 0 {
-		return patch
-	}
-	out := make(map[string]interface{}, len(patch))
-	for k, v := range patch {
-		if orig, ok := argOriginals[k]; ok {
-			out[orig] = v
-			continue
-		}
-		out[k] = v
-	}
-	return out
-}
-
 func allow() { emit(decision{Type: "allow"}) }
-
-// observingDLP is the config of a mode that WATCHES rather than refuses, and
-// which of the two it is.
-//
-// Block is handled before this is ever reached, so only detect and redact get
-// here. Returning the name alongside the config keeps the recorded reason
-// honest: "DLP is in detect mode" and "DLP is in redact mode" are different
-// sentences about different outcomes, and one of them used to be printed for
-// both.
-type observingCfg struct {
-	cfg  *shared.DLPConfig
-	mode string
-}
-
-func observingDLP(sec *shared.Security) *observingCfg {
-	if sec == nil {
-		return nil
-	}
-	if sec.DLPRedact != nil {
-		return &observingCfg{cfg: sec.DLPRedact, mode: "redact"}
-	}
-	if sec.DLPObserve != nil {
-		return &observingCfg{cfg: sec.DLPObserve, mode: "detect"}
-	}
-	return nil
-}
 
 // hookVersion is the HOOK_VERSION from packages/hooks/guard.mjs that this
 // binary implements. It is what `--sg-version` prints and what the hook compares
@@ -679,52 +517,4 @@ func hookStart() time.Time {
 // audit column is a real, so nothing downstream needs a whole number.
 func elapsedMs(started time.Time) float64 {
 	return math.Round(float64(time.Since(started).Microseconds())/100) / 10
-}
-
-// record writes the denial where the settings say it goes: to this machine, or
-// to the cloud, never both. The cloud write is detached so the agent is not kept
-// waiting on a network round trip for a decision already made.
-func record(sec *shared.Security, hasSecurity bool, c call, agentType, agentName, reason string, started time.Time) {
-	recordDecision(sec, hasSecurity, c, agentType, agentName, reason, "DENY", started)
-	// Every denial in this binary comes through here on its way to deny(), which
-	// makes it the one place the flag can be written without each layer having to
-	// remember to. See writeDenyFlag for what the audit hook does with it.
-	writeDenyFlag(shared.ProjectFlagDir(), c.Tool, c.CallID)
-}
-
-// recordObserved files a row for a call that was ALLOWED but carried a signal
-// worth keeping, a DLP pattern matched in detect mode, say.
-//
-// Only for clients with no post-tool stage. Everywhere else the audit hook files
-// the allow row and this would be a duplicate; on Antigravity nothing else ever
-// runs, so a detect-mode hit that is not written here is not written at all, and
-// a mode whose whole job is to observe would observe nothing.
-func recordObserved(sec *shared.Security, hasSecurity bool, c call, agentType, agentName, reason string, started time.Time) {
-	if activeClient.ReportsAfter {
-		return
-	}
-	recordDecision(sec, hasSecurity, c, agentType, agentName, reason, "ALLOW", started)
-}
-
-func recordDecision(sec *shared.Security, hasSecurity bool, c call, agentType, agentName, reason, decisionVal string, started time.Time) {
-	entry := map[string]interface{}{
-		"tool":               c.Tool,
-		"arguments":          c.Args,
-		"decision":           decisionVal,
-		"reason":             reason,
-		"permission":         shared.GuessPermission(c.Tool),
-		"source":             agentType + "-guard",
-		"agent_id":           agentType,
-		"agent_name":         agentName,
-		"session_id":         c.SessionID,
-		"evaluation_time_ms": elapsedMs(started),
-	}
-	local := map[string]interface{}{"ts": time.Now().UTC().Format(time.RFC3339Nano)}
-	for k, v := range entry {
-		local[k] = v
-	}
-	// The FILE is where a record goes. There used to be a POST here for the case
-	// where local logging was switched off, and with the service gone that branch
-	// could only ever lose the entry.
-	writeLocalLog(sec, local)
 }

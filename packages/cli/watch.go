@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/term"
 )
@@ -51,7 +51,7 @@ const (
 
 var whitespaceRun = regexp.MustCompile(`\s+`)
 
-func runWatch(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runWatch(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	jsonOut := p.flagBool("json")
 	decisionFilter := strings.ToUpper(p.flagStr("filter"))
 	toolFilter := strings.ToLower(p.flagStr("tool"))
@@ -109,7 +109,7 @@ func runWatch(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 		if localOnly {
 			return
 		}
-		res, err := c.Audit.List(ctx, api.AuditQuery{Limit: 50})
+		res, err := c.Audit.List(ctx, client.AuditQuery{Limit: 50})
 		if err != nil {
 			// Transient by assumption. A watch that exited on the first blip
 			// would be useless on a laptop that sleeps.

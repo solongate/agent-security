@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package api
+package client
 
 // The Client is a handle onto THIS MACHINE, not a connection to anything.
 //
@@ -44,19 +44,19 @@ func (e *Error) Error() string { return e.Message }
 
 // Client holds the four namespaces. Each one is backed by the two files.
 type Client struct {
-	Policies PoliciesAPI
-	Settings SettingsAPI
-	Stats    StatsAPI
-	Audit    AuditAPI
+	Policies Policies
+	Settings Settings
+	Stats    StatsClient
+	Audit    Audit
 }
 
 // New builds a client. It takes nothing: there is no address to point it at and no
 // credential to resolve.
 func New() *Client {
 	c := &Client{}
-	c.Policies = PoliciesAPI{c}
-	c.Settings = SettingsAPI{c}
-	c.Stats = StatsAPI{c}
-	c.Audit = AuditAPI{c}
+	c.Policies = Policies{c}
+	c.Settings = Settings{c}
+	c.Stats = StatsClient{c}
+	c.Audit = Audit{c}
 	return c
 }

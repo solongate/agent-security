@@ -25,7 +25,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/solongate/agent-security/packages/core/api"
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/config"
 )
 
@@ -39,7 +39,7 @@ func protectUsage() string {
 	})
 }
 
-func runProtect(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
+func runProtect(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	sub := p.positional(0)
 	switch sub {
 	case "", "list":
@@ -58,7 +58,7 @@ func runProtect(ctx context.Context, c *api.Client, p parsedArgs) (int, error) {
 
 // ── list ───────────────────────────────────────────────────────────────────
 
-func protectList(ctx context.Context, c *api.Client) (int, error) {
+func protectList(ctx context.Context, c *client.Client) (int, error) {
 	paths, err := c.Settings.ProtectedPaths(ctx)
 	if err != nil {
 		return 1, err
@@ -117,7 +117,7 @@ func sandboxLine(required bool) string {
 
 // ── add ────────────────────────────────────────────────────────────────────
 
-func protectAdd(ctx context.Context, c *api.Client, path string) (int, error) {
+func protectAdd(ctx context.Context, c *client.Client, path string) (int, error) {
 	if strings.TrimSpace(path) == "" {
 		errln(protectUsage())
 		return 1, nil
@@ -280,7 +280,7 @@ func askYes(prompt string) bool {
 
 // ── remove ─────────────────────────────────────────────────────────────────
 
-func protectRemove(ctx context.Context, c *api.Client, path string) (int, error) {
+func protectRemove(ctx context.Context, c *client.Client, path string) (int, error) {
 	if strings.TrimSpace(path) == "" {
 		errln(protectUsage())
 		return 1, nil
@@ -343,7 +343,7 @@ func protectRemove(ctx context.Context, c *api.Client, path string) (int, error)
 
 // ── require-sandbox ────────────────────────────────────────────────────────
 
-func protectRequireSandbox(ctx context.Context, c *api.Client, arg string) (int, error) {
+func protectRequireSandbox(ctx context.Context, c *client.Client, arg string) (int, error) {
 	switch strings.ToLower(strings.TrimSpace(arg)) {
 	case "on", "true", "yes":
 		errln("")

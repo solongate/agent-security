@@ -63,13 +63,24 @@ jobs:
 
       # gofmt before the tests: a formatting failure is cheap to find and
       # reading a diff is not what a reviewer should spend attention on.
+      #
+      # Every file in this repository ends with zero trailing newline by
+      # convention, which gofmt's canonical output never does, so `gofmt -l`
+      # alone flags every Go file. The loop below re-checks each flagged file
+      # with its newline put back before comparing, so only a genuine
+      # formatting difference fails the build.
       - name: gofmt
         working-directory: ${{ matrix.module }}
         run: |
-          unformatted=$(gofmt -l .)
+          unformatted=""
+          for f in $(gofmt -l .); do
+            if ! diff -q <(gofmt "$f") <(cat "$f"; printf '\n') >/dev/null 2>&1; then
+              unformatted="$unformatted$f
+"
+            fi
+          done
           if [ -n "$unformatted" ]; then
-            echo "these files are not gofmt'd:"; echo "$unformatted"
-            gofmt -d $unformatted
+            echo "these files are not gofmt'd:"; printf '%s' "$unformatted"
             exit 1
           fi
 

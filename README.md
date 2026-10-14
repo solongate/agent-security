@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="https://www.bestpractices.dev/en/projects/15333/baseline-1"><img src="assets/general/openssf-baseline.svg" alt="OpenSSF Security Baseline level 1, 24 of 24 controls" height="28"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/solongate/agent-security"><img src="https://api.securityscorecards.dev/projects/github.com/solongate/agent-security/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
 <p align="center">

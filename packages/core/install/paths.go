@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // Package install writes the files that decide whether a machine is guarded at
 // all: the hook programs under ~/.solongate/hooks, the registration of those

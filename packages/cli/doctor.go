@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // What `solongate doctor` PRINTS. What it checks is core/health, which the
 // TUI reads too: a verdict a person acts on should not depend on which

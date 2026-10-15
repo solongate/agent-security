@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // `solongate protect` puts a path out of the agent's reach, and says exactly
 // how far out of reach it managed to get.

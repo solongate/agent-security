@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // Package term is the plain-ANSI surface: the palette the non-TUI commands
 // print with, and the banner.

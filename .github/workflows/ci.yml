@@ -107,9 +107,14 @@ jobs:
       # Modules with no test files are not an error: this runs over eight and
       # five of them have tests. `go test ./...` prints "no test files" and exits
       # zero, which is the honest report.
+      #
+      # -race is the dynamic analysis tool: it instruments every read and write
+      # to shared memory and fails the run the moment two goroutines touch the
+      # same word without a happens-before edge, something `go vet` cannot see
+      # because it never runs the code.
       - name: test
         working-directory: ${{ matrix.module }}
-        run: go test -count=1 ./...
+        run: go test -count=1 -race ./...
 
       # AND ONE TEST THAT NEEDS CAPABILITIES NOBODY HAS ON A LAPTOP.
       #
@@ -396,6 +401,35 @@ jobs:
           if ! git diff --exit-code -- packages/hooks/package.json pnpm-lock.yaml; then
             echo
             echo "build:go modified a manifest or the lockfile, which it must not do."
+            exit 1
+          fi
+
+  # Every commit needs a Signed-off-by trailer asserting the contributor has
+  # the right to submit the change (see CONTRIBUTING.md). This checks the
+  # commits in the pull request, not just the merge commit, so a rebase or
+  # a squash can't paper over one that's missing it.
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: every commit is signed off
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          missing=""
+          for sha in $(git rev-list "origin/${{ github.base_ref }}..HEAD"); do
+            if ! git log -1 --format=%B "$sha" | grep -qE '^Signed-off-by: .+ <.+>$'; then
+              missing="$missing$sha "
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "commits missing a Signed-off-by trailer: $missing" >&2
+            echo "fix with: git rebase --signoff origin/${{ github.base_ref }}" >&2
             exit 1
           fi
 

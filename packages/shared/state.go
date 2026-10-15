@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // Package shared holds the shapes SolonGate keeps on disk, and the small
 // functions that decide where on disk they go.

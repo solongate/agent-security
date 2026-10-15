@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // The first tests in this repository, and the reason they are here rather than
 // in a check script.

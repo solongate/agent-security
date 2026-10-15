@@ -5,13 +5,13 @@
 # called out so that a change to them is never reviewed as an ordinary one. See
 # CONTRIBUTING.md for what that review asks.
 
-*                           @codeyevsky
+*                           @codeyevsky @qarademir
 
 # The guard, the policy engine, and the shapes both implementations agree about.
-/packages/guard/      @codeyevsky
-/packages/policy/     @codeyevsky
-/packages/shared/     @codeyevsky
-/packages/hooks/      @codeyevsky
+/packages/guard/      @codeyevsky @qarademir
+/packages/policy/     @codeyevsky @qarademir
+/packages/shared/     @codeyevsky @qarademir
+/packages/hooks/      @codeyevsky @qarademir
 
 
 # Release and CI machinery.

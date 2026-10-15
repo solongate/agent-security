@@ -47,6 +47,9 @@ These scripts don't cover everything, so also try your change by hand against
 a real agent, and say in the pull request which client you used and whether
 the result matched what you expected.
 
+When you add major new functionality to `shared`, `sandbox`, `guard`, `policy`,
+or `core`, add tests for it to that package's suite in the same pull request.
+
 ## Code style
 
 - **Go code**: run `gofmt` and make sure `go vet` is clean. No other linter.
@@ -63,6 +66,24 @@ the result matched what you expected.
 Say what you did and why, in plain English. Keep the first sentence as a short
 summary, and add more detail below it if the change needs context.
 
+Every commit needs a `Signed-off-by` trailer (`git commit -s`), asserting you
+have the right to submit the change under this project's license. CI checks
+for it on every commit in a pull request and rejects any that are missing it.
+
+## Dependencies
+
+Go modules (`go.sum` per package) and pnpm (`pnpm-lock.yaml`) are the only
+ways a dependency enters this repository; nothing is vendored by hand.
+[Dependabot](.github/dependabot.yml) opens a weekly pull request per
+ecosystem/module, grouped so a bump arrives as one review rather than several
+duplicates. There is no conformance suite backing these any more (see
+`ci.yml`), so a bump is reviewed by hand, not merged on a green tick alone.
+
+A dependency on the guard's decision path (`packages/guard`, `packages/policy`,
+`packages/shared`) is a liability rather than a convenience, which is why
+`shared` has none and why adding one anywhere on that path needs to be
+explained in the pull request, per the code style section above.
+
 ## Pull requests
 
 Keep one concern per pull request, so a fix can be reverted without taking a
@@ -70,6 +91,18 @@ refactor with it. Say exactly what you tested, since there's no test suite to
 back that up. CI has to be fully green. And if the change affects what an
 existing policy means, say so in the title, since somebody's live setup will
 behave differently.
+
+Every pull request is reviewed by a maintainer listed in
+[CODEOWNERS](.github/CODEOWNERS) before it merges. A review checks: CI is
+fully green, the change follows the code style and dependency rules above,
+a change to the decision path (`packages/guard`, `packages/policy`,
+`packages/shared`, `packages/hooks`) carries the justification that section
+asks for, and a behavior change updates the docs in the same pull request
+(see below). A pull request that fails any of these is not merged.
+
+If a change makes README.md, docs/DESIGN.md, docs/INTERFACES.md, or
+SECURITY.md say something that's no longer true, update it in the same pull
+request. A pull request that leaves the docs wrong is not done.
 
 ## Security issues
 
@@ -86,3 +119,17 @@ no CLA to sign, and nobody needs to assign anything.
 Apache 2.0 also grants a patent licence on your contribution to everyone who
 uses the project, and revokes that licence for anyone who sues the project
 over a patent claim.
+
+## Maintainers
+
+[CODEOWNERS](.github/CODEOWNERS) lists who reviews what; currently that's
+@codeyevsky and @qarademir for the whole repository, called out separately
+for the decision path (`packages/guard`, `packages/policy`, `packages/shared`,
+`packages/hooks`) and for release/CI machinery (`.github/workflows`,
+`install.sh`), since a change there is never reviewed as an ordinary one.
+
+The maintainers review and merge pull requests, triage security reports
+per [SECURITY.md](SECURITY.md), and cut releases. Release artifacts are
+signed through Sigstore with a short-lived OIDC identity minted per run (see
+`release.yml`), so there is no long-lived signing key for a maintainer to
+hold or to lose.

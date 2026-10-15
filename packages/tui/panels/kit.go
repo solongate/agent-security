@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // Package panels is the TUI's section panels in Bubble Tea: Policies,
 // Fleet and Settings, plus the two editors. DLP and Rate Limit, that are no

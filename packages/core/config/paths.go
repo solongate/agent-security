@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // Package config is every file the SolonGate CLI reads or writes under
 // ~/.solongate.

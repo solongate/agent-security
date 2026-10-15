@@ -2,19 +2,30 @@
   <img src="assets/general/hero.png" alt="SolonGate. For AI agents to execute tools safely. Make agents secure again." width="900">
 </div>
 
-<p align="center">
-  <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <a href="https://github.com/solongate/agent-security/actions/workflows/codeql.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/codeql.yml/badge.svg" alt="codeql"></a>
-  <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
-  <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26%2B-00ADD8.svg" alt="Go 1.26+"></a>
-  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-22%2B-339933.svg" alt="Node 22+"></a>
-</p>
-
-<p align="center">
-  <a href="https://www.bestpractices.dev/en/projects/15333/baseline-1"><img src="assets/general/openssf-baseline.svg" alt="OpenSSF Security Baseline level 1, 24 of 24 controls" height="28"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/solongate/agent-security"><img src="https://api.securityscorecards.dev/projects/github.com/solongate/agent-security/badge" alt="OpenSSF Scorecard"></a>
-</p>
+<table align="center">
+  <tr>
+    <td align="center">
+      <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+      <a href="https://github.com/solongate/agent-security/actions/workflows/codeql.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/codeql.yml/badge.svg" alt="codeql"></a>
+      <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
+      <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
+      <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26%2B-00ADD8.svg" alt="Go 1.26+"></a>
+      <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-22%2B-339933.svg" alt="Node 22+"></a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <sub><b>Security Badges</b></sub><br>
+      <a href="https://www.bestpractices.dev/projects/15333"><img src="https://www.bestpractices.dev/badge_static/passing" alt="OpenSSF Best Practices Passing" height="20"></a>
+      <a href="https://www.bestpractices.dev/projects/15333"><img src="https://www.bestpractices.dev/badge_static/silver" alt="OpenSSF Best Practices Silver" height="20"></a>
+      <a href="https://www.bestpractices.dev/projects/15333"><img src="https://www.bestpractices.dev/badge_static/gold" alt="OpenSSF Best Practices Gold" height="20"></a><br>
+      <a href="https://www.bestpractices.dev/projects/15333/baseline-1"><img src="https://www.bestpractices.dev/badge_static/baseline-1" alt="OpenSSF Baseline 1" height="20"></a>
+      <a href="https://www.bestpractices.dev/projects/15333/baseline-2"><img src="https://www.bestpractices.dev/badge_static/baseline-2" alt="OpenSSF Baseline 2" height="20"></a>
+      <a href="https://www.bestpractices.dev/projects/15333/baseline-3"><img src="https://www.bestpractices.dev/badge_static/baseline-3" alt="OpenSSF Baseline 3" height="20"></a><br>
+      <a href="https://scorecard.dev/viewer/?uri=github.com/solongate/agent-security"><img src="https://api.securityscorecards.dev/projects/github.com/solongate/agent-security/badge" alt="OpenSSF Scorecard" height="20"></a>
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <a href="CONTRIBUTING.md"><b>Contributing</b></a> ·
@@ -296,6 +307,11 @@ one view of the text where its twin read three, so a secret split across a quote
 boundary was refused by one guard and allowed by the other. What is left is what
 you ran it against by hand, and that is most of it.
 [CONTRIBUTING.md](CONTRIBUTING.md) is the rest.
+
+How it's put together: [docs/DESIGN.md](docs/DESIGN.md) for the actors and the
+decision path a tool call takes, [docs/INTERFACES.md](docs/INTERFACES.md) for
+every external interface (CLI, hook, policy file, audit log), and
+[ROADMAP.md](ROADMAP.md) for what's next.
 
 Reporting a vulnerability: [SECURITY.md](SECURITY.md), privately, never a public
 issue. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies everywhere.

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // Package commands is the scriptable CLI: everything `solongate <verb>` does
 // outside the TUI, ported from packages/proxy/src/commands.

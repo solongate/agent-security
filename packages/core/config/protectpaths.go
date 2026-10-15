@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // Locking a path the USER named, as opposed to one of SolonGate's own files.
 //

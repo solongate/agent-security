@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 /**
  * The decision itself: one policy, one set of extractors, one set of matchers.

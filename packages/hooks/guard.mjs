@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 /**
  * The policy guard (PreToolUse), the decision every tool call passes through.

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
 
 // Package tui is the SolonGate TUI: the fullscreen terminal UI behind
 // `solongate` with no arguments.

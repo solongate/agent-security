@@ -1,6 +1,10 @@
-<div align="center">
-  <img src="assets/general/hero.png" alt="SolonGate. For AI agents to execute tools safely. Make agents secure again." width="900">
-</div>
+<table align="center">
+  <tr>
+    <td align="center" bgcolor="#0d1117">
+      <img src="assets/general/hero.png" alt="SolonGate Agent Security — Open-source security for AI agent actions." width="700">
+    </td>
+  </tr>
+</table>
 
 <table align="center">
   <tr>

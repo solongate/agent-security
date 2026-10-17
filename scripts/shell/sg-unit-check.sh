@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the SolonGate contributors
 # gofmt, go vet and go test across every Go module in this repository.
 #
 #   ./scripts/shell/sg-unit-check.sh

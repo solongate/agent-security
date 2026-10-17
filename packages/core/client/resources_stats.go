@@ -3,9 +3,6 @@
 
 package client
 
-// Split from resources.go: the /stats namespace. See resources_policy.go for
-// the file-level rationale.
-
 import (
 	"context"
 	"encoding/json"
@@ -14,8 +11,6 @@ import (
 	"time"
 )
 
-// ── /stats ─────────────────────────────────────────────────────────────────
-
 type StatsClient struct{ c *Client }
 
 const (
@@ -23,10 +18,6 @@ const (
 	msDay  = int64(86_400_000)
 )
 
-// Get counts what is RECORDED, which is not the same as what was called: the
-// guard records a denial and the post-tool hook records the rest, so a client
-// with no post-tool stage leaves denials only. That was true of the service's
-// numbers too.
 func (s StatsClient) Get(ctx context.Context) (Stats, error) {
 	rows := readLog()
 	st, _ := readStore()
@@ -125,8 +116,7 @@ func (s StatsClient) Timeseries(ctx context.Context, period, granularity string)
 		b := buckets[k]
 		avg := 0.0
 		if b.timed > 0 {
-			// Averaged over the entries that CARRY a time, not over every entry:
-			// an older line without one would pull the average towards zero.
+
 			avg = float64(int((b.ms/float64(b.timed))*10+0.5)) / 10
 		}
 		out.Timeseries = append(out.Timeseries, TimeseriesPoint{
@@ -140,9 +130,6 @@ func (s StatsClient) Timeseries(ctx context.Context, period, granularity string)
 	return out, nil
 }
 
-// Drift groups by the REASON a call was denied rather than by rule id: a local
-// record carries the reason the guard gave and not which rule produced it, and
-// the reason is what somebody reads anyway.
 func (s StatsClient) Drift(ctx context.Context, days int) (Drift, error) {
 	if days < 1 {
 		days = 7
@@ -228,8 +215,7 @@ func (s StatsClient) Drift(ctx context.Context, days int) (Drift, error) {
 		if lastTool != "" {
 			row.LastTool = &lastTool
 		}
-		// A percentage against zero is not a large increase, it is undefined.
-		// IsNew is what says that case out loud.
+
 		if prev > 0 {
 			pct := float64(int(float64(cur-prev)/float64(prev)*1000+0.5)) / 10
 			row.DeltaPct = &pct
@@ -240,12 +226,6 @@ func (s StatsClient) Drift(ctx context.Context, days int) (Drift, error) {
 	return out, nil
 }
 
-// SecurityInsights stays raw JSON, as it was: pinning a struct to it would mean
-// this version silently dropping whatever is added next.
-//
-// `anomalies` are minutes that reached the CONFIGURED limit, never a statistical
-// baseline. There is no inference here and there was none in the service either;
-// the name is older than the behaviour.
 func (s StatsClient) SecurityInsights(ctx context.Context, days int) (json.RawMessage, error) {
 	if days < 1 {
 		days = 7

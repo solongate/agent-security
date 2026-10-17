@@ -12,8 +12,6 @@ import (
 	"github.com/solongate/agent-security/packages/tui"
 )
 
-// Split from ratelimit.go: the panel's render and its small format helpers.
-
 func (p *RateLimit) View(ctx tui.PanelContext) string {
 	p.apply(ctx)
 	body := func() string {
@@ -66,9 +64,7 @@ func (p *RateLimit) View(ctx tui.PanelContext) string {
 		}
 
 		if p.showExtras() {
-			// Bursts are the point of this panel, so this secondary block only
-			// renders when the panel is tall: on a short terminal it ate the
-			// height and left room for a single burst.
+
 			if lim > 0 {
 				filled := min(18, int(float64(now)/float64(lim)*18+0.5))
 				pctv := min(100, int(float64(now)/float64(lim)*100+0.5))
@@ -189,8 +185,6 @@ func (p *RateLimit) fieldRow(idx, cursor int, label, value string) string {
 	return st.Render(prefix+pad(label, 11)) + value
 }
 
-// busiestRow is the dashboard's "busiest window" card, TUI edition: the peak in
-// one window over 7 days, red when it went OVER the configured limit.
 func busiestRow(label string, peak, limit int) string {
 	ctx := "no limit set"
 	if limit > 0 {
@@ -224,9 +218,6 @@ func offOr(n int) string {
 	return itoa(n)
 }
 
-// parseWhen reads the timestamps the insights endpoint sends. It accepts the
-// three shapes seen in the wild rather than one: a bucket that will not parse
-// renders as ", " instead of as 1970.
 func parseWhen(s string) time.Time {
 	s = strings.TrimSpace(s)
 	if s == "" {

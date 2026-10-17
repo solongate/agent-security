@@ -13,50 +13,9 @@ import (
 	"strings"
 )
 
-// Windows confinement is a DENY ACE for this user on each protected path, put
-// on for the lifetime of the child and taken off when it exits.
-//
-// WHY NOT A RESTRICTED TOKEN, which is the textbook answer. CreateRestrictedToken
-// with restricting SIDs gives a genuine default-deny: the access check runs
-// twice, and a file whose DACL names none of the restricting SIDs is refused
-// without any deny ACE at all. It is also the heavier thing by a wide margin.
-// It needs a per-run grant on every path the agent legitimately uses, plus the
-// window station and the desktop, or the child fails to start with 0xC0000142
-// before it prints anything; and `WRITE_RESTRICTED`, the flag that looks like
-// the safe middle, leaves reads unconfined, which is the half that matters
-// here. Shipping that untested on a platform I cannot run would be shipping a
-// claim rather than a feature.
-//
-// So this does the thing that is verifiable from its own output: the same
-// icacls deny the file lock uses, scoped to the run. It is weaker in one
-// specific way and the CLI says so: it is per-path rather than default-deny,
-// so it protects what was named and nothing else, and a path added to the list
-// while an agent is running is not covered until the agent restarts.
-//
-// `solongate protect` already puts a PERMANENT lock on these paths with the
-// same mechanism, and that one does not depend on how the agent was started.
-// On Windows that permanent lock is the stronger of the two.
-
-// Launch applies the deny, runs the command, and lifts the deny afterwards.
-//
-// It waits rather than execs because Windows has no execve: the deny has to be
-// taken off when the child finishes, and that needs somebody still alive to do
-// it.
 func Launch(p Plan, argv []string, env []string) (Report, error) {
 	rep := Report{Mechanism: "icacls deny (per run)"}
 
-	// WORKSPACE MODE IS NOT IMPLEMENTED HERE, and it refuses rather than
-	// falling back to the deny list.
-	//
-	// The two are not degrees of the same thing. A per-path deny protects what
-	// was named; a workspace allowlist protects everything that was not, which
-	// is the set the mode exists for. Running the deny list in its place would
-	// honour the setting's name and none of its meaning: the agent would be
-	// told it is confined to one directory while ~/.ssh and every sibling
-	// project stayed open. Default-deny on Windows needs a restricted token
-	// with a per-run grant on every path the agent legitimately uses, and
-	// shipping that from a machine I cannot test it on would be shipping a
-	// claim. See the note above.
 	if p.Allowlist() {
 		rep.Mechanism = ""
 		rep.Err = errors.New("workspace confinement is not implemented on Windows: " +
@@ -105,7 +64,7 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
-			// The agent's own exit code is not this function's failure.
+
 			rep.Err = nil
 			return rep, ee
 		}
@@ -125,7 +84,6 @@ func icacls(path string, args ...string) error {
 	return nil
 }
 
-// Preview is what Launch would cost.
 func Preview(p Plan) []string {
 	if len(p.Deny) == 0 {
 		return nil

@@ -13,9 +13,6 @@ import (
 	"github.com/solongate/agent-security/packages/core/client"
 )
 
-// Split from policies.go: key handling for every level, the draft adoption
-// from a stored policy, and save.
-
 func (p *Policies) key(k tea.KeyMsg) tea.Cmd {
 	s := k.String()
 	if s == "ctrl+r" {
@@ -42,7 +39,6 @@ func (p *Policies) key(k tea.KeyMsg) tea.Cmd {
 	}
 }
 
-// policyKey is one policy: its variants and its three layers.
 func (p *Policies) policyKey(s string) tea.Cmd {
 	switch s {
 	case "left":
@@ -60,9 +56,7 @@ func (p *Policies) policyKey(s string) tea.Cmd {
 			p.view = viewDLP
 		case layerRate:
 			p.view = viewRate
-			// Once. Init arms the burst scan's clock, and calling it on every
-			// visit would leave the previous chain running beside the new one
-			// and poll twice as often for each time the fold was opened.
+
 			if !p.rateStarted {
 				p.rateStarted = true
 				return p.ratePanel.Init(p.childCtx())
@@ -132,7 +126,7 @@ func (p *Policies) listKey(s string) tea.Cmd {
 		p.status = "Deactivating…"
 		t := p.tag()
 		return func() tea.Msg {
-			// The empty id is the unpin. The API takes "" rather than null here.
+
 			if err := p.deps.Client.Policies.SetActive(bg(), ""); err != nil {
 				return polActionMsg{genTag: t, status: "✗ " + errText(err)}
 			}
@@ -211,9 +205,7 @@ func (p *Policies) rulesKey(s string) tea.Cmd {
 	case "m":
 		p.flipMode()
 	case "n":
-		// A fresh rule starts with a command constraint, exactly as the
-		// dashboard does, so it is never a blanket match waiting to be saved,
-		// the user only has to fill in the value.
+
 		nr := client.PolicyRule{
 			ID:                 "rule-" + itoa(int(time.Now().UnixMilli())),
 			Effect:             "DENY",
@@ -292,19 +284,7 @@ func (p *Policies) ruleKey(k tea.KeyMsg, s string) tea.Cmd {
 	fields := fieldsFor(p.rules[p.ri].rule)
 	field := fields[min(p.fi, len(fields)-1)]
 	switch {
-	// ← leaves the editor, EXCEPT on the three fields whose own hint says ←→
-	// picks a value. The Ink version tested leftArrow first in one else-if
-	// chain, so its ctype / perms / priority left branches could never run and
-	// those fields could only be cycled forwards. Anything ← used to do it
-	// still does on Effect, Description and Match, so there is always a way
-	// back out of the editor with one key.
-	// esc ALWAYS leaves the editor, on every field.
-	//
-	// It was not handled here at all, so it fell through to the app and moved focus to
-	// the section list, out of the panel entirely, with the rule still half-edited and
-	// no way to answer the "unsaved (s save · x discard)" prompt the editor was showing.
-	// ← only leaves from three of the six fields, because on the other three it picks a
-	// value, so there was no key that reliably meant "get me out of here".
+
 	case s == "esc":
 		p.view = viewRules
 	case s == "left" && field.kind != "ctype" && field.kind != "perms" && field.kind != "priority":
@@ -339,8 +319,7 @@ func (p *Policies) ruleKey(k tea.KeyMsg, s string) tea.Cmd {
 		p.rules[p.ri].edited = true
 		p.mutate()
 	case field.kind == "match" && (s == "enter" || s == "right"):
-		// Match is a multi-value list, so it gets its own sub-editor, like the
-		// dashboard's.
+
 		p.matchSel = 0
 		p.view = viewMatch
 	case field.kind == "priority" && (s == "right" || s == "left"):
@@ -383,10 +362,6 @@ func (p *Policies) beginEdit(value string) {
 	p.input.Focus()
 }
 
-// editingKey drives the inline text editor: the Description field in the rule
-// view, and one value in the match list. esc abandons the edit and leaves the
-// value as it was, the shell gives a capturing panel every key, so there has
-// to be a way out that does not write anything.
 func (p *Policies) editingKey(k tea.KeyMsg) tea.Cmd {
 	if k.String() == "esc" {
 		p.editing = false
@@ -411,8 +386,7 @@ func (p *Policies) editingKey(k tea.KeyMsg) tea.Cmd {
 		if p.matchSel < len(next) {
 			next[p.matchSel] = val
 		}
-		// An emptied value is a removal: it is how the editor deletes the blank
-		// row `a` just added when the user changes their mind.
+
 		if val == "" && p.matchSel < len(next) {
 			next = append(next[:p.matchSel:p.matchSel], next[p.matchSel+1:]...)
 		}
@@ -444,8 +418,7 @@ func (p *Policies) creatingKey(k tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	p.status = "Creating…"
-	// Keep the empty state hidden until the new policy shows up in the list, or
-	// the panel says "No policies yet" in the same breath as creating one.
+
 	p.busyCreate = true
 	body := client.PolicySet{ID: "policy-" + itoa(int(time.Now().UnixMilli())), Name: name, Mode: client.ModeDenylist}
 	t := p.tag()
@@ -475,11 +448,6 @@ func (p *Policies) save() tea.Cmd {
 	}
 }
 
-// saveBody is the document that would be sent, and the refusals that stop it.
-//
-// It is separate from save() so the refusals can be tested without a server:
-// what this panel must never do is write a policy back NARROWER than it read
-// it, and every check below is one way that could happen.
 func (p *Policies) saveBody() (client.PolicySet, bool) {
 	if !p.haveDetail {
 		return client.PolicySet{}, false
@@ -490,20 +458,13 @@ func (p *Policies) saveBody() (client.PolicySet, bool) {
 	}
 	p.fold()
 
-	// Every variant is checked, not just the one on screen. A blanket rule in
-	// the variant somebody edited five minutes ago is still a blanket rule the
-	// moment this is saved, and finding out about it from the tab you are not
-	// looking at is better than finding out from a machine that stopped denying.
 	vars := make([]client.PolicyVariant, 0, len(p.variants))
 	for vi, v := range p.variants {
 		where := ""
 		if len(p.variants) > 1 {
 			where = " in " + v.name
 		}
-		// A policy this version could not fully read must not be written back.
-		// The rules that failed to decode are not in the draft, so saving would
-		// delete them from the policy while the dashboard still showed them as
-		// active.
+
 		if v.unreadable > 0 {
 			p.status = "✗ " + itoa(v.unreadable) + " rule(s)" + where + " cannot be read by this version, saving would delete them; edit ~/.solongate/policy.json directly"
 			return client.PolicySet{}, false
@@ -540,22 +501,13 @@ func (p *Policies) saveBody() (client.PolicySet, bool) {
 		Mode:        p.mode,
 		Agents:      p.detail.Agents,
 		Variants:    vars,
-		// The top level carries the FIRST variant's rules and layers, and both
-		// are mirrors rather than a second source of truth. Three readers in
-		// the field take only $.rules, so a document whose rules live only
-		// inside the bundle compiles to an empty rule set, which for a
-		// denylist denies nothing. The server keeps this mirror true on every
-		// write; writing it here as well means the document is already
-		// consistent before it is sent.
+
 		DefaultVariant: first.ID,
 		Rules:          first.Rules,
 		Security:       first.Security,
 	}, true
 }
 
-// polOrID keeps a variant's id stable and gives an unnamed one the same id the
-// dashboard would. A grant pins this string: an id that changed on save would
-// move every developer pinned to it onto the default.
 func polOrID(id string, i int) string {
 	if id != "" {
 		return id
@@ -571,15 +523,11 @@ func (p *Policies) discard() {
 	p.status = "discarded"
 }
 
-// adoptRules turns a wire rule array into editable rules, keeping each rule's
-// original bytes beside its decoded form.
 func adoptRules(r client.Rules) []ruleDoc {
 	out := make([]ruleDoc, 0, len(r.Items))
 	for i, item := range r.Items {
 		doc := ruleDoc{rule: item}
-		// The raw slice only lines up with the decoded one when every element
-		// decoded. When some did not, the bytes are not attached rather than
-		// attached to the wrong rule, and save() refuses anyway.
+
 		if r.Unreadable == 0 && i < len(r.Raw) {
 			doc.raw = r.Raw[i]
 		}
@@ -588,14 +536,6 @@ func adoptRules(r client.Rules) []ruleDoc {
 	return out
 }
 
-// adoptPolicy turns a stored policy into the draft.
-//
-// A policy written before variants existed becomes exactly ONE of them, holding
-// the rules it already had and the layers the project has been enforcing, so
-// opening an old policy here and saving it back describes the same enforcement
-// it described before. This is the same normalisation the dashboard does on the
-// way into its editor, and the two must not disagree: a policy opened in one
-// and saved in the other would otherwise change what it means.
 func (p *Policies) adoptPolicy(set client.PolicySet) {
 	p.variants = p.variants[:0]
 	for _, v := range polDefaultFirst(set.VariantList(), set.DefaultVariant) {

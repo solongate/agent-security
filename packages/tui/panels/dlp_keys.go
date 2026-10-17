@@ -12,8 +12,6 @@ import (
 	"github.com/solongate/agent-security/packages/core/client"
 )
 
-// Split from dlp.go: key handling, the pinned add/edit prompt, save/discard.
-
 func (p *DLP) mutated() {
 	p.dirty = true
 	p.status = ""
@@ -34,9 +32,6 @@ func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
 		p.status = "⟳ refreshed " + time.Now().Format("15:04:05")
 		return p.load()
 
-	// The built-ins are a GRID and the custom patterns are a list, so ↑↓ means a
-	// different distance in each. Crossing between them lands on the nearest edge
-	// of the other section rather than skipping over it.
 	case "up":
 		nB := len(p.available)
 		switch {
@@ -69,8 +64,6 @@ func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
 			p.sel = min(nB-1, selC+1)
 		}
 
-	// All on / all off. The custom patterns are a different list and are left
-	// exactly as they were: "every built-in" is not "everything".
 	case "A":
 		p.dlp.DLP.Patterns = append([]string(nil), p.available...)
 		p.mutated()
@@ -112,7 +105,7 @@ func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
 		}
 
 	case "e", "enter":
-		// Edit the selected entry in place.
+
 		if !hasCur {
 			return nil
 		}
@@ -127,8 +120,7 @@ func (p *DLP) key(k tea.KeyMsg) tea.Cmd {
 
 	case "s":
 		if p.bound {
-			// The owner saves. Reaching the settings endpoint from here would
-			// write a project-wide row the policy does not read.
+
 			return nil
 		}
 		return p.save()
@@ -156,10 +148,6 @@ func (p *DLP) endInput() {
 	p.input.SetValue("")
 }
 
-// editKey drives the pinned prompt. Enter on an empty value cancels, as it did
-// in the Ink version; esc cancels too, which it could not there. The shell hands
-// a capturing panel every key, so without esc the only way out of this prompt
-// would be to submit it.
 func (p *DLP) editKey(k tea.KeyMsg) tea.Cmd {
 	if k.String() == "esc" {
 		p.endInput()
@@ -181,7 +169,7 @@ func (p *DLP) editKey(k tea.KeyMsg) tea.Cmd {
 		p.beginInput(dlpAddRe, "")
 		return nil
 
-	default: // the pattern itself
+	default:
 		if v != "" {
 			if p.editIdx >= 0 && p.editIdx < len(p.dlp.DLP.Custom) {
 				p.dlp.DLP.Custom[p.editIdx] = client.CustomPattern{Name: p.newName, Re: v}
@@ -218,11 +206,6 @@ func (p *DLP) discard() {
 	p.status = "discarded"
 }
 
-// ── small slice helpers ────────────────────────────────────────────────────
-
-// toggleString adds or removes one value, keeping the order of the rest. The
-// Ink version went through a Set, which preserves insertion order the same way;
-// re-sorting here would rewrite a saved pattern list on every toggle.
 func toggleString(list []string, v string) []string {
 	out := make([]string, 0, len(list)+1)
 	found := false

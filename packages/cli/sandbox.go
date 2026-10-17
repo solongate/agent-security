@@ -3,24 +3,6 @@
 
 package cli
 
-// `solongate sandbox <agent>`, the closed box.
-//
-// THE DIFFERENCE FROM `run`, because two commands that both say "confined" have
-// to be told apart in one line each:
-//
-//	run      a permission layer over this machine's filesystem. Paths are
-//	         refused. $HOME exists and returns EACCES; `ls /` shows the whole
-//	         machine. It is what macOS and Windows can do, and what Linux can
-//	         do without bubblewrap.
-//	sandbox  a new root. The project, a read-only runtime, a private /proc and
-//	         a /dev with five nodes. $HOME is not refused, it is not there.
-//	         The network stays, so the agent can reach its model. Linux only.
-//
-// `run` protects what the protected-paths list names. `sandbox` protects
-// everything nobody named, which is the set that matters: nobody adds ~/.ssh,
-// a sibling customer's repository, or the credentials of a tool they installed
-// last month to a deny list.
-
 import (
 	"context"
 	"os"
@@ -46,9 +28,6 @@ func sandboxUsage() string {
 	})
 }
 
-// SandboxAgent is wired directly rather than through the handler table, for the
-// same reason RunAgent is: everything after the agent's name belongs to the
-// agent, including flags this CLI also uses.
 func SandboxAgent(argv []string) int {
 	if len(argv) == 0 {
 		errln(sandboxUsage())
@@ -58,15 +37,10 @@ func SandboxAgent(argv []string) int {
 		return explainBox(argv[1:])
 	}
 
-	// `sandbox list` before anything else, so somebody who has forgotten the
-	// numbers can find them without starting an agent.
 	if argv[0] == "list" || argv[0] == "ls" {
 		return listBoxes()
 	}
 
-	// CHECKED BEFORE ANYTHING IS PRINTED. A banner followed by a refusal reads
-	// as the box having been built and then failed, which is the opposite of
-	// what happened.
 	if err := sandbox.BoxAvailable(); err != nil {
 		errln("")
 		errln("  " + red("No closed box on this machine."))
@@ -75,9 +49,6 @@ func SandboxAgent(argv []string) int {
 		return 1
 	}
 
-	// THE ID COMES FIRST AND THE AGENT SECOND: `solongate sandbox 001 claude`.
-	// Everything after the agent's name belongs to the agent, including flags
-	// this CLI also understands.
 	id := argv[0]
 	rest := argv[1:]
 	if i := indexOf(rest, "--"); i >= 0 {
@@ -107,10 +78,6 @@ func SandboxAgent(argv []string) int {
 		return 1
 	}
 
-	// HOME POINTS INSIDE THE PROJECT, because the box has no home directory and
-	// an agent without one writes its session state nowhere and usually exits.
-	// Pointing it at the project means everything the agent keeps is somewhere
-	// the person can see, next to the code it was keeping it about.
 	home := "/workspace/.sandbox-home"
 	_ = os.MkdirAll(filepath.Join(ws, ".sandbox-home"), 0o755)
 
@@ -142,7 +109,7 @@ func SandboxAgent(argv []string) int {
 	errln("")
 
 	rep, err := sandbox.BoxLaunch(plan, env)
-	// BoxLaunch execs, so reaching here means it failed before the agent ran.
+
 	if err != nil {
 		if code, ok := exitCodeOf(err); ok {
 			return code
@@ -159,7 +126,6 @@ func SandboxAgent(argv []string) int {
 	return 0
 }
 
-// listBoxes is the column somebody reads when they have forgotten the numbers.
 func listBoxes() int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -193,8 +159,6 @@ func listBoxes() int {
 	return 0
 }
 
-// explainBox says what is in a box. With an id it describes that box; without
-// one it describes the shape every box has.
 func explainBox(argv []string) int {
 	errln("")
 	if err := sandbox.BoxAvailable(); err != nil {

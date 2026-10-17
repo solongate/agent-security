@@ -12,17 +12,6 @@ import (
 	"time"
 )
 
-// The guard's eval ring: one record per tool call, written whether the call was
-// allowed or refused.
-//
-// IT IS THE ONLY ARTEFACT WRITTEN ON EVERY CALL. The audit log carries denials
-// and, on clients with no post-tool stage, flagged allows; the beat file says
-// the hook fired but not what it decided. So this is what answers "has this
-// machine actually judged anything, and under what conditions".
-
-// EvalRecord is one line of it. The guard writes argument KEY NAMES and counts,
-// never values: the values are the file contents, commands and URLs this whole
-// product exists to keep where they belong.
 type EvalRecord struct {
 	Ms      float64 `json:"ms"`
 	Ts      int64   `json:"ts"`
@@ -35,21 +24,9 @@ type EvalRecord struct {
 	URLs    int     `json:"urls"`
 	Session string  `json:"session"`
 
-	// Sandbox is the marker the agent was started with, empty when it was not
-	// started by `solongate run`. It is what lets `doctor` tell a machine that
-	// is enforcing protected paths with the kernel from one that is enforcing
-	// them with a string match, which look identical from everywhere else.
 	Sandbox string `json:"sandbox,omitempty"`
 }
 
-// NewestEvalRecord returns the most recent call the guard judged, from ANY
-// project on this machine.
-//
-// NOT ProjectFlagDir(). The record is filed under a hash of the directory the
-// HOOK process was spawned in, and a client is free to spawn it anywhere;
-// Antigravity does. Reading only the caller's own project reports "nothing has
-// happened" on a machine where the guard is working perfectly, three
-// directories away.
 func NewestEvalRecord() *EvalRecord {
 	root := filepath.Join(Dir(), "projects")
 	entries, err := os.ReadDir(root)
@@ -75,11 +52,8 @@ func NewestEvalRecord() *EvalRecord {
 	return best
 }
 
-// At is the record's timestamp as a time.
 func (r *EvalRecord) At() time.Time { return time.UnixMilli(r.Ts) }
 
-// tailRingLines reads the last 8 KB of a ring, which is far more than the ring
-// ever holds and bounded for the case where something else wrote to the path.
 func tailRingLines(file string) []string {
 	f, err := os.Open(file)
 	if err != nil {
@@ -106,7 +80,7 @@ func tailRingLines(file string) []string {
 			out = append(out, l)
 		}
 	}
-	// The first line of a seeked read is usually a fragment.
+
 	if info.Size() > maxBytes && len(out) > 0 {
 		out = out[1:]
 	}

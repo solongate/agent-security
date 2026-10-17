@@ -13,10 +13,6 @@ import (
 	"testing"
 )
 
-// frozenBelow is the whole safety of the two-regime grant: it decides whether a
-// directory on the way to a protected path is granted whole or entry by entry.
-// Answer it wrong in the permissive direction and the protected file is handed
-// over, so every case here is about where it must say no.
 func TestFrozenBelow(t *testing.T) {
 	set := func(paths ...string) map[string]bool {
 		m := map[string]bool{}
@@ -124,10 +120,6 @@ func TestFrozenBelow(t *testing.T) {
 	}
 }
 
-// AND THE SIBLING PREFIX CASE AGAIN, AT THE RULE LEVEL, because getting it
-// wrong is a silent widening rather than a crash: /home/u/p and /home/u/prod
-// share nine characters and a prefix test without the separator treats the
-// second as living inside the first.
 func TestAllowRulesSiblingPrefixDoesNotWiden(t *testing.T) {
 	root := t.TempDir()
 	p := filepath.Join(root, "p")
@@ -143,8 +135,6 @@ func TestAllowRulesSiblingPrefixDoesNotWiden(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// prod/game.c is denied and NOT frozen, so prod must be narrow. root is an
-	// ancestor of prod, so root must be narrow too.
 	_, walked, narrow, err := allowRules([]string{target}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +150,6 @@ func TestAllowRulesSiblingPrefixDoesNotWiden(t *testing.T) {
 	}
 }
 
-// The regime switch, which is the fix for the one standing cost of `run`.
 func TestAllowRulesFrozenPathWidensItsAncestors(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "work")
@@ -192,10 +181,6 @@ func TestAllowRulesFrozenPathWidensItsAncestors(t *testing.T) {
 	}
 }
 
-// AN IMMUTABLE ENTRY FOR A PATH THAT IS NOT DENIED MUST DO NOTHING. Otherwise a
-// caller could widen a directory on the strength of a file this layer was never
-// asked to protect, which is the one way this feature could be turned into a
-// hole from outside the package.
 func TestAllowRulesIgnoresImmutablePathsThatAreNotDenied(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "work")
@@ -210,7 +195,6 @@ func TestAllowRulesIgnoresImmutablePathsThatAreNotDenied(t *testing.T) {
 		}
 	}
 
-	// `other` is claimed immutable; `denied` is the protected one and is not.
 	_, _, narrow, err := allowRules([]string{denied}, []string{other})
 	if err != nil {
 		t.Fatal(err)
@@ -227,8 +211,7 @@ func TestAllowRulesRefusesToDenyRoot(t *testing.T) {
 }
 
 func TestAllowRulesWithNothingDeniedStillMakesADomain(t *testing.T) {
-	// An empty deny list is not "no confinement": entering a Landlock domain
-	// at all blocks arbitrary mounts, which is worth having on its own.
+
 	rules, walked, narrow, err := allowRules(nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -241,9 +224,6 @@ func TestAllowRulesWithNothingDeniedStillMakesADomain(t *testing.T) {
 	}
 }
 
-// Preview is what the user is told before anything is applied, and it must
-// describe the regime that will actually be in force. It used to state the cost
-// unconditionally, which is now wrong for a properly locked path.
 func TestPreviewDescribesTheRegimeInForce(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "work")
@@ -272,15 +252,6 @@ func TestPreviewDescribesTheRegimeInForce(t *testing.T) {
 	}
 }
 
-// END TO END, AND IT NEEDS A FLAG ONLY ROOT CAN SET.
-//
-// Everything above is the decision. This is the consequence, and it is the only
-// thing that proves the decision was worth making: with the inode frozen, a file
-// created in the protected file's own directory can be written, and the
-// protected file still cannot be.
-//
-// Skipped without CAP_LINUX_IMMUTABLE, which an ordinary user does not have. CI
-// runs as root on the runner, so this runs there.
 func TestFrozenRegimeEndToEnd(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("chattr +i needs CAP_LINUX_IMMUTABLE; this is measured as root in CI")
@@ -301,10 +272,9 @@ func TestFrozenRegimeEndToEnd(t *testing.T) {
 	if out, err := exec.Command("chattr", "+i", target).CombinedOutput(); err != nil {
 		t.Skipf("chattr +i failed, the filesystem may not support it: %v: %s", err, out)
 	}
-	// Cleared before TempDir cleanup, which cannot remove an immutable file.
+
 	t.Cleanup(func() { _ = exec.Command("chattr", "-i", target).Run() })
 
-	// The flag is real, so even this unconfined test process cannot write it.
 	if err := os.WriteFile(target, []byte("overwritten"), 0o644); err == nil {
 		t.Fatal("chattr +i reported success but the file is still writable, " +
 			"so the premise of the wide grant does not hold on this filesystem")

@@ -12,20 +12,6 @@ import (
 	"github.com/solongate/agent-security/packages/core/client"
 )
 
-// Audit, the Live console's tool stream, over the FULL history.
-//
-// Rows use the SAME renderer as Live ([HH:MM:SS LOC|CLD] DECISION tool perm
-// eval agent dlp: rl: {args}) and enter opens the SAME entry inspector; the only
-// thing Audit adds over Live is that it shows every log, not just the live
-// buffer: every call, newest first, 500 per page (←→ pages, and the selection
-// jumps to the top on a page change). Filters: f decision, g signal, t tool,
-// n agent, / search, c clear. enter = full entry.
-//
-// There is ONE source: the JSONL file the hooks write on this machine, read through the
-// api-client store, the same path `solongate audit` reads, so the panel and the command
-// cannot disagree about what matches a filter. `s` used to toggle between that store and
-// a second in-memory read of the same file, labelled "cloud" against "local".
-
 func init() { Register(SectionAudit, func(d Deps) Panel { return newAudit(d) }) }
 
 const (
@@ -38,7 +24,6 @@ var (
 	auditSignals   = []string{"", "dlp", "ratelimit"}
 )
 
-// logRow is one row, unified across cloud entries and local JSONL lines.
 type logRow struct {
 	id         string
 	at         int64
@@ -53,13 +38,9 @@ type logRow struct {
 	evalMs     *float64
 	dlp        []string
 	burst      bool
-	args       string // the raw JSON string of the arguments
+	args       string
 }
 
-// auditExport is the export file's shape. It is separate from logRow so the
-// file keeps the field names and the nulls the TypeScript writes: someone's
-// script reads these files, and a field that changed from null to "" between
-// two implementations of the same command is a silent breakage.
 type auditExport struct {
 	ID         string   `json:"id"`
 	At         int64    `json:"at"`
@@ -97,7 +78,6 @@ func (r logRow) export() auditExport {
 	}
 }
 
-// stream is the shared row shape, identical rows to the Live console.
 func (r logRow) stream() StreamRow {
 	detail := r.args
 	if detail == "" {
@@ -110,9 +90,6 @@ func (r logRow) stream() StreamRow {
 	}
 }
 
-// cloudRow prefers the API's own fields and falls back to the reason string, so
-// a redacted or blocked DLP hit and a rate-limit burst are still detectable
-// when the columns are not there to say so.
 func cloudRow(e client.AuditEntry) logRow {
 	at, _ := parseMillis(e.CreatedAt)
 	reason := ""
@@ -145,23 +122,22 @@ func cloudRow(e client.AuditEntry) logRow {
 }
 
 type confirmState struct {
-	kind string // one | all
+	kind string
 	key  string
 }
 
 type auditNote struct {
 	text  string
-	level string // ok | bad
+	level string
 }
 
-// Audit is the panel.
 type Audit struct {
 	deps Deps
 	gen  int
-	// tok identifies THIS mount of the panel; see nextPanelToken.
+
 	tok int
 
-	view string // logs | detail
+	view string
 
 	di, gi int
 	tool   string
@@ -171,7 +147,7 @@ type Audit struct {
 	sel    int
 
 	detailScroll int
-	editing      string // "" | tool | agent | search
+	editing      string
 	input        textinput.Model
 
 	confirm *confirmState
@@ -180,9 +156,7 @@ type Audit struct {
 	frozen  bool
 
 	stats *client.Stats
-	// The page, and whether it is in flight. These were `cloud`/`cloudErr`/`cloudBusy`,
-	// beside a second set, `local`/`localErr`/`localBusy`, for the other source. Both
-	// read the same file, so one set is all there is to be in.
+
 	list *client.AuditList
 	err  error
 	busy bool
@@ -231,14 +205,9 @@ func (p *Audit) current(rows []logRow) (logRow, bool) {
 	return rows[minInt(p.sel, len(rows)-1)], true
 }
 
-// Visible loading states. They also lock the keyboard below, because a queued
-// keypress would otherwise double-page or land on a row that is about to be
-// replaced.
 func (p *Audit) logsLoading() bool { return p.busy && p.editing == "" }
 
 func (p *Audit) logsError() error { return p.err }
-
-// ── update ─────────────────────────────────────────────────────────────────
 
 func (p *Audit) CapturingKeys() bool { return p.editing != "" }
 

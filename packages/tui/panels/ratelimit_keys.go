@@ -9,8 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Split from ratelimit.go: key handling, field adjustment, save/discard.
-
 func (p *RateLimit) key(k tea.KeyMsg) tea.Cmd {
 	total, burstBudget := p.cursorTotal(), p.burstBudget()
 	switch k.String() {
@@ -38,15 +36,13 @@ func (p *RateLimit) key(k tea.KeyMsg) tea.Cmd {
 		p.adjust(1, 10)
 	case "s":
 		if p.bound {
-			// The owner saves. See DLP.
+
 			return nil
 		}
 		return p.save()
 	case "x":
 		if p.bound {
-			// The owner discards, for the same reason it saves: the draft is the
-			// policy's, and throwing away only this half would leave the two
-			// disagreeing about what is unsaved.
+
 			return nil
 		}
 		p.discard()
@@ -54,7 +50,6 @@ func (p *RateLimit) key(k tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// discard drops the draft and takes the server's answer back.
 func (p *RateLimit) discard() {
 	if !p.haveSrv {
 		return
@@ -64,8 +59,6 @@ func (p *RateLimit) discard() {
 	p.status = "discarded"
 }
 
-// adjust moves the field under the cursor. A cursor sitting on a burst row is
-// not a field and must not silently edit the one above it.
 func (p *RateLimit) adjust(dir, step int) {
 	if !p.hasDraft {
 		return

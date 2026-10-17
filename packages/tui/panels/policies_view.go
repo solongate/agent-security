@@ -12,8 +12,6 @@ import (
 	"github.com/solongate/agent-security/packages/tui"
 )
 
-// Split from policies.go: rendering for every level.
-
 func (p *Policies) View(ctx tui.PanelContext) string {
 	p.apply(ctx)
 	switch p.view {
@@ -114,9 +112,6 @@ func (p *Policies) dirtyTag(l *lineBuf) {
 	}
 }
 
-// variantTabs is the row the dashboard draws as tabs. The one in force is lit
-// and boxed; the rest are dim, and a policy with a single variant draws nothing
-// at all, because one tab is not a choice.
 func (p *Policies) variantTabs() string {
 	if len(p.variants) < 2 {
 		return ""
@@ -133,8 +128,6 @@ func (p *Policies) variantTabs() string {
 	return l.String()
 }
 
-// layerSummary is the right-hand side of a layer row: what it is set to, in the
-// words the dashboard's fold headers use.
 func (p *Policies) layerSummary(layer int) (string, lipgloss.Style) {
 	switch layer {
 	case layerRules:
@@ -175,15 +168,6 @@ func (p *Policies) layerSummary(layer int) (string, lipgloss.Style) {
 
 var polLayerNames = [layerCount]string{"Rules", "Secret detectors", "Rate limit"}
 
-// A second, dimmer line used to sit under each layer explaining what it was for,
-// "what is allowed and what is denied" under Rules, and so on. It doubled the height
-// of the card to restate the three names next to it, and it never changed, so after
-// the first read it was three lines of furniture between the reader and the numbers
-// they came for.
-
-// viewPolicyBody is one policy: its variants along the top, its three layers
-// under them. It is the dashboard's policy card, which is always open and whose
-// layers are the things that fold.
 func (p *Policies) viewPolicyBody() string {
 	if p.detailLoading && !p.haveDetail {
 		return dataView(true, nil, false, "", "")
@@ -239,7 +223,7 @@ func (p *Policies) viewPolicyBody() string {
 	}
 
 	if p.unreadable > 0 {
-		// Never silently show fewer rules than the policy has.
+
 		out = append(out, stBad.Render("⚠ "+itoa(p.unreadable)+" rule(s) here cannot be read by this version, edit ~/.solongate/policy.json directly"))
 	}
 	if p.status != "" {
@@ -248,8 +232,6 @@ func (p *Policies) viewPolicyBody() string {
 	return joinLines(out)
 }
 
-// viewLayerBody is a bound editor with this panel's header above it, so the
-// policy and the variant being edited are never off screen.
 func (p *Policies) viewLayerBody() string {
 	child := p.layerPanel()
 	if child == nil {
@@ -273,8 +255,7 @@ func (p *Policies) viewLayerBody() string {
 	if len(p.variants) > 1 && p.vi < len(p.variants) {
 		h.put("  ["+truncate(p.variants[p.vi].name, 18)+"]", stAccent)
 	}
-	// No unsaved tag here: the editor below draws its own, and two of them on
-	// one screen reads as two different unsaved things.
+
 	out = append(out, h.String())
 	out = append(out, "")
 	out = append(out, child.View(p.childCtx()))
@@ -344,7 +325,7 @@ func (p *Policies) viewRulesBody() string {
 	t.put(string(p.mode), modeStyleSel)
 	t.put("  "+itoa(len(p.rules))+" rules", stDim)
 	if p.unreadable > 0 {
-		// Never silently show fewer rules than the policy has.
+
 		t.put("  ⚠ "+itoa(p.unreadable)+" unreadable", stBad)
 	}
 	p.dirtyTag(t)
@@ -417,9 +398,7 @@ func (p *Policies) viewMatchBody() string {
 	if len(items) == 0 {
 		out = append(out, stDim.Render("(no values, press a to add one)"))
 	} else {
-		// The Ink version drew every value and relied on the outer box to clip.
-		// This windows instead, so a long value list scrolls rather than pushing
-		// the help line and the status out of the frame.
+
 		statusRows := 0
 		if p.status != "" {
 			statusRows = 1
@@ -463,7 +442,7 @@ func (p *Policies) viewRuleBody() string {
 
 		switch {
 		case f.kind == "perms" && have:
-			// Four chips: green on, red off. ←→ moves the cursor, space toggles.
+
 			for pi, perm := range permsAll {
 				st := stBad
 				if containsString(permListOf(rule), perm) {

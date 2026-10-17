@@ -15,24 +15,16 @@ import (
 type alertBanner struct {
 	id    string
 	msg   string
-	level string // warn | bad
+	level string
 	until int64
 }
 
 type flashMsg struct {
 	text  string
-	level string // ok | bad
+	level string
 	until int64
 }
 
-// insightsBits is the slice of /stats/security-insights this console reads. The
-// endpoint returns more and keeps growing; decoding only what is rendered means
-// a new field upstream cannot break the console.
-//
-// Every layer is a POINTER because absent and off are different answers: a
-// project with no rate limit configured shows "?", one with the layer switched
-// off shows "off", and collapsing them would tell someone their limits are
-// enforced when nothing is set.
 type insightsBits struct {
 	Layers struct {
 		RateLimit *insightsRateLimit `json:"rateLimit"`
@@ -78,7 +70,6 @@ func (d *insightsDLP) mode() string {
 	return d.Mode
 }
 
-// summary is the one-line rate-limit state in the LAYERS column.
 func (r *insightsRateLimit) summary(minuteNow int) string {
 	if r == nil || r.PerMinute == 0 {
 		return "no limits set"
@@ -87,20 +78,6 @@ func (r *insightsRateLimit) summary(minuteNow int) string {
 		orDash(r.PerHour) + "h " + orDash(r.PerDay) + "d"
 }
 
-// beat appends one sample to the heartbeat trace and clears what it consumed.
-//
-// Called from the animation tick, so the trace keeps moving through a poll that fails or
-// a cadence that has gone slow, which is precisely when somebody is looking at this pane
-// to find out whether anything is still alive.
-// ONE BEAT EVERY FIVE SECONDS. The animation tick runs at 500ms because a spinner needs
-// to look like it is spinning; a heartbeat at that rate is a flicker, and it pushed real
-// events off the top of the pane in under a minute.
-//
-// AND THE NUMBERS GO IN THE EVENT LOG, because the chart cannot carry them. A column of
-// a certain height says "slower than the others" and nothing more: not how slow, and not
-// whether the machine was busy or idle while it happened. Those are the two things worth
-// knowing about a beat, so each one writes them down, the cost of the slowest decision
-// in that second, and how many calls there were to decide.
 func (p *Live) beat(now int64) {
 	ms, calls := p.pulsePending, p.pulseCalls
 	p.pulse = append(p.pulse, ms)
@@ -126,34 +103,14 @@ func (p *Live) pushLog(msg, level string, now int64) {
 	}
 }
 
-// rebuildMerged orders the stream.
-//
-// It used to MERGE, and the name is what is left of that: two planes, deduped against
-// each other on tool|decision|minute because the same call arrived twice, once tailed
-// off the log and once fetched through the audit API, which reads the same file. The
-// heuristic was load-bearing and approximate, which is the kind of thing that quietly
-// hides a real second call. There is one plane, so there is nothing to reconcile.
-//
-// The sort stays: entries are appended as they are read, and a file that was written by
-// several processes is not strictly ordered by timestamp.
 func (p *Live) rebuildMerged(now int64) {
 	merged := append(make([]streamItem, 0, len(p.local)), p.local...)
 	sort.SliceStable(merged, func(i, j int) bool { return merged[i].At < merged[j].At })
 	p.merged = merged
 }
 
-// ── alerts and toasts ──────────────────────────────────────────────────────
-
-// toastRank orders a batched summary by severity.
 var toastRank = map[string]int{"DLP hit": 0, "Call denied": 1, "Rate-limit burst": 2}
 
-// fireAlert raises the in-app banner, and queues the desktop toast.
-//
-// Toasts are BATCHED rather than dropped: a burst delivers many notable calls
-// in one poll, and a plain per-event throttle would toast only the FIRST one
-// (often a rate-limit burst) while silently swallowing the DLP hits behind it.
-// Queue by title, flush 400ms later with at least 3s between flushes: one event
-// gets its own detailed toast, several get one summary ordered by severity.
 func (p *Live) fireAlert(id, title, msg, level string, desktop bool, ctx PanelContext) tea.Cmd {
 	now := ctx.Now.UnixMilli()
 	prefix := "⏸ "
@@ -171,8 +128,7 @@ func (p *Live) fireAlert(id, title, msg, level string, desktop bool, ctx PanelCo
 	if len(p.alerts) > 4 {
 		p.alerts = p.alerts[len(p.alerts)-4:]
 	}
-	// The in-app banner still shows with notifications off; only the bell and
-	// the desktop toast are skipped.
+
 	if !desktop || !ctx.Cfg.Notifications {
 		return nil
 	}
@@ -233,13 +189,6 @@ func (p *Live) flushToasts(now int64) tea.Cmd {
 	return nil
 }
 
-// notifySecurityEvents fires once per notable call that happened AFTER the
-// panel opened.
-//
-// Gating on the call timestamp rather than on a "the first scan seeds the seen
-// set" flag is what fixes the backlog spam: that flag armed on the empty first
-// tick, before any data had loaded, so the whole historical backlog, arriving
-// a tick later, counted as new and dumped a wall of toasts on every open.
 func (p *Live) notifySecurityEvents(ctx PanelContext) []tea.Cmd {
 	var cmds []tea.Cmd
 	for _, e := range p.merged {
@@ -251,7 +200,7 @@ func (p *Live) notifySecurityEvents(ctx PanelContext) []tea.Cmd {
 		}
 		p.notified[e.ID] = true
 		if e.At <= p.openedAt {
-			continue // backlog, or a call from before the panel opened
+			continue
 		}
 		who := ""
 		if e.Agent != "" {

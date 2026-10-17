@@ -3,16 +3,6 @@
 
 package client
 
-// The names of the built-in DLP patterns, in order.
-//
-// The CLI needs this list to offer the patterns a policy may enable, it used to
-// arrive from a service as `availablePatterns`, and there is no service. The
-// EXPRESSIONS live in packages/guard/dlp.go and in the three hooks; only the
-// names are a user-facing menu, so only the names are here.
-//
-// A parity case used to hold this list against those, name for name and in order.
-// It was removed. A name here that no implementation carries offers somebody a
-// pattern that enforces nothing, and nothing will say so.
 var dlpPatternNames = []string{
 	"AWS access key",
 	"Private key block",
@@ -86,7 +76,6 @@ var dlpPatternNames = []string{
 	"PostHog key",
 }
 
-// AvailablePatterns is the menu, copied so a caller cannot reorder the original.
 func AvailablePatterns() []string {
 	out := make([]string, len(dlpPatternNames))
 	copy(out, dlpPatternNames)

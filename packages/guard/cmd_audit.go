@@ -17,16 +17,6 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-// runAudit is the PostToolUse twin of main()'s PreToolUse guard: it logs a
-// tool call that already ran and, on a client that can accept a rewrite,
-// masks secrets out of the result before the model sees them. Ported from
-// hooks/audit.mjs, which this must keep matching — a client installs one or
-// the other, never both, and the two have to behave identically for whichever
-// one lands.
-//
-// It never signals failure through the exit code. PostToolUse cannot un-run a
-// tool, so ALLOW/DENY here are log classifications, not a block — every path,
-// including the top-level recover, returns 0.
 func runAudit(args []string) (code int) {
 	defer func() {
 		if recover() != nil {
@@ -45,11 +35,6 @@ func runAudit(args []string) (code int) {
 
 	raw, _ := io.ReadAll(os.Stdin)
 
-	// A payload that fails to parse at all, or parses to JSON null, is the one
-	// case audit.mjs can't shrug off field-by-field (`JSON.parse` throws,
-	// `null.tool_name` throws) — everything after this point reads through
-	// rawFields/jsOrRaw/jsOrString, which treat a missing field as absent
-	// rather than a panic.
 	var probe interface{}
 	if err := json.Unmarshal(raw, &probe); err != nil || probe == nil {
 		return 0
@@ -74,11 +59,6 @@ func runAudit(args []string) (code int) {
 
 	callID := jsOrString(fields, "tool_use_id", "toolUseId", "tool_call_id")
 
-	// Did the guard already log a DENY for THIS EXACT call? If so this
-	// PostToolUse is a duplicate and must not be logged a second time. The
-	// match is per-call (tool_use_id, else an argument fingerprint), not per
-	// tool name — see guard.mjs's writeDenyFlag and the long comment on the
-	// equivalent block in audit.mjs.
 	guardDenied := false
 	func() {
 		defer func() { recover() }()
@@ -138,8 +118,6 @@ func runAudit(args []string) (code int) {
 		sec = local.Security
 	}
 
-	// DLP: rewrite the output the model sees so secret values are masked.
-	// Fail-open: any error here leaves the original output untouched.
 	var emittedPayload []byte
 	hitSeen := map[string]bool{}
 	var outputHits []string
@@ -156,11 +134,6 @@ func runAudit(args []string) (code int) {
 			return
 		}
 
-		// Glob (and Grep in files mode) deliver a STRUCTURED result —
-		// {filenames: string[], numFiles, totalMatches, ...} — and Claude Code
-		// rejects a plain-string updatedToolOutput for it (a "PostToolUse:Glob
-		// hook warning", original kept). Return the SAME shape instead: the
-		// filenames array with secret-looking names masked.
 		if trMap, ok := toolResponseVal.(map[string]interface{}); ok {
 			if filenames, ok := trMap["filenames"].([]interface{}); ok {
 				orig := make([]string, len(filenames))
@@ -202,11 +175,6 @@ func runAudit(args []string) (code int) {
 			}
 		}
 
-		// String-output tools (Bash, Read, text Grep, MCP listers): redact
-		// secrets in the TEXT, return a STRING — but only if the tool's own
-		// result shape was already a string; a structured result (stdout,
-		// content, file.content) is cloned with its text field swapped,
-		// because Claude Code rejects a bare-string replacement for those too.
 		base := extractOutputText(toolResponseVal, toolOutput)
 		if base == nil {
 			return
@@ -280,8 +248,6 @@ func runAudit(args []string) (code int) {
 		hasError = true
 	}
 
-	// Keep the full command/args for audit review. Only cap pathologically
-	// large values.
 	argsSummary := map[string]interface{}{}
 	for k, v := range toolInputMap {
 		if s, ok := v.(string); ok {
@@ -295,11 +261,6 @@ func runAudit(args []string) (code int) {
 		}
 	}
 
-	// Only a client whose wire protocol actually accepts a rewrite gets the
-	// payload — audit.mjs hardcodes this to Codex (its PostToolUse struct is
-	// deny_unknown_fields); this generalizes to whichever client the caller
-	// names, via clients.go's RedactsOutput capability rather than a second
-	// per-client switch.
 	if !clientFor(agentID).RedactsOutput {
 		emittedPayload = nil
 	}
@@ -321,10 +282,6 @@ func runAudit(args []string) (code int) {
 	permission := shared.GuessPermission(toolName)
 	evaluationTimeMs := readLastEvalMs(toolName, sessionID)
 
-	// DETECT-mode observation: record DLP matches / rate-limit bursts on this
-	// ALLOW entry so "detect" means observe-AND-log, not silent. Only
-	// meaningful on ALLOW — block-mode hits are denied upstream with their own
-	// reason. Fail-safe: any error just omits the field.
 	var dlpMatches []string
 	rateLimitBurst := false
 	if decision == "ALLOW" {
@@ -408,10 +365,6 @@ func cloneMap(m map[string]interface{}) map[string]interface{} {
 	return out
 }
 
-// extractOutputText is the best-effort extraction of the model-visible text
-// from a tool_response, ported from audit.mjs's function of the same name.
-// Shapes are undocumented, so it probes the known fields and falls back to a
-// raw string output. Returns nil when no text could be found anywhere.
 func extractOutputText(toolResponse interface{}, toolOutput string) *string {
 	if s, ok := toolResponse.(string); ok {
 		return &s
@@ -443,9 +396,7 @@ func extractOutputText(toolResponse interface{}, toolOutput string) *string {
 				return &joined
 			}
 		}
-		// Native Glob delivers its hits as a `filenames` string[] with no
-		// stdout/content field. Join one-path-per-line so dlpRedactText can
-		// act on it.
+
 		if arr, ok := m["filenames"].([]interface{}); ok {
 			var parts []string
 			for _, x := range arr {
@@ -464,11 +415,6 @@ func extractOutputText(toolResponse interface{}, toolOutput string) *string {
 	return nil
 }
 
-// compactJSON strips insignificant whitespace while preserving key order and
-// value text exactly, standing in for JS's `JSON.stringify(JSON.parse(x))`
-// round-trip without Go's map-marshal reordering keys alphabetically — which
-// would silently break every fingerprint match against a flag guard.mjs
-// wrote, since callFingerprint hashes this exact text.
 func compactJSON(raw []byte) string {
 	var buf bytes.Buffer
 	if json.Compact(&buf, raw) != nil {
@@ -477,12 +423,6 @@ func compactJSON(raw []byte) string {
 	return buf.String()
 }
 
-// callFingerprint is a small stable string hash (FNV-1a, hex), duplicated
-// from guard.mjs/audit.mjs's function of the same name: the two MUST produce
-// the same value for the same tool_input text, since that is how a
-// PostToolUse call is matched to the guard's deny flag. The loop is over
-// UTF-16 code units, matching JS's charCodeAt, the same reason
-// shared.ProjectKey does — see its comment.
 func callFingerprint(s string) string {
 	var h uint32 = 0x811c9dc5
 	for _, u := range utf16.Encode([]rune(s)) {

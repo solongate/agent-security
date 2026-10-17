@@ -1,17 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
-// THIS IS THE LAUNCHER. Edit it here.
-//
-// It was generated from packages/proxy/src/hook-launcher.ts by
-// scripts/gen-launcher.mjs, because a TypeScript installer wrote the same
-// launcher script and whichever ran last won. A byte of difference would have
-// had each rewriting the other's copy on every install, with the two node
-// search orders drifting apart unnoticed.
-//
-// That installer is gone, and so is the generator. One program writes this file
-// now, which is the only reason it is safe to edit by hand.
-
 package install
 
 import (
@@ -19,8 +8,6 @@ import (
 	"strings"
 )
 
-// launcherScript is the launcher with the install-time node baked in. See
-// launcher.go for what it is for and why it is not a node path in the config.
 func launcherScript(pinnedNode string) string {
 	pinned := strings.ReplaceAll(filepath.ToSlash(pinnedNode), `'`, `'\''`)
 	return `#!/bin/sh

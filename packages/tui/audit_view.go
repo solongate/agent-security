@@ -13,8 +13,6 @@ import (
 	"github.com/solongate/agent-security/packages/core/config"
 )
 
-// ── rendering ──────────────────────────────────────────────────────────────
-
 var auditHelp = []helpGroup{
 	{"Logs", [][2]string{
 		{"↑↓ / PgUp PgDn", "select a row (window follows)"},
@@ -30,15 +28,7 @@ var auditHelp = []helpGroup{
 		{"E", "export ALL matched rows"},
 		{"c", "clear every filter (incl. session)"},
 	}},
-	// A SESSIONS VIEW WAS ADVERTISED HERE AND DID NOT EXIST. `v` switched to it, `s`
-	// switched the source "cloud ↔ local file", and a five-key Sessions group listed
-	// how to filter and open the sessions you would find there. None of it was bound
-	// to anything: there is no second source, both paths read the same JSONL, as the
-	// comment at the top of this file says, and no sessions list to switch to.
-	//
-	// So the help taught keys that do nothing, the header offered "sessions (v)", and
-	// the footer hint spent room on it. Pressing the keys did nothing at all, which
-	// reads as the panel being broken rather than the feature being absent.
+
 	{"Anywhere in Audit", [][2]string{
 		{"space", "copy mode: freeze screen for mouse selection"},
 		{"?", "this help · any key closes"},
@@ -61,9 +51,7 @@ func (p *Audit) View(ctx PanelContext) string {
 	default:
 		lines = p.viewLogs(ctx)
 	}
-	// The panel clips itself: the help overlay and a long entry are both taller
-	// than the box on purpose, and a frame that grows past its budget is the
-	// full-screen repaint the budget exists to avoid.
+
 	return clampBlock(strings.Join(lines, "\n"), ctx.Cols, ctx.Rows)
 }
 
@@ -83,9 +71,7 @@ func (p *Audit) viewHelp(ctx PanelContext) []string {
 	}
 	lines = append(lines, renderRow(ctx.Cols,
 		sgb("AUDIT, all keys ", theme.AccentBright), sg(note, theme.Dim)), "")
-	// TWO columns, as in the TypeScript: the flat list is taller than the panel
-	// box, and the half that does not fit is not scrollable from here, it would
-	// simply be cut off, which is a key reference that silently omits keys.
+
 	half := maxInt(20, (ctx.Cols-2)/2)
 	left := helpBlock(auditHelp[:1], auditKeyColumn, half)
 	right := helpBlock(auditHelp[1:], auditKeyColumn, half)
@@ -102,10 +88,6 @@ func (p *Audit) copyBanner(width int) string {
 		fg:   lipgloss.Color(hexOKFG), bg: lipgloss.Color(hexOKBG), bold: true})
 }
 
-// strip is the totals, from the same store the rows come from.
-//
-// It used to have a second branch counting p.local in memory, for the other source.
-// Both counted the same file.
 func (p *Audit) strip(width int) string {
 	{
 		calls, allow, deny, policies := "····", "···", "··", "·"
@@ -115,9 +97,7 @@ func (p *Audit) strip(width int) string {
 			deny = strconv.Itoa(p.stats.Denied)
 			policies = strconv.Itoa(p.stats.ActivePolicies)
 		}
-		// The FILE is named, because "12 calls" with no path leaves the one question a
-		// person opening this panel has, am I looking at the right log?, unanswered,
-		// and the answer moves with the policy.
+
 		return renderRow(width,
 			seg{text: calls, bold: true}, sg(" calls · ", theme.Dim),
 			sg(allow+" allow", theme.OK), sg(" · ", theme.Dim),
@@ -125,10 +105,6 @@ func (p *Audit) strip(width int) string {
 			sg(" · "+config.LocalLogFile(), theme.Dim))
 	}
 }
-
-// srcChip rendered `src: cloud (s)` at the head of the list. There is one source, and
-// the file it is is named in the totals strip instead, which is the useful half of what
-// this was telling anybody.
 
 func chip(label, value string, on bool) []seg {
 	color := lipgloss.TerminalColor(theme.Dim)
@@ -145,7 +121,6 @@ func orDot(s string) string {
 	return s
 }
 
-// viewEntry is the COMPLETE entry, scrollable, in the Live inspector's shape.
 func (p *Audit) viewEntry(ctx PanelContext) []string {
 	rows, _ := p.pageRows()
 	e, ok := p.current(rows)
@@ -155,9 +130,6 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	bodyW := maxInt(20, ctx.Cols-4)
 	width := ctx.Cols - 2
 
-	// FULL CONTENT surfaces WHY: Audit's forensic value. ABOVE the arguments.
-	// The same block the Live inspector uses, so the two never explain the same
-	// entry differently: which layer refused it, and the guard's own sentence.
 	why := whyBlock(e.decision, e.reason, e.rule, e.dlp, e.burst, bodyW)
 	whyN, whyFG := len(why), whyColor(e.decision, e.burst, e.dlp)
 	content := why
@@ -169,13 +141,10 @@ func (p *Audit) viewEntry(ctx PanelContext) []string {
 	}
 	content = append(content, wrapLines(argsText, bodyW)...)
 
-	// ENTRY header (3) + pane title + footer + the copy banner when it is up.
 	bodyRows := maxInt(4, ctx.Rows-6-boolInt(p.frozen))
 	maxScroll := maxInt(0, len(content)-bodyRows)
 	off := minInt(p.detailScroll, maxScroll)
 
-	// A LOC/CLD segment sat at the end of this header, from the source toggle. Every
-	// entry is read from this machine's own audit file.
 	head := []seg{
 		{text: " ENTRY ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
 		sgb("  "+e.decision, decisionColor(e.decision)),

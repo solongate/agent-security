@@ -13,17 +13,6 @@ import (
 	"github.com/solongate/agent-security/packages/core/config"
 )
 
-// ── rendering ──────────────────────────────────────────────────────────────
-
-// ── rendering ──────────────────────────────────────────────────────────────
-
-// The block is built as plain lines and centred as a whole, horizontally and
-// vertically.
-//
-// CENTRED BECAUSE THERE IS NOTHING ELSE ON THE SCREEN. The TUI pins to the
-// top left because it is a dense layout a person navigates; this is one thing
-// at a time, and one thing at a time in the top left corner of a 200 column
-// terminal reads as an error message.
 func (m *setupModel) View() string {
 	w := m.cols - 8
 	if w < 44 {
@@ -59,12 +48,6 @@ func (m *setupModel) View() string {
 	return centreBlock(body, m.cols, m.rows)
 }
 
-// centreBlock puts the block in the middle of the terminal.
-//
-// The left margin is computed from the WIDEST line rather than per line, so
-// the block keeps its own left edge and the text does not ragged-centre into
-// a diamond. Vertical centring leans a third above rather than half, because
-// an exactly centred block of text reads as low on a tall terminal.
 func centreBlock(lines []string, cols, rows int) string {
 	width := 0
 	for _, l := range lines {
@@ -93,11 +76,6 @@ func centreBlock(lines []string, cols, rows int) string {
 	return clampBlock(strings.Join(out, "\n"), cols, rows)
 }
 
-// rail is the three-step progress list.
-//
-// The current step's spinner runs off the FRAME clock rather than the poll
-// clock. On the poll clock it advanced once a second, which does not read as a
-// spinner; it reads as a character that keeps changing for no reason.
 func (m *setupModel) rail(w int) []string {
 	names := []string{
 		"the guard is registered and firing",
@@ -191,15 +169,6 @@ func (m *setupModel) viewPolicy(w int) []string {
 	return out
 }
 
-// listenBar is the animation on the waiting screen.
-//
-// A SWEEP RATHER THAN A SPINNER, and the difference is what it says. A spinner
-// means "this is working on something"; a sweep across a fixed track means
-// "this is watching that". The screen is doing the second thing, and it may be
-// doing it for a minute while somebody opens another terminal.
-//
-// It bounces rather than wrapping, because a sweep that jumps back to the start
-// reads as a frame being dropped.
 func listenBar(width, frame int) seg {
 	if width < 8 {
 		width = 8
@@ -253,7 +222,6 @@ func (m *setupModel) viewWaiting(w int) []string {
 	return out
 }
 
-// elapsed is m:ss, so a long wait reads as a wait rather than as a hang.
 func elapsed(since time.Time) string {
 	if since.IsZero() {
 		return "0:00"
@@ -269,13 +237,6 @@ func pad2(n int) string {
 	return strconv.Itoa(n)
 }
 
-// viewDone reveals the record a line at a time.
-//
-// STAGED ON PURPOSE, and only here. This is the one moment the product stops
-// being a description and becomes a thing that happened, and a screen that
-// paints all of it between two frames gives the eye nothing to land on. Four
-// lines at 110ms is under half a second: long enough to read as arriving,
-// short enough that nobody is waiting for it.
 func (m *setupModel) viewDone(w int) []string {
 	var out []string
 	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
@@ -322,9 +283,6 @@ func (m *setupModel) viewDone(w int) []string {
 	return out
 }
 
-// setupSaw describes, in one line, what the guard extracted from the call. It
-// is counts rather than values on purpose: the ring never records argument
-// values, and this screen is not the place to start.
 func setupSaw(c *setupCall) string {
 	var parts []string
 	add := func(n int, one, many string) {
@@ -371,8 +329,6 @@ func (m *setupModel) footer() string {
 	}
 }
 
-// render turns a single seg into a styled string, for the places a seg has to
-// be concatenated with something that renders itself.
 func (s seg) render() string {
 	st := lipgloss.NewStyle()
 	if s.fg != nil {

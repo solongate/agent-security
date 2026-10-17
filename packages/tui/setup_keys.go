@@ -13,8 +13,7 @@ import (
 )
 
 func (m *setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// While a path is being typed, the keyboard belongs to the text box. The
-	// same discipline the panels use: otherwise a `q` in a path quits.
+
 	if m.askingPath {
 		switch k.Type {
 		case tea.KeyEsc:

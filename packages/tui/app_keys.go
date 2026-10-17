@@ -8,10 +8,7 @@ import (
 )
 
 func (a *App) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// A panel editing text owns the keyboard completely. Ink left the shell's
-	// handler armed while ink-text-input had focus, so typing a `q` into Live's
-	// search box quit the TUI; this is the one deliberate difference from
-	// the TypeScript key routing.
+
 	if a.focus == focusPanel && a.capturing() {
 		return a, a.toPanel(k)
 	}
@@ -44,8 +41,6 @@ func (a *App) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Focused on a panel. The panel sees the key as well: Ink ran both handlers,
-	// so esc leaves a sub-view AND returns to the menu in one press.
 	cmd := a.toPanel(k)
 	switch {
 	case key == tea.KeyEsc || key == tea.KeyTab:

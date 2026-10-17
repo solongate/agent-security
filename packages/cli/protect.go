@@ -1,21 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
-// `solongate protect` puts a path out of the agent's reach, and says exactly
-// how far out of reach it managed to get.
-//
-// THE REASON THIS IS NOT A POLICY RULE. A rule is matched against the strings
-// in a tool call. `rm game.c` is caught; `x=gam; y=e; rm "$x$y.c"` is not, and
-// neither is a script the agent writes to /tmp and then runs, nor a program it
-// compiles that calls unlink itself. The set of ways to name a file without
-// typing its name is not finite, so the guard's own check here is the weakest
-// of the three things enforcing this list rather than the only one. The other
-// two are the operating system: a lock on the file, and a sandbox around the
-// agent.
-//
-// SO THE OUTPUT NEVER SAYS "protected" ON ITS OWN. Every line says which of
-// the three is actually in force on this machine, right now, read back from
-// the filesystem rather than from the config file that asked for it.
 package cli
 
 import (
@@ -56,8 +41,6 @@ func runProtect(ctx context.Context, c *client.Client, p parsedArgs) (int, error
 		return protectAdd(ctx, c, sub)
 	}
 }
-
-// ── list ───────────────────────────────────────────────────────────────────
 
 func protectList(ctx context.Context, c *client.Client) (int, error) {
 	paths, err := c.Settings.ProtectedPaths(ctx)
@@ -116,8 +99,6 @@ func sandboxLine(required bool) string {
 	return yellow("applied when started with `solongate run`, not required")
 }
 
-// ── add ────────────────────────────────────────────────────────────────────
-
 func protectAdd(ctx context.Context, c *client.Client, path string) (int, error) {
 	if strings.TrimSpace(path) == "" {
 		errln(protectUsage())
@@ -170,19 +151,7 @@ func protectAdd(ctx context.Context, c *client.Client, path string) (int, error)
 	errln("  " + dim("guard      ") + green("refuses a tool call that names it"))
 	errln("  " + dim("sandbox    ") + sandboxLine(false))
 	errln("")
-	// AND THE SECOND COST OF NOT BEING FROZEN, which is not about this file.
-	//
-	// Without the immutable flag `run` cannot grant this file's directory
-	// read-write, because that grant would reach the file. So the directory gets
-	// listing and creating and not writing, and a file the agent creates there
-	// cannot then be written for as long as that run lasts. Somebody protects one
-	// source file and later wonders why their agent can touch a new file in that
-	// folder and not write it.
-	//
-	// It was reported by `run --explain`, which is the wrong place: by then the
-	// choice is made and the person is starting an agent. It belongs here, at the
-	// moment the path is protected, next to the other consequence of the same
-	// missing capability.
+
 	if !lock.Immutable {
 		errln("  " + yellow("The file cannot be overwritten. It can still be deleted."))
 		errln("  " + dim("Start your agent with `solongate run -- <agent>` and the sandbox"))
@@ -206,14 +175,6 @@ func protectAdd(ctx context.Context, c *client.Client, path string) (int, error)
 	return 0, nil
 }
 
-// askForRoot is the whole sudo conversation, and it happens before anything
-// runs.
-//
-// It is here rather than inside the locking code on purpose: the decision to
-// escalate belongs to a person at a terminal, and this command is already
-// human-only. Nothing else in SolonGate asks for root, nothing installs a
-// privileged helper, and declining is a supported answer rather than a failure
-// path.
 func askForRoot(path string) (bool, error) {
 	errln("")
 	errln("  " + bold("This needs one command as root, and here is exactly why."))
@@ -236,14 +197,7 @@ func askForRoot(path string) (bool, error) {
 	errln("  " + dim("If you say no: the file is set to 0444, which stops it being"))
 	errln("  " + dim("overwritten and ") + yellow("does not stop it being deleted") + dim("."))
 	errln("")
-	// THE OTHER HALF OF THE SAME ANSWER, said where the answer is given.
-	//
-	// The flag is checked in the inode, below the layer `solongate run` works
-	// in, and that is what lets run grant this file's directory read-write
-	// without the grant reaching the file. Say no and the directory gets the
-	// narrow grant instead, which costs a created file its write. Somebody
-	// choosing here should know both things they are choosing between, not just
-	// the one about deletion.
+
 	errln("  " + dim("And inside `solongate run`: the flag is what lets this file's"))
 	errln("  " + dim("directory stay fully writable. Without it the directory is"))
 	errln("  " + dim("granted listing and creating only, so a file your agent makes"))
@@ -256,8 +210,6 @@ func askForRoot(path string) (bool, error) {
 		return false, nil
 	}
 
-	// Prime the credential with the user watching, so the actual lock can use
-	// `sudo -n` and never block on an unexpected prompt later.
 	if err := runInteractive("sudo", "-v"); err != nil {
 		errln("")
 		errln("  " + yellow("sudo did not authenticate. Continuing with the weaker lock."))
@@ -278,8 +230,6 @@ func askYes(prompt string) bool {
 	}
 	return false
 }
-
-// ── remove ─────────────────────────────────────────────────────────────────
 
 func protectRemove(ctx context.Context, c *client.Client, path string) (int, error) {
 	if strings.TrimSpace(path) == "" {
@@ -341,8 +291,6 @@ func protectRemove(ctx context.Context, c *client.Client, path string) (int, err
 	errln("")
 	return 0, nil
 }
-
-// ── require-sandbox ────────────────────────────────────────────────────────
 
 func protectRequireSandbox(ctx context.Context, c *client.Client, arg string) (int, error) {
 	switch strings.ToLower(strings.TrimSpace(arg)) {

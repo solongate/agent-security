@@ -10,19 +10,6 @@ import (
 	"testing"
 )
 
-// WHAT A PROFILE BUG LOOKS LIKE.
-//
-// Seatbelt reads this text and does what it says. There is no type checker
-// between the string and the kernel, so a missing rule is not an error, it is a
-// profile that confines less than the one the user was shown. The three shapes
-// that matter: a rule written against a name the kernel will not match, a quote
-// that ends the profile early, and a deny that takes an unrelated neighbour
-// down with it.
-//
-// These tests run everywhere because the generator is untagged. They assert the
-// text, not the kernel's reading of it, which is the half that can be checked
-// off a Mac.
-
 func mustContain(t *testing.T, profile, want, why string) {
 	t.Helper()
 	if !strings.Contains(profile, want) {
@@ -31,9 +18,7 @@ func mustContain(t *testing.T, profile, want, why string) {
 }
 
 func TestSeatbeltProfileHeader(t *testing.T) {
-	// `(allow default)` is the deny-list regime: everything permitted, then the
-	// protected paths taken away. Losing this line inverts the sandbox into one
-	// that denies everything, and the symptom is an agent that cannot run.
+
 	p, _ := seatbeltProfile(nil)
 	mustContain(t, p, "(version 1)", "SBPL requires a version and refuses the profile without one")
 	mustContain(t, p, "(allow default)", "the deny-list regime starts from allow; without it the profile denies everything")
@@ -51,10 +36,6 @@ func TestSeatbeltProfileDeniesBothReadAndWrite(t *testing.T) {
 		t.Fatalf("the path was not written into the profile: %v", got)
 	}
 
-	// Four rules per path, and all four are load bearing. A literal rule does
-	// not cover a tree and a subpath rule does not cover the directory's own
-	// inode, so a path that is a directory needs both; and read without write
-	// is a file an agent can destroy but not look at.
 	for _, want := range []string{
 		`(deny file-read* (literal "` + secret + `"))`,
 		`(deny file-write* (literal "` + secret + `"))`,
@@ -65,12 +46,6 @@ func TestSeatbeltProfileDeniesBothReadAndWrite(t *testing.T) {
 	}
 }
 
-// THE NEIGHBOUR THAT DISAPPEARS.
-//
-// Resolving any path stats every directory above it. Deny a tree without
-// re-allowing metadata on its ancestors and the files NEXT TO the protected one
-// become unreachable too, which reads as the sandbox being broken rather than
-// as a rule doing slightly too much.
 func TestSeatbeltProfileKeepsAncestorsReadable(t *testing.T) {
 	dir := t.TempDir()
 	nested := filepath.Join(dir, "a", "b")
@@ -89,14 +64,6 @@ func TestSeatbeltProfileKeepsAncestorsReadable(t *testing.T) {
 	}
 }
 
-// THE DELETE THAT NEVER NAMES THE FILE.
-//
-// `rm /path/to/secret` unlinks by that literal path, which the rules above
-// already deny. `cd /path/to && rm secret`, and `find /path/to -delete`,
-// resolve the directory once and remove the entry through it, so the path
-// Seatbelt is asked to check is the directory's own, not secret's - a case
-// the literal/subpath denies on secret itself cannot see no matter which
-// canonical form they are written against.
 func TestSeatbeltProfileDeniesUnlinkThroughAncestorDirectories(t *testing.T) {
 	dir := t.TempDir()
 	nested := filepath.Join(dir, "a", "b")
@@ -115,13 +82,6 @@ func TestSeatbeltProfileDeniesUnlinkThroughAncestorDirectories(t *testing.T) {
 	}
 }
 
-// A PATH THAT DOES NOT EXIST IS REPORTED, NOT DROPPED.
-//
-// filepath.Abs succeeds on a name that is not there, so the path still reaches
-// the profile; what cannot happen is canonicalisation, and the returned list is
-// how Preview tells the user which rules are written against the literal name
-// only. Silently dropping it would be the dangerous reading: a user who asked
-// for protection and got a profile without it.
 func TestSeatbeltProfileReportsWhatMadeIt(t *testing.T) {
 	dir := t.TempDir()
 	real := filepath.Join(dir, "here.txt")
@@ -137,11 +97,6 @@ func TestSeatbeltProfileReportsWhatMadeIt(t *testing.T) {
 	mustContain(t, p, missing, "a path that does not exist yet is still worth a rule")
 }
 
-// THE SYMLINK THAT WALKS AROUND THE RULE.
-//
-// Seatbelt matches what the kernel resolves. A rule naming only the path the
-// user typed is bypassed by reading the file through a link, so both forms go
-// in.
 func TestSeatbeltProfileDeniesTheCanonicalFormToo(t *testing.T) {
 	dir := t.TempDir()
 	realDir := filepath.Join(dir, "real")
@@ -170,12 +125,6 @@ func TestSeatbeltProfileDeniesTheCanonicalFormToo(t *testing.T) {
 	}
 }
 
-// THE QUOTE THAT ENDS THE PROFILE EARLY.
-//
-// SBPL is a Scheme dialect and the profile is one string. A filename containing
-// a quote closes the rule mid-path, and everything after it is read as
-// something else entirely: in the deny-list regime that is a profile whose
-// remaining denies vanish, which fails open and looks like nothing happened.
 func TestSbplStringEscapes(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{`/a/b`, `"/a/b"`},
@@ -191,8 +140,7 @@ func TestSbplStringEscapes(t *testing.T) {
 }
 
 func TestSeatbeltWorkspaceProfileRefusesWhatConfinesNothing(t *testing.T) {
-	// Each of these produces a profile that is valid SBPL and useless, which is
-	// worse than an error because the user is told they are sandboxed.
+
 	cases := []struct{ name, ws string }{
 		{"a relative path", "projects/x"},
 		{"the root", "/"},
@@ -204,8 +152,6 @@ func TestSeatbeltWorkspaceProfileRefusesWhatConfinesNothing(t *testing.T) {
 		}
 	}
 
-	// The home directory contains ~/.ssh and every other project, which is the
-	// precise thing this mode exists to keep out.
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		t.Skip("no home directory on this machine")
@@ -232,13 +178,8 @@ func TestSeatbeltWorkspaceProfileShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// `(deny default)` is the whole allowlist regime. Nothing else in the
-	// profile says "and nothing else".
 	mustContain(t, p, "(deny default)", "without a default deny this is an allow-list of things already allowed")
 
-	// Four grants the process cannot start without. Their absence does not read
-	// as a missing permission, it reads as the sandbox being broken: no sysctl
-	// means no page size, no mach lookup means no dyld.
 	for _, want := range []string{
 		"(allow process-fork)",
 		"(allow sysctl-read)",
@@ -252,27 +193,19 @@ func TestSeatbeltWorkspaceProfileShape(t *testing.T) {
 	mustContain(t, p, `(allow file* (subpath "`+writable+`"))`, "a runtime write path was asked for and must be granted")
 	mustContain(t, p, `(allow file-read* (subpath "`+readable+`"))`, "a read path was asked for")
 
-	// THE ASYMMETRY THAT IS THE POINT. Read paths get process-exec because the
-	// agent has to run its own interpreter and /usr/bin; the write set does not,
-	// or the agent could write a binary outside the workspace and then run it.
 	mustContain(t, p, `(allow process-exec (subpath "`+readable+`"))`, "the agent must be able to run its own interpreter")
 	mustContain(t, p, `(allow process-exec (subpath "`+ws+`"))`, "a project that cannot run its own build scripts is not a workspace")
 	if strings.Contains(p, `(allow process-exec (subpath "`+writable+`"))`) {
 		t.Error("a writable-but-not-workspace path got process-exec: the agent can write a binary there and then run it")
 	}
 
-	// An empty string in either list must not become a rule. A grant on "" is a
-	// grant on a path that quotes to nothing, and what SBPL does with it is not
-	// something to find out in production.
 	if strings.Contains(p, `(subpath "")`) {
 		t.Error("an empty path became a rule")
 	}
 }
 
 func TestSeatbeltWorkspaceProfileGrantsTheRuntimeDevices(t *testing.T) {
-	// /dev/null and its siblings are WRITABLE on purpose, and they come from the
-	// shared default rather than from the caller: a sandbox where `2>/dev/null`
-	// fails is one every user turns off.
+
 	p, err := seatbeltWorkspaceProfile(Plan{Workspace: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -289,9 +222,7 @@ func TestSeatbeltWorkspaceProfileGrantsTheRuntimeDevices(t *testing.T) {
 func TestCanonicalFormsDeduplicates(t *testing.T) {
 	dir := t.TempDir()
 	if got := canonicalForms(dir); len(got) != 1 || got[0] != dir {
-		// A path that is already canonical must not be written twice: duplicate
-		// rules are harmless to the kernel and make the profile unreadable to
-		// the person auditing it.
+
 		t.Errorf("canonicalForms(%q)=%v, want just the one path", dir, got)
 	}
 
@@ -310,8 +241,7 @@ func TestCanonicalFormsDeduplicates(t *testing.T) {
 }
 
 func TestCanonicalFormsKeepsAPathThatIsNotThereYet(t *testing.T) {
-	// EvalSymlinks fails on a path that does not exist. Returning nothing would
-	// drop the rule entirely, so the literal has to survive on its own.
+
 	missing := filepath.Join(t.TempDir(), "not", "created", "yet")
 	got := canonicalForms(missing)
 	if len(got) != 1 || got[0] != missing {

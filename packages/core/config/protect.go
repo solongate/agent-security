@@ -9,23 +9,6 @@ import (
 	"runtime"
 )
 
-// Self-protection puts an OS-level lock on the files that keep the guard armed
-// , the installed hooks, the client settings, and cloud-guard.json. The lock
-// exists to stop PROGRAMS (an agent, an editor, a stray script) from disarming
-// the guard; it is not aimed at the person at the terminal, and the CLI is
-// human-only, so the CLI is allowed to lift it around its own writes.
-//
-// Each mechanism works for the current user with no sudo or admin:
-//
-//	macOS:   chflags uchg, user-immutable, blocks delete and overwrite even by
-//	         the owner.
-//	Windows: an icacls deny to Everyone plus an OWNER_RIGHTS (S-1-3-4) ACE
-//	         pinned to read/execute, so the owner cannot rewrite the ACL back
-//	         and then delete. Plus the read-only attribute.
-//	Linux:   chattr +i is the only true immutability and needs privilege (a
-//	         harmless no-op without it). chmod a-w always works and blocks the
-//	         overwrite-disarm; a plain unlink still gets through, which is an OS
-//	         limit, not a missing feature.
 func lockFile(file string) {
 	if _, err := os.Stat(file); err != nil {
 		return
@@ -68,20 +51,6 @@ func run(name string, args ...string) {
 	_ = cmd.Run()
 }
 
-// WriteProtectedFile rewrites one locked file, clearing and restoring its lock
-// around the write.
-//
-// The credential writers needed this and are gone with the credential. The
-// caller now is the OpenCode plugin, which is one of the locked targets: a plain
-// write to a locked file fails with EPERM, and a caller that swallows the error
-// leaves the OLD contents in place while reporting success. That failure mode is
-// why this exists, and it is not specific to what used to be written.
-//
-// The lock is only lifted when the direct write actually fails, so a device
-// that has the lock disabled is left untouched, and only what was unlocked is
-// locked again. SOLONGATE_NO_OS_LOCK=1 is the developer opt-out and is honoured
-// here too, re-locking a file on a machine that asked for no locks would arm
-// something the user turned off.
 func WriteProtectedFile(file string, contents []byte) bool {
 	if os.WriteFile(file, contents, 0o644) == nil {
 		return true

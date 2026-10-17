@@ -18,37 +18,7 @@ import (
 
 func init() { tui.Register(tui.SectionSettings, func(d tui.Deps) tui.Panel { return NewSettings(d) }) }
 
-// The Settings panel, ported from tui/panels/Settings.tsx, the dashboard
-// Settings page, TUI edition. Everything an operator configures, in ONE
-// single-cursor list:
-//
-//	PROTECTION the guard hook, self-protection, doctor and repair
-//	           turned on: `npm i -g` needs sudo on most macOS setups, so it must
-//	           not run unasked)
-//	LOCAL LOGS where the hooks write this machine's audit trail
-//
-// Installing, updating and removing the guard, doctor and repair all run for
-// real now, through core/install and core/health. This panel reaches no
-// further than that: the CLI is a sibling, not something the TUI calls. They are commands rather than inline calls because
-// each writes several files, unlocks and relocks them, and may spawn a process;
-// doing that on the update goroutine would freeze the terminal for as long as
-// the disk takes, and a frozen terminal during a guard install is
-// indistinguishable from a hung one.
-//
-// They were stubs until those modules existed, and the stubs said so on the row
-// rather than offering a button that quietly did nothing, the subject of every
-// one of these rows is whether this machine is protected.
-
-// doctorSteps is what the health check looks at, in the order CollectChecks
-// looks at it. The labels are honest about the passes; only the pacing is
-// cosmetic, and it exists because a check that answers in 8ms would otherwise
-// flash past unread and look like nothing ran.
-// The names doctor reports, in order, so the panel can show progress before the run
-// finishes. `login` was the first of them and is gone with the account: the first
-// thing doctor checks is the policy FILE everything else comes from.
 var doctorSteps = []string{"policy file", "active policy", "guard hook", "agent hooks", "local logs"}
-
-// ── rows ───────────────────────────────────────────────────────────────────
 
 type setRow struct {
 	kind string
@@ -82,10 +52,7 @@ type (
 		genTag
 		rows []protectedLine
 	}
-	// setRunMsg is the answer to any one-shot action started by run(). hide is
-	// the row key to drop on success, applied HERE rather than in the request
-	// goroutine, which would be writing panel state while the update loop reads
-	// it.
+
 	setRunMsg struct {
 		genTag
 		label  string
@@ -93,8 +60,7 @@ type (
 		reload string
 		hide   string
 	}
-	// setDoctorMsg carries the health check, which is collected by the same code
-	// `solongate doctor` prints from rather than by a second copy of it.
+
 	setDoctorMsg struct {
 		genTag
 		checks []health.Check
@@ -102,32 +68,17 @@ type (
 	setSpinMsg struct{ genTag }
 	setDiskMsg struct{ genTag }
 
-	// setInstallMsg carries the result of an install, an uninstall or a repair.
-	//
-	// These run as a command rather than inline because each of them writes
-	// several files, unlocks and relocks them, and may spawn a process. Doing
-	// that on the update goroutine would freeze the whole interface for as long
-	// as the disk takes, and a frozen terminal during a guard install is
-	// indistinguishable from a hung one.
-	//
-	// Notes are carried separately from Message on purpose: an install that
-	// SUCCEEDED while doing less than usual is the outcome worth surfacing, and
-	// dropping the notes would leave a machine looking freshly installed when it
-	// is not.
 	setInstallMsg struct {
 		genTag
 		verb    string
 		ok      bool
 		message string
 		notes   []string
-		// repair carries what was found and what was restored. The CLI prints
-		// both lists; this panel used to take the summary line and drop them,
-		// so pressing repair here looked like nothing had happened.
+
 		repair *install.Report
 	}
 )
 
-// Settings is the panel.
 type Settings struct {
 	deps tui.Deps
 
@@ -144,40 +95,24 @@ type Settings struct {
 	selfProt  bool
 	haveSelf  bool
 
-	// The protected paths, and what is holding each one RIGHT NOW. READ ONLY
-	// HERE on purpose: adding one can need a sudo password on Linux, and a
-	// program that has taken over the terminal is the wrong place to ask for
-	// one. `solongate protect` is where that conversation belongs. This is the
-	// surface that answers it afterwards, which is the half somebody opens the
-	// TUI looking for.
 	protected []protectedLine
 	selfErr   error
 
-	// hidden are rows deleted in this session. The row has to vanish the instant
-	// the API confirms; without this it lingered until the background reload
-	// caught up, which read as the delete not having worked.
 	hidden map[string]bool
 
 	llSetting config.LocalLogSetting
 
 	sel        int
-	editing    string // "" · path · wh-url · alert-target
+	editing    string
 	input      textinput.Model
 	confirmDel string
 	msg        *setMessage
 	busy       bool
-	// installBusy is separate from busy: an install writes files and may spawn a
-	// process, so it must not be cancelled by an unrelated row finishing.
+
 	installBusy bool
 
-	// repairReport is the last repair, rendered as read-only lines under the
-	// repair row, the same two lists `solongate repair` prints. Cleared when a
-	// new repair starts so the old result cannot be read as the new one.
 	repairReport *install.Report
 
-	// diag is the last doctor run, rendered as read-only lines under the row
-	// that produced it. Kept here rather than printed: Bubble Tea owns the
-	// terminal and writing to the stream would tear the frame.
 	diag     []health.Check
 	diagBusy bool
 	diagStep int
@@ -200,8 +135,6 @@ func NewSettings(d tui.Deps) *Settings {
 
 var _ tui.Panel = (*Settings)(nil)
 
-// CapturingKeys covers the text prompts. It used to cover a pairing overlay too,
-// during which the only key that meant anything was esc.
 func (p *Settings) CapturingKeys() bool { return p.editing != "" }
 
 func (p *Settings) apply(ctx tui.PanelContext) {
@@ -218,24 +151,14 @@ func (p *Settings) Init(ctx tui.PanelContext) tea.Cmd {
 		tea.Tick(3*time.Second, func(time.Time) tea.Msg { return setDiskMsg{t} }))
 }
 
-// readDisk refreshes the answers that come from this machine rather than the
-// cloud: where local logging actually lands, whether the local-logs service is
-// up, and whether the background updater is on.
 func (p *Settings) readDisk() {
 	p.llSetting = config.LocalLogsSetting()
 }
 
-// All three read this machine's own files. They used to be skipped while
-// unpaired, because each was an HTTP call that needed a key; there is nothing
-// left to skip.
 func (p *Settings) reloadAll() tea.Cmd {
 	return tea.Batch(p.loadLocal(), p.loadGuard(), p.loadSelf(), p.loadProtected())
 }
 
-// protectedLine is one path with the lock that is on it, read from the
-// FILESYSTEM rather than from the policy file. The file records what somebody
-// asked for; only the filesystem says what happened, and the gap between those
-// two is the thing worth showing.
 type protectedLine struct {
 	path string
 	lock config.Lock
@@ -247,10 +170,7 @@ func (p *Settings) loadProtected() tea.Cmd {
 	return func() tea.Msg {
 		paths, err := client.Settings.ProtectedPaths(bg())
 		if err != nil {
-			// No row rather than an error row. An unreadable policy file is
-			// already reported by three other things on this panel, and a
-			// fourth copy of it pushes the ones that are not duplicates off
-			// the screen.
+
 			return setProtectedMsg{genTag: t}
 		}
 		rows := make([]protectedLine, 0, len(paths))
@@ -299,15 +219,10 @@ func (p *Settings) reloadNamed(which string) tea.Cmd {
 	return nil
 }
 
-// run is the one-shot action wrapper: it says what it is doing, then says what
-// happened, and reloads whatever the action changed.
 func (p *Settings) run(label string, fn func() error, reload string) tea.Cmd {
 	return p.runHiding(label, fn, reload, "")
 }
 
-// runHiding is run() plus the row to remove the moment the API confirms. A
-// deleted row has to vanish at once; without it the row lingered until the
-// background reload caught up, which read as the delete not having worked.
 func (p *Settings) runHiding(label string, fn func() error, reload, hide string) tea.Cmd {
 	if p.busy {
 		return nil
@@ -341,7 +256,7 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 
 	case setProtectedMsg:
 		if m.tok != p.tok {
-			return p, nil // a previous mount's answer
+			return p, nil
 		}
 		p.protected = m.rows
 
@@ -359,7 +274,7 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 
 	case setDiskMsg:
 		if m.tok != p.tok {
-			return p, nil // a previous mount's clock: let the chain end here
+			return p, nil
 		}
 		p.readDisk()
 		t := p.tag()
@@ -371,9 +286,7 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 		}
 		p.spin++
 		if p.diagBusy {
-			// The step list is paced rather than instantaneous: the health check
-			// usually answers in well under a second, and a screen that flashed
-			// past would read as nothing having run.
+
 			if p.spin%2 == 0 {
 				p.diagStep = min(p.diagStep+1, len(doctorSteps)-1)
 			}
@@ -393,9 +306,7 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 		if text == "" {
 			text = m.verb + " finished"
 		}
-		// The notes are the point of carrying them: an install that succeeded
-		// while doing less than usual has to say so, or the machine looks freshly
-		// protected and is not.
+
 		for _, n := range m.notes {
 			text += " · " + n
 		}
@@ -436,8 +347,6 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 	}
 	return p, nil
 }
-
-// ── rows ───────────────────────────────────────────────────────────────────
 
 func (p *Settings) allRows() []setRow {
 	rows := make([]setRow, 0, 6)

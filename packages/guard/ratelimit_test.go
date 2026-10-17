@@ -12,19 +12,6 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-// THE RECORD IS FIXED WIDTH AND THAT IS THE WHOLE DESIGN.
-//
-// The counter is an append-only log of fixed-width records, so a verdict is
-// decided by POSITION rather than by parsing, and two processes appending at the
-// same time cannot corrupt each other's record: a write of exactly one record
-// with O_APPEND is atomic, and a reader that seeks to a multiple of the width
-// always lands on a record boundary. That is what makes the limit correct without
-// a lock on the hot path.
-//
-// Change the width and every file on every machine is misread, silently, in the
-// permissive direction: the records still parse, the timestamps come out as
-// nonsense, and nonsense timestamps fall outside the window. So the arithmetic is
-// pinned here.
 func TestRateLimitRecordWidth(t *testing.T) {
 	if rlStamp != 13 {
 		t.Errorf("rlStamp is %d; 13 is the digits in a millisecond epoch and will be until 2286", rlStamp)
@@ -32,18 +19,14 @@ func TestRateLimitRecordWidth(t *testing.T) {
 	if rlRecord != rlStamp+rlToken+1 {
 		t.Errorf("rlRecord is %d, want stamp+token+newline = %d", rlRecord, rlStamp+rlToken+1)
 	}
-	// The Node twin computes RL_REC the same way from the same two numbers. A
-	// machine can run either implementation against the same file, so a width
-	// that differs between them is a counter that reads another's records wrong.
+
 	if rlRecord != 24 {
 		t.Errorf("rlRecord is %d; the Node twin computes 24 from 13 + 10 + 1", rlRecord)
 	}
 }
 
 func TestRateLimitWindowsAreOrderedWidestFirst(t *testing.T) {
-	// The first window to be exceeded is the one reported, and the widest is
-	// the most informative: "60 a minute" when the day limit is also blown
-	// tells somebody the wrong thing to fix.
+
 	if len(rlWindows) != 3 {
 		t.Fatalf("expected three windows, got %d", len(rlWindows))
 	}
@@ -65,10 +48,7 @@ func TestRlLimitFor(t *testing.T) {
 			t.Errorf("rlLimitFor(%q)=%d, want %d", key, got, want)
 		}
 	}
-	// AN UNKNOWN KEY IS ZERO, AND ZERO MEANS NO LIMIT. Every window in
-	// rlWindows must therefore be a key this understands, or that window is
-	// configured and never enforced. The two tables are in different files and
-	// nothing but this connects them.
+
 	if got := rlLimitFor(r, "perFortnight"); got != 0 {
 		t.Errorf("an unknown window returned %d; it must be 0", got)
 	}
@@ -80,8 +60,7 @@ func TestRlLimitFor(t *testing.T) {
 }
 
 func TestRlNewTokenIsTheRecordWidth(t *testing.T) {
-	// A token that is not exactly rlToken wide shifts every record after it and
-	// the file stops being readable by position.
+
 	seen := map[string]bool{}
 	for i := 0; i < 200; i++ {
 		tok := rlNewToken()
@@ -93,16 +72,12 @@ func TestRlNewTokenIsTheRecordWidth(t *testing.T) {
 		}
 		seen[tok] = true
 	}
-	// Random rather than derived from the pid: a burst is often one parent
-	// spawning many children, and two starting in the same millisecond with the
-	// same parent would collide. 200 draws colliding more than a little means
-	// the source is not what it should be.
+
 	if len(seen) < 190 {
 		t.Errorf("200 tokens produced only %d distinct values", len(seen))
 	}
 }
 
-// END TO END ON A REAL FILE, because the arithmetic above is only half of it.
 func TestRateLimitCheckCountsAndRefuses(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -116,8 +91,7 @@ func TestRateLimitCheckCountsAndRefuses(t *testing.T) {
 			refusals = append(refusals, r)
 		}
 	}
-	// Three allowed, three refused. The fourth call is the first one past the
-	// limit, not the third: a limit of three means three are permitted.
+
 	if len(refusals) != 3 {
 		t.Fatalf("a limit of 3 over 6 calls refused %d; want 3. refusals: %v", len(refusals), refusals)
 	}
@@ -125,8 +99,6 @@ func TestRateLimitCheckCountsAndRefuses(t *testing.T) {
 		t.Errorf("the refusal does not name the window that was exceeded: %q", refusals[0])
 	}
 
-	// And the log is a whole number of records, which is what the
-	// position-based read depends on.
 	var logs []string
 	_ = filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
 		if err == nil && info != nil && !info.IsDir() && strings.Contains(p, "ratelimit") {
@@ -152,9 +124,6 @@ func TestRateLimitCheckWithNoLimitsAllowsEverything(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	// A zero is no limit, not a limit of zero. Reading it the other way would
-	// refuse every call on a machine that configured nothing, which is the
-	// default state.
 	for _, limits := range []*shared.RateLimit{
 		nil,
 		{Mode: "block"},
@@ -173,9 +142,7 @@ func TestRateLimitPerAgentCountersDoNotShare(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	limits := &shared.RateLimit{Mode: "block", PerMinute: 2}
-	// Two agents, two calls each. Sharing one counter would refuse the second
-	// agent's second call, which is the bug that makes a limit meant per agent
-	// behave as a limit for the machine.
+
 	for _, agent := range []string{"agent-a", "agent-b"} {
 		for i := 0; i < 2; i++ {
 			if r := rateLimitCheck(agent, limits); r != "" {

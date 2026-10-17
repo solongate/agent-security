@@ -87,3 +87,15 @@ func TestMarkIndentMatchesTheMarkWidth(t *testing.T) {
 		t.Errorf("markIndent is %d wide, the mark is %d", len(markIndent), len("[  OK  ] "))
 	}
 }
+
+func TestPadRight(t *testing.T) {
+	if got := padRight("foo", 6); got != "foo   " {
+		t.Errorf("padRight(\"foo\", 6) = %q, want \"foo   \"", got)
+	}
+	if got := padRight("foobar", 6); got != "foobar" {
+		t.Errorf("padRight(\"foobar\", 6) = %q, want \"foobar\"", got)
+	}
+	if got := padRight("foobarbaz", 6); got != "foobarbaz" {
+		t.Errorf("padRight(\"foobarbaz\", 6) = %q, want \"foobarbaz\"", got)
+	}
+}

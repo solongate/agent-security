@@ -222,4 +222,4 @@ async function main() {
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { child.kill(sig); } catch {  } });
 }
 
-main();
+main().catch((e) => { log('fatal:', e.message); process.exit(1); });

@@ -1061,7 +1061,7 @@ function egressSecretCheck(args, sec, cwd) {
       if (/\b(scp|rsync|sftp)\b/.test(lc)) {
         for (const tok of c.split(/\s+/).slice(1)) {
           if (!tok || tok.startsWith('-')) continue;
-          if (/^[\w.-]*@?[\w.-]+:/.test(tok)) continue;
+          if (/^(?:[\w.-]+@)?[\w.-]+:/.test(tok)) continue;
           if (/^https?:\/\//.test(tok)) continue;
           files.add(tok.replace(/^@/, ''));
         }
@@ -1236,7 +1236,7 @@ function rateLimitCheck(agentKey, limits) {
     const entries = [];
     let mine = -1;
     for (let i = 0; i + RL_REC <= buf.length; i += RL_REC) {
-      const t = parseInt(buf.slice(i, i + RL_STAMP), 10);
+      const t = Number.parseInt(buf.slice(i, i + RL_STAMP), 10);
       if (!Number.isFinite(t) || now - t >= 86400000) continue;
       const tok = buf.slice(i + RL_STAMP, i + RL_STAMP + RL_TOKEN);
       if (tok === token && mine < 0) mine = entries.length;
@@ -1298,11 +1298,11 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
 function applyPatchTargets(patch) {
   const out = [];
   if (typeof patch !== 'string' || !patch.includes('*** ')) return out;
-  const re = /^\*\*\*\s+(?:Add|Update|Delete)\s+File:\s*(.+?)\s*$/gm;
+  const re = /^\*\*\*\s+(?:Add|Update|Delete)\s+File:\s*(.+)$/gm;
   let m;
-  while ((m = re.exec(patch))) if (m[1]) out.push(m[1]);
-  const mv = /^\*\*\*\s+Move\s+to:\s*(.+?)\s*$/gm;
-  while ((m = mv.exec(patch))) if (m[1]) out.push(m[1]);
+  while ((m = re.exec(patch))) if (m[1] && m[1].trim()) out.push(m[1].trim());
+  const mv = /^\*\*\*\s+Move\s+to:\s*(.+)$/gm;
+  while ((m = mv.exec(patch))) if (m[1] && m[1].trim()) out.push(m[1].trim());
   return out;
 }
 
@@ -1472,7 +1472,7 @@ input += SG_STDIN;
         client: AGENT_TYPE,
         cwd: call.cwd,
         perm: guessPermission(toolName),
-        args: Object.keys(call.args || {}).sort(),
+        args: Object.keys(call.args || {}).sort((a, b) => a.localeCompare(b)),
         paths: extractPaths(call.args || {}, _isExec).length,
         cmds: extractCommands(call.args || {}).length,
         urls: extractUrls(call.args || {}).length,
@@ -1532,4 +1532,4 @@ input += SG_STDIN;
  } catch (e) {
   if (e !== SG_DONE) { process.exitCode = process.exitCode || 0; }
  }
-})();
+})().catch(() => { process.exitCode = process.exitCode || 0; });

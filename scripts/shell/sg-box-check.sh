@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the SolonGate contributors
 # Does the closed box actually close?
 #
 # RUN THIS OUTSIDE A SANDBOX. A mount namespace cannot be created from inside a
@@ -18,7 +19,7 @@ set -u
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 WS=${1:-}
-if [ -z "$WS" ]; then
+if [[ -z "$WS" ]]; then
   WS=$(mktemp -d)/projectX
   mkdir -p "$WS"
 fi
@@ -53,7 +54,7 @@ command -v bwrap >/dev/null 2>&1 || { echo "bwrap is not installed"; exit 1; }
 # means nothing of the kind. Bind them too, same as the real box does.
 probe_binds="--ro-bind /usr /usr"
 for d in /lib /lib64; do
-  [ -e "$d" ] && probe_binds="$probe_binds --ro-bind $d $d"
+  [[ -e "$d" ]] && probe_binds="$probe_binds --ro-bind $d $d"
 done
 if ! bwrap --unshare-all $probe_binds --dev /dev /usr/bin/true 2>/dev/null; then
   echo "This shell cannot create a mount namespace, so there is nothing here"
@@ -99,7 +100,7 @@ ask() { # ask LABEL EXPECT SHELL
   local label=$1 expect=$2 code=$3
   local got
   got=$("$APP" sandbox 001 /bin/sh -c "$code" 2>/dev/null | tail -1)
-  if [ "$got" = "$expect" ]; then
+  if [[ "$got" = "$expect" ]]; then
     printf '  OK      %-44s %s\n' "$label" "$got"; pass=$((pass+1))
   else
     printf '  WRONG   %-44s got %-6s wanted %s\n' "$label" "${got:-<nothing>}" "$expect"; fail=$((fail+1))
@@ -145,7 +146,7 @@ echo
 echo "the network, which is each box's own choice:"
 ask "box 001 has it"              YES 'getent hosts example.com >/dev/null 2>&1 && echo YES || echo NO'
 got=$("$APP" sandbox 002 /bin/sh -c 'getent hosts example.com >/dev/null 2>&1 && echo YES || echo NO' 2>/dev/null | tail -1)
-if [ "$got" = NO ]; then
+if [[ "$got" = NO ]]; then
   printf '  OK      %-44s %s\n' "box 002 does not" "$got"; pass=$((pass+1))
 else
   printf '  WRONG   %-44s got %-6s wanted NO\n' "box 002 does not" "${got:-<nothing>}"; fail=$((fail+1))
@@ -155,11 +156,11 @@ echo
 echo "the ids:"
 for t in 1 001 002 9; do
   out=$("$APP" sandbox "$t" /bin/true 2>&1 | grep -c 'no sandbox' || true)
-  if [ "$t" = 9 ]; then
-    [ "$out" = 1 ] && { printf '  OK      %-44s refused\n' "id $t does not exist"; pass=$((pass+1)); } \
+  if [[ "$t" = 9 ]]; then
+    [[ "$out" = 1 ]] && { printf '  OK      %-44s refused\n' "id $t does not exist"; pass=$((pass+1)); } \
                    || { printf '  WRONG   %-44s not refused\n' "id $t does not exist"; fail=$((fail+1)); }
   else
-    [ "$out" = 0 ] && { printf '  OK      %-44s accepted\n' "id $t resolves"; pass=$((pass+1)); } \
+    [[ "$out" = 0 ]] && { printf '  OK      %-44s accepted\n' "id $t resolves"; pass=$((pass+1)); } \
                    || { printf '  WRONG   %-44s refused\n' "id $t resolves"; fail=$((fail+1)); }
   fi
 done
@@ -168,4 +169,4 @@ echo
 printf 'passed=%s  wrong=%s\n' "$pass" "$fail"
 chmod -R u+w "$T" 2>/dev/null
 rm -rf "$T"
-[ "$fail" = 0 ]
+[[ "$fail" = 0 ]]

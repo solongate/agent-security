@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the SolonGate contributors
 # Does each enforcement layer actually enforce?
 #
 # WHY THIS EXISTS. The parity check proves the two guards AGREE; it says nothing
@@ -23,7 +24,7 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 G=$(mktemp -d)/guard
 (cd "$REPO/packages/guard" && go build -o "$G" .) || { echo "guard build failed"; exit 1; }
 J="$REPO/packages/hooks/guard.bundled.mjs"
-[ -f "$J" ] || { echo "no bundle; run: node packages/hooks/scripts/bundle-hooks.mjs"; exit 1; }
+[[ -f "$J" ]] || { echo "no bundle; run: node packages/hooks/scripts/bundle-hooks.mjs"; exit 1; }
 
 T=$(mktemp -d)
 trap 'chmod -R u+w "$T" 2>/dev/null; rm -rf "$T"' EXIT
@@ -59,7 +60,7 @@ both() {
   printf '%s' "$payload" | env -u SOLONGATE_SANDBOX HOME="$HOME" SOLONGATE_NO_GO_GUARD=1 \
     node "$J" "$client" >/dev/null 2>&1
   js=$?
-  if [ "$go" = "$want" ] && [ "$js" = "$want" ]; then
+  if [[ "$go" = "$want" ]] && [[ "$js" = "$want" ]]; then
     printf '  OK      %-46s go=%s js=%s\n' "$desc" "$go" "$js"
     pass=$((pass + 1))
   else
@@ -129,7 +130,7 @@ JSON
 for impl in go js; do
   refused=0
   for i in 1 2 3 4; do
-    if [ "$impl" = go ]; then
+    if [[ "$impl" = go ]]; then
       printf '%s' "$(call Bash '{"command":"echo hi"}')" \
         | env -u SOLONGATE_SANDBOX HOME="$HOME" SOLONGATE_AGENT_ID="rl-$impl" "$G" claude-code >/dev/null 2>&1
     else
@@ -137,9 +138,9 @@ for impl in go js; do
         | env -u SOLONGATE_SANDBOX HOME="$HOME" SOLONGATE_NO_GO_GUARD=1 SOLONGATE_AGENT_ID="rl-$impl" \
           node "$J" claude-code >/dev/null 2>&1
     fi
-    [ $? -eq 2 ] && refused=$((refused + 1))
+    [[ $? -eq 2 ]] && refused=$((refused + 1))
   done
-  if [ "$refused" -ge 1 ] && [ "$refused" -le 3 ]; then
+  if [[ "$refused" -ge 1 ]] && [[ "$refused" -le 3 ]]; then
     printf '  OK      %-46s %s of 4 refused\n' "$impl: the cap bites" "$refused"
     pass=$((pass + 1))
   else
@@ -243,4 +244,4 @@ both "selfProtect: false there does not disarm tamper" 2 \
 
 echo
 printf 'passed=%s  wrong=%s\n' "$pass" "$fail"
-[ "$fail" = 0 ]
+[[ "$fail" = 0 ]]

@@ -2,40 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
-/**
- * SolonGate Token Hook (Stop)
- *
- * What a turn COST: the tokens a client reports for one exchange with the model.
- * Nothing else in this package records it.
- *
- * This is the surviving half of what used to be the conversation hook, which
- * recorded both what was said and what it cost. The transcript half is gone,
- * this product does not store what a person wrote to their agent, and the cost
- * half stayed, because spend is a fact about the work rather than a copy of it.
- *
- * WHERE THE FIGURE COMES FROM. Not from this hook counting anything: each client
- * already reports its own usage, and the reader per client below pulls it out of
- * whatever that client writes. Claude Code and Codex keep it in the transcript
- * file the hook is handed a path to, Antigravity in a local database, OpenCode
- * hands it over in process. That file is read ONLY for its usage numbers; no
- * prose is read out of it and none is sent.
- *
- * WHERE IT GOES. ~/.solongate/local-logs/token-usage-<date>.jsonl, one JSON object
- * per turn, beside the audit trail the other hooks write. NOTHING LEAVES THE MACHINE:
- * this used to POST each turn to /api/v1/token-usage, what a session cost and which
- * model ran it, and the send is gone with the service that received it.
- *
- * For a while after that it collected the numbers and DROPPED them, which is worse
- * than either: the readers below are the substantial half of this hook and they ran
- * on every turn to produce a value nothing kept.
- *
- * The turn id is on every line, so a reader can drop a repeat the way the service
- * did.
- *
- * Fire-and-forget, and every failure is silent. This hook must never delay a
- * turn and must never be the reason one fails: it records something ABOUT the
- * work, and the work matters more.
- */
 import { readFileSync, existsSync, openSync, readSync, closeSync, statSync, mkdirSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -43,37 +9,19 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 
-// Bump on every change to this file, alongside the other hooks.
-//
-// 5 dropped the transcript half. 6 makes the spend LAND somewhere: it was being
-// collected and discarded, so a machine on 5 reads every transcript and keeps nothing.
-// The number carries on from the file this was carved out of rather than restarting at
-// 1, so a machine holding the old hook sees a newer version and replaces it.
 const HOOK_VERSION = 6;
 
 const AGENT_ID = (process.env.SOLONGATE_AGENT_ID || process.argv[2] || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
 
-// loadGlobalCloudConfig read ~/.solongate/cloud-guard.json for the key and URL that
-// authenticated the POST. There is no POST; every hook here dropped the same reader.
 
 function readStdin() {
   try { return readFileSync(0, 'utf-8'); } catch { return ''; }
 }
 
-// How much of a transcript to read. A turn is a few kilobytes; two megabytes is
-// a long turn with large tool results in it, and reading a 50MB transcript on
-// every Stop is the cost this bound exists to refuse.
 const TAIL_BYTES = 2 * 1024 * 1024;
 
-// One request per Stop carries at most this many turns.
-//
-// Forty rather than everything in the tail. The server keys on the turn id and
-// ignores a repeat, so re-sending is free of consequence but not of bytes,
-// forty covers a missed Stop or two while keeping the request small, and the
-// ones before that were sent when they happened.
 const MAX_TURNS = 40;
 
-/** Read the last bytes of a file, dropping the first partial line. */
 function tailLines(path, bytes = TAIL_BYTES) {
   let fd;
   try {
@@ -86,14 +34,12 @@ function tailLines(path, bytes = TAIL_BYTES) {
     readSync(fd, buf, 0, len, from);
     const text = buf.toString('utf-8');
     const lines = text.split('\n');
-    // A read that started mid-file starts mid-line. That first fragment is not
-    // JSON and would be the one line that throws on every single turn.
     if (from > 0) lines.shift();
     return lines;
   } catch {
     return [];
   } finally {
-    if (fd !== undefined) { try { closeSync(fd); } catch { /* already gone */ } }
+    if (fd !== undefined) { try { closeSync(fd); } catch {  } }
   }
 }
 
@@ -103,16 +49,7 @@ const stamp = (v) => {
   return Number.isFinite(t) ? t : Date.now();
 };
 
-// ── Claude Code ────────────────────────────────────────────────────────────
 
-/**
- * One row per API REQUEST, deduped.
- *
- * The dedupe is the whole correctness of this reader. Usage is reported per API
- * request but the transcript writes one record per content block, so the same
- * usage object appears up to four times with the same requestId. Summing
- * records rather than requests overcounts by roughly half.
- */
 function readClaudeCode(transcriptPath) {
   const seen = new Set();
   const out = [];
@@ -124,9 +61,6 @@ function readClaudeCode(transcriptPath) {
     const u = r.message && r.message.usage;
     if (!u) continue;
 
-    // requestId is the API request's identity. A few synthetic records carry
-    // none. API-error placeholders with all-zero usage, so the message id is
-    // the fallback rather than letting them collide on null.
     const key = r.requestId || (r.message && r.message.id) || '';
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -140,16 +74,9 @@ function readClaudeCode(transcriptPath) {
 
     out.push({
       turn_key: key,
-      // WHICH MODEL RAN IT. The counts alone do not say what a turn cost, because
-      // the price per token is per model, a record of tokens with no model named
-      // cannot be turned into money later, which is most of why anybody keeps one.
-      // Only Claude Code reports it; the others leave it empty rather than guessing.
       model: (r.message && typeof r.message.model === 'string') ? r.message.model : '',
       input, output, cache_read: cacheRead, cache_write: cacheWrite,
       reasoning: num(u.output_tokens_details && u.output_tokens_details.thinking_tokens),
-      // The three prompt buckets are DISJOINT, proven on real data, where
-      // cache_read[n+1] == cache_read[n] + cache_creation[n] holds to the
-      // token, so the sum is the whole prompt plus the completion.
       total,
       at: stamp(r.timestamp),
     });
@@ -157,15 +84,7 @@ function readClaudeCode(transcriptPath) {
   return out;
 }
 
-// ── Codex ──────────────────────────────────────────────────────────────────
 
-/**
- * One row per model request, from the token_count events.
- *
- * `last_token_usage` rather than `total_token_usage`: the second is cumulative
- * for the session, and sending cumulative values to a store that adds rows
- * would count the whole session again on every turn.
- */
 function readCodex(transcriptPath, sessionId) {
   const out = [];
   for (const line of tailLines(transcriptPath)) {
@@ -182,24 +101,12 @@ function readCodex(transcriptPath, sessionId) {
     const total = num(last.total_tokens) || (num(last.input_tokens) + num(last.output_tokens));
     if (total <= 0) continue;
 
-    // The record's OWN ordinal, never a count of what this read happened to
-    // see. Counting within the tail renumbers every event the moment the file
-    // grows past the window, the same turn gets a new key, and a new key is a
-    // second row. Older rollouts carry no ordinal, so those fall back to the
-    // timestamp paired with the running total, which together do not repeat.
     const id = typeof r.ordinal === 'number'
       ? 'o:' + r.ordinal
       : 't:' + (r.timestamp || '') + ':' + num((p.info.total_token_usage || {}).total_tokens);
 
     out.push({
-      // Prefixed with the session, because an ordinal is only unique WITHIN a
-      // rollout. The server's key does not include the session, resuming a
-      // conversation would otherwise double every turn it copies forward, so
-      // a positional id has to carry its own scope.
       turn_key: (sessionId || 'codex') + ':' + id,
-      // input_tokens INCLUDES cached here, and output INCLUDES reasoning,
-      // the opposite of Claude Code's disjoint buckets. The total is the
-      // provider's own, so the difference never has to be reconciled.
       input: num(last.input_tokens),
       output: num(last.output_tokens),
       cache_read: num(last.cached_input_tokens),
@@ -212,9 +119,7 @@ function readCodex(transcriptPath, sessionId) {
   return out;
 }
 
-// ── Antigravity ────────────────────────────────────────────────────────────
 
-/** Read a protobuf varint. Returns [value, nextIndex]. */
 function varint(buf, i) {
   let result = 0n;
   let shift = 0n;
@@ -228,14 +133,6 @@ function varint(buf, i) {
   return [result, i];
 }
 
-/**
- * Pull the varints at one dotted protobuf path out of a blob.
- *
- * A tiny hand-rolled walker rather than a schema, because there is no schema on
- * disk: Antigravity stores an opaque message and the field numbers below were
- * established by decoding real generations and testing an identity that held
- * every time.
- */
 function pbFields(buf, want) {
   const found = {};
   const walk = (b, path, depth) => {
@@ -262,21 +159,15 @@ function pbFields(buf, want) {
       else { return; }
     }
   };
-  try { walk(buf, '', 0); } catch { /* a blob we cannot read is a blob we skip */ }
+  try { walk(buf, '', 0); } catch {  }
   return found;
 }
 
-// The field numbers, and what each one is. See the file header for how they
-// were established, this is the one client whose mapping is not published, so
-// it is the one where the evidence matters most.
 const AGY = {
   IN_UNCACHED: '1.4.2',
   IN_CACHED: '1.4.5',
   OUT: '1.4.3',
   THINKING: '1.4.9',
-  // The generation's own clock: a google.protobuf.Timestamp, whose field 1 is
-  // seconds. Without it every generation in the tail would be stamped with the
-  // moment it was READ, which puts a week of work on today's bar.
   AT_SECONDS: '1.9.4.1',
 };
 const AGY_WANT = new Set(Object.values(AGY));
@@ -288,9 +179,6 @@ function readAntigravity(conversationId) {
 
   let DatabaseSync;
   try {
-    // Node 22+. On an older runtime there is no way to read this without a
-    // native dependency, and adding one to a security tool to report a number
-    // is the wrong trade, the client simply reports nothing.
     ({ DatabaseSync } = require('node:sqlite'));
   } catch {
     return [];
@@ -298,8 +186,6 @@ function readAntigravity(conversationId) {
 
   let handle;
   try {
-    // Read-only: this is the client's own live database and nothing here has
-    // any business writing to it.
     handle = new DatabaseSync(db, { readOnly: true });
     const rows = handle.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx').all();
     const out = [];
@@ -313,14 +199,9 @@ function readAntigravity(conversationId) {
       if (input + output <= 0) continue;
 
       out.push({
-        // The generation index, prefixed with the conversation it counts
-        // within: an index is only unique inside one database, and the
-        // server's key does not include the session.
         turn_key: conversationId + ':gen:' + row.idx,
         input,
         output,
-        // The cached half of the prompt, which Antigravity reports separately
-        // and is a SUBSET of the input above.
         cache_read: f[AGY.IN_CACHED] || 0,
         cache_write: 0,
         reasoning: f[AGY.THINKING] || 0,
@@ -332,18 +213,12 @@ function readAntigravity(conversationId) {
   } catch {
     return [];
   } finally {
-    if (handle) { try { handle.close(); } catch { /* already closed */ } }
+    if (handle) { try { handle.close(); } catch {  } }
   }
 }
 
 
-// ── sending ────────────────────────────────────────────────────────────────
 
-/**
- * collectTokens works out which client this payload is from and reads its
- * numbers. Returns [] when the client cannot report, which is a normal answer
- * and never a zero.
- */
 function collectTokens(data, source) {
   const transcript = data.transcript_path || data.transcriptPath ||
     (data.common && (data.common.transcriptPath || data.common.transcript_path)) || '';
@@ -355,29 +230,9 @@ function collectTokens(data, source) {
   if (!transcript || !existsSync(transcript)) return [];
   const sessionId = data.session_id || data.sessionId || '';
   if (source === 'codex') return readCodex(transcript, sessionId);
-  // Claude Code needs no prefix: requestId is provider-issued and unique
-  // across every transcript, which is exactly what makes a resumed session
-  // report the same turn once rather than twice.
   return readClaudeCode(transcript);
 }
 
-/**
- * writeTokenUsage appends one line per turn to this machine's own record.
- *
- * It was sendTokens, and it POSTed the batch to /api/v1/token-usage, one request per
- * Stop whatever the count, silent on every failure including a missing credential.
- * Then it became an empty function, and the hook spent every turn reading a transcript
- * to produce numbers that went nowhere. Collecting a figure and discarding it is worse
- * than either sending it or not collecting it.
- *
- * ~/.solongate/local-logs/, beside the audit trail, because one machine should have
- * one place to look. One file per day so the thing stays greppable and a person can
- * delete last month without parsing anything. Owner-only: what a session cost is not
- * as sensitive as what it said, but it is nobody else's business either.
- *
- * Every failure is silent, and nothing is awaited on the turn's behalf: this records
- * something ABOUT the work, and the work matters more.
- */
 function writeTokenUsage({ sessionId, agentId, agentName, source, turns }) {
   try {
     if (!Array.isArray(turns) || !turns.length) return;
@@ -387,8 +242,6 @@ function writeTokenUsage({ sessionId, agentId, agentName, source, turns }) {
     const day = now.toISOString().slice(0, 10);
     const lines = turns.map((t) => JSON.stringify({
       ts: now.toISOString(),
-      // The turn id, so a reader can drop a repeat the way the service did, a Stop
-      // that fires twice for one exchange must not double somebody's count.
       turn_key: t.turn_key || '',
       session_id: sessionId || '',
       agent_id: agentId || '',
@@ -404,19 +257,9 @@ function writeTokenUsage({ sessionId, agentId, agentName, source, turns }) {
       at: t.at || 0,
     })).join('\n') + '\n';
     appendFileSync(resolve(dir, 'token-usage-' + day + '.jsonl'), lines, { mode: 0o600 });
-  } catch { /* silent: spend is a note about the work, not the work */ }
+  } catch {  }
 }
 
-// reportTokens records what the turn cost.
-//
-// It rides on THIS hook rather than on one of its own because the events are the same
-// events: a turn ends once, and registering a second hook for the same moment is a
-// second thing to install, a second thing to keep current, and a second thing that can
-// be missing on a machine where the first is fine.
-//
-// No longer async, and no longer awaited. It was both so a short-lived hook process
-// would not exit before the request went out; the write is synchronous, so there is
-// nothing to wait for.
 function reportTokens(data, source, sessionId, agentName) {
   try {
     writeTokenUsage({
@@ -426,12 +269,9 @@ function reportTokens(data, source, sessionId, agentName) {
       source,
       turns: collectTokens(data, source),
     });
-  } catch { /* silent: spend is a note about the work, not the work */ }
+  } catch {  }
 }
 
-// tokenSourceOf names the client from the payload's SHAPE rather than from the
-// argv the hook was installed with, for the reason the Antigravity branch below
-// gives: a payload is a fact and an argument is a claim.
 function tokenSourceOf(data) {
   if (data.common || (data.hookArgs && data.hookArgs.common)) return 'antigravity';
   const path = String(data.transcript_path || data.transcriptPath || '');
@@ -440,8 +280,6 @@ function tokenSourceOf(data) {
 }
 
 (async () => {
-  // Whatever happens below, this hook allows the turn. It has no opinion about
-  // whether the work should proceed; it is a record of what it cost.
   process.exitCode = 0;
 
   let data = {};
@@ -449,9 +287,6 @@ function tokenSourceOf(data) {
 
   const event = data.hook_event_name || data.hookEventName || '';
 
-  // OPENCODE calls this hook directly from its plugin, and its spend arrives
-  // already counted, in process, rather than being read back off a transcript
-  // the way the other three are.
   if (data.opencode === true) {
     if (data.tokens !== true) return;
     writeTokenUsage({
@@ -473,17 +308,10 @@ function tokenSourceOf(data) {
     return;
   }
 
-  // ANTIGRAVITY sends a different shape: `{common: {...}, args: {...}}`, with
-  // the generations already on disk. It is detected by shape rather than by a
-  // flag, because the client name is an argv argument this hook is also given
-  // for the other three, and a payload is a fact while an argument is a claim.
   const agCommon = data.common || (data.hookArgs && data.hookArgs.common) || null;
   const agStop = data.stopHookArgs || (data.args && data.args.stopHookArgs) ||
     (data.hookArgs && data.hookArgs.stopHookArgs) || null;
   if (agCommon) {
-    // Only at the END of an exchange: this hook fires on several events and the
-    // generations are already on disk, so reading them on every one would be
-    // the same rows read many times for nothing.
     if (agStop) {
       reportTokens(data, 'antigravity',
         agCommon.conversationId || agCommon.conversation_id || '',
@@ -492,9 +320,6 @@ function tokenSourceOf(data) {
     return;
   }
 
-  // Stop is the one event that matters: a turn ends once, and that is when its
-  // cost is final. A turn that ended with a tool call and no prose still cost
-  // something, so nothing here is gated on there having been words.
   if (event !== 'Stop' && event !== 'SubagentStop') return;
   const sessionId = data.session_id || data.sessionId || data.conversation_id || '';
   if (!sessionId) return;

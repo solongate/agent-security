@@ -1,42 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
-/**
- * THE BUILT-IN SECRET PATTERNS, one list, for the three hooks that scan.
- *
- * There were three copies of this table, one per hook, and they had drifted: the guard
- * carried 70 patterns and each hook carried 14. Which is the wrong 56 to be missing,
- * because the HOOK is what ships as the installed guard, so on a machine without the Go
- * binary, the default, a policy asking for a Google API key or a Slack webhook was
- * enforcing nothing and said so nowhere. test/dlp-parity.mjs was written to catch that
- * by reading all four sources and comparing them; this removes three of the four.
- *
- * SOURCES, NOT COMPILED REGEXES, because the consumers need different flags and the
- * difference is load-bearing:
- *
- *   the guard   TESTS for a match, so no `g`. A `g` regex carries `lastIndex` between
- *               calls, and on a reused object that silently skips every second match.
- *   the others  REPLACE every occurrence, so `g` is mandatory. Without it only the first
- *               secret in a file is masked and the rest reach the model, which is a bug
- *               this repository has already had.
- *
- * So `dlpPatterns(flags)` compiles the list with what the caller needs, fresh each call,
- * and neither consumer can pick up the other's flags by accident.
- *
- * A pattern's OWN flags travel with it. Exactly one has any, `Bearer token` is
- * case-insensitive, and it is carried per entry rather than applied to the list, because
- * a flag that belongs to one expression must not silently become a property of seventy.
- *
- * The ORDER is part of the contract: a scan reports the FIRST match, so two patterns that
- * could both match one string are resolved by this list and not by chance.
- *
- * The Go twin is packages/shared/dlp.go, and test/dlp-parity.mjs holds this against it.
- */
 
-/** (name, source, own flags) triples, in the order a scan tests them. */
-// The expressions are written WITHOUT escaping `/`. Inside a regex literal that escape is
-// mandatory; inside String.raw it is noise -- `\/` and `/` compile to the same thing -- and
-// it made every URL pattern here read differently from its Go twin for no reason.
 export const DLP_PATTERN_SOURCES = [
   { name: 'AWS access key', source: String.raw`AKIA[0-9A-Z]{16}` },
   { name: 'Private key block', source: String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|-----BEGIN [A-Z ]*PRIVATE KEY-----` },
@@ -110,17 +75,8 @@ export const DLP_PATTERN_SOURCES = [
   { name: 'PostHog key', source: String.raw`ph[cs]_[0-9A-Za-z]{40,}` },
 ];
 
-/** Every pattern name, in order. */
 export const DLP_PATTERN_NAMES = DLP_PATTERN_SOURCES.map((p) => p.name);
 
-/**
- * The list compiled for a caller that either tests or replaces.
- *
- * `extra` is 'g' for anything that replaces and '' for anything that only tests; each
- * pattern's own flags are added to it. Compiled fresh on every call, never cached: a `g`
- * regex holds `lastIndex` between uses, and a shared compiled object is how a scanner
- * starts missing matches it found a moment ago.
- */
 export function dlpPatterns(extra) {
   return DLP_PATTERN_SOURCES.map((p) => ({
     name: p.name,
@@ -128,20 +84,6 @@ export function dlpPatterns(extra) {
   }));
 }
 
-/**
- * Custom DLP patterns are GLOBs: `*` = any run of non-whitespace, the same wildcard
- * mechanic as the policy layer, so a user who learns one has learned all three.
- *
- * A RUN of `*` collapses to one, and that is a HANG fix rather than tidying. `*` becomes
- * `[^\s]*`, so `**` became two unbounded quantifiers over the same class back to back,
- * which backtracks catastrophically: measured on this converter, six stars cost 0.9s and
- * ten cost four minutes, on a pattern somebody types. Collapsing changes nothing about
- * what a glob accepts, because `[^\s]*[^\s]*` matches exactly what `[^\s]*` matches.
- *
- * Go's RE2 has no backtracking and was never at risk, and GlobToRegexp there collapses
- * anyway: a converter that normalises on one side and not the other is a pair that can
- * disagree about what a pattern means.
- */
 export function dlpGlobToRe(glob, flags = 'i') {
   let re = '';
   for (const ch of String(glob || '').replace(/\*{2,}/g, '*')) {

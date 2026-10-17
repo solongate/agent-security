@@ -3,9 +3,6 @@
 
 package main
 
-// Split from cmd_audit.go: rate-limit observation and eval-time ring reading
-// used by the audit command.
-
 import (
 	"encoding/json"
 	"math"
@@ -25,10 +22,6 @@ func loadRateLimitObserveCfg(sec *shared.Security) *shared.RateLimit {
 	return sec.RateLimitObserve
 }
 
-// rateLimitObserveBurst is a sliding-window burst check for DETECT mode, over
-// a SEPARATE stamps file from the guard's enforcement file so observation
-// never interferes with blocking. Returns true when this call is at or over
-// an enabled window's limit.
 func rateLimitObserveBurst(agentKey string, limits *shared.RateLimit) bool {
 	if limits == nil {
 		return false
@@ -83,10 +76,6 @@ func rateLimitObserveBurst(agentKey string, limits *shared.RateLimit) bool {
 	return burst
 }
 
-// readLastEvalMs reads back the policy-eval time the PreToolUse guard
-// measured for this tool call, so an ALLOW entry can carry it. Returns nil
-// when no matching measurement exists — an unknown eval time is stored as
-// null, not a fake 0 that drags averages.
 func readLastEvalMs(toolName, sessionID string) *float64 {
 	dir := shared.ProjectFlagDir()
 	if v := readEvalRing(dir, sessionID); v != nil {
@@ -95,9 +84,6 @@ func readLastEvalMs(toolName, sessionID string) *float64 {
 	return readLastEvalFlag(dir, toolName, sessionID)
 }
 
-// readEvalRing averages the recent same-session eval records so that several
-// tool calls landing within a moment (a parallel burst) each report the
-// burst's mean eval time instead of a blank.
 func readEvalRing(dir, sessionID string) (result *float64) {
 	defer func() { recover() }()
 	b, err := os.ReadFile(filepath.Join(dir, ".eval-ring.jsonl"))
@@ -173,8 +159,6 @@ func readLastEvalFlag(dir, toolName, sessionID string) (result *float64) {
 	return nil
 }
 
-// jsToNumber mirrors JavaScript's ToNumber coercion for the shapes a decoded
-// JSON value can take, which is as much as `toolResponse.exitCode > 0` needs.
 func jsToNumber(v interface{}) float64 {
 	switch t := v.(type) {
 	case nil:

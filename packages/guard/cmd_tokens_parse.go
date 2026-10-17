@@ -3,9 +3,6 @@
 
 package main
 
-// Split from cmd_tokens.go: the per-client transcript/database readers that
-// turn a Claude Code, Codex, or Antigravity record into tokenTurn values.
-
 import (
 	"database/sql"
 	"encoding/json"
@@ -16,14 +13,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// ── Claude Code ────────────────────────────────────────────────────────────
-
-// readClaudeCode reads one row per API REQUEST, deduped.
-//
-// The dedupe is the whole correctness of this reader. Usage is reported per
-// API request but the transcript writes one record per content block, so the
-// same usage object appears up to four times with the same requestId.
-// Summing records rather than requests overcounts by roughly half.
 func readClaudeCode(transcriptPath string) []tokenTurn {
 	seen := map[string]bool{}
 	var out []tokenTurn
@@ -53,10 +42,6 @@ func readClaudeCode(transcriptPath string) []tokenTurn {
 			continue
 		}
 
-		// requestId is the API request's identity. A few synthetic records
-		// carry none — API-error placeholders with all-zero usage — so the
-		// message id is the fallback rather than letting them collide on
-		// empty.
 		key := r.RequestID
 		if key == "" {
 			key = r.Message.ID
@@ -82,8 +67,7 @@ func readClaudeCode(transcriptPath string) []tokenTurn {
 
 		out = append(out, tokenTurn{
 			TurnKey: key,
-			// WHICH MODEL RAN IT. Only Claude Code reports it; the others
-			// leave it empty rather than guessing.
+
 			Model:      r.Message.Model,
 			Input:      input,
 			Output:     output,
@@ -97,13 +81,6 @@ func readClaudeCode(transcriptPath string) []tokenTurn {
 	return out
 }
 
-// ── Codex ──────────────────────────────────────────────────────────────────
-
-// readCodex reads one row per model request, from the token_count events.
-//
-// `last_token_usage` rather than `total_token_usage`: the second is
-// cumulative for the session, and treating it as a per-turn figure would
-// count the whole session again on every turn.
 func readCodex(transcriptPath, sessionID string) []tokenTurn {
 	var out []tokenTurn
 	for _, line := range tailLines(transcriptPath) {
@@ -147,12 +124,6 @@ func readCodex(transcriptPath, sessionID string) []tokenTurn {
 			continue
 		}
 
-		// The record's OWN ordinal, never a count of what this read happened
-		// to see. Counting within the tail renumbers every event the moment
-		// the file grows past the window — the same turn gets a new key, and
-		// a new key is a second row. Older rollouts carry no ordinal, so
-		// those fall back to the timestamp paired with the running total,
-		// which together do not repeat.
 		var id string
 		if r.Ordinal != nil {
 			id = "o:" + strconv.FormatInt(int64(*r.Ordinal), 10)
@@ -169,13 +140,9 @@ func readCodex(transcriptPath, sessionID string) []tokenTurn {
 		}
 
 		out = append(out, tokenTurn{
-			// Prefixed with the session, because an ordinal is only unique
-			// WITHIN a rollout.
+
 			TurnKey: sid + ":" + id,
-			// input_tokens INCLUDES cached here, and output INCLUDES
-			// reasoning — the opposite of Claude Code's disjoint buckets.
-			// The total is the provider's own, so the difference never has
-			// to be reconciled.
+
 			Input:      tokNumF(last.InputTokens),
 			Output:     tokNumF(last.OutputTokens),
 			CacheRead:  tokNumF(last.CachedInputTokens),
@@ -188,10 +155,6 @@ func readCodex(transcriptPath, sessionID string) []tokenTurn {
 	return out
 }
 
-// ── Antigravity ────────────────────────────────────────────────────────────
-
-// pbVarint reads a protobuf varint, returning the value and the index past
-// it.
 func pbVarint(buf []byte, i int) (uint64, int) {
 	var result uint64
 	var shift uint
@@ -210,19 +173,12 @@ func pbVarint(buf []byte, i int) (uint64, int) {
 	return result, i
 }
 
-// The field numbers, and what each one is. Antigravity stores an opaque
-// message and this mapping was established by decoding real generations and
-// testing an identity that held every time — it is the one client whose
-// mapping is not published, so it is the one where the evidence matters
-// most.
 const (
 	agyInUncached = "1.4.2"
 	agyInCached   = "1.4.5"
 	agyOut        = "1.4.3"
 	agyThinking   = "1.4.9"
-	// The generation's own clock: a google.protobuf.Timestamp, whose field 1
-	// is seconds. Without it every generation in the tail would be stamped
-	// with the moment it was READ, which puts a week of work on today's bar.
+
 	agyAtSeconds = "1.9.4.1"
 )
 
@@ -234,9 +190,6 @@ var agyWant = map[string]bool{
 	agyAtSeconds:  true,
 }
 
-// pbFields pulls the varints at the wanted dotted protobuf paths out of a
-// blob. A tiny hand-rolled walker rather than a schema, because there is no
-// schema on disk.
 func pbFields(buf []byte, want map[string]bool) map[string]int64 {
 	found := map[string]int64{}
 	var walk func(b []byte, path string, depth int)
@@ -280,7 +233,7 @@ func pbFields(buf []byte, want map[string]bool) map[string]int64 {
 			}
 		}
 	}
-	// A blob we cannot read is a blob we skip.
+
 	func() {
 		defer func() { _ = recover() }()
 		walk(buf, "", 0)
@@ -288,15 +241,6 @@ func pbFields(buf []byte, want map[string]bool) map[string]int64 {
 	return found
 }
 
-// readAntigravity reads every generation's usage out of this conversation's
-// own SQLite database. Read-only: this is the client's own live database and
-// nothing here has any business writing to it.
-//
-// The Node hook used node:sqlite (Node 22+, no native dependency) and simply
-// returned nothing on an older runtime rather than add one for a security
-// tool to report a number. This binary has no such runtime gate, so it reads
-// the database directly with a pure-Go driver (modernc.org/sqlite) instead —
-// no cgo, consistent with every other package in this module.
 func readAntigravity(conversationID string) []tokenTurn {
 	if conversationID == "" {
 		return nil
@@ -338,8 +282,7 @@ func readAntigravity(conversationID string) []tokenTurn {
 		}
 
 		out = append(out, tokenTurn{
-			// The generation index, prefixed with the conversation it counts
-			// within: an index is only unique inside one database.
+
 			TurnKey:    conversationID + ":gen:" + strconv.FormatInt(idx, 10),
 			Input:      int(input),
 			Output:     int(output),

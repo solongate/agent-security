@@ -3,17 +3,10 @@
 
 package main
 
-// Split from cmd_audit.go: DLP pattern scanning used by the audit command.
-
 import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-// dlpScanText is the detect-only twin of dlpRedactText: it tests the same
-// compiled patterns against text without masking anything, so a redaction
-// hit's NAME can be recorded without a second masking implementation. It is
-// also the direct port of audit.mjs's dlpScanArgs (the same primitive serves
-// both argument scanning and the detect-mode output scan there).
 func dlpScanText(text string, cfg *shared.DLPConfig) []string {
 	if cfg == nil || len(cfg.Patterns) == 0 || text == "" {
 		return nil

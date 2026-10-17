@@ -19,51 +19,6 @@ import (
 	llsys "github.com/landlock-lsm/go-landlock/landlock/syscall"
 )
 
-// Linux confinement is Landlock: unprivileged, inherited by every descendant,
-// and impossible for the confined process to remove.
-//
-// THE ONE THING THAT SHAPES ALL OF THIS: Landlock is an ALLOW-LIST and it has
-// no deny rule. A rule on a subdirectory cannot grant fewer rights than its
-// parent, so "allow everything except this one file" cannot be written down.
-// The kernel patch that would fix it, LANDLOCK_ADD_RULE_NO_INHERIT, is at v7
-// on the mailing list and is not upstream.
-//
-// So the policy is built the way the kernel documentation recommends:
-// enumerate what IS allowed. Walk from the root down to each denied path, and
-// at every level grant that directory's children except the one leading
-// onward. The denied path is simply never granted, and with nothing granting
-// it, nothing can open it.
-//
-// WHAT THAT COSTS, stated rather than discovered: an entry created DIRECTLY in
-// one of those walked-through directories after the sandbox starts has no rule
-// of its own, so the agent cannot reach it until it is restarted. Entries
-// inside a sibling directory are unaffected, because the sibling was granted
-// whole. For `/home/me/game/game.c` the walked-through directories are `/`,
-// `/home`, `/home/me` and `/home/me/game`, and `solongate run` prints that list
-// on the way in.
-
-// A SECOND THING LANDLOCK SEPARATES OUT, and it is not about files at all.
-//
-// ABI 5 split `ioctl` on device files into its own right, and go-landlock
-// leaves it out of RWDirs and RWFiles on purpose: you ask for it by name or
-// you do not get it. We did not ask, so inside the sandbox every ioctl on
-// /dev/pts/N failed with EACCES, and an agent is a full-screen terminal
-// program: it could not read the window size, could not put the terminal in
-// raw mode, and crashed the moment the window was resized or the mouse moved.
-// Mouse reports arrived as literal text in its input box.
-//
-// So every rule carries WithIoctlDev. This gives nothing away. The right
-// governs ioctl on character and block devices; it has no bearing on reading
-// or deleting the file somebody asked us to protect, which is the whole of
-// what this sandbox is for. BestEffort strips it below ABI 5, where the right
-// does not exist and ioctl was never restricted in the first place.
-
-// Launch confines this process and then becomes the command.
-//
-// It execs rather than forking. The Landlock domain survives execve, so the
-// agent IS this process with the restriction already on it: there is no parent
-// left to go wrong, and the exit code is the agent's because it is the same
-// process. On success this function does not return.
 func Launch(p Plan, argv []string, env []string) (Report, error) {
 	rep := Report{Mechanism: "Landlock"}
 	if len(argv) == 0 {
@@ -71,18 +26,6 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 		return rep, rep.Err
 	}
 
-	// THE ABI IS PROBED RATHER THAN ASSUMED, and this is a correctness fix as
-	// much as a feature. BestEffort().RestrictPaths returns nil on a kernel with
-	// no Landlock at all, the library's own documented behaviour, and this
-	// function used to set Enforced = true unconditionally after it. On a 5.12
-	// kernel, WSL1, or a distribution that leaves landlock out of CONFIG_LSM,
-	// `solongate run` printed its banner, reported "Landlock", and ran the agent
-	// with nothing applied. The one case other.go says must never happen.
-	//
-	// It matters more in workspace mode than it ever did for a deny list. A
-	// denylist that silently does nothing loses the files somebody named; an
-	// allowlist that silently does nothing hands over the whole machine while
-	// reporting that it did not.
 	abi, abiErr := llsys.LandlockGetABIVersion()
 	if abiErr != nil || abi < 1 {
 		rep.Mechanism = ""
@@ -104,10 +47,6 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 		return rep, err
 	}
 
-	// BestEffort so an older kernel gets the strongest subset it supports
-	// rather than an error. Refer is granted because without it Landlock
-	// refuses every rename across directories, which breaks ordinary tools in
-	// a way that reads as the sandbox being broken.
 	cfg := landlock.V5.BestEffort()
 	if err := cfg.RestrictPaths(rules...); err != nil {
 		rep.Err = err
@@ -138,9 +77,6 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 			"`solongate sandbox` has none of these costs; see its --explain")
 	}
 
-	// no_new_privs is required by Landlock and the library sets it, but it is
-	// also what stops a setuid binary washing the restriction off, so it is
-	// asserted here rather than assumed.
 	if err := setNoNewPrivs(); err != nil {
 		rep.Notes = append(rep.Notes, "could not set no_new_privs: "+err.Error())
 	}
@@ -155,8 +91,6 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 	return rep, err
 }
 
-// allowRules turns a deny list into the allow list Landlock needs, and reports
-// which directories had to be walked through rather than granted whole.
 func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, error) {
 	denied := map[string]bool{}
 	for _, d := range deny {
@@ -171,15 +105,10 @@ func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, 
 		denied[abs] = true
 	}
 	if len(denied) == 0 {
-		// Nothing to deny, but still a real Landlock domain: entering one
-		// blocks arbitrary mounts, which is worth having on its own.
+
 		return []landlock.Rule{landlock.RWDirs("/").WithRefer().WithIoctlDev()}, nil, nil, nil
 	}
 
-	// Which denied paths the caller confirmed are immutable in the inode. Only
-	// entries that are actually denied count: a path named here and not there
-	// would otherwise widen a directory on the strength of a file this layer was
-	// never asked to protect.
 	frozen := map[string]bool{}
 	for _, d := range immutable {
 		abs, err := filepath.Abs(d)
@@ -192,8 +121,6 @@ func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, 
 		}
 	}
 
-	// Every directory on the way to something denied. These cannot be granted
-	// wholesale, because a grant on a parent cannot be narrowed below it.
 	onPath := map[string]bool{"/": true}
 	for d := range denied {
 		for dir := filepath.Dir(d); ; dir = filepath.Dir(dir) {
@@ -204,41 +131,6 @@ func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, 
 		}
 	}
 
-	// THE WALKED DIRECTORY ITSELF GETS A RULE, and it did not before.
-	//
-	// Only its children were granted, so the directory had no rights of its own
-	// and `ls /home/you` and `mkdir /home/you/anything` were refused for as long
-	// as the agent ran. Measured and then written in the README as though it
-	// worked. Protecting one file in a home directory made the home directory
-	// unusable, which is not a trade anybody agreed to.
-	//
-	// What it gets is listing and creating, and NOT removing. The remove bits
-	// are the ones that matter here: REMOVE_FILE on a parent is exactly what
-	// `rm` needs to delete the child, so granting them would hand over the file
-	// this whole layer exists to keep. The denied child still has no rule of its
-	// own, so it cannot be opened, read, written or truncated either, the
-	// directory being listable does not make its contents reachable.
-	//
-	// EXECUTE IS NOT GRANTED EITHER, for a smaller reason: a directory does not
-	// need it and including it would let a file created here be run, which is
-	// one of the routes the string-matching layers cannot see.
-	//
-	// WHAT THIS LIST COSTS, and it is now conditional rather than permanent: a
-	// file CREATED in a walked directory cannot then be written. Creating needs
-	// MAKE_REG on the directory, which is granted; writing needs WRITE_FILE on
-	// the new file, which has no rule of its own, and the only way to give it one
-	// is to grant WRITE_FILE on the directory, which Landlock applies to
-	// everything beneath it INCLUDING the protected child.
-	//
-	// Inside Landlock that is the end of it, and it was described here as a limit
-	// of the model. It is a limit of Landlock alone: an immutable inode flag is
-	// checked below the LSM and no granted right reaches it, so a directory whose
-	// denied children are all frozen gets the full grant instead, a few lines
-	// down. This narrow set is what is left for paths that could not be frozen,
-	// which on Linux means an ordinary user without CAP_LINUX_IMMUTABLE.
-	//
-	// `solongate sandbox` does not have this shape at all: an allow-list grants
-	// the project read-write as one rule and never walks an ancestor.
 	const walkedAccess = landlock.AccessFSSet(llsys.AccessFSReadDir |
 		llsys.AccessFSMakeDir | llsys.AccessFSMakeReg |
 		llsys.AccessFSMakeSym | llsys.AccessFSMakeFifo |
@@ -250,19 +142,6 @@ func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, 
 	for dir := range onPath {
 		walked = append(walked, dir)
 
-		// AND WHEN EVERY DENIED CHILD UNDER THIS DIRECTORY IS FROZEN IN THE
-		// INODE, the conservative grant is not buying anything and the full one
-		// is free.
-		//
-		// The reason the grant was narrow is that WRITE_FILE and REMOVE_FILE on a
-		// directory reach the protected child too. If that child is immutable,
-		// they reach it and the kernel refuses anyway, at the inode flag, in a
-		// check Landlock is not part of. So the cost disappears for exactly the
-		// paths that were locked properly, and stays for the ones that were not.
-		//
-		// EVERY denied child, not any: one unfrozen path under this directory is
-		// enough to make the full grant hand that path over, so the test is over
-		// the whole subtree and fails closed on an empty answer.
 		if frozenBelow(dir, denied, frozen) {
 			rules = append(rules, landlock.RWDirs(dir).WithRefer().WithIoctlDev().IgnoreIfMissing())
 			continue
@@ -272,18 +151,15 @@ func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, 
 		rules = append(rules, landlock.PathAccess(walkedAccess, dir).IgnoreIfMissing())
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			// An unreadable directory on the way grants nothing below it, which
-			// is the safe direction to fail in.
+
 			continue
 		}
 		for _, e := range entries {
 			child := filepath.Join(dir, e.Name())
 			if denied[child] || onPath[child] {
-				continue // denied outright, or walked through one level down
+				continue
 			}
-			// Directory and file rights are different sets and the kernel
-			// rejects a directory right applied to a file, so the two are not
-			// interchangeable even though both mean "as before".
+
 			if e.IsDir() {
 				rules = append(rules, landlock.RWDirs(child).WithRefer().WithIoctlDev().IgnoreIfMissing())
 			} else {
@@ -296,12 +172,6 @@ func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, 
 	return rules, walked, narrow, nil
 }
 
-// frozenBelow reports whether every denied path at or beneath dir is immutable.
-//
-// False when nothing denied is beneath dir at all, which cannot happen for a
-// directory that got here through onPath but is the right answer for a caller
-// that asks about an unrelated path: "no denied children" must not read as "all
-// of them are safe".
 func frozenBelow(dir string, denied, frozen map[string]bool) bool {
 	prefix := dir
 	if prefix != "/" {
@@ -320,8 +190,6 @@ func frozenBelow(dir string, denied, frozen map[string]bool) bool {
 	return found
 }
 
-// setNoNewPrivs is PR_SET_NO_NEW_PRIVS: execve may not grant this process, or
-// anything it starts, a privilege it does not already have.
 func setNoNewPrivs() error {
 	const prSetNoNewPrivs = 38
 	if _, _, errno := syscall.Syscall6(syscall.SYS_PRCTL, prSetNoNewPrivs, 1, 0, 0, 0, 0); errno != 0 {
@@ -330,13 +198,6 @@ func setNoNewPrivs() error {
 	return nil
 }
 
-// Preview is what Launch would cost, computed before anything is applied.
-//
-// IT EXISTS BECAUSE Launch EXECS. Report.Notes are filled in after the domain
-// is in force and a moment before the process becomes the agent, so nothing
-// ever gets to print them. A limit the user is not told about is a limit they
-// discover as a bug, so the enumeration runs twice: once to report, once to
-// apply. It is one ReadDir per ancestor directory.
 func Preview(p Plan) []string {
 	_, walked, narrow, err := allowRules(p.Deny, p.Immutable)
 	if err != nil {
@@ -346,19 +207,6 @@ func Preview(p Plan) []string {
 		return nil
 	}
 
-	// TWO REGIMES, AND THE DIFFERENCE IS WORTH PRINTING, because it is the one
-	// cost of this command a person runs into by accident.
-	//
-	// A directory whose denied children are all immutable in the inode is
-	// granted whole: the protected file is held by a check below the LSM, so
-	// nothing is lost by granting the parent read-write, and a file created there
-	// is writable immediately. A directory holding a path that could NOT be
-	// frozen is granted entry by entry, and that is where a newly created file
-	// cannot be written afterwards.
-	//
-	// When every walked directory is in the first regime there is no cost left to
-	// report, and saying so is the point: the note used to be unconditional and
-	// described a limit that no longer applies to a properly locked path.
 	if len(narrow) == 0 {
 		return []string{
 			"Every protected path is immutable in the inode, so the directories on",
@@ -378,7 +226,6 @@ func Preview(p Plan) []string {
 	}
 }
 
-// Describe says what this platform does, without doing it.
 func Describe() (string, []string) {
 	return "Landlock", []string{
 		"unprivileged, inherited by every process the agent starts, and it cannot",
@@ -386,24 +233,6 @@ func Describe() (string, []string) {
 	}
 }
 
-// workspaceRules is the allowlist, and it is the simple direction for Landlock.
-//
-// Landlock has no deny rule, which made the denylist above an enumeration of
-// everything on the way to each protected path. An allowlist is what the kernel
-// interface actually is, so this is three grants and nothing else: the
-// workspace read-write, the runtime-write set read-write, the runtime-read set
-// read-only. Anything not named gets no rule, and with no rule there is no
-// handle, open() returns EACCES whether the agent spells the path, globs it,
-// assembles it at runtime or compiles a program to call unlink on it.
-//
-// NO ANCESTOR WALK, and so none of the denylist's cost: a file created after
-// launch inside the workspace is reachable immediately, because the grant is on
-// the directory rather than on the children that existed when it started.
-//
-// IgnoreIfMissing throughout. The runtime sets are written for a range of
-// distributions, /lib64 does not exist on some, ~/.codex only after that
-// client is installed, and Landlock rejects a rule naming a path that is not
-// there, which would turn an absent optional directory into a refusal to start.
 func workspaceRules(p Plan) ([]landlock.Rule, error) {
 	ws := filepath.Clean(p.Workspace)
 	if !filepath.IsAbs(ws) {
@@ -412,8 +241,7 @@ func workspaceRules(p Plan) ([]landlock.Rule, error) {
 	if ws == "/" {
 		return nil, errors.New(`refusing to use "/" as a workspace: that confines nothing`)
 	}
-	// A workspace of $HOME would put ~/.ssh back inside the sandbox and quietly
-	// undo the entire point, so it is refused rather than honoured.
+
 	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == ws {
 		return nil, errors.New("refusing to use the home directory as a workspace: " +
 			"it contains ~/.ssh and every other project, which is what this mode exists to keep out")
@@ -429,16 +257,14 @@ func workspaceRules(p Plan) ([]landlock.Rule, error) {
 	rules := []landlock.Rule{
 		landlock.RWDirs(ws).WithRefer().WithIoctlDev(),
 	}
-	// Writable, and stat decides whether it is a directory rule or a file one:
-	// the kernel rejects a directory right applied to a file, so /dev/null and
-	// ~/.cache cannot share a rule shape.
+
 	for _, d := range append(p.RuntimeWrite, DefaultRuntimeDevices()...) {
 		if d == "" {
 			continue
 		}
 		st, err := os.Stat(d)
 		if err != nil {
-			continue // absent is skipped; IgnoreIfMissing cannot fix a wrong KIND
+			continue
 		}
 		if st.IsDir() {
 			rules = append(rules, landlock.RWDirs(d).WithRefer().WithIoctlDev().IgnoreIfMissing())
@@ -450,10 +276,7 @@ func workspaceRules(p Plan) ([]landlock.Rule, error) {
 		if d == "" {
 			continue
 		}
-		// Directory and file rights are different sets and the kernel rejects a
-		// directory right applied to a file, so /dev/null and /usr cannot share
-		// a rule. Stat decides which; a missing path is skipped rather than
-		// guessed at, since IgnoreIfMissing cannot save a wrong KIND of rule.
+
 		st, err := os.Stat(d)
 		if err != nil {
 			continue

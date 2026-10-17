@@ -15,17 +15,11 @@ import (
 	"github.com/solongate/agent-security/packages/core/install"
 )
 
-// Split from settings.go: key handling, the one-shot action dispatch, and the
-// inline text prompt.
-
 func (p *Settings) key(k tea.KeyMsg) tea.Cmd {
 	s := k.String()
 
 	if p.editing != "" {
-		// esc abandons the prompt without writing. It is not in the Ink version,
-		// and it has to be here: the shell gives a capturing panel every key, so
-		// the only other way out of the path prompt would be to submit it, and
-		// submitting an empty path CLEARS local logging.
+
 		if s == "esc" {
 			p.editing = ""
 			p.input.Blur()
@@ -83,14 +77,10 @@ func (p *Settings) beginInput(value string) {
 	p.input.Focus()
 }
 
-// activate is what enter does to the row under the cursor.
 func (p *Settings) activate(r setRow) tea.Cmd {
 	switch r.kind {
 	case "range":
-		// A toggle rather than a prompt: there are exactly two values and one
-		// of them is always the other one. Written through the same setter the
-		// CLI uses, and read back into Deps so the row redraws from the file
-		// rather than from what this panel believes it just wrote.
+
 		next := config.UpdateRangeLong
 		if config.UpdateRangeOf(p.deps.Cfg) == config.UpdateRangeLong {
 			next = config.UpdateRangeShort

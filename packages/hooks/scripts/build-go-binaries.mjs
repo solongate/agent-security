@@ -2,35 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
-/**
- * Cross-compile the Go guard and CLI, and lay them out one directory per
- * platform under packages/hooks/platforms/.
- *
- *   node scripts/build-go-binaries.mjs            # build every target
- *   node scripts/build-go-binaries.mjs linux-x64  # just one, for a quick loop
- *
- * WHY A LOCAL LAYOUT rather than a postinstall download: this repository is
- * not published to any registry (see the note near the bottom of this file),
- * so there is no npm install step to hook a download into anyway. install.sh
- * and `solongate repair` copy the binary for the running host straight out of
- * the matching platforms/<tag>/ directory — a build-from-checkout, not a
- * supply chain.
- *
- * The package.json dropped into each platforms/<tag>/ directory is a leftover
- * shape, not a registry artifact: its `os`/`cpu` fields are what let
- * install.sh/repair pick the right directory for the host, nothing resolves it
- * through node_modules.
- *
- * Both binaries go in ONE directory per platform. They are separate programs,
- * the guard runs per tool call, the CLI is what a human types, but they ship
- * and version together, and splitting them would let a machine hold one of
- * each from different releases.
- *
- * The guard's version is NOT the npm version. It prints the HOOK_VERSION it
- * implements, because that is what the Node hook compares against before handing
- * over a call; see the comment on hookVersion in packages/guard/main.go. The
- * npm version is stamped separately and is diagnostic only.
- */
 import { execFileSync } from 'node:child_process';
 
 import { goBin } from '../../../scripts/gobin.mjs';
@@ -46,8 +17,6 @@ const outRoot = join(proxyDir, 'platforms');
 const pkgPath = join(proxyDir, 'package.json');
 const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
 
-// npm's own names for a host, which are also each package's name and the values
-// of its `os` and `cpu` fields. Go spells two of them differently.
 const TARGETS = [
   { tag: 'linux-x64', os: 'linux', cpu: 'x64', GOOS: 'linux', GOARCH: 'amd64' },
   { tag: 'linux-arm64', os: 'linux', cpu: 'arm64', GOOS: 'linux', GOARCH: 'arm64' },
@@ -73,36 +42,11 @@ try {
   process.exit(1);
 }
 
-/**
- * The two programs, and where each one's module lives.
- *
- * `bin` is the name the hook and the launcher look for, so it is part of the
- * contract rather than a build detail, packages/hooks/hooks/guard.mjs resolves
- * exactly `solongate-guard` inside the platform package.
- */
 const PROGRAMS = [
   { bin: 'solongate-guard', module: join(repo, 'packages', 'guard') },
   { bin: 'solongate', module: join(repo, 'packages', 'app') },
 ];
 
-// A THIRD PROGRAM USED TO BE HERE and it broke this script outright. It built
-// `./cmd/solongate-browser` from `packages/shadowbridge`, a browser-side agent
-// that is not part of this release and whose module is not in this repository.
-//
-// The failure was worth more than the missing feature, because it named the wrong
-// cause. spawnSync reports a missing `cwd` as ENOENT on the COMMAND, so a build
-// run in a directory that does not exist came back as:
-//
-//     Error: spawnSync go ENOENT   path: 'go'
-//
-// on a machine with a perfectly good Go toolchain on PATH, and gobin.mjs next
-// door exists entirely to make that message mean what it says. Anyone reading it
-// would have gone looking for their Go install.
-//
-// `pkg`, the package to build inside a module, defaulting to its root, is kept
-// even though both programs now build from theirs. It is what lets a module ship
-// more than one command, which is a thing this repository has needed before and
-// will again.
 
 function build(target, program) {
   const exe = program.bin + (target.os === 'win32' ? '.exe' : '');
@@ -110,8 +54,6 @@ function build(target, program) {
   mkdirSync(dirname(dest), { recursive: true });
   execFileSync(go, [
     'build',
-    // -trimpath keeps the building machine's directory layout out of the binary,
-    // which is both smaller and one less thing published to a registry.
     '-trimpath',
     '-ldflags', `-s -w -X main.buildVersion=${pkg.version}`,
     '-o', dest,
@@ -134,10 +76,6 @@ for (const t of targets) {
 
   const built = PROGRAMS.map((p) => build(t, p));
 
-  // `os`/`cpu` read by nothing today — install.sh/repair pick the directory
-  // themselves, from `uname`, not from this file. They stay because they are
-  // what an npm registry would filter an optionalDependency on, if this is
-  // ever published again; see the note near the bottom of this file.
   writeFileSync(join(dir, 'package.json'), JSON.stringify({
     name: `@solongate/guard-${t.tag}`,
     version: pkg.version,
@@ -163,26 +101,6 @@ for (const t of targets) {
   console.log(`  ${t.tag.padEnd(14)} ${built.map((b) => b.exe).join(', ').padEnd(34)} ${(total / 1048576).toFixed(1)} MB`);
 }
 
-// THIS SCRIPT NO LONGER TOUCHES packages/hooks/package.json.
-//
-// It used to write six optionalDependencies, one per platform package, each
-// pinned to pkg.version. That was right while this package was published to a
-// registry: npm installs only the entry whose os and cpu match the host, so a
-// user downloaded one binary rather than six, through the same lockfile and
-// integrity hash as everything else.
-//
-// This repository does not publish to a registry. It is distributed over git,
-// `solongate update` builds from source, and the layout below is what
-// install.sh and `repair` copy from. The six entries therefore named versions
-// that were never published, and that is not a dormant inconsistency: pnpm
-// cannot record an optional dependency it cannot resolve, so the lockfile never
-// held them, and `pnpm install --frozen-lockfile` could not pass on any machine.
-// It failed every CI run and every release job, which is why five pushed tags
-// produced no releases at all.
-//
-// If this package is ever published again, the entries come back WITH a
-// publishing step that puts the platform packages on the registry first. One
-// without the other is the state this comment is describing.
 
 console.log(`\nlaid out under ${outRoot}`);
 console.log('these are what install.sh and `repair` copy from; nothing here is published.');

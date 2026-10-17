@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
-// What `solongate doctor` PRINTS. What it checks is core/health, which the
-// TUI reads too: a verdict a person acts on should not depend on which
-// surface they happened to open.
-
 package cli
 
 import (
@@ -70,9 +66,6 @@ func runDoctor(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 	return 0, nil
 }
 
-// padRight pads to n columns and never truncates, matching String.padEnd. A
-// check name longer than the column pushes its detail right rather than being
-// cut: the name is the thing you look up.
 func padRight(s string, n int) string {
 	if displayWidth(s) >= n {
 		return s

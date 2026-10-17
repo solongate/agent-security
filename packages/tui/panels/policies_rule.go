@@ -10,19 +10,6 @@ import (
 	"github.com/solongate/agent-security/packages/core/client"
 )
 
-// The rule model behind the Policies panel, ported from the helpers at the top
-// of tui/panels/Policies.tsx.
-//
-// A rule is an EFFECT, ONE constraint type, and a set of permissions. Which
-// list a match value lands in, allowed or denied, follows the effect, so the
-// user never picks a side: a DENY rule fills `denied`, an ALLOW rule fills
-// `allowed`. Flipping the effect moves the values across.
-//
-// A rule with no constraint values AND every permission matches every request.
-// That is a blanket allow or a blanket deny, it is almost always a mistake, and
-// saving one is refused here exactly as the dashboard refuses it.
-
-// cType is the one constraint type a rule carries.
 type cType string
 
 const (
@@ -35,19 +22,8 @@ const (
 
 var cTypes = []cType{cNone, cCommand, cPath, cFilename, cURL}
 
-// permsAll is the dashboard's four checkboxes. All four selected means "any",
-// which is stored as no permission field at all.
 var permsAll = []string{"READ", "WRITE", "EXECUTE", "NETWORK"}
 
-// ruleDoc holds one rule BOTH ways: decoded for the editor, and as the exact
-// bytes it arrived as.
-//
-// The bytes are what gets written back for a rule nobody touched. Round-tripping
-// every rule through this version's struct would silently drop any field it does
-// not model, the wire rule already carries argumentConstraints and timestamps,
-// and a policy edited from the terminal must not come back narrower than it went
-// in. Only an edited rule is re-serialised, and even then the merge writes over
-// the original object rather than replacing it.
 type ruleDoc struct {
 	rule   client.PolicyRule
 	raw    json.RawMessage
@@ -73,8 +49,7 @@ func (d ruleDoc) marshal() (json.RawMessage, error) {
 	if len(r.Permission) > 0 {
 		obj["permission"] = r.Permission
 	} else {
-		// Absent, not null: "any permission" is the absence of the field, and a
-		// null here compiles to a rule that matches nothing.
+
 		delete(obj, "permission")
 	}
 	setOrDelete(obj, "commandConstraints", r.CommandConstraints)
@@ -100,8 +75,6 @@ func setOrDelete(obj map[string]any, key string, c *client.Constraint) {
 	}
 }
 
-// currentCType reads which constraint a rule carries. The order is the one the
-// dashboard uses; a rule that somehow carries two answers the first.
 func currentCType(r client.PolicyRule) cType {
 	switch {
 	case r.FilenameConstraints != nil:
@@ -123,21 +96,8 @@ func clearConstraints(r *client.PolicyRule) {
 	r.URLConstraints = nil
 }
 
-// allowSide reports whether values belong in `allowed` for this rule's effect.
 func allowSide(r client.PolicyRule) bool { return r.Effect == "ALLOW" }
 
-// setCType selects a constraint type: the others are cleared and the chosen one
-// is created empty, on the side the effect dictates.
-// setCType changes WHICH KIND of thing a rule matches, CARRYING THE PATTERNS ACROSS.
-//
-// It used to write an empty list, so cycling the constraint type threw the rule's
-// patterns away. The field is cycled with ← and → while moving around the editor, so a
-// person navigating a rule could land on Constraint, press an arrow, and watch `curl*`
-// become `, `. Nothing warned them and nothing could bring it back; the only clue was the
-// Match row turning into a dash two lines below where they were looking.
-//
-// A command pattern reinterpreted as a filename is a strange rule, but it is the one the
-// person typed and it is one keystroke from being fixed. Silently discarding it is not.
 func setCType(r *client.PolicyRule, t cType) {
 	items := matchItems(*r)
 	clearConstraints(r)
@@ -147,7 +107,6 @@ func setCType(r *client.PolicyRule, t cType) {
 	writeItems(r, t, items)
 }
 
-// writeItems puts the value list on the effect's side of the given constraint.
 func writeItems(r *client.PolicyRule, t cType, items []string) {
 	allowed, denied := items, []string(nil)
 	if !allowSide(*r) {
@@ -165,8 +124,6 @@ func writeItems(r *client.PolicyRule, t cType, items []string) {
 	}
 }
 
-// matchItems is the rule's value list, both sides together, a rule saved under
-// the other effect still shows its values instead of looking empty.
 func matchItems(r client.PolicyRule) []string {
 	switch currentCType(r) {
 	case cCommand:
@@ -189,12 +146,8 @@ func setMatchItems(r *client.PolicyRule, items []string) {
 	writeItems(r, t, items)
 }
 
-// cValue is the comma-joined preview of the value list.
 func cValue(r client.PolicyRule) string { return strings.Join(matchItems(r), ", ") }
 
-// migrateEffect flips the effect and carries the current constraint's values to
-// the new side, so an ALLOW rule turned into a DENY still denies what it used to
-// allow rather than quietly becoming an empty rule.
 func migrateEffect(r *client.PolicyRule, next string) {
 	t := currentCType(*r)
 	items := matchItems(*r)
@@ -205,7 +158,6 @@ func migrateEffect(r *client.PolicyRule, next string) {
 	writeItems(r, t, items)
 }
 
-// flipStar toggles a leading or trailing wildcard on ONE value.
 func flipStar(v, side string) string {
 	if side == "left" {
 		if strings.HasPrefix(v, "*") {
@@ -219,9 +171,6 @@ func flipStar(v, side string) string {
 	return v + "*"
 }
 
-// permListOf is the rule's permissions, with "no permission field" expanded to
-// all four, that is what an absent field MEANS to the policy compiler, and a
-// display that showed it as empty would read as "this rule matches nothing".
 func permListOf(r client.PolicyRule) []string {
 	ps := r.Permissions()
 	if len(ps) == 0 {
@@ -244,9 +193,6 @@ func permIsAny(r client.PolicyRule) bool {
 	return true
 }
 
-// togglePerm flips one permission. The list is never left empty, a rule with
-// no permission at all matches nothing, which is not what unticking the last
-// box means, and all four collapses back to the absent field.
 func togglePerm(r *client.PolicyRule, p string) {
 	cur := permListOf(*r)
 	var next []string
@@ -289,11 +235,8 @@ func permDisplay(r client.PolicyRule) string {
 
 func ruleHasValues(r client.PolicyRule) bool { return len(matchItems(r)) > 0 }
 
-// isBlanketRule mirrors the dashboard's isBlanketRule.
 func isBlanketRule(r client.PolicyRule) bool { return !ruleHasValues(r) && permIsAny(r) }
 
-// ruleSummary is the CONSTRAINTS column: which constraint the rule carries and
-// how many values are in it.
 func ruleSummary(r client.PolicyRule) string {
 	var bits []string
 	if c := r.CommandConstraints; c != nil {

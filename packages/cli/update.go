@@ -18,21 +18,6 @@ import (
 	"github.com/solongate/agent-security/packages/core/term"
 )
 
-// `solongate update`, fetch the newest source and reinstall from it.
-//
-// WHY THIS COMMAND EXISTS AT ALL. `solongate doctor` has told people to run it for as
-// long as there has been a doctor, and until now there was no such command: the one
-// instruction the health check gives was a command that answered "Unknown command".
-//
-// And the thing it replaces is three steps somebody had to know by heart, change to a
-// directory they may not remember, pull, run the install script, none of which is the
-// user's problem. An update is one word.
-//
-// IT UPDATES FROM WHERE IT WAS INSTALLED FROM. The install writes that path down (see
-// install.RecordInstallSource), because once the binaries are in the store nothing about
-// their location says where they were built. No record means this was not a checkout
-// install, and the honest answer there is to say so rather than guess.
-
 func RunUpdate(args []string) int {
 	if len(args) > 0 {
 		fmt.Fprintln(os.Stderr, "update takes no arguments")
@@ -46,30 +31,9 @@ func RunUpdate(args []string) int {
 
 	before := install.InstalledGuardVersion()
 
-	// EVERY LINE STARTS IN THE SAME COLUMN. A mark is [  OK  ] and a space,
-	// nine characters, so everything that is not a mark is indented nine. A
-	// header flush against the margin reads as a separate program's banner
-	// rather than the first line of this one.
 	fmt.Fprint(os.Stderr, "         "+term.Bold+"SolonGate"+term.Reset+"  ")
 	typeOut("updating from " + root)
 
-	// FETCH FIRST, AND SAY WHETHER ANYTHING CAME. A pull that changes nothing still costs
-	// a full rebuild, and somebody watching it has no way to tell a no-op from a real
-	// update unless it is said out loud.
-	// THE INSTALL DIRTIES THE CHECKOUT IT WILL LATER PULL INTO.
-	//
-	// install.sh runs `pnpm install`, and pnpm rewrites pnpm-lock.yaml whenever the
-	// manifest and the lock disagree about anything, including an optional package
-	// it decides to drop. The build script rewrites packages/hooks/package.json for
-	// the same class of reason. Both files are tracked, so one update later the
-	// checkout has modifications nobody made, and the NEXT update dies on
-	// `git pull --ff-only` before it reaches any of the work.
-	//
-	// The user never typed anything to cause that and has nothing to decide about
-	// it, so the only honest behaviour is to put those files back and carry on. The
-	// test is narrow on purpose: ONLY the files an install is known to write are
-	// restored, and anything else stops the update exactly as it did before,
-	// a real local edit is the user's and discarding it silently would be theft.
 	if code := restoreInstallArtifacts(root); code != 0 {
 		return code
 	}
@@ -94,12 +58,6 @@ func RunUpdate(args []string) int {
 		markOK("Already on the newest version.")
 	}
 
-	// REBUILD AND REINSTALL THROUGH install.sh, rather than repeating its steps here.
-	// That script is what a person runs by hand and what the README documents; a second
-	// implementation of the same four steps is a second thing to keep correct, and the
-	// one that drifts is always the one nobody runs.
-	//
-	// --yes because this is already the answer to "do you want to update".
 	script := filepath.Join(root, "scripts", "shell", "install.sh")
 	if !install.Exists(script) {
 		fmt.Fprintln(os.Stderr, "         "+script+" is missing, so there is nothing to run.")
@@ -123,18 +81,6 @@ func RunUpdate(args []string) int {
 	return 0
 }
 
-// step runs one command with its output streamed through, so a build that takes a minute
-// looks like a build taking a minute rather than a hang.
-// quietStep runs a command with a spinner instead of its output.
-//
-// FOR THE GIT STEPS ONLY. A fetch and a checkout print progress nobody reads
-// and object counts nobody can act on, and all of it between two lines that do
-// matter. The spinner says the thing that is true, which is that something is
-// happening, and the output is kept so a FAILURE can print all of it.
-//
-// install.sh keeps streaming. It is minutes long, it has its own steps, and
-// hiding a build behind a spinner is how a person ends up watching a dot while
-// a compiler asks them something.
 func quietStep(dir, label, name string, args ...string) int {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
@@ -162,9 +108,6 @@ func quietStep(dir, label, name string, args ...string) int {
 	return 0
 }
 
-// THE SAME TWO MARKS install.sh USES. An update runs that script in the middle
-// of itself, so a run that printed ✓ for its own steps and [  OK  ] for the
-// script's would look like two programs taking turns. It is one.
 func markOK(text string) {
 	fmt.Fprintf(os.Stderr, "%s[  OK  ]%s ", term.Green, term.Reset)
 	typeOut(text)
@@ -175,19 +118,6 @@ func markNo(text string) {
 	typeOut(text)
 }
 
-// typeOut writes the letters one at a time, in order.
-//
-// An install is a sequence of things happening to somebody's machine, and a
-// line that appears all at once is a line that has already happened. Typed
-// out, it is happening while they read it, which is what it is.
-//
-// Both halves are needed and neither is enough on its own: the delay paces it,
-// and os.Stderr being unbuffered is what lets a partial line reach the screen
-// at all. Through a buffered writer every character would sit there until the
-// flush and the whole line would appear at once anyway.
-//
-// Not on a pipe: there is nobody watching a log file arrive, and a few hundred
-// one-byte writes into it buy nothing.
 func typeOut(text string) {
 	if !isTerminal(os.Stderr) {
 		fmt.Fprintln(os.Stderr, text)
@@ -202,30 +132,6 @@ func typeOut(text string) {
 
 const typeDelay = 3 * time.Millisecond
 
-// spin animates the dots at the end of the label until the returned function
-// is called.
-//
-// IT WAS A BRAILLE SPINNER AND THAT WAS WRONG TWICE. The frames are a single
-// character at a column of their own, and in a terminal font that draws braille
-// loosely they read as punctuation dropped on the line: ":" and ",". And a
-// character in its own column has to be cleared from its own column, which left
-// residue on any line the clear did not exactly cover. Dots after the label are
-// the same animation with neither problem, and they are what every other line
-// in this run already ends with.
-//
-// THE CLEAR IS \033[2K, not a counted run of spaces. Counting assumes the line
-// is exactly as wide as the text put there, and a terminal that echoes
-// something of its own onto it, an escape-sequence reply or a typed key, makes
-// that assumption wrong and leaves the difference on screen. Erase the line.
-//
-// ON STDERR, with the result lines. The spinner used to go to stdout while a
-// failure went to stderr, and a terminal receiving both interleaved them: the
-// clearing \r landed before the error text rather than after the spinner, and
-// the two ended up on one line. One stream, one order.
-//
-// NOT ON A PIPE. Without a terminal there is nothing to overwrite, so \r turns
-// the animation into a few hundred copies of the same line in whatever log is
-// collecting it. There it prints the label once and nothing else.
 func spin(label string) func() {
 	if !isTerminal(os.Stderr) {
 		fmt.Fprintln(os.Stderr, "         "+label+"...")
@@ -249,8 +155,6 @@ func spin(label string) func() {
 	return func() { close(done); <-finished }
 }
 
-// isTerminal asks the file rather than taking a dependency: a character device
-// is what a terminal is, and a pipe, a file and /dev/null are not.
 func isTerminal(f *os.File) bool {
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
@@ -292,8 +196,6 @@ func gitOutput(dir string, args ...string) (string, bool) {
 	return strings.TrimSpace(string(b)), true
 }
 
-// noSourceToUpdateFrom explains the one case this command cannot handle, and names the
-// two ways out rather than stopping at "not found".
 func noSourceToUpdateFrom() int {
 	w := bufio.NewWriter(os.Stderr)
 	defer w.Flush()
@@ -309,24 +211,12 @@ func noSourceToUpdateFrom() int {
 	return 1
 }
 
-// installArtifacts are the TRACKED files an install rewrites inside the checkout.
-//
-// Each one is generated, not authored: pnpm owns the lockfile, and
-// build-go-binaries.mjs owns the six optionalDependencies pins in the proxy
-// manifest (it forces them to equal the package version, which is correct for a
-// publish and is why the file moves during an ordinary build). guard.bundled.mjs
-// is written by bundle-hooks on every build from the source beside it.
-//
-// A file is on this list because an INSTALL writes it, not because it looks
-// unimportant. Nothing else may be added without that being true.
 var installArtifacts = []string{
 	"pnpm-lock.yaml",
 	"packages/hooks/package.json",
 	"packages/hooks/guard.bundled.mjs",
 }
 
-// rangeOneLiner is the sentence printed on every update, so the choice is
-// visible at the moment it is acting rather than only in a settings panel.
 func rangeOneLiner(rng string) string {
 	if rng == config.UpdateRangeShort {
 		return "every commit on the branch, including ones no release has covered"
@@ -334,12 +224,6 @@ func rangeOneLiner(rng string) string {
 	return "tagged releases only"
 }
 
-// moveToBranchTip is the short range: whatever is on the branch now.
-//
-// It also comes BACK from a detached head, which is the state the long range
-// leaves the checkout in. Without that, switching short and then updating
-// would pull nothing and report success, because a detached head has no
-// upstream to pull from.
 func moveToBranchTip(root string) int {
 	if detached(root) {
 		branch := defaultBranch(root)
@@ -357,15 +241,6 @@ func moveToBranchTip(root string) int {
 	return 0
 }
 
-// moveToNewestRelease is the long range: the highest v-tag there is.
-//
-// --force on the fetch because a tag can be moved. That is rare and it is also
-// exactly the case where not following it leaves a machine pinned to bytes
-// nobody is serving any more.
-//
-// The checkout is DETACHED on purpose. Putting a branch on a tag would make
-// the next `git pull` quietly a different operation, and this command is not
-// the only thing that runs git in this directory.
 func moveToNewestRelease(root string) int {
 	if c := quietStep(root, "Fetching releases", "git", "fetch", "--tags", "--force", "origin"); c != 0 {
 		return c
@@ -394,9 +269,6 @@ func detached(root string) bool {
 	return !ok || strings.TrimSpace(out) == ""
 }
 
-// defaultBranch asks the remote rather than assuming "main". A fork or a
-// mirror is free to call it something else, and guessing wrong here strands
-// somebody on a detached head with an error about a branch they never had.
 func defaultBranch(root string) string {
 	out, ok := gitOutput(root, "symbolic-ref", "refs/remotes/origin/HEAD")
 	if ok {
@@ -409,12 +281,6 @@ func defaultBranch(root string) string {
 	return "main"
 }
 
-// restoreInstallArtifacts puts the generated files back so the pull can run.
-//
-// Returns 0 when the checkout is pullable, either it was already clean, or the
-// only modifications were files the install itself wrote. A modification
-// anywhere else is reported and the update stops: that is somebody's work, and
-// this command has no business choosing to lose it.
 func restoreInstallArtifacts(root string) int {
 	out, ok := gitOutput(root, "status", "--porcelain")
 	if !ok || strings.TrimSpace(out) == "" {
@@ -426,13 +292,12 @@ func restoreInstallArtifacts(root string) int {
 		if len(line) < 4 {
 			continue
 		}
-		// Untracked files do not block a fast-forward, so they are not this
-		// command's problem and must not be deleted on the way past.
+
 		if strings.HasPrefix(line, "??") {
 			continue
 		}
 		path := strings.TrimSpace(line[2:])
-		// A rename reads as "old -> new"; the new name is the one on disk.
+
 		if i := strings.Index(path, " -> "); i >= 0 {
 			path = path[i+4:]
 		}
@@ -446,12 +311,7 @@ func restoreInstallArtifacts(root string) int {
 
 	if len(foreign) > 0 {
 		fmt.Fprintln(os.Stderr)
-		// MARKED, like every other outcome this command has. The three exits
-		// were [  OK  ] on success, [FAILED] on a step that broke, and, here,
-		// nothing at all: a hard stop printed as dim prose with no mark in the
-		// column every other line is aligned to. The indentation was right and
-		// the mark was missing, which made the one outcome somebody has to act
-		// on the one that looked like a comment.
+
 		markNo("Update stopped: the checkout has local changes.")
 		fmt.Fprintln(os.Stderr, "         Not the install's own, so they are yours to keep:")
 		for _, f := range foreign {
@@ -485,8 +345,6 @@ func restoreInstallArtifacts(root string) int {
 	return 0
 }
 
-// containsPath is a plain lookup. The list is three entries and a map would read
-// worse than the thing it replaced.
 func containsPath(list []string, v string) bool {
 	for _, s := range list {
 		if s == v {

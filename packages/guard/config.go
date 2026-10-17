@@ -11,47 +11,6 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-// Everything on disk the guard reads, in the shapes the Node hook already
-// writes. This port shares those files rather than inventing its own: both
-// implementations have to be installable side by side while one is being
-// verified against the other.
-
-// loadCredential and loadPolicyCache lived here, and both are gone.
-//
-// loadCredential read an API key off disk, which this product no longer has: no
-// account, nothing paired with a service, nothing authenticated. Everything that
-// produced, validated or consumed a key is deleted, and `repair` sweeps the two
-// files an upgraded machine may still carry.
-//
-// loadPolicyCache read a per-agent cache file. Nothing has written one since the
-// refresh was removed, so it was dead code reading a file that cannot exist.
-//
-// The Node hook dropped the identical pair at the same time. Both read a file per
-// call before any rule was evaluated.
-
-// loadLocalPolicy is the fallback when the cloud cache holds no policy.
-//
-// A cache MISS is not only "the file is absent": a cache that parses but
-// carries `policy: null` is the same thing, which is the state a machine is in
-// on its first tool call after install, after the cache is cleared, or on a
-// project whose cloud policy is unset. Without this the guard consults nothing
-// at all in that window and allows everything, while the wizard's starter
-// policy sits on disk unread.
-//
-// Order matches the Node hook: the wizard's ~/.solongate/policy.json first,
-// then a per-project policy.json beside the working directory.
-// A MANAGED machine reads neither of them. The second path is a file inside
-// whatever repository the agent is working in, which is a file the agent can
-// write: on a machine under somebody else's policy, "the cloud said nothing, so
-// read the file in this checkout" is a one-line escape. A guest whose cache is
-// empty enforces nothing local and waits for the cloud, which is what every
-// machine did before a local policy existed.
-// securityInsidePolicy pulls a `security` block out of a policy document.
-//
-// The second return is what separates "this document says nothing about the
-// layers" from "this document turns everything off", the same distinction
-// store.SecurityLayersIn draws, and for the same reason: guessing a default here
-// would quietly overwrite a configuration somebody wrote.
 func securityInsidePolicy(doc []byte) (*shared.Security, bool) {
 	if len(doc) == 0 {
 		return nil, false
@@ -69,19 +28,6 @@ func securityInsidePolicy(doc []byte) (*shared.Security, bool) {
 	return &sec, true
 }
 
-// It answers a PolicyCache rather than a Policy because the file is allowed to
-// be written in the shape the service answers in, and that shape carries the
-// three things a machine with no service had no way to set at all: the rate
-// limit, the egress rules and the DLP scanner arrive in `security`, and the
-// tamper flag in `selfProtect`.
-//
-//	{"policy": {…}, "security": {…}, "selfProtect": true}   what the service sends
-//	{"mode": "denylist", "rules": [ … ]}                     the policy on its own
-//
-// Both are accepted. A `policy` key is what tells them apart, so a bare policy
-// keeps working and nobody has to rewrite a file that already exists.
-// It took a `managed bool` and returned nil for a managed machine, no policy file at
-// all, not even this machine's own. See main.go for why that is gone.
 func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
 	if cwd == "" {
 		if wd, err := os.Getwd(); err == nil {
@@ -98,24 +44,14 @@ func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
 		var probe struct {
 			Policy json.RawMessage `json:"policy"`
 		}
-		// The PRESENCE of a `policy` key is what makes it the envelope, even when
-		// its value is null, an absent key decodes to a nil RawMessage and a null
-		// one to the four bytes "null", so the two are distinguishable here and
-		// have to be. A file with layers and no rules is a real configuration (DLP
-		// on, nothing forbidden), and requiring a non-null policy threw the whole
-		// file away, layers included. The hook accepts it, so this has to.
+
 		isEnvelope := json.Unmarshal(b, &probe) == nil && len(probe.Policy) > 0
 		if isEnvelope {
 			var e shared.PolicyCache
 			if json.Unmarshal(b, &e) != nil {
 				continue
 			}
-			// A policy DOCUMENT may carry `security` inside it, that is how the
-			// service stores it (store.SecurityLayersIn reads exactly that), so
-			// it is the shape a policy exported from one arrives in. Reading the
-			// envelope only would make a hand-copied policy's DLP configuration
-			// a silent no-op. The envelope wins when both are there: it is the
-			// outer, more specific statement.
+
 			if !e.HasSecurity {
 				if inner, ok := securityInsidePolicy(probe.Policy); ok {
 					e.Security, e.HasSecurity = inner, true
@@ -132,12 +68,7 @@ func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
 				env.Security, env.HasSecurity = inner, true
 			}
 		}
-		// Only THIS MACHINE's own file is trusted with more than rules. The
-		// second path is a file inside whatever repository the agent is working
-		// in, which is a file the agent can write: `selfProtect: false` there
-		// would be a one-line disarm of the tamper guard, and a `security` block
-		// would switch the DLP scanner off from inside the checkout. It may add
-		// rules, and nothing else.
+
 		if p != own {
 			env.Security, env.HasSecurity, env.SelfProtect = nil, false, nil
 		}

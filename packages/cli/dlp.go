@@ -33,9 +33,6 @@ func runDLP(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 		return 0, nil
 	}
 
-	// Fetched before the switch, as in the TypeScript: every subcommand except
-	// help needs the current layers, and the write path needs them to send back
-	// the layers it is not changing.
 	cur, err := c.Settings.GetSecurityLayers(ctx)
 	if err != nil {
 		return 1, err
@@ -98,10 +95,7 @@ func runDLP(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 		if pattern == "" {
 			return usageErr("Usage: dlp " + sub + " <pattern>")
 		}
-		// A pattern name that is not one the cloud offers would be saved and
-		// then silently never matched, because the guard looks the names up in
-		// its own table. Refusing here, with the list, is the only place that is
-		// visible.
+
 		known := false
 		for _, a := range cur.AvailablePatterns {
 			if a == pattern {
@@ -170,10 +164,6 @@ func runDLP(ctx context.Context, c *client.Client, p parsedArgs) (int, error) {
 	return unknownSub("dlp", sub, dlpUsage())
 }
 
-// togglePattern adds or removes one name, keeping the order the rest arrived in.
-// A Set round trip in JavaScript preserves insertion order; sorting here would
-// rewrite the stored list on every edit and make the dashboard's diff view show
-// changes nobody made.
 func togglePattern(patterns []string, name string, on bool) []string {
 	next := make([]string, 0, len(patterns)+1)
 	found := false

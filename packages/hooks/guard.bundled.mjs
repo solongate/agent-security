@@ -507,16 +507,7 @@ function sgTryGoGuard() {
       r = spawnSync(bin, process.argv.slice(2), {
         input: SG_STDIN,
         encoding: "utf-8",
-        // The binary writes the eval record the audit hook reads back, so it is
-        // the one reporting this call's guard time, and from inside a process
-        // that was spawned partway through the work, it can only see its own
-        // share of it. Node's boot, this file's parse, the fd 0 read and the
-        // version probe above are all already spent by the time it starts.
-        // Handing it the origin is what lets the number it reports be the whole
-        // hook instead of the last two milliseconds of it.
         env: { ...process.env, SOLONGATE_HOOK_ORIGIN_MS: String(SG_ORIGIN_MS) },
-        // Well past every network call the guard makes. A binary still running
-        // at this point is not going to produce an answer worth waiting for.
         timeout: 1e4
       });
     } catch {
@@ -755,55 +746,21 @@ var CLIENTS = {
     emit: emitHookSpecific,
     reportsAfter: true,
     redactsOutput: true
-    // the post-tool hook rewrites the tool result
   },
-  // Codex CLI: same decision dialect as Claude Code, different INPUT problem.
-  // Every file edit arrives as one apply_patch call whose target paths live
-  // inside the patch text, so parse lifts them onto the neutral `paths` field
-  // (see liftFreeformPatchPaths, applied to every client for safety).
   codex: {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
     reportsAfter: true,
-    // CONFIRMED AGAINST THE BINARY, and stronger than "rejects": the Codex hook
-    // schema has no output-rewrite field at all. Its strings carry
-    // hookSpecificOutput, permissionDecision, permissionDecisionReason and
-    // updatedInput, and zero occurrences of updatedToolOutput. A post-tool
-    // stage runs, and there is nothing it can write to change the result.
-    // Verified on codex-cli 0.147.0.
     redactsOutput: false
   },
-  // OpenCode: no subprocess hook contract at all, a plugin runs in-process and
-  // refuses a call by throwing. The shim that does the throwing (see
-  // hooks/opencode-plugin.mjs) spawns this guard with a flat Claude-shaped
-  // payload and reads the Claude dialect back, so both halves are reused as-is
-  // and only the identity differs.
   opencode: {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
     reportsAfter: true,
-    // MEASURED, not assumed. This was false under a comment saying the
-    // capability was untested. It has now been proven against the installed
-    // opencode (1.18.16): the tool result is passed to `tool.execute.after` by
-    // reference and the SAME object is returned to the model, and
-    // Plugin.trigger awaits each hook without cloning. So a hook that mutates a
-    // field of the result changes what the model reads, which is what the
-    // plugin does now.
     redactsOutput: true
   },
-  // Antigravity CLI: nested payload, and a decision dialect of its own.
   antigravity: {
-    // reportsAfter WAS absent here and false on the Go side, under a comment
-    // saying this client has no post-tool stage at all. That was wrong, and it
-    // is why detect mode and every ALLOW row went missing on this client: the
-    // agy binary documents PostToolUse as a first-class event, matcher-grouped
-    // exactly like PreToolUse. The installer registers the post-tool hook on it
-    // now.
     reportsAfter: true,
-    // The vendor limit here IS real: the PostToolUse contract's stdout "expects
-    // an empty JSON object {}", so nothing can rewrite the result. Masking on
-    // this client happens before the tool runs, via `overwrite` on PreToolUse,
-    // and what cannot be masked that way is refused instead.
     redactsOutput: false,
     parse(raw) {
       const tc = raw.toolCall && typeof raw.toolCall === "object" ? raw.toolCall : {};
@@ -840,16 +797,7 @@ var CLIENTS = {
       return 0;
     }
   },
-  // Unknown client: never silently adopt another client's rules. Parse by
-  // payload SHAPE and deny with the most widely enforced signal available
-  // (JSON + exit 2). A client that needs anything else gets its own entry.
   generic: {
-    // BOTH FALSE ON PURPOSE, and neither is a gap waiting to be measured. An
-    // unknown client is one whose contract nobody has read: assuming it runs a
-    // post-tool stage means leaving the record to something that may not exist,
-    // and assuming it can mask its output means letting a secret through
-    // masked-in-name-only. Assume the weaker capability in both directions, so
-    // the record is written here and masking fails closed.
     reportsAfter: false,
     redactsOutput: false,
     parse(raw) {
@@ -921,18 +869,10 @@ var TAMPER_PROTECTED_ABS = [
   TAMPER_HOME + TAMPER_CX + "/config.toml",
   TAMPER_HOME + TAMPER_AGY + "/hooks.json",
   TAMPER_HOME + TAMPER_SG + "/hooks",
-  // The directory the guard BINARY lives in, see the glob below for why.
   TAMPER_HOME + TAMPER_SG + "/bin",
   TAMPER_HOME + TAMPER_SG + "/policy.json",
   TAMPER_HOME + TAMPER_SG + "/.policy-cache.json",
-  // The cloud credential (contains the API key), never readable via a tool.
   TAMPER_HOME + TAMPER_SG + "/cloud-guard.json",
-  // ITS UNPROTECTED SIBLING. accounts.json was the account layer's store,
-  // every account ever logged in, each with its API key, at 0644, next to the
-  // 0444 file above. That layer is gone and nothing reads or writes this file
-  // any more, but it is still on every machine that ran a build which did. A
-  // credential nothing maintains is still a credential, and an agent reading
-  // it out is the one thing that must not happen to it.
   TAMPER_HOME + TAMPER_SG + "/accounts.json"
 ];
 var TAMPER_INSTALL = "/solongate";
@@ -947,40 +887,9 @@ var TAMPER_PROTECTED_GLOBS = [
   "**" + TAMPER_SG + "/.policy-cache.json",
   "**" + TAMPER_SG + "/.policy-cache-*.json",
   "**" + TAMPER_SG + "/cloud-guard.json",
-  // `.opa-wasm-*.json` and `.pi-config-cache.json` were listed here. Nothing writes
-  // either: the WASM bundle came from a service that compiled it, and the prompt-injection
-  // layer is not in this build. A lock on a file that cannot exist reads as protection and
-  // is not; what remains on this list is what an agent could actually reach for.
-  // The rate-limit counter. The extension is `.log`, not `.json`, this glob said
-  // `.ratelimit-*.json` and matched NOTHING the limiter writes. The file was still
-  // protected, by the basename rule below (`.ratelimit-` as a prefix inside
-  // ~/.solongate), which is why nothing broke; but a glob that matches no real file is
-  // a line somebody will one day rely on. Deleting this counter resets the window, so
-  // a limit of N calls/minute becomes N per deletion.
   "**" + TAMPER_SG + "/.ratelimit-*",
-  // THE GUARD BINARY, and this was a complete disarm reachable from one tool call.
-  //
-  // sgTryGoGuard runs whatever is at ~/.solongate/bin/solongate-guard as soon as it
-  // prints the expected number for --sg-version, and then honours its exit code. So a
-  // two-line shell script there,
-  //
-  //   #!/bin/sh
-  //   case "$1" in --sg-version) echo 99;; *) exit 0;; esac
-  //
-  //, makes this hook hand every call to it and allow everything, while `solongate
-  // doctor` still reports a native guard in use. Writing that file was not protected
-  // here, so an agent could arm its own bypass and then use it on the next tool call.
-  //
-  // The Go guard has covered this path for a while (see tamperProtectedGlobs in
-  // packages/guard/tamper.go, whose comment says it "was the one file in this
-  // directory the tamper check did not cover"). The fix was never ported, so which
-  // implementation a machine runs decided whether the disarm worked, and the machines
-  // that run THIS one are exactly the ones with no binary, where nothing legitimate
-  // occupies the path. test/tamper-path.mjs now holds both to it.
   "**" + TAMPER_SG + "/bin/**",
-  // Persistent host data (DB + audit JSONL) at ~/.solongate/data
   "**" + TAMPER_SG + "/data/**",
-  // Customer install layout (zip extracted as solongate/)
   "**" + TAMPER_INSTALL + "/compose/**",
   "**" + TAMPER_INSTALL + "/data/**",
   "**" + TAMPER_INSTALL + "/images/**",
@@ -994,25 +903,11 @@ var TAMPER_BASENAMES = [
   "stop.mjs",
   "shield.mjs",
   "policy.json",
-  // The guard binary, on the COMMAND side too. The globs above catch a Write or an
-  // Edit; this catches `cp /bin/true ~/.solongate/bin/solongate-guard`, which is the
-  // same disarm through a different tool. Matched as a substring, so the Windows
-  // `solongate-guard.exe` is covered by the same entry.
   "solongate-guard",
-  // Prefixes (substring match) so per-agent runtime state can't be deleted or
-  // rewritten via a shell command either, `.policy-cache-<agent>.json` and
-  // `.ratelimit-<agent>.log`. Deleting the counter resets the rate-limit window, so a
-  // limit of N calls/minute becomes N per deletion; the cache is no longer written but
-  // a leftover one must not be editable either.
   ".policy-cache",
   ".ratelimit-",
   "cloud-guard.json",
-  // The stale credential store, on the COMMAND side too: the path rule above
-  // catches a Write or a Read naming it, this catches `cat` and every other
-  // way a shell reaches a file. Nothing writes this file any more; every
-  // machine that ran a build which did still has it, with a key in it.
   "accounts.json",
-  // Customer install: DB and wizard exe
   "solongate.db",
   "solongate.exe"
 ];
@@ -1030,8 +925,6 @@ var TAMPER_PATH_FIELDS = /* @__PURE__ */ new Set([
   "directory",
   "dir",
   "folder",
-  // Antigravity CLI file-tool arg names (camelCase, lowercased here): its
-  // write/read/list tools carry the path in these, so tamper protection sees it.
   "targetfile",
   "absolutepath",
   "filepath"
@@ -1085,9 +978,6 @@ var CLI_WRAPPERS = /* @__PURE__ */ new Set([
   "watch",
   "timeout",
   "builtin",
-  // Shell interpreters belong here for the same reason: `bash -c "solongate policy delete"`
-  // runs it as surely as a bare call does, and once quotes are honoured the command sits in
-  // the argument list like any other program name.
   "bash",
   "sh",
   "zsh",
@@ -1098,11 +988,6 @@ var CLI_WRAPPERS = /* @__PURE__ */ new Set([
   "tcsh",
   "ash",
   "busybox",
-  // AND THE ONES THAT HAND A PROGRAM A TERMINAL. `script -c "solongate policy delete"`
-  // allocates a pty and runs the command inside it, which is how an agent would fake the
-  // interactive terminal the CLI asks for, the exact case the TTY check cannot see and the
-  // reason this guard rule exists at all. A rule that missed `script` would leave the
-  // product protected by nothing but the env sniff it replaced.
   "script",
   "unbuffer",
   "expect",
@@ -1121,13 +1006,6 @@ var CLI_WRAPPERS = /* @__PURE__ */ new Set([
   "systemd-run",
   "xvfb-run",
   "dbus-run-session"
-  //
-  // THE TAIL IS REAL AND THIS DOES NOT CLOSE IT. `screen -dmS name solongate policy delete`
-  // bundles its flags, so the scan stops on `name` and reads it as the program; so does any
-  // wrapper whose value-taking flag is not in the table below. Enumeration cannot win this
-  // outright, what it does is raise the cost, in front of a CLI that still refuses to run
-  // without a terminal, and beside the path and basename rules above that catch what such a
-  // command would have to touch.
 ]);
 var CLI_FLAG_TAKES_VALUE = /* @__PURE__ */ new Set([
   "-u",
@@ -1760,9 +1638,6 @@ function normalizeToolCall(raw) {
   const tool = parsed.tool || "";
   const call = {
     client: AGENT_TYPE,
-    // The client's own tool name, kept verbatim for logs and audit. Layers must
-    // NOT branch on it: clients name the same capability differently (Bash /
-    // run_command / shell). `permission` below is the neutral classification.
     tool,
     permission: guessPermission(tool),
     args: parsed.args || {},

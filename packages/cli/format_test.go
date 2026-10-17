@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// The line that made this necessary: a repair note, three sentences and a path,
-// printed where every other line in the run is nine columns in.
 const credentialNote = "Removed /home/codeyevsky/.solongate/clo" + "ud-guard.json, " +
 	"left over from when this product had accounts. It held an API key: revoke " +
 	"that key at whatever issued it, because deleting the file does not."
@@ -29,7 +27,7 @@ func TestWrapIndentedKeepsEveryLineInTheColumn(t *testing.T) {
 			t.Errorf("line %d is %d columns wide, past the 80 it was given: %q", i, len(l), l)
 		}
 	}
-	// Nothing lost and nothing invented.
+
 	joined := strings.Join(nil, "")
 	for _, l := range lines {
 		joined += " " + strings.TrimPrefix(l, markIndent)
@@ -40,8 +38,7 @@ func TestWrapIndentedKeepsEveryLineInTheColumn(t *testing.T) {
 }
 
 func TestWrapIndentedWithNoTerminalDoesNotGuess(t *testing.T) {
-	// A log file has no width. Folding it at an assumed column makes every
-	// line a guess, so the text goes out whole.
+
 	t.Setenv("COLUMNS", "")
 	lines := wrapIndented(credentialNote)
 	if len(lines) != 1 {
@@ -61,15 +58,13 @@ func TestWrapIndentedRefusesToBreakAPath(t *testing.T) {
 		}
 	}
 	if !found {
-		// A path cut in half is a path nobody can copy. One overflowing line
-		// is a worse line; a broken one is a wrong line.
+
 		t.Errorf("the path was broken across lines: %q", lines)
 	}
 }
 
 func TestWrapIndentedAtANarrowWidthDoesNotFold(t *testing.T) {
-	// Below the point where an indent plus a word is most of the line, folding
-	// produces one word per line, which is less readable than overflowing.
+
 	t.Setenv("COLUMNS", "24")
 	if lines := wrapIndented(credentialNote); len(lines) != 1 {
 		t.Errorf("a 24-column terminal produced %d lines; too narrow to fold usefully", len(lines))
@@ -87,9 +82,6 @@ func TestWrapIndentedShortTextIsOneLine(t *testing.T) {
 	}
 }
 
-// The indent has to be exactly the width of the mark, or the unmarked lines sit
-// in a column of their own and the whole run looks like two programs taking
-// turns.
 func TestMarkIndentMatchesTheMarkWidth(t *testing.T) {
 	if len(markIndent) != len("[  OK  ] ") {
 		t.Errorf("markIndent is %d wide, the mark is %d", len(markIndent), len("[  OK  ] "))

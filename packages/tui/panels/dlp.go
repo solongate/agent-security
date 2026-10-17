@@ -13,47 +13,10 @@ import (
 	"github.com/solongate/agent-security/packages/tui"
 )
 
-// No init(): DLP is not a section any more. See the note on NewRateLimit, a
-// policy carries its own, per variant, and NewDLP is mounted there.
-
-// The DLP panel, ported from tui/panels/Dlp.tsx. Draft-only edits, saved with
-// `s`, never auto-saved.
-//
-// ONE scrollable cursor runs over two sections so nothing is ever clipped: the
-// built-in secret patterns (space toggles each) and the custom patterns
-// (a add · d remove).
-//
-// Custom patterns take the SAME GLOB syntax as the built-in
-// patterns, `*` matches any run of characters, not regular expressions. The
-// field is named `re` on the wire, which is exactly why the prompts say glob
-// every time they are shown.
-//
-// The built-ins tile FOUR TO A ROW. There are seventy of them, and one per line
-// put the custom section four screens below the fold, nobody scrolled that far,
-// so nobody found it. The names are 23 characters at the longest, which fits
-// four across any terminal this TUI already asks for. The row is also the ↑↓
-// step; ←→ moves one cell, and ← from the leftmost column means back, because a
-// cursor already at the edge has nowhere else for that key to take it.
-//
-// `A` turns every built-in on and `U` turns every one off. Seventy space presses
-// was the only way to say "all of them", which is the common answer.
-//
-// The add editor is pinned at the TOP so what is being typed is always visible.
-// Self-protection lives in Settings, not here.
-
-// The three things a scan can do, plus off. They are separate modes because
-// they are separate outcomes: detect leaves the call exactly as it was, redact
-// changes what the model sees, block stops the call. Two of these used to share
-// one name, "detect" masked everything it found, so choosing the weakest mode
-// quietly applied the middle one.
 var dlpModes = []client.LayerMode{client.LayerOff, client.LayerDetect, client.LayerRedact, client.LayerBlock}
 
-// dlpCols is how many built-ins share a row. Fixed, not derived from the width:
-// the row is the ↑↓ stride, and a stride that changed with the terminal would
-// land the cursor somewhere different after every resize.
 const dlpCols = 4
 
-// dlpEntryKind discriminates the flattened cursor's rows.
 type dlpEntryKind int
 
 const (
@@ -63,11 +26,10 @@ const (
 
 type dlpEntry struct {
 	kind dlpEntryKind
-	name string // built-in pattern name
-	i    int    // index into custom
+	name string
+	i    int
 }
 
-// dlpAdding is which text prompt is open, if any.
 type dlpAdding string
 
 const (
@@ -90,7 +52,6 @@ type (
 	dlpTickMsg struct{ genTag }
 )
 
-// DLP is the panel.
 type DLP struct {
 	deps tui.Deps
 
@@ -103,7 +64,7 @@ type DLP struct {
 	loading bool
 	loadErr error
 
-	dlp       client.SecurityLayers // the draft; only the dlp part is edited
+	dlp       client.SecurityLayers
 	hasDraft  bool
 	available []string
 
@@ -111,16 +72,11 @@ type DLP struct {
 	dirty  bool
 	status string
 
-	// bound is set when the panel is not a section of its own but the DLP fold
-	// of one policy VARIANT, which is where these settings actually live. The
-	// owner hands the draft in before every key and reads it back after, so
-	// there is one copy of it and it is the policy's; loading, saving and the
-	// poll all belong to the owner and are skipped here.
 	bound bool
 
 	adding  dlpAdding
 	newName string
-	editIdx int // index being edited in place, -1 when adding a new entry
+	editIdx int
 	input   textinput.Model
 }
 
@@ -132,12 +88,6 @@ func NewDLP(d tui.Deps) *DLP {
 
 var _ tui.Panel = (*DLP)(nil)
 
-// SetBound points the panel at layers somebody else owns.
-//
-// It is called before every key and every render rather than once, so a poll
-// that reloaded the policy underneath cannot leave this editor showing the
-// draft it had a second ago. The prompt state is deliberately not touched: a
-// half-typed pattern belongs to the keyboard, not to the document.
 func (p *DLP) SetBound(sec client.SecurityLayers, available []string, dirty bool) {
 	p.bound = true
 	p.loading = false
@@ -146,19 +96,10 @@ func (p *DLP) SetBound(sec client.SecurityLayers, available []string, dirty bool
 	p.adoptServer(sec)
 }
 
-// Bound reads the draft back out.
 func (p *DLP) Bound() client.SecurityLayers { return p.dlp }
 
-// CapturingKeys is true while the add/edit prompt is open, so the shell leaves
-// every key, including q and esc, to the prompt.
 func (p *DLP) CapturingKeys() bool { return p.adding != dlpAddNone }
 
-// WantsLeft is whether ← means something here right now.
-//
-// It does inside the built-in grid, where ← steps one cell to the left, and it
-// does not in the leftmost column or anywhere in the custom list. The owner asks
-// before it treats ← as "back", so the grid keeps its key and the panel still
-// has one that leaves it.
 func (p *DLP) WantsLeft() bool {
 	selC := p.selClamped()
 	return selC < len(p.available) && selC%dlpCols != 0
@@ -214,12 +155,11 @@ func (p *DLP) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd) {
 
 	case dlpTickMsg:
 		if m.tok != p.tok {
-			return p, nil // a previous mount's clock: let the chain end here
+			return p, nil
 		}
 		t := p.tag()
 		cmd := tea.Tick(3*time.Second, func(time.Time) tea.Msg { return dlpTickMsg{t} })
-		// Paused mid-edit and while typing, so a refresh cannot overwrite the
-		// draft or the prompt under the cursor.
+
 		if !p.dirty && p.adding == dlpAddNone {
 			return p, tea.Batch(cmd, p.load())
 		}
@@ -237,9 +177,6 @@ func (p *DLP) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd) {
 	return p, nil
 }
 
-// adoptServer copies the server's answer into the draft. The slices are copied
-// rather than aliased: an edit to the draft must not mutate what the panel
-// compares against when discarding.
 func (p *DLP) adoptServer(l client.SecurityLayers) {
 	p.dlp = l
 	p.dlp.DLP.Patterns = append([]string(nil), l.DLP.Patterns...)
@@ -269,8 +206,6 @@ func (p *DLP) current() (dlpEntry, bool) {
 	}
 	return e[p.selClamped()], true
 }
-
-// ── small slice helpers ────────────────────────────────────────────────────
 
 func containsString(list []string, v string) bool {
 	for _, s := range list {

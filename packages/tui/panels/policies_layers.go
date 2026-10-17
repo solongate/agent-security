@@ -10,14 +10,6 @@ import (
 	"github.com/solongate/agent-security/packages/tui"
 )
 
-// Split from policies.go: the two bound layer editors (DLP, rate limit) and
-// the sync between their drafts and this panel's.
-
-// forwardToLayers hands a message to both bound editors.
-//
-// Both, rather than the one on screen: each child's messages are its own types,
-// so the other one drops it, and the alternative is a child whose ticker stops
-// being fed the moment somebody opens the other fold.
 func (p *Policies) forwardToLayers(msg tea.Msg) tea.Cmd {
 	if _, isKey := msg.(tea.KeyMsg); isKey {
 		return nil
@@ -37,8 +29,6 @@ func (p *Policies) forwardToLayers(msg tea.Msg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// layersOf is which block a variant edits: its own, then the policy's, then the
-// project-wide row the old sections wrote. The order is the dashboard's.
 func (p *Policies) layersOf(set client.PolicySet, v client.PolicyVariant) client.SecurityLayers {
 	switch {
 	case v.Security != nil:
@@ -50,8 +40,6 @@ func (p *Policies) layersOf(set client.PolicySet, v client.PolicyVariant) client
 	}
 }
 
-// normaliseLayers fills in the modes a document can be missing and copies the
-// slices, so editing a draft cannot reach back into what it was adopted from.
 func normaliseLayers(l client.SecurityLayers) client.SecurityLayers {
 	out := l
 	if out.DLP.Mode == "" {
@@ -65,12 +53,6 @@ func normaliseLayers(l client.SecurityLayers) client.SecurityLayers {
 	return out
 }
 
-// layerKey drives the two bound editors next door.
-//
-// The draft goes in before the key and comes back after, so there is one copy
-// of a variant's layers and it is this panel's. Save, discard and back are
-// taken first because they belong to the policy; everything else is the
-// child's, including the keys that would mean something else here.
 func (p *Policies) layerKey(k tea.KeyMsg, s string) tea.Cmd {
 	child := p.layerPanel()
 	if child == nil {
@@ -92,11 +74,7 @@ func (p *Policies) layerKey(k tea.KeyMsg, s string) tea.Cmd {
 				return nil
 			}
 		case "esc":
-			// esc steps the level back unconditionally. ← cannot: both children
-			// spend it on editing (±1 on a rate-limit field, one cell left in the
-			// DLP grid), and the rate limit spends it on EVERY field, so a panel
-			// with no bursts recorded had no key at all that left it. Every other
-			// level here already treats esc this way.
+
 			p.syncFromLayer()
 			p.view = viewPolicy
 			return nil
@@ -113,8 +91,6 @@ func (p *Policies) layerKey(k tea.KeyMsg, s string) tea.Cmd {
 	return cmd
 }
 
-// ── the two bound editors ──────────────────────────────────────────────────
-
 func (p *Policies) layerPanel() tui.Panel {
 	switch p.view {
 	case viewDLP:
@@ -125,9 +101,6 @@ func (p *Policies) layerPanel() tui.Panel {
 	return nil
 }
 
-// storeLayer puts back whatever Update returned. Both children return
-// themselves today; taking the answer rather than assuming it means a child
-// that starts replacing itself does not silently stop receiving keys.
 func (p *Policies) storeLayer(next tui.Panel) {
 	switch v := next.(type) {
 	case *DLP:
@@ -137,14 +110,8 @@ func (p *Policies) storeLayer(next tui.Panel) {
 	}
 }
 
-// polLayerHeader is how many lines the policy/variant header takes above a
-// bound editor. The child is given the rest, and it clips itself to exactly
-// that: a header that grew without this number growing would push the child's
-// last line past the frame. See the frame-height rule in the package comment.
 const polLayerHeader = 3
 
-// childCtx is the box a bound editor draws in: this panel's, minus the two
-// lines of policy/variant header above it.
 func (p *Policies) childCtx() tui.PanelContext {
 	return tui.PanelContext{
 		Deps:    p.deps,
@@ -184,9 +151,6 @@ func (p *Policies) syncToLayer() {
 	}
 }
 
-// syncFromLayer takes the child's edit back. Each child owns ONE part of the
-// block, so only that part is copied: the DLP editor must not write back a rate
-// limit it was handed and never touched.
 func (p *Policies) syncFromLayer() {
 	switch p.view {
 	case viewDLP:
@@ -196,9 +160,6 @@ func (p *Policies) syncFromLayer() {
 	}
 }
 
-// layersEqual is what decides a keystroke was an EDIT. Comparing the block
-// rather than trusting the child's own dirty flag keeps one definition of
-// unsaved on this panel, and means a key that moved a cursor is not a change.
 func layersEqual(a, b client.SecurityLayers) bool {
 	if a.RateLimit != b.RateLimit || a.DLP.Mode != b.DLP.Mode {
 		return false

@@ -11,8 +11,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Split from sandbox.go: key handling, the edit prompt, and the create/save/delete commands.
-
 func (p *Sandbox) key(k tea.KeyMsg) tea.Cmd {
 	if p.editing {
 		switch k.String() {
@@ -43,8 +41,7 @@ func (p *Sandbox) key(k tea.KeyMsg) tea.Cmd {
 			p.beginEdit(b.ID, b.Dir)
 		}
 	case "m":
-		// The network toggle, written through the same setter the CLI reads, so
-		// the row and the launch cannot disagree about it.
+
 		if b, ok := p.cur(); ok {
 			return p.save(b.ID, b.Dir, b.Label, !b.Network)
 		}
@@ -81,8 +78,7 @@ func (p *Sandbox) submit() tea.Cmd {
 		return nil
 	}
 	if id == "" {
-		// A new box keeps the network, because that is the box that works. The
-		// row says which it is and `m` changes it.
+
 		return p.create(v)
 	}
 	net := true
@@ -93,10 +89,6 @@ func (p *Sandbox) submit() tea.Cmd {
 	}
 	return p.save(id, v, "", net)
 }
-
-// All three writes go through the API, which is the code the CLI calls too. A
-// path this panel accepted and the CLI refused would be a disagreement about
-// what is confined, which is the worst kind to have here.
 
 func (p *Sandbox) create(dir string) tea.Cmd {
 	g, client := p.gen, p.deps.Client

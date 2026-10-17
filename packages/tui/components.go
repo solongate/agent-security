@@ -10,14 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// The reusable building blocks from packages/proxy/src/tui/components.tsx.
-//
-// Everything here returns lines of text rather than a widget: a Bubble Tea view
-// is one string, and a panel that has to guarantee its own height (see the
-// frame budget in app.go) can only do that if it can count what it is about to
-// emit.
-
-// hhmmss is HH:MM:SS in local time; `--:--:--` when the timestamp is not one.
 func hhmmss(atMs int64) string {
 	if atMs <= 0 {
 		return "--:--:--"
@@ -25,7 +17,6 @@ func hhmmss(atMs int64) string {
 	return time.UnixMilli(atMs).Format("15:04:05")
 }
 
-// ymd is the local calendar date; `----------` when the timestamp is not one.
 func ymd(atMs int64) string {
 	if atMs <= 0 {
 		return "----------"
@@ -33,7 +24,6 @@ func ymd(atMs int64) string {
 	return time.UnixMilli(atMs).Format("2006-01-02")
 }
 
-// paneTitle is the section divider used across the Live and Audit consoles.
 func paneTitle(label, extra string, width int) string {
 	tail := " "
 	if extra != "" {
@@ -51,11 +41,6 @@ func paneTitle(label, extra string, width int) string {
 	)
 }
 
-// StreamRow is one tool-call row, shared verbatim by Live (the rolling buffer)
-// and Audit (the full history).
-//
-// EvalMs is a pointer because "not recorded" and "0ms" are different answers
-// and the row prints an em dash for the first.
 type StreamRow struct {
 	At         int64
 	Tool       string
@@ -69,16 +54,6 @@ type StreamRow struct {
 	Rule       string
 }
 
-// streamLine renders one row.
-//
-// `loc` tags where the record IS: LOC (a line in this machine's local log)
-// against CLD (the cloud audit log). With local storage off nothing is LOC,
-// which is the whole point of the setting, the label answers "where is this
-// stored", never "where did this happen". It was changed to the second reading
-// once and changed back.
-//
-// The columns are fixed-width and never conditional, so scrolling cannot
-// reshuffle a line and glitch the frame.
 func streamLine(e StreamRow, selected, date bool, width int) string {
 	cursor, cursorColor := " ", theme.Dim
 	if selected {
@@ -88,9 +63,7 @@ func streamLine(e StreamRow, selected, date bool, width int) string {
 	if date {
 		stamp = "[" + ymd(e.At) + " " + hhmmss(e.At) + " "
 	}
-	// A LOC/CLD column stood here, from a `loc bool` parameter. Every entry on every
-	// surface comes from this machine's own audit file, so the column distinguished
-	// nothing, and labelled some of them "cloud".
+
 	evalText, evalColor := ", ", theme.Dim
 	if e.EvalMs != nil {
 		evalText = num(*e.EvalMs) + "ms"
@@ -135,20 +108,6 @@ func streamLine(e StreamRow, selected, date bool, width int) string {
 	return renderRow(width, segs...)
 }
 
-// panelHeading, table and bar were here: a boxed-panel title helper, a
-// fixed-width aligned table over Column/Cell, and a labelled horizontal bar.
-// Nothing called any of them. Each panel builds its rows from renderRow and the
-// seg helpers directly, because each needs its own column behaviour, the audit
-// browser ellipsises a reason, Solo Live right-aligns a duration, and a shared
-// table that none of them could use was a component in name only.
-//
-// The bar is the one worth a note: Solo Live draws its TRAFFIC and HEARTBEAT
-// graphs with block glyphs scaled per bucket, not with a labelled bar, and a
-// reader finding `bar` here would reasonably think that is what the graphs are.
-
-// dataView wraps panel content with the loading / error / empty handling every
-// panel shares. An error wins over a spinner: a panel that shows "loading…"
-// forever because the request failed is the worst of the three states.
 func dataView(loading bool, err error, empty bool, emptyText string, width int, body []string) []string {
 	if err != nil {
 		return []string{renderRow(width, sg("✗ "+err.Error(), theme.Bad))}
@@ -165,9 +124,6 @@ func dataView(loading bool, err error, empty bool, emptyText string, width int, 
 	return body
 }
 
-// Column and Cell describe a fixed-width table.
-
-// keyHints is the footer legend: the key in the accent colour, its meaning dim.
 func keyHints(hints [][2]string, width int) string {
 	segs := make([]seg, 0, len(hints)*3)
 	for i, h := range hints {
@@ -179,14 +135,11 @@ func keyHints(hints [][2]string, width int) string {
 	return renderRow(width, segs...)
 }
 
-// helpGroup is one section of a `?` overlay.
 type helpGroup struct {
 	title string
 	keys  [][2]string
 }
 
-// helpBlock renders help groups: a heading per group, then one line per key
-// with its description.
 func helpBlock(groups []helpGroup, keyWidth, width int) []string {
 	var out []string
 	for _, g := range groups {
@@ -202,33 +155,11 @@ func helpBlock(groups []helpGroup, keyWidth, width int) []string {
 	return out
 }
 
-// ── why a call was refused ─────────────────────────────────────────────────
-
-// whyBlock is the WHY of one entry, rendered above its arguments.
-//
-// The detail view used to open on the arguments alone. For a one-line command
-// that was almost readable, the rule id sat in the header and the rest could be
-// guessed. For a real tool call it was a screen of JSON with the answer nowhere
-// on it: the reason the guard gave was recorded, and thrown away at display
-// time, because the row's `detail` field holds the arguments OR the reason and
-// a call with arguments always took the first branch.
-//
-// So the three things that refuse a call now say so in words, before the
-// payload: which layer it was (policy rule, rate limit, DLP), and the guard's
-// own sentence explaining it. That sentence is the reliable one, it is written
-// at block time and never redacted, which is why reasonSignals reads the DLP
-// pattern name back out of it when the structured field is missing.
-//
-// Returns nil when there is nothing to say, so an ordinary ALLOW still opens
-// straight onto its arguments.
 func whyBlock(decision, reason, rule string, dlp []string, burst bool, width int) []string {
 	if strings.TrimSpace(reason) == "" && len(dlp) == 0 && !burst {
 		return nil
 	}
 
-	// WHICH LAYER, named before the sentence that explains it. A rate limit and
-	// a DLP hit are not rule denials and looking for a rule id to explain them is
-	// what makes them confusing.
 	what := ""
 	switch {
 	case burst && len(dlp) > 0:
@@ -241,9 +172,6 @@ func whyBlock(decision, reason, rule string, dlp []string, burst bool, width int
 		what = "rule " + rule
 	}
 
-	// An ALLOW that carries a DLP or burst signal is detect mode: recorded and
-	// let through. Labelling that "ALLOW" beside a DLP pattern reads as a
-	// contradiction, so it is labelled as what it is.
 	key := decision
 	if decision == "ALLOW" && (burst || len(dlp) > 0) {
 		key = "flagged"
@@ -264,16 +192,10 @@ func whyBlock(decision, reason, rule string, dlp []string, burst bool, width int
 	return append(out, "")
 }
 
-// whyColor is the colour the why block is drawn in.
-//
-// Red when the call was refused, amber when it was only flagged. It is deliberately
-// NOT the body's colour: the block sits directly above a wall of arguments, and in
-// plain text it reads as the first two lines of the payload rather than as the
-// answer to the question the view was opened to ask.
 func whyColor(decision string, burst bool, dlp []string) lipgloss.TerminalColor {
 	if strings.ToUpper(strings.TrimSpace(decision)) == "ALLOW" {
 		if burst || len(dlp) > 0 {
-			return theme.Warn // detect mode: recorded, let through
+			return theme.Warn
 		}
 		return theme.Dim
 	}

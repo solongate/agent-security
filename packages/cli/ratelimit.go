@@ -19,8 +19,6 @@ func ratelimitUsage() string {
 	})
 }
 
-// modeColor: block is the only mode that stops anything, detect only records,
-// off is off. The colours say which of the three you are in without reading.
 func modeColor(m client.LayerMode) string {
 	switch m {
 	case client.LayerBlock:
@@ -44,9 +42,7 @@ func runRateLimit(ctx context.Context, c *client.Client, p parsedArgs) (int, err
 		return 0, nil
 
 	case "show":
-		// Both requests are in flight at once, as the Promise.all they replace
-		// was. Doing them in sequence would double the wait on a cold API for a
-		// command whose whole job is one screen of text.
+
 		type histResult struct {
 			history []client.RateLimitChange
 			err     error
@@ -118,9 +114,6 @@ func runRateLimit(ctx context.Context, c *client.Client, p parsedArgs) (int, err
 			return usageErr("Usage: ratelimit set --minute N [--hour N] [--day N] [--mode off|detect|block]")
 		}
 
-		// Read-modify-write against the whole layers document: the endpoint
-		// replaces it, so sending only the rate-limit block would erase the DLP
-		// settings on the way past.
 		cur, err := c.Settings.GetSecurityLayers(ctx)
 		if err != nil {
 			return 1, err
@@ -156,9 +149,6 @@ func runRateLimit(ctx context.Context, c *client.Client, p parsedArgs) (int, err
 	return unknownSub("ratelimit", sub, ratelimitUsage())
 }
 
-// isoMillis prints a unix-milli timestamp the way JavaScript's toISOString does:
-// UTC, always three fractional digits, always a trailing Z. Go's RFC3339Nano
-// drops trailing zeros, which would make the column ragged.
 func isoMillis(ms int64) string {
 	return time.UnixMilli(ms).UTC().Format("2006-01-02T15:04:05.000Z")
 }

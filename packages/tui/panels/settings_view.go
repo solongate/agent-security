@@ -11,8 +11,6 @@ import (
 	"github.com/solongate/agent-security/packages/tui"
 )
 
-// Split from settings.go: the on/off helper and the rendering of the panel.
-
 func onOff(on bool) (string, lipgloss.Style) {
 	if on {
 		return "on ", stOK
@@ -34,15 +32,6 @@ func (p *Settings) firstError() error {
 	return nil
 }
 
-// authErrorShape matched an error worth keeping the panel open for: every loader here
-// spoke to a service, and a revoked key 401'd all of them at once. Rendering that
-// error INSTEAD of the rows hid the Accounts section, the only way to remove the dead
-// account and pair again, so a device revoked from the dashboard was stuck being told
-// to use a panel it could not see.
-//
-// Nothing 401s. The loaders read a file, and the two failures a file has (absent,
-// unparseable) are already the ordinary error path below.
-
 func (p *Settings) viewList() string {
 	loading := !p.haveLocal && !p.haveGuard && !p.haveSelf && p.firstError() == nil
 	raw := p.firstError()
@@ -56,9 +45,6 @@ func (p *Settings) viewList() string {
 	cur := p.current()
 	curKey := cur.key()
 
-	// Rows and their section headers are flattened into ONE line list, then
-	// windowed around the selected row. Anything that is not selectable, a
-	// header, a warning, the version at the bottom, carries an empty key.
 	type flat struct {
 		text string
 		key  string
@@ -75,17 +61,10 @@ func (p *Settings) viewList() string {
 			}
 			lastSec = sec
 			push(stAccentB.Render(sec)+stDim.Render(", "+p.sectionDesc(sec)), "")
-			// A warning stood here for the WEBHOOKS and ALERTS sections: they fired
-			// server-side off the audit POST, which the guard skipped in local-log
-			// mode, so they were a silent no-op. sectionOf has produced only
-			// PROTECTION and LOCAL LOGS since those sections went, which made the
-			// branch unreachable, and its condition (`p.local.Enabled`) is now true
-			// on every machine, so it would have shown on all of them.
+
 		}
 		push(p.rowLine(r, r.key() == curKey && p.focused), r.key())
 
-		// The repair's two lists, under the row that produced them, in the same
-		// shape and order `solongate repair` prints. Not selectable.
 		if r.kind == "repair" && p.repairReport != nil {
 			rep := p.repairReport
 			if len(rep.Before) > 0 {
@@ -101,9 +80,7 @@ func (p *Settings) viewList() string {
 			if len(rep.After) > 0 {
 				push(stDim.Render("    restored:"), "")
 				for _, l := range rep.After {
-					// A client the repair could not register is the one line worth
-					// colouring: the run succeeded and that client is still
-					// unguarded.
+
 					st := stOK
 					if !l.OK {
 						st = stWarn
@@ -117,8 +94,7 @@ func (p *Settings) viewList() string {
 		}
 
 		if r.kind == "doctor" {
-			// While the check runs, the step list stands in for the result:
-			// finished steps tick, the current one spins, the rest sit dim.
+
 			if p.diagBusy {
 				for i, label := range doctorSteps {
 					mark, st := " ", stDim
@@ -131,8 +107,7 @@ func (p *Settings) viewList() string {
 					push(st.Render("      "+mark+" "+label), "")
 				}
 			}
-			// The last run's rows sit under the row that produced them, and are
-			// not selectable.
+
 			for _, c := range p.diag {
 				mark, st := "✗", stBad
 				switch c.OK {
@@ -146,12 +121,6 @@ func (p *Settings) viewList() string {
 		}
 	}
 
-	// PROTECTED PATHS, under everything else and not selectable.
-	//
-	// The mark is the whole point of the section: a tick means the operating
-	// system refuses to write or delete it, a warning means the write is
-	// refused and a delete is not, a cross means nothing is holding it. All
-	// three print the same word in the policy file.
 	if len(p.protected) > 0 {
 		push(" ", "")
 		push(stAccentB.Render("PROTECTED PATHS")+
@@ -170,14 +139,9 @@ func (p *Settings) viewList() string {
 		push(stDim.Render("      `solongate protect` adds and removes them"), "")
 	}
 
-	// The version sits at the very bottom of the scrollable list.
 	push(" ", "")
 	push(stDim.Render("solongate v"+Version), "")
 
-	// hint + status take one line each. The panel must not grow past its box.
-	//
-	// A third line used to be reserved when the auth banner was showing. There is no
-	// banner: nothing here can fail with a credential error.
 	budget := max(4, p.rows-2)
 	selLine := 0
 	for i, l := range lines {
@@ -255,9 +219,7 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 	case "range":
 		l.put(pad("range", 11), stDim)
 		if config.UpdateRangeOf(p.deps.Cfg) == config.UpdateRangeShort {
-			// Warn rather than OK. It is a supported choice and it is the one
-			// that installs code no release has covered, and the colour is the
-			// only part of this row somebody reads at a glance.
+
 			l.put("short", stWarn)
 			l.put("  every commit on the branch", stDim)
 		} else {
@@ -271,10 +233,7 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 			l.put("…", stDim)
 			break
 		}
-		// The cloud's view: the newest hook, what this project's devices last
-		// reported, and how many are behind. The LOCAL truth, which hook files
-		// this device actually has, is what `doctor` reads, and enter on this
-		// row installs through the same code path `solongate repair` uses.
+
 		installed := "unknown"
 		st := stWarn
 		if p.guard.Installed != nil {
@@ -323,10 +282,7 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 		case !p.haveLocal || p.local.Path == "":
 			l.put("not set, enter to edit", stDim)
 		case p.local.Enabled && !p.llSetting.UsableHere:
-			// The folder is a PROJECT setting shared by every device on it, so
-			// it can name a path that only exists on another OS. The hooks then
-			// quietly fall back, and this row was the last place still claiming
-			// the configured path was in use.
+
 			half := max(12, (p.cols-20)/2)
 			l.put(truncate(p.local.Path, half), stWarn)
 			l.put("  not valid here → "+truncate(p.llSetting.File, half), stDim)

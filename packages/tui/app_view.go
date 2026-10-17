@@ -20,8 +20,6 @@ func (p *notPortedPanel) View(ctx PanelContext) string {
 	}, "\n")
 }
 
-// ── rendering ──────────────────────────────────────────────────────────────
-
 func (a *App) View() string {
 	if !a.sized {
 		return ""
@@ -29,7 +27,7 @@ func (a *App) View() string {
 	if a.help {
 		return clampBlock(a.helpView(), a.cols, a.rows-1)
 	}
-	// Live takeover: the console owns the whole terminal, one row short of it.
+
 	if a.isTakeover() && a.focus == focusPanel {
 		return clampBlock(a.panel.View(a.ctx()), a.cols, a.rows-1)
 	}
@@ -37,14 +35,14 @@ func (a *App) View() string {
 }
 
 func (a *App) boxedView() string {
-	inner := a.cols - 2 // paddingX = 1
+	inner := a.cols - 2
 	if inner < 10 {
 		inner = 10
 	}
-	lines := []string{""} // paddingTop = 1
+	lines := []string{""}
 	lines = append(lines, a.bannerLines(inner)...)
 	lines = append(lines, a.policyLine(inner))
-	lines = append(lines, "") // marginTop = 1 on the nav+panel row
+	lines = append(lines, "")
 	lines = append(lines, a.navAndPanel(inner)...)
 	lines = append(lines, a.hintsLine(inner))
 
@@ -69,7 +67,6 @@ func (a *App) bannerLines(width int) []string {
 	return out
 }
 
-// policyLine names what is being ENFORCED. It used to name who was logged in.
 func (a *App) policyLine(width int) string {
 	segs := []seg{sg("policy: ", theme.Dim), sgb(a.policyLabel, theme.AccentBright)}
 	segs = append(segs, sg("  · this machine, nothing leaves it", theme.Dim))
@@ -112,11 +109,6 @@ func (a *App) navAndPanel(width int) []string {
 		body = clampBlock(a.panelBody(), contentCols, contentRows)
 	}
 
-	// flexShrink=0 in Ink; a fixed 14 columns of content here. Without it a
-	// panel with very wide rows (Audit's dated stream lines) inflated the row's
-	// minimum width and the sidebar visibly resized between sections.
-	// The nav is as tall as the panel, not as tall as its seven entries: Ink
-	// stretched it to the row and the two borders closed at the same line.
 	nav := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(navColor).
 		Padding(0, 1).Width(14).Height(maxInt(sectionCount, contentRows)).
@@ -129,8 +121,6 @@ func (a *App) navAndPanel(width int) []string {
 	return strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, nav, panel), "\n")
 }
 
-// panelBody renders the section inside the box. A takeover panel that has not
-// been entered shows its hint instead of its console.
 func (a *App) panelBody() string {
 	ctx := a.ctx()
 	if t, ok := a.panel.(Takeover); ok && a.focus != focusPanel {
@@ -212,7 +202,7 @@ var shellHelp = []helpGroup{
 }
 
 func (a *App) helpView() string {
-	width := a.cols - 4 // paddingX = 2
+	width := a.cols - 4
 	if width < 20 {
 		width = 20
 	}
@@ -225,10 +215,6 @@ func (a *App) helpView() string {
 	return strings.Join(lines, "\n")
 }
 
-// clampBlock is the hard guarantee behind the frame budget: at most `rows`
-// lines, each at most `cols` columns. Arithmetic decides the layout; this
-// decides what actually reaches the terminal, so a panel that miscounts loses
-// its last line instead of triggering a full-screen repaint on every render.
 func clampBlock(s string, cols, rows int) string {
 	if rows < 1 {
 		rows = 1

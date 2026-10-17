@@ -12,8 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── rendering ──────────────────────────────────────────────────────────────
-
 func (p *Live) View(ctx PanelContext) string {
 	now := ctx.Now.UnixMilli()
 	innerW := ctx.Cols - 2
@@ -38,23 +36,16 @@ func (p *Live) View(ctx PanelContext) string {
 		lines = p.viewMain(ctx, innerW, now, spin)
 	}
 	for i := range lines {
-		lines[i] = " " + lines[i] // paddingX = 1
+		lines[i] = " " + lines[i]
 	}
-	// The console clips itself rather than trusting the shell to do it. Two
-	// places genuinely round UP: the three lower columns have a 20-column floor
-	// each, and the stream has a four-row floor, so on a small terminal the
-	// budget cannot be met and something has to go. Losing the footer is what
-	// Ink's overflow hidden did; growing the frame is what costs the render
-	// path.
+
 	return clampBlock(strings.Join(lines, "\n"), ctx.Cols, ctx.Rows)
 }
 
 func (p *Live) titleBar(ctx PanelContext, width int, now int64, spin string) string {
 	segs := []seg{
 		{text: " SOLONGATE LIVE ", fg: lipgloss.Color("15"), bg: lipgloss.Color(hexTitleBG), bold: true},
-		// `· api <n>ms` stood here, the round trip of the audit fetch. What is worth a
-		// place in the title is what ENFORCEMENT costs, which is measured per call and
-		// recorded in every entry, see the GUARD COST pane.
+
 		{text: " " + spin + " up " + fmtUp(now-p.start.UnixMilli()) + " · " + hhmmss(now) +
 			" · guard " + strconv.Itoa(p.evalNow()) + "ms ", fg: theme.White, bg: lipgloss.Color(hexPanelBG)},
 	}
@@ -75,16 +66,6 @@ func (p *Live) titleBar(ctx PanelContext, width int, now int64, spin string) str
 	return renderRow(width, segs...)
 }
 
-// WHAT ENFORCEMENT COSTS, in milliseconds per decision.
-//
-// These were latNow and latMedian over p.lat, which held the round-trip time of the
-// audit fetch, a read of a file on this machine, so the number was a measure of the
-// local disk and was labelled "API LATENCY". It charted nothing anybody could act on.
-//
-// The guard measures its own decision time and writes it into every entry, which is the
-// number a person tuning a policy actually wants: a rule set that costs 40ms per tool
-// call is a different thing to live with than one that costs 4ms. Same charts, same
-// shape, a real subject.
 func (p *Live) evalNow() int {
 	if len(p.eval) == 0 {
 		return 0
@@ -110,9 +91,6 @@ func (p *Live) lastDeny() *streamItem {
 	return nil
 }
 
-// searchRow is ALWAYS the first line under a stream or timeline title, never
-// hidden, so it is obvious where to type. `/` focuses it; while focused the
-// text input takes over, otherwise it shows the query or the hint.
 func (p *Live) searchRow(width, matchCount int) string {
 	segs := []seg{{text: "⌕ search: ", fg: theme.Dim, bold: p.editingSearch}}
 	if p.editingSearch {
@@ -164,13 +142,10 @@ func (p *Live) viewHelp(ctx PanelContext, width int, now int64) []string {
 	return append(lines, renderRow(width, sg("press any key to close", theme.Dim)))
 }
 
-// viewInspect is the FULL content of one log line.
 func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 	e := *p.inspect
 	bodyW := maxInt(20, ctx.Cols-4)
-	// WHY FIRST, arguments second. On a big call the arguments are a screen of
-	// JSON, and the one thing somebody opened this view to find is the sentence
-	// explaining why it was refused.
+
 	why := whyBlock(e.Decision, e.Reason, e.Rule, e.DLPNames, e.Burst, bodyW)
 	whyN, whyFG := len(why), whyColor(e.Decision, e.Burst, e.DLPNames)
 	content := why
@@ -181,12 +156,10 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 		argsText = e.Detail
 	}
 	content = append(content, wrapLines(argsText, bodyW)...)
-	bodyRows := maxInt(4, ctx.Rows-6) // title + 3 header rows + pane title + footer
+	bodyRows := maxInt(4, ctx.Rows-6)
 	maxScroll := maxInt(0, len(content)-bodyRows)
 	off := minInt(p.inspectScroll, maxScroll)
 
-	// A LOC/CLD segment sat at the end of this header. Every entry is from this
-	// machine's own log, so the label distinguished nothing.
 	head := []seg{
 		{text: " ENTRY ", fg: theme.White, bg: lipgloss.Color(hexPanelBG), bold: true},
 		sgb("  "+e.Decision, decisionColor(e.Decision)),
@@ -255,8 +228,7 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 			lines = append(lines, "")
 			continue
 		}
-		// The why block is coloured; the arguments under it are not. The first of
-		// its lines names the layer, so it is the one that carries the weight.
+
 		if idx < whyN {
 			lines = append(lines, renderRow(width, seg{text: content[idx], fg: whyFG, bold: idx == 0}))
 			continue
@@ -270,7 +242,6 @@ func (p *Live) viewInspect(ctx PanelContext, width int, now int64) []string {
 			fg: theme.White, bg: lipgloss.Color(hexPanelBG)}))
 }
 
-// viewLayers is the full security-layer configuration.
 func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) []string {
 	rl := p.insights.Layers.RateLimit
 	dl := p.insights.Layers.DLP
@@ -387,19 +358,7 @@ func (p *Live) viewLayers(ctx PanelContext, width int, now int64, spin string) [
 	} else {
 		kv("custom", plain("none"))
 	}
-	// ONE LINE, AND NO BAR.
-	//
-	// This drew a bar per pattern, each scaled against the busiest, which makes
-	// the busiest full width by construction: a single pattern became a
-	// full-width red bar across the panel for seven hits. It read as an
-	// emergency and measured nothing, because a bar compares and there was
-	// nothing to compare against. Naming the pattern beside it did not help
-	// either, with one pattern the name sat next to what was really the total,
-	// so the row said "AWS access key" where it meant "all of them".
-	//
-	// The panel is a summary of the layers. How many hits, over what window, is
-	// the summary; which pattern fired is on the entry that fired it, where it
-	// belongs to one call and means something.
+
 	hits := p.insights.DLPByPattern
 	total := 0
 	for _, h := range hits {
@@ -486,8 +445,6 @@ func orDash(n int) string {
 	return strconv.Itoa(n)
 }
 
-// viewDetail is one session, dashboard style: a summary and the full timeline.
-
 func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []string {
 	chartH := p.chartHeight(ctx)
 	colH := p.colHeight(ctx)
@@ -508,7 +465,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 
 	lines := []string{p.titleBar(ctx, width, now, spin)}
 
-	// counters
 	counters := []seg{sg("│ calls ", theme.Dim)}
 	if p.stats != nil {
 		counters = append(counters,
@@ -538,9 +494,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		}
 		text := "v" + installed
 		color := lipgloss.TerminalColor(theme.OK)
-		// Only when there is a real newer version to name. Latest is 0 when this build
-		// cannot find its own packaged hook to compare against, and rendering that
-		// turned "I cannot tell" into "yours is out of date, upgrade to v0".
+
 		if !p.guard.UpToDate && p.guard.Latest > 0 && p.guard.Installed != nil {
 			text += "→v" + strconv.Itoa(p.guard.Latest)
 			color = theme.Warn
@@ -572,11 +526,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			fg:   lipgloss.Color(fg), bg: lipgloss.Color(bg), bold: true}))
 	}
 
-	// TRAFFIC is always the LIVE window: 10-second buckets over the last 10
-	// minutes, anchored to wall-clock slots. Bars slide left as real time passes
-	// and age out naturally, so an hours-old deny can never paint a giant red
-	// column. There is no historical fallback, an idle window is an honest flat
-	// floor, not a rescaled 24h chart.
 	nowSlot := now / 10_000
 	traffic := make([]int, 60)
 	trafficHot := make([]bool, 60)
@@ -593,13 +542,9 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			}
 		}
 	}
-	// Amber above 2.5x the median, with a floor so a quiet machine whose median is 2ms
-	// does not paint every ordinary call hot. The floor was 2000ms for a network round
-	// trip; for a local policy decision 50ms is already slow.
+
 	evalHotAt := maxFloat(50, float64(p.evalMedian())*2.5)
-	// A BASELINE UNDER THE IDLE SAMPLES. A zero column draws nothing, and a trace of
-	// nothing is the frozen picture this pane was replaced for. One unit is below the
-	// chart's floor of 50, so it moves the scale by nothing and reads as a flatline.
+
 	trace := make([]int, len(p.pulse))
 	evalHot := make([]bool, len(p.pulse))
 	for i, v := range p.pulse {
@@ -608,17 +553,15 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	}
 	left := append([]string{paneTitle("TRAFFIC",
 		"calls/10s · last 10m · live · peak "+strconv.Itoa(peak)+" · red = denials", leftW)},
-		// Ten calls in ten seconds is a busy machine; below that the bars stay short.
+
 		columnChart(traffic, trafficHot, chartH, leftW, 10, theme.Accent, theme.Bad)...)
 	right := append([]string{paneTitle("HEARTBEAT",
 		"live · ms per decision · now "+strconv.Itoa(p.evalNow())+" · med "+strconv.Itoa(p.evalMedian())+
 			" · amber >"+strconv.Itoa(int(evalHotAt+0.5)), rightW)},
-		// The amber threshold is the top of the scale: an ordinary decision sits well
-		// under it, and a bar that reaches up there is one worth looking at.
+
 		columnChart(trace, evalHot, chartH, rightW, int(evalHotAt+0.5), theme.White, lipgloss.Color(hexWarnFG))...)
 	lines = append(lines, joinColumns([][]string{left, right}, []int{leftW, rightW}, 1+chartH)...)
 
-	// LAYERS · SESSIONS · EVENT LOG
 	layersCol := []string{paneTitle("LAYERS", "l = inspect", colW)}
 	layersCol = append(layersCol, renderRow(colW,
 		sg(padEnd("RATELIMIT ", 10), theme.Dim),
@@ -639,16 +582,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		sg(padEnd("DLP", 10), theme.Dim),
 		sg(padEnd(modeOr(dl.mode()), 7), modeColor(dl.mode())),
 		sg(strconv.Itoa(builtinN)+" builtin · "+strconv.Itoa(customN)+" custom", theme.Dim)))
-	// ONE LINE, AND NO BAR. Each pattern was drawn as a bar scaled against the
-	// busiest, which makes the busiest full width by construction, so a single
-	// pattern was a full-width red bar across the panel for seven hits, reading
-	// as an emergency and measuring nothing, because a bar compares and there was
-	// nothing to compare against. Ten columns of label cut "AWS access key" to
-	// "AWS acces…" as well, so the name beside it named nothing, and with one
-	// pattern that name sat next to what was really the total.
-	//
-	// This column is a summary of the layers. How many hits over what window is
-	// the summary; WHICH pattern fired belongs on the entry that fired it.
+
 	dlpTotal := 0
 	for _, d2 := range p.insights.DLPByPattern {
 		dlpTotal += d2.Count
@@ -659,9 +593,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			sgb(strconv.Itoa(dlpTotal), theme.Bad),
 			sg(" hits in last 7 days", theme.Dim)))
 	} else {
-		// 36 characters against a colW of about 31 at cols=100: without the
-		// truncation this wrapped onto a second line and pushed the column past
-		// its height.
+
 		layersCol = append(layersCol, renderRow(colW, sg("          no dlp hits in last 7 days", theme.Dim)))
 	}
 	guardSegs := []seg{sg(padEnd("GUARD", 10), theme.Dim)}
@@ -688,9 +620,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		case "warn":
 			tickColor = theme.Warn
 		case "beat":
-			// A beat is a different KIND of line from an event: it says the console is
-			// alive, not that something happened. Marked and dimmed so a denial still
-			// stands out in a column that now has one of these every second.
+
 			mark, tickColor = "• ", theme.OK
 		}
 		eventCol = append(eventCol, renderRow(colW,
@@ -701,7 +631,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 	lines = append(lines, joinColumns([][]string{layersCol, eventCol},
 		[]int{colW, colW}, colH)...)
 
-	// TOOL STREAM
 	visible := p.visibleDesc()
 	sel := minInt(maxInt(0, p.sel), maxInt(0, len(visible)-1))
 	streamBody := maxInt(3, streamRows-1)
@@ -720,12 +649,9 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 
 	body := []string{p.searchRow(width, len(visible))}
 	switch {
-	// A "local logs off, enable: TUI → Settings or dashboard → Settings" row stood
-	// first here. Recording is unconditional: the setting chooses the folder and nothing
-	// else, so `off` is a state the writers cannot be in and the row could not appear.
+
 	case p.localOn != nil && *p.localOn && !p.localSetting.UsableHere:
-		// The folder is a PROJECT setting, so it can name a path that exists on
-		// another machine. Saying so beats showing a path nothing writes to.
+
 		body = append(body, renderRow(width,
 			sg("local logs on", theme.Warn),
 			sg(", "+p.localSetting.ConfiguredPath+" is not a folder on this device · writing to "+
@@ -736,10 +662,7 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			sg(", no entries yet · hooks write "+p.localSetting.File, theme.Dim)))
 	}
 	if len(visible) == 0 {
-		// A source filter used to make this ambiguous, "awaiting traffic" reads as
-		// "nothing is happening" when the stream is merely filtered, so it said which
-		// source was selected. There is one source. The signal and search filters can
-		// still empty the view, and they are visible in the status bar.
+
 		body = append(body, renderRow(width, sg(spin+" awaiting traffic…", theme.Dim)))
 	}
 	for i := 0; i < streamBody && scroll+i < len(visible); i++ {
@@ -754,10 +677,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 		}
 	}
 
-	// A source indicator stood here, with the `f` key that cycled it, because the
-	// filter was otherwise discoverable only through the ? overlay, the stream looked
-	// like it merged local and cloud with no way to separate them. It merged one file
-	// with itself.
 	localState := "off"
 	if p.localOn != nil && *p.localOn {
 		localState = "on"
@@ -783,7 +702,6 @@ func (p *Live) viewMain(ctx PanelContext, width int, now int64, spin string) []s
 			fg: theme.White, bg: lipgloss.Color(hexPanelBG)}))
 }
 
-// modeOr is the "?" a layer shows before its configuration has loaded.
 func modeOr(m string) string {
 	if m == "" {
 		return "?"
@@ -791,9 +709,6 @@ func modeOr(m string) string {
 	return m
 }
 
-// ── small renderers ────────────────────────────────────────────────────────
-
-// columnChart draws `height` rows of block columns, newest on the right.
 func columnChart(series []int, hot []bool, height, width, floor int, color, hotColor lipgloss.TerminalColor) []string {
 	if width < 1 {
 		width = 1
@@ -814,16 +729,7 @@ func columnChart(series []int, hot []bool, height, width, floor int, color, hotC
 			hotData[pad+i] = hot[i]
 		}
 	}
-	// A FLOOR UNDER THE SCALE, so a quiet machine looks quiet.
-	//
-	// The top of the chart was whatever the tallest sample happened to be, so on an idle
-	// console ONE call drew a full-height bar. Technically a 100% increase over nothing,
-	// and useless: every reading looked like a spike, and a real spike looked the same.
-	//
-	// The floor is what the caller considers a normal maximum, the amber threshold for
-	// decision cost, a busy second's traffic for call counts, so a bar only approaches
-	// the top when it is genuinely near that. Above the floor the scale still grows, so
-	// nothing is ever clipped.
+
 	max := floor
 	if max < 1 {
 		max = 1
@@ -864,7 +770,6 @@ func columnChart(series []int, hot []bool, height, width, floor int, color, hotC
 	return lines
 }
 
-// hbar is the compact labelled bar used inside the Live columns.
 func hbar(label string, value, max, width int, color lipgloss.TerminalColor, maxw int) string {
 	filled := 0
 	if max > 0 {
@@ -883,17 +788,6 @@ func hbar(label string, value, max, width int, color lipgloss.TerminalColor, max
 		sg(" "+strconv.Itoa(value), theme.Dim))
 }
 
-// joinColumns lays blocks side by side with a two-column gutter, clipped to
-// `height` lines.
-//
-// The height and the clipping have to happen HERE, on the row, not on the
-// individual columns. They used to be split, a fixed height on the row and
-// hidden overflow on the columns, which clips nothing: a column with no height
-// of its own sizes to its content, so there was no boundary to clip against and
-// a column taller than the budget simply grew the whole frame past its limit.
-// That is the full repaint the budget exists to avoid, and it is why LAYERS
-// made the lower half of the console flicker exactly when it had something to
-// show.
 func joinColumns(cols [][]string, widths []int, height int) []string {
 	out := make([]string, 0, height)
 	for r := 0; r < height; r++ {
@@ -914,13 +808,6 @@ func joinColumns(cols [][]string, widths []int, height int) []string {
 	return out
 }
 
-// ── counters ───────────────────────────────────────────────────────────────
-
-// counter counts by key and remembers the order keys were first seen.
-//
-// Go map iteration is random where JavaScript's Map is insertion-ordered, so
-// without the order slice two tools with the same count would swap places
-// between renders and the column would flicker.
 type counter struct {
 	order []string
 	n     map[string]int

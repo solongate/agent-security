@@ -13,11 +13,6 @@ import (
 	"github.com/solongate/agent-security/packages/tui"
 )
 
-// Split from dlp.go: the built-in/custom pattern renderers and the panel view.
-
-// wcParts splits a glob into its leading/trailing wildcard state and its core,
-// so a row can show whether the `*` on either side is ON. It is the same
-// clarity the policy editor's Match field gives.
 func wcParts(pat string) (left bool, core string, right bool) {
 	s := pat
 	left = strings.HasPrefix(s, "*")
@@ -49,10 +44,6 @@ func starRight(on bool) (string, lipgloss.Style) {
 	return " ·", stDim
 }
 
-// dlpLine is one rendered row plus the entries it selects: `entry` is the first
-// of them and `span` is how many it holds, one for a custom row, up to dlpCols
-// for a row of the built-in grid. `entry` is -1 for headers and help notes,
-// which the cursor skips.
 type dlpLine struct {
 	text  string
 	entry int
@@ -89,14 +80,11 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 		}
 	}
 	header("built-in secret patterns", fmt.Sprintf("%d/%d on · space toggles · A all · U none", onCount, len(p.available)))
-	// The cell is sized from the panel and floored, so a narrow terminal
-	// truncates names rather than wrapping a row, a wrapped row would push its
-	// last cells past the clip, where they are unreachable but still selectable.
+
 	cellW := max(12, (p.cols-1)/dlpCols)
 	for r := 0; r < len(p.available); r += dlpCols {
 		end := min(r+dlpCols, len(p.available))
-		// newLine(false): the highlight is per CELL here, not per row, so each
-		// run carries its own background instead of the builder adding one.
+
 		l := newLine(false)
 		for i := r; i < end; i++ {
 			name := p.available[i]
@@ -149,7 +137,6 @@ func (p *DLP) View(ctx tui.PanelContext) string {
 		ei++
 	}
 
-	// ── header block (always visible) + windowed list ──────────────────────
 	editRows := 0
 	if p.adding != dlpAddNone {
 		editRows = 1

@@ -9,8 +9,6 @@ import (
 	"github.com/solongate/agent-security/packages/tui"
 )
 
-// Split from sandbox.go: the hint, the panel view, and small render helpers.
-
 func (p *Sandbox) Hint() []string {
 	if p.boxErr != nil {
 		return []string{"▶ SANDBOX", "", "Not available on this machine.", "", "press → to read why"}
@@ -60,8 +58,6 @@ func (p *Sandbox) view() string {
 	}
 	out = append(out, "")
 
-	// A machine that cannot build a box says so rather than listing boxes it
-	// could not start.
 	if p.boxErr != nil {
 		out = append(out, stBad.Render("  No closed box on this machine."))
 		out = append(out, "")
@@ -102,10 +98,7 @@ func (p *Sandbox) view() string {
 		if b.Network {
 			l.put(sbPad("net", 5), stDim)
 		} else {
-			// WARN rather than OK, and not because it is wrong: no network is
-			// the STRONGER box and also the one where the agent cannot reach
-			// its model. Somebody scanning this column needs to see which of
-			// their boxes will not run an agent that needs an API.
+
 			l.put(sbPad(", ", 5), stWarn)
 		}
 		l.put(truncate(b.Dir, sbWidth(p.cols-16)), stOK)
@@ -142,8 +135,6 @@ func sbPad(s string, n int) string {
 	return s
 }
 
-// wrapWords breaks a sentence at spaces, so a long refusal reads as a paragraph
-// rather than one clipped line.
 func wrapWords(s string, width int) []string {
 	words := strings.Fields(s)
 	if len(words) == 0 {

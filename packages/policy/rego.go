@@ -3,28 +3,6 @@
 
 package policy
 
-// The policy compiler: a SolonGate policy (JSON, as the dashboard writes it)
-// becomes Rego source here, in this process, on every call.
-//
-// The API can already do this, `/policies/:id/rego` exists and works, and
-// fetching it would be less code. Compiling locally is the point: it takes the
-// network off the decision path entirely. A guard that has to ask a server what
-// the rules are is a guard that fails differently depending on the wifi, and
-// this one now decides the same way on a plane as in an office.
-//
-// WHICH GENERATOR THIS PORTS, because there are two and only one of them is
-// real: apps/api/src/lib/opa/json-to-rego.ts. That is what opa-compiler.ts
-// compiles every saved policy with, so it is what the served WASM does, so it
-// is what the Node hook actually evaluates. The near-identical copy at
-// packages/proxy/src/policy-engine/opa/json-to-rego.ts is the MCP-proxy
-// lineage; nothing compiles policies with it any more, and it differs in four
-// ways that each silently change a decision, see the marked sites below.
-//
-// The generated Rego is a priority-ordered `else` chain, so the first matching
-// rule wins, and it always ends with a `default decision` of DENY. That default
-// is NOT the policy's default, mode is re-applied after evaluation (see
-// policy.go). Confusing those two makes every denylist policy block everything.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -61,12 +39,6 @@ type PolicyRule struct {
 	Enabled             *bool                  `json:"enabled"`
 }
 
-// The Rego compiler treats a missing `enabled` as disabled; the fallback
-// evaluator treats it as enabled. That difference is inherited from the Node
-// implementation, where the two paths were written years apart, and it is
-// preserved rather than reconciled, picking either answer here would change
-// which rules fire on somebody's live policy, which is not a change to make
-// while porting.
 func (r PolicyRule) enabledForRego() bool {
 	return r.Enabled != nil && *r.Enabled
 }
@@ -84,26 +56,14 @@ func EscapeRegoString(s string) string {
 	return s
 }
 
-// Path patterns compile to an anchored regular expression with SEGMENT
-// semantics (see PathPatternRegex), not to a glob. `(?i)` carries the case
-// insensitivity the Go-side matcher gets by lowercasing its subject.
-//
-// glob.match was what this used to emit, and it could not express the rule
-// people were actually writing: with ["/"] as the delimiter a `*` never crosses
-// a separator, so `*secrets*` matched the file `my-secrets-notes.txt` and
-// missed the directory `app/secrets/`.
 func normPathPattern(s string) string {
 	return EscapeRegoString("(?i)" + PathPatternRegex(s))
 }
 
-// rootDirectory is a literal prefix rather than a pattern, it is fed to
-// startswith, not to the matcher, so it only needs its separators normalised.
 func normPathLiteral(s string) string {
 	return EscapeRegoString(strings.ReplaceAll(s, `\`, "/"))
 }
 
-// jsTruthy mirrors the `if (rule.permission)` guards in the original. A field
-// that is absent, empty or false generates no condition; anything else does.
 func JSTruthy(v interface{}) bool {
 	switch t := v.(type) {
 	case nil:
@@ -123,8 +83,6 @@ func jsNumber(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
-// jsToString mirrors JavaScript template interpolation for the values that can
-// reach a generated literal.
 func JSToString(v interface{}) string {
 	switch t := v.(type) {
 	case nil:
@@ -149,8 +107,6 @@ func JSToString(v interface{}) string {
 	}
 }
 
-// permissionList flattens `permission`, which the dashboard writes as a STRING
-// when one box is ticked and an ARRAY when several are.
 func permissionList(v interface{}) []string {
 	if !JSTruthy(v) {
 		return nil
@@ -173,16 +129,6 @@ func quotedList(items []string, norm func(string) string) string {
 	return strings.Join(parts, ", ")
 }
 
-// Command, filename and URL patterns compile to ONE anchored alternation
-// regex, not to per-pattern glob matches.
-//
-// This is the difference between the two generators that matters most. OPA
-// reads an EMPTY glob delimiter list as ["."], so under the proxy lineage `*`
-// does not cross a dot and `curl*` never matches `curl evil.example.com/x`.
-// Compiled to `^(?:curl.*)$` it does. Porting the wrong one here would have
-// left every command, filename and URL rule quietly weaker than the dashboard
-// shows it to be, and only for targets containing a dot, which is most of the
-// interesting ones.
 var reGlobRegexEscape = regexp.MustCompile(`[.+^${}()|\[\]\\]`)
 
 func ListGlobToRegex(patterns []string) string {
@@ -197,24 +143,10 @@ func ListGlobToRegex(patterns []string) string {
 	return "^(?:" + strings.Join(parts, "|") + ")$"
 }
 
-// convertRulesToRego is the port of convertPolicySetToRego.
 func ConvertRulesToRego(rules []PolicyRule) string {
 	sorted := make([]PolicyRule, len(rules))
 	copy(sorted, rules)
-	// DENY FIRST, THEN BY PRIORITY. The chain this emits decides on the first rule
-	// that matches, so ordering IS the semantics, and sorting by priority alone
-	// let an ALLOW written above a DENY of the same priority win.
-	//
-	// Which made this engine disagree with the other two about a real policy. The
-	// Node hook runs a DENY pass over every deny rule before it considers an
-	// ALLOW ("DENY wins over ALLOW", in both modes) and so does FallbackEvaluate
-	// twenty lines below. Measured before this: whitelist mode, `ALLOW *` above
-	// `DENY *secret*` at the same priority, `cat secret`, the hook blocked it and
-	// the binary allowed it, in denylist mode too. A machine runs whichever of the
-	// two it has.
-	//
-	// It also meant REORDERING RULES CHANGED WHAT WAS ENFORCED, silently, with no
-	// priority anywhere to explain why.
+
 	sort.SliceStable(sorted, func(i, j int) bool {
 		di, dj := sorted[i].Effect == "DENY", sorted[j].Effect == "DENY"
 		if di != dj {
@@ -239,25 +171,12 @@ func ConvertRulesToRego(rules []PolicyRule) string {
 		`    regex.match(pattern, p)`,
 		`}`,
 		``,
-		// THERE IS NO list_matches_any HELPER, and there was one: a glob.match
-		// loop emitted into every generated module and called by nothing. The
-		// list constraints (command, filename, URL) compile to an inline
-		// `regex.match` over a single alternation instead, see
-		// generateListConstraintConditions, because one expression per
-		// constraint beats one call per pattern, and because glob.match and
-		// RE2 do not agree about what `*` crosses. An unused helper in the
-		// generated source invited a future condition to call the semantics
-		// that are NOT the ones being enforced.
+
 		`# Default decision: DENY (no matching rule)`,
 		`default decision := {"effect": "DENY", "reason": "No matching policy rule found. Default action: DENY.", "matched_rule": null}`,
 		``,
 	}
 
-	// The original keys the head-vs-else choice off the loop index, so a policy
-	// whose FIRST rule is disabled emits a chain that opens with `} else :=`,
-	// not parseable Rego. Keying it off "have we emitted a head yet" produces
-	// byte-identical output for every policy the original compiles, and valid
-	// output for the one it does not.
 	emittedHead := false
 	for _, rule := range sorted {
 		if !rule.enabledForRego() {
@@ -292,9 +211,6 @@ func ConvertRulesToRego(rules []PolicyRule) string {
 	return strings.Join(lines, "\n")
 }
 
-// The reason shown to the model when a rule carries no description of its own.
-// It stands in for "Matched rule "x": DENY", so it has to say what the rule
-// actually did rather than just naming the effect.
 func SummarizeRule(rule PolicyRule) string {
 	tool := "any tool"
 	if rule.ToolPattern != "" && rule.ToolPattern != "*" {
@@ -317,8 +233,7 @@ func SummarizeRule(rule PolicyRule) string {
 	if c := rule.CommandConstraints; c != nil {
 		add("command", c.Denied, c.Allowed)
 	}
-	// filenameConstraints wins over pathConstraints when both are present: the
-	// original uses `??`, which falls through only on null/undefined.
+
 	if c := rule.FilenameConstraints; c != nil {
 		add("path", c.Denied, c.Allowed)
 	} else if c := rule.PathConstraints; c != nil {
@@ -343,10 +258,6 @@ func generateConditions(rule PolicyRule) []string {
 
 	conds = append(conds, generateToolPatternCondition(rule.ToolPattern)...)
 
-	// One permission is an equality; several are a set membership. The proxy
-	// lineage interpolated the array straight into a string literal, producing
-	// `input.permission == "READ,WRITE"`, a value no input can ever equal, so
-	// a rule scoped to two permissions silently stopped enforcing entirely.
 	if perms := permissionList(rule.Permission); len(perms) == 1 {
 		conds = append(conds, fmt.Sprintf(`input.permission == "%s"`, EscapeRegoString(perms[0])))
 	} else if len(perms) > 1 {
@@ -377,28 +288,12 @@ func generateConditions(rule PolicyRule) []string {
 		conds = append(conds, generateListConstraintConditions(rule.URLConstraints, "input.urls", rule.Effect)...)
 	}
 
-	// A rule with no conditions at all is a catch-all; Rego needs a body.
 	if len(conds) == 0 {
 		conds = append(conds, "true")
 	}
 	return conds
 }
 
-// The tool selector is internal and fixed to "*" in the shipped product, no UI
-// or CLI exposes it. Kept general for the engine.
-//
-// AN ABSENT SELECTOR MEANS EVERY TOOL, and it used to mean no tool at all. A
-// rule whose JSON omits `toolPattern` decodes to "" here, which fell past every
-// case below and compiled to `input.tool_name == ""`, a condition no call can
-// satisfy, so the rule never fired. Not a narrow case either: it applied to all
-// four constraint kinds and to denylist mode, which is the default, so a policy
-// file written by hand enforced NOTHING on a machine with the Go binary while
-// enforcing normally on one without it. The Node evaluator has no tool_pattern
-// condition at all, so "" there has always meant every tool.
-//
-// It went unnoticed because the TUI stamps `ToolPattern: "*"` on every rule it
-// creates, so the rules the product makes for you were never affected, only
-// the ones somebody wrote, exported, or copied in.
 func generateToolPatternCondition(pattern string) []string {
 	if pattern == "*" || pattern == "" {
 		return []string{"# Matches all tools"}
@@ -432,7 +327,7 @@ func generateArgumentConstraintConditions(constraints map[string]interface{}) []
 
 		if s, ok := constraint.(string); ok {
 			if s == "*" {
-				conds = append(conds, argRef) // just assert it exists
+				conds = append(conds, argRef)
 			} else {
 				conds = append(conds, fmt.Sprintf(`%s == "%s"`, argRef, EscapeRegoString(s)))
 			}
@@ -487,16 +382,6 @@ func generateArgumentConstraintConditions(constraints map[string]interface{}) []
 	return conds
 }
 
-// Path constraints are asymmetric on purpose. A DENY rule matches when the
-// constraints are VIOLATED, that is what makes it a denial. An ALLOW rule
-// matches only when EVERY path satisfies them, so one bad path in a batch
-// cannot ride along with the good ones.
-//
-// The `count(...) > 0` guards are load-bearing, not defensive: in Rego an
-// `every` over an EMPTY collection is vacuously true, so without them an ALLOW
-// rule scoped to paths matches any call that touches no paths at all. Under
-// whitelist mode that is a blanket allow for exactly the calls nobody wrote a
-// rule for.
 func generatePathConstraintConditions(c *PathConstraintSet, effect string) []string {
 	var conds []string
 
@@ -526,8 +411,6 @@ func generatePathConstraintConditions(c *PathConstraintSet, effect string) []str
 	return conds
 }
 
-// Same asymmetry for commands, filenames and URLs, compiled to one anchored
-// alternation regex rather than to per-pattern glob matches.
 func generateListConstraintConditions(c *ListConstraints, inputField, effect string) []string {
 	var conds []string
 
@@ -551,19 +434,6 @@ func generateListConstraintConditions(c *ListConstraints, inputField, effect str
 	return conds
 }
 
-// parsePolicyRules decodes the rule array ONE RULE AT A TIME.
-//
-// Decoding it in a single Unmarshal meant one wrongly-typed field anywhere in
-// the policy, a `denied` written as a bare string, a quoted priority,
-// `enabled: 1`, failed the whole decode, and a policy that would not decode
-// was being read as NO policy, i.e. allow everything. A hand-edited or uploaded
-// policy JSON could disarm the guard completely while the dashboard still
-// showed its rules as active. That is the one failure direction this port is
-// not allowed to have.
-//
-// A rule that will not decode at all is salvaged field by field, and only what
-// is well typed survives, which is what the Node hook effectively does by
-// guarding each constraint with Array.isArray and ignoring the rest.
 func ParsePolicyRules(raw json.RawMessage) ([]PolicyRule, bool) {
 	if len(raw) == 0 {
 		return nil, false
@@ -579,8 +449,7 @@ func ParsePolicyRules(raw json.RawMessage) ([]PolicyRule, bool) {
 			rules = append(rules, r)
 			continue
 		}
-		// One bad constraint must not cost the rule its other constraints, and
-		// losing a DENY rule is the dangerous direction.
+
 		if salvaged, ok := salvageRule(item); ok {
 			rules = append(rules, salvaged)
 		}
@@ -588,15 +457,6 @@ func ParsePolicyRules(raw json.RawMessage) ([]PolicyRule, bool) {
 	return rules, true
 }
 
-// salvageRule decodes whatever of a rule is well typed and discards the rest.
-//
-// A rule can only ever come out of here NARROWER than it was written, never
-// wider. Dropping a constraint that will not decode would otherwise leave a
-// rule with no conditions at all, and a rule with no conditions compiles to a
-// catch-all, so a single mistyped `denied` would turn one DENY rule into "deny
-// everything". The Node hook reaches the same end by a different route: its
-// constraint reader returns nothing for a non-array, and a rule with nothing to
-// match on never matches.
 func salvageRule(item json.RawMessage) (PolicyRule, bool) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(item, &fields); err != nil {
@@ -656,12 +516,10 @@ func salvageRule(item json.RawMessage) (PolicyRule, bool) {
 	list("filenameConstraints", &r.FilenameConstraints)
 	list("urlConstraints", &r.URLConstraints)
 
-	// A rule with no effect cannot decide anything.
 	if r.Effect == "" {
 		return PolicyRule{}, false
 	}
-	// The rule was scoped to something, and none of that scope survived. Keeping
-	// it would compile it to a catch-all, which is the opposite of what it says.
+
 	if constraintsSeen > 0 && constraintsKept == 0 {
 		return PolicyRule{}, false
 	}

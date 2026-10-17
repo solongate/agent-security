@@ -13,31 +13,6 @@ import (
 	"syscall"
 )
 
-// macOS confinement is Seatbelt, through sandbox-exec.
-//
-// DEPRECATED AND STILL THE ONLY OPTION. Apple marked sandbox-exec deprecated
-// and has announced no removal date; it remains the one mechanism that applies
-// a sandbox to an arbitrary command without App Store enrolment or an Apple
-// entitlement, and it is what Bazel, Homebrew and Claude Code's own sandbox
-// use today. The warning it prints on stderr is filtered, because it would
-// otherwise land in the agent's output on every launch.
-//
-// Unlike Landlock, Seatbelt HAS a real deny rule and deny wins, so the profile
-// is the straightforward one: allow everything, then deny the protected paths.
-// That means none of Landlock's enumeration cost applies here: a file created
-// after launch behaves normally.
-//
-// THREE THINGS THAT BREAK A NAIVE PROFILE, all of them handled below:
-//
-//   - Seatbelt matches CANONICAL paths. A literal that has not been through
-//     realpath can be walked around with a symlink, so both forms are denied.
-//   - Resolving a path stats every component, so denying a tree without
-//     re-allowing file-read-metadata on its ancestors makes paths NEXT TO it
-//     unreachable too.
-//   - The profile is passed with -p rather than written to a file, so there is
-//     no temporary file holding the list of what somebody wanted hidden.
-
-// Launch confines the command and becomes it.
 func Launch(p Plan, argv []string, env []string) (Report, error) {
 	rep := Report{Mechanism: "Seatbelt"}
 	if len(argv) == 0 {
@@ -83,9 +58,6 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 	return rep, err
 }
 
-// Preview is what Launch would cost. Seatbelt has real deny rules, so there
-// is no enumeration and no cost to report; the only thing worth saying is
-// which paths could not be canonicalised.
 func Preview(p Plan) []string {
 	_, got := seatbeltProfile(p.Deny)
 	if len(got) == len(p.Deny) {

@@ -18,26 +18,6 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-// `solongate trace`, what the guard saw, locally, for THIS directory.
-//
-// It exists because the audit log cannot answer the question people actually
-// ask, which is "my rule names that directory, why did nothing happen".
-//
-// The cloud audit records denials reliably and ALLOWs only when the client has
-// a post-tool stage to report them from. Antigravity has none, so on that client
-// a permitted call leaves no cloud row at all, and "allowed" and "the guard
-// never ran" look identical from the outside. The guard writes a local record
-// for EVERY evaluation either way, and this is that file.
-//
-// The interesting columns are PATHS/CMDS/URLS: they are what the guard managed
-// to extract from the call, and they are what every path, command and url rule
-// matches against. A path rule that never fires on a call showing `paths 0` is
-// not a rule that lost, it is a call the guard saw nothing addressable in.
-//
-// ARGS is the argument KEY NAMES, never the values. Names are schema and are
-// what shows you a client renamed a field between versions; values are the file
-// contents and commands the guard exists to keep in place.
-
 func traceUsage() string {
 	return usage("solongate trace", "what the guard saw here", []usageRow{
 		row("trace", "the last evaluations in this directory"),
@@ -46,9 +26,6 @@ func traceUsage() string {
 	})
 }
 
-// traceRecord is one line of the guard's ring. Every field is optional: records
-// written by an older guard carry only the first four, and a missing count must
-// read as "not recorded" rather than as zero.
 type traceRecord struct {
 	TS      int64    `json:"ts"`
 	Ms      float64  `json:"ms"`
@@ -68,8 +45,7 @@ func countCell(n *int) string {
 		return dim("-")
 	}
 	if *n == 0 {
-		// Zero is the answer that explains a rule doing nothing, so it is the one
-		// value in this table worth making impossible to skim past.
+
 		return red("0")
 	}
 	return strconv.Itoa(*n)
@@ -99,16 +75,6 @@ func readTraceRing(dir string) ([]traceRecord, error) {
 	return out, nil
 }
 
-// readAllTraceRings collects every project's ring.
-//
-// The record is filed under a hash of the directory the GUARD PROCESS was
-// spawned in, which is not always the directory the call was made in: a client
-// launches its hooks from wherever it likes, and Antigravity does. Looking only
-// under the hash of the current directory therefore finds nothing for exactly
-// the client whose allowed calls are missing from the cloud audit too, which is
-// the one case this command exists for.
-//
-// So every ring is read and the records are matched on the `cwd` they carry.
 func readAllTraceRings() []traceRecord {
 	root := filepath.Join(shared.SGDir(), "projects")
 	entries, err := os.ReadDir(root)
@@ -177,9 +143,7 @@ func runTrace(ctx context.Context, c *client.Client, p parsedArgs) (int, error) 
 		errln("  No calls recorded for this directory.")
 		errln(dim("  " + here))
 		if len(all) > 0 {
-			// Records exist, just not for here. Naming the directories they DO
-			// belong to is the difference between "nothing ran" and "you are
-			// standing in the wrong place", and those need different next steps.
+
 			errln("")
 			errln(dim("  The guard has recorded calls in:"))
 			seen := map[string]bool{}
@@ -192,7 +156,7 @@ func runTrace(ctx context.Context, c *client.Client, p parsedArgs) (int, error) 
 				shown++
 				errln("    " + dim("•") + " " + r.Cwd)
 			}
-			// A record with no cwd predates it being written down.
+
 			if shown == 0 {
 				errln(dim("    (older records carry no directory; make one more call and retry)"))
 			}
@@ -222,8 +186,7 @@ func runTrace(ctx context.Context, c *client.Client, p parsedArgs) (int, error) 
 		if len(r.Args) > 0 {
 			args = strings.Join(r.Args, ",")
 		} else if r.Args != nil {
-			// An empty list is not the same as an absent one: it means the guard
-			// parsed the payload and found no arguments in it at all.
+
 			args = red("(none)")
 		}
 		rows = append(rows, []string{

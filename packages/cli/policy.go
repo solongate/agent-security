@@ -33,12 +33,6 @@ func policyUsage() string {
 	}, "Add --json to any read command for machine-readable output.")
 }
 
-// parsePermissions reads `--permission read,WRITE` into the four classes the
-// guard derives, or names the first value it does not recognise.
-//
-// Case-insensitive and comma-separated, and a typo is refused rather than
-// dropped: a permission the guard has no name for would be stored, never match,
-// and leave a rule that reads correctly in `policy show` and enforces nothing.
 func parsePermissions(raw string) (perms []string, bad string) {
 	known := map[string]string{"read": "READ", "write": "WRITE", "execute": "EXECUTE", "network": "NETWORK"}
 	seen := map[string]bool{}
@@ -66,8 +60,7 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 	switch sub {
 	case "", "help":
 		errln(policyUsage())
-		// A bare `policy` is a mistake and exits 1; `policy help` is what was
-		// asked for and exits 0.
+
 		if sub == "" {
 			return 1, nil
 		}
@@ -139,8 +132,7 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 		if name == "" {
 			return usageErr("Usage: policy create <name>")
 		}
-		// The id is generated here rather than by the API, matching the Node CLI.
-		// Changing that would give two clients two id schemes for the same action.
+
 		res, err := c.Policies.Create(ctx, client.PolicySet{
 			ID:   "policy-" + strconv.FormatInt(nowMillis(), 10),
 			Name: name,
@@ -161,10 +153,7 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 		if id == "" {
 			return usageErr("Usage: policy delete <id>")
 		}
-		// This used to go through c.Do for the response BODY, because the
-		// confirmation echoed the id the service said it had deleted rather than
-		// the one asked for, "the difference matters when the API resolves an
-		// alias". There is no alias to resolve: one machine, one file.
+
 		if err := c.Policies.Remove(ctx, id); err != nil {
 			return 1, err
 		}
@@ -187,9 +176,7 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 		if id == "" {
 			return usageErr("Usage: policy " + sub + " <id> [--command|--path|--filename|--url <val>]")
 		}
-		// No constraint flag means a rule about the TOOL itself, which is what
-		// `kind: tool` with no value means to the API. The last flag given wins,
-		// matching the loop in the TypeScript.
+
 		spec := client.RuleSpec{ToolPattern: "*", Kind: "tool", Effect: effect}
 		for _, k := range []string{"command", "path", "filename", "url"} {
 			if v, ok := p.flags[k].(string); ok {
@@ -198,17 +185,6 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 			}
 		}
 
-		// Permission scoping, which until now was reachable only from the
-		// TUI -- so a rule set could not be written down as commands, which
-		// is what a runbook and a CI check both need.
-		//
-		// It is worth knowing what you are asking for before you use it. The
-		// class comes from the TOOL NAME, so it is a statement about which tools
-		// a rule covers, not about what the call does: Codex has no read tool and
-		// shells out instead, so a READ-scoped rule matches nothing there, and
-		// Antigravity's URL tool is `read_url_content`, which classifies as READ
-		// rather than NETWORK. Scope by constraint unless you specifically mean
-		// "only calls made with this kind of tool".
 		if raw, ok := p.flags["permission"].(string); ok {
 			perms, bad := parsePermissions(raw)
 			if bad != "" {
@@ -236,9 +212,7 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 		return 0, nil
 
 	case "mode":
-		// The mode was a TUI toggle, so a whitelist policy could not be set
-		// up from a script at all -- and whitelist is the mode with the most
-		// consequential default: nothing is allowed until a rule says so.
+
 		id, mode := p.positional(1), strings.ToLower(p.positional(2))
 		if id == "" || (mode != "denylist" && mode != "whitelist") {
 			return usageErr("Usage: policy mode <id> <denylist|whitelist>")
@@ -247,10 +221,7 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 		if err != nil {
 			return 1, err
 		}
-		// The rules go back as the RAW bytes that arrived. Re-encoding them
-		// through this version's struct would quietly drop any field it does not
-		// know about, and a policy edited by a newer dashboard is exactly the
-		// case where that matters.
+
 		next := pol.PolicySet
 		next.Mode = client.PolicyMode(mode)
 		saved, err := c.Policies.Update(ctx, id, next)
@@ -268,8 +239,7 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 		return 0, nil
 
 	case "rule":
-		// Turning a rule off without deleting it: the TUI has always had
-		// this and the CLI had only revoke, which loses the rule.
+
 		id, ruleID, action := p.positional(1), p.positional(2), strings.ToLower(p.positional(3))
 		if id == "" || ruleID == "" || (action != "enable" && action != "disable") {
 			return usageErr("Usage: policy rule <id> <ruleId> <enable|disable>")
@@ -351,15 +321,7 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 		return 0, nil
 
 	case "activate":
-		// The typed SetActive discards `{ ok, active }`, and `active` is both the
-		// confirmation line and the whole --json document.
-		//
-		// `--off` does not return the project to automatic selection. An empty
-		// policyId makes the server store its `__none__` sentinel, which means
-		// "this project enforces nothing" -- a different state from having no
-		// override at all, and there is no route back to the latter short of
-		// pinning a policy again. Calling that "cleared the pin" sent people
-		// looking for a policy that had in fact been switched off.
+
 		off := p.flagBool("off") || p.flagBool("clear")
 		body := map[string]any{"policyId": ""}
 		if !off {
@@ -393,13 +355,6 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 	return unknownSub("policy", sub, policyUsage())
 }
 
-// permScope is the tool classes a rule is scoped to, or "any" when it is scoped
-// to none.
-//
-// The column exists because two rules differing only here are two rules, and the
-// table had no way to say so: a READ-scoped and a WRITE-scoped rule over one
-// path printed as the same line twice, which reads as a duplicate somebody
-// should clean up rather than the pair the policy actually needs.
 func permScope(r client.PolicyRule) string {
 	perms := r.Permissions()
 	if len(perms) == 0 {
@@ -440,16 +395,12 @@ func printRules(rules client.Rules) {
 		})
 	}
 	table([]string{"EFFECT", "PRIO", "ID", "ON", "PERM", "PATTERN", "DESCRIPTION"}, out)
-	// A rule that will not decode is still enforced by the cloud. Printing the
-	// readable ones and saying nothing would show a policy that looks narrower
-	// than the one actually in force.
+
 	if rules.Unreadable > 0 {
 		errln(dim("  (" + strconv.Itoa(rules.Unreadable) + " rule(s) this version cannot read, they are kept, and visible in ~/.solongate/policy.json)"))
 	}
 }
 
-// rulesCount is how many rules the API sent, including any this version could
-// not decode. len(Items) would under-report exactly when it matters most.
 func rulesCount(r client.Rules) int {
 	if r.Raw != nil {
 		return len(r.Raw)
@@ -489,8 +440,6 @@ func setRuleEnabled(pol client.PolicySet, ruleID string, enabled bool) (client.P
 	return pol, true
 }
 
-// mustJSON builds a small object for --json output. The shapes here are this CLI's
-// own, not a service's response echoed back.
 func mustJSON(v any) json.RawMessage {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -499,20 +448,6 @@ func mustJSON(v any) json.RawMessage {
 	return b
 }
 
-// ruleMatch is WHAT A RULE ACTUALLY MATCHES, which this table did not show.
-//
-// The columns were effect, priority, id and description, and the description is free
-// text somebody may never have written. A rule added from the TUI has none, so it
-// printed as:
-//
-//	DENY  100  rule-1791039653150  -
-//
-// , a rule that is enforcing something, in a list of what is enforced, with no way to
-// tell what. The kind and the pattern are not decoration; they are the rule.
-//
-// Read from the constraint sets rather than parsed back out of the description, because
-// the description is a label and these are the thing itself. A rule with none of them
-// constrains the TOOL, which is what its tool pattern says.
 func ruleMatch(r client.PolicyRule) (kind, pattern string) {
 	for _, c := range []struct {
 		name string

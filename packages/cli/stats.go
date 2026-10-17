@@ -70,9 +70,7 @@ func runStats(ctx context.Context, c *client.Client, p parsedArgs) (int, error) 
 		if period == "" {
 			period = "24h"
 		}
-		// Granularity is the API's choice: it is derived from the period, and
-		// sending one would let a caller ask for a bucket size the period cannot
-		// fill.
+
 		ts, err := c.Stats.Timeseries(ctx, period, "")
 		if err != nil {
 			return 1, err

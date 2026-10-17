@@ -18,11 +18,6 @@ import (
 	"github.com/solongate/agent-security/packages/core/config"
 )
 
-// notifyIdleSessions raises a banner when a session stops calling. Banner only:
-// an idle transition is routine, not a security event, and a bell plus a
-// desktop toast here read as a false DLP or rate-limit alarm.
-// ── derived views over the buffer ──────────────────────────────────────────
-
 func (p *Live) matches(e streamItem) bool {
 	q := strings.ToLower(strings.TrimSpace(p.search))
 	if q == "" {
@@ -44,12 +39,10 @@ func (p *Live) signalOK(e streamItem) bool {
 	return true
 }
 
-// filtered is the stream after the signal and search filters, oldest first.
 func (p *Live) filtered() []streamItem {
 	out := make([]streamItem, 0, len(p.merged))
 	for _, e := range p.merged {
-		// A source filter stood here, all → local → cloud. Everything is from one
-		// file, so it filtered that file from itself.
+
 		if !p.matches(e) || !p.signalOK(e) {
 			continue
 		}
@@ -58,8 +51,6 @@ func (p *Live) filtered() []streamItem {
 	return out
 }
 
-// visibleDesc is every buffered entry that passes the filters, newest first, so the
-// row count matches the entry total in the status bar.
 func (p *Live) visibleDesc() []streamItem {
 	f := p.filtered()
 	out := make([]streamItem, len(f))
@@ -69,10 +60,6 @@ func (p *Live) visibleDesc() []streamItem {
 	return out
 }
 
-// detailEntries is a picked session's timeline: its cloud history plus
-// everything in the merged buffer that belongs to it, newest first.
-// ── keys ───────────────────────────────────────────────────────────────────
-
 func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	now := ctx.Now.UnixMilli()
 	if p.editingSearch {
@@ -80,7 +67,6 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	}
 	str := k.String()
 
-	// Copy mode first; while frozen only space resumes.
 	if str == " " {
 		p.frozen = !p.frozen
 		return nil
@@ -88,7 +74,7 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	if p.frozen {
 		return nil
 	}
-	// `?` opens the full key reference from ANY mode; any key closes it.
+
 	if p.help {
 		p.help = false
 		return nil
@@ -113,7 +99,7 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 		case tea.KeyUp:
 			p.inspectScroll = maxInt(0, p.inspectScroll-1)
 		case tea.KeyDown:
-			p.inspectScroll++ // clamped at render
+			p.inspectScroll++
 		case tea.KeyPgUp:
 			p.inspectScroll = maxInt(0, p.inspectScroll-10)
 		case tea.KeyPgDown:
@@ -140,7 +126,6 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 
 	}
 
-	// stream mode
 	visible := p.visibleDesc()
 	streamBody := maxInt(3, p.streamRows(ctx)-1)
 	toggleSignal := func(s string) {
@@ -185,9 +170,6 @@ func (p *Live) onKey(k tea.KeyMsg, ctx PanelContext) tea.Cmd {
 	return nil
 }
 
-// editSearch is the live search bar. `/` and enter both finish; esc cancels the
-// editing without discarding the query, which is the one key Ink's text input
-// did not answer at all.
 func (p *Live) editSearch(k tea.KeyMsg) tea.Cmd {
 	switch k.Type {
 	case tea.KeyEnter, tea.KeyEsc:
@@ -219,10 +201,6 @@ func (p *Live) selected(visible []streamItem) (streamItem, bool) {
 	return visible[i], true
 }
 
-// doAction whitelists the selected DENY or blocks the selected ALLOW.
-//
-// Cloud entries go through the audit endpoints, which resolve the agent to its
-// policy; local entries add a rule to this machine's active policy directly.
 func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 	e, ok := p.selected(visible)
 	if !ok {
@@ -254,9 +232,7 @@ func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 		fail := func(err error) tea.Msg {
 			return liveActionResult{gen: gen, text: "✗ " + err.Error(), level: "bad"}
 		}
-		// Active-policy gate for BOTH sources, mirroring the API: with no policy
-		// active nothing is granted, not allow, not deny. Resolved fresh on
-		// every action so deactivating in the dashboard applies immediately.
+
 		active, err := c.Policies.Active(ctx, "")
 		if err != nil {
 			return fail(err)
@@ -265,16 +241,7 @@ func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 			return liveActionResult{gen: gen, level: "bad",
 				text: "✗ no active policy, rule NOT added. Activate a policy first (Policies section)."}
 		}
-		// THE SAME RULE THE AUDIT BROWSER WOULD MAKE. This had two branches: an entry
-		// from the store went through Audit.Whitelist/Block, which builds the rule from
-		// the recorded arguments and REFUSES when there is nothing to narrow on; an
-		// entry read off the log got a local extractor that looked for no url and took
-		// only the BASENAME of a path, and, when it found nothing, left Kind "tool"
-		// and silently allowed every call to that tool forever.
-		//
-		// The store branch went dead when the second read did, so every `w` was taking
-		// the widening path. client.RuleSpecFor is now the one implementation of "what rule
-		// would have stopped this call", and it refuses rather than widens.
+
 		spec, specErr := client.RuleSpecFor(e.Tool, e.Args, "exact", verb)
 		if specErr != nil {
 			return liveActionResult{gen: gen, level: "bad", text: "✗ " + specErr.Error()}
@@ -303,12 +270,6 @@ func (p *Live) doAction(act string, visible []streamItem, now int64) tea.Cmd {
 	}
 }
 
-// extractTarget lived here: a second reader of a call's target, over the DISPLAY string
-// rather than the recorded arguments. It differed from the store's in two ways that
-// decided how wide a policy got, no url, and the basename of a path instead of the path
-//, so whitelisting one denial from the stream and from the audit browser produced two
-// different rules. client.RuleSpecFor is the one answer now.
-
 func (p *Live) export(visible []streamItem, now int64) {
 	dir := config.Dir()
 	file := filepath.Join(dir, "live-export.jsonl")
@@ -325,24 +286,12 @@ func (p *Live) export(visible []streamItem, now int64) {
 		p.action = &flashMsg{text: "✗ export failed: " + err.Error(), level: "bad", until: now + 6000}
 		return
 	}
-	// 0600 AND NOT 0644, and the mode matters more here than on the log it comes
-	// from.
-	//
-	// This file is WIDER than the audit log: the export row carries dlp[] and
-	// burst, which the log does not, so a reader who can open this learns which
-	// secrets a pattern matched and which calls tripped a limit. The log itself
-	// is 0600 inside a 0700 directory. An export of it at 0644 was the one file
-	// in the directory any local account could read, holding the most, and
-	// nothing chose that: 0644 is what os.WriteFile examples use.
+
 	if err := os.WriteFile(file, []byte(b.String()), 0o600); err != nil {
 		p.action = &flashMsg{text: "✗ export failed: " + err.Error(), level: "bad", until: now + 6000}
 		return
 	}
-	// CHMOD AS WELL AS THE MODE, because WriteFile only applies a mode when it
-	// CREATES the file. An export written once at 0644 keeps 0644 through
-	// every rewrite after it, so changing the constant fixes new machines and
-	// leaves every machine that already exported one exactly as it was. The
-	// chmod is what reaches those.
+
 	_ = os.Chmod(file, 0o600)
 	p.action = &flashMsg{
 		text:  "✓ exported " + strconv.Itoa(len(visible)) + " lines → " + file,

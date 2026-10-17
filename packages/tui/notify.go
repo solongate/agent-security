@@ -10,14 +10,6 @@ import (
 	"strings"
 )
 
-// Best-effort desktop toast for the Live console's security alerts (DENY, DLP,
-// rate limit). It only SHOWS a notification, clicking it does nothing. Every
-// platform uses a tool it already ships with and every failure is swallowed,
-// because a missing notifier must never disturb the TUI.
-//
-//	Linux, notify-send (libnotify, present on GNOME and KDE desktops)
-//	Windows, a NotifyIcon balloon through the built-in PowerShell
-//	macOS, the built-in osascript notification
 func desktopNotify(title, msg string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -39,22 +31,13 @@ func desktopNotify(title, msg string) {
 	default:
 		return
 	}
-	// The child must not inherit this process's stdout: the TUI owns the
-	// alternate screen, and one line from a notifier writing to it paints over
-	// the frame until the next full render.
+
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = nil, nil, nil
 	if cmd.Start() != nil {
 		return
 	}
-	// Reaped in the background so a notifier that lingers (the PowerShell one
-	// sleeps 6.5s by design) does not leave a zombie behind for the rest of the
-	// session.
+
 	go func() { _ = cmd.Wait() }()
 }
 
-// bell rings the terminal.
-//
-// Writing to stdout under the alternate screen is normally how a TUI corrupts
-// itself, and this is the one exception: BEL prints nothing and moves no
-// cursor, so it cannot disturb the frame Bubble Tea drew.
 func bell() { _, _ = os.Stdout.WriteString("\a") }

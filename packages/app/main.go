@@ -56,17 +56,7 @@ func run(args []string) int {
 	if len(args) > 0 {
 		sub = args[0]
 	}
-	isHumanCLI := len(args) == 0 || cliSubcommands[sub] || cliInfoArgs[sub]
-
-	if isHumanCLI && len(args) > 0 {
-		assertHumanTerminal()
-	}
-	if sub == "run" && len(args) > 1 && runExplainArgs[args[1]] {
-		assertHumanTerminal()
-	}
-
 	switch sub {
-
 	case "arrange":
 		install.InstallGoBinaries()
 		return 0
@@ -75,17 +65,25 @@ func run(args []string) int {
 		return 0
 	case "--version", "-v", "version":
 		fmt.Println(buildVersion)
-
 		return 0
 	}
 
-	if isHumanCLI {
+	isHumanCLI := len(args) == 0 || cliSubcommands[sub]
+	hasJSON := hasFlag(args, "--json")
 
+	if isHumanCLI && len(args) > 0 {
+		assertHumanTerminal(hasJSON)
+	}
+	if sub == "run" && len(args) > 1 && runExplainArgs[args[1]] {
+		assertHumanTerminal(false)
+	}
+
+	if isHumanCLI {
 		install.InstallGoBinaries()
 	}
 
 	if len(args) == 0 {
-		if isInteractive() {
+		if isInteractive(false) {
 			return launchTUI()
 		}
 		printWelcome()
@@ -101,12 +99,24 @@ func run(args []string) int {
 	return 1
 }
 
-func isInteractive() bool {
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag || strings.HasPrefix(a, flag+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+func isInteractive(allowNonTTYStdout bool) bool {
+	if allowNonTTYStdout {
+		return isatty.IsTerminal(os.Stdin.Fd())
+	}
 	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
 }
 
-func assertHumanTerminal() {
-	if isInteractive() {
+func assertHumanTerminal(allowNonTTYStdout bool) {
+	if os.Getenv("SOLONGATE_INTERNAL") == "1" || isInteractive(allowNonTTYStdout) {
 		return
 	}
 	w := func(s string) { fmt.Fprintln(os.Stderr, s) }

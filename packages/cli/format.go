@@ -135,6 +135,13 @@ func displayWidth(s string) int {
 	return n
 }
 
+func padRight(s string, n int) string {
+	if displayWidth(s) >= n {
+		return s
+	}
+	return s + strings.Repeat(" ", n-displayWidth(s))
+}
+
 func table(headers []string, rows [][]string) {
 	cols := len(headers)
 	w := make([]int, cols)

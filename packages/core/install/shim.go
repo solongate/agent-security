@@ -85,7 +85,7 @@ func writeShimBlock(file, block string) error {
 
 func shimTargets() []string {
 	if runtime.GOOS == "windows" {
-		out, err := exec.Command("powershell", "-NoProfile", "-Command", "$PROFILE.CurrentUserAllHosts").Output()
+		out, err := exec.Command(windowsPowerShell(), "-NoProfile", "-Command", "$PROFILE.CurrentUserAllHosts").Output()
 		if err != nil {
 			return nil
 		}
@@ -104,6 +104,21 @@ func shimTargets() []string {
 		}
 	}
 	return targets
+}
+
+// windowsPowerShell resolves the fixed, unwriteable System32 location of
+// powershell.exe instead of trusting a PATH lookup, falling back to the bare
+// name only if that location doesn't exist on this machine.
+func windowsPowerShell() string {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = `C:\Windows`
+	}
+	p := root + `\System32\WindowsPowerShell\v1.0\powershell.exe`
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return "powershell"
 }
 
 func resolveRealClaude() string {

@@ -72,7 +72,7 @@ func Install() Result {
 			return fail(err.Error())
 		}
 
-		_ = os.Chmod(filepath.Join(p.HooksDir, LauncherName), 0o755)
+		_ = os.Chmod(filepath.Join(p.HooksDir, LauncherName), 0o700)
 		_ = os.MkdirAll(filepath.Join(p.SGDir, BeatDirName), config.DirMode)
 	}
 
@@ -156,7 +156,7 @@ func writeFileAtomic(path string, data []byte) error {
 		return err
 	}
 
-	if err := os.Chmod(tmp, 0o644); err != nil {
+	if err := os.Chmod(tmp, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

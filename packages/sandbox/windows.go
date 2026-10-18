@@ -75,7 +75,7 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 
 func icacls(path string, args ...string) error {
 	full := append([]string{path}, args...)
-	cmd := exec.Command("icacls", full...)
+	cmd := exec.Command(systemBinary("icacls"), full...)
 	var out strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil {
@@ -101,4 +101,19 @@ func Describe() (string, []string) {
 		"default-deny, and written rather than verified on a real Windows machine",
 		"the permanent lock from `solongate protect` is the stronger one here",
 	}
+}
+
+// systemBinary resolves a Windows system utility to its fixed, unwriteable
+// System32 location instead of trusting a PATH lookup, falling back to the
+// bare name only if that location doesn't exist on this machine.
+func systemBinary(name string) string {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = `C:\Windows`
+	}
+	p := root + `\System32\` + name + `.exe`
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return name
 }

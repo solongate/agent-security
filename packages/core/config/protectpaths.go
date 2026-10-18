@@ -95,11 +95,11 @@ func LockPath(path string, withSudo bool) Lock {
 			return l
 		}
 
-		if err := os.Chmod(abs, 0o444); err != nil {
+		if err := os.Chmod(abs, 0o400); err != nil {
 			l.Err = err.Error()
 			return l
 		}
-		l.How, l.Immutable = "chmod 0444", false
+		l.How, l.Immutable = "chmod 0400", false
 	}
 	return l
 }
@@ -131,7 +131,7 @@ func UnlockPath(path string, withSudo bool) Lock {
 
 			_ = err
 		}
-		if err := os.Chmod(abs, 0o644); err != nil {
+		if err := os.Chmod(abs, 0o600); err != nil {
 			l.Err = err.Error()
 		}
 	}
@@ -158,7 +158,7 @@ func CheckLock(path string) Lock {
 			l.How, l.Immutable = "chflags uchg", true
 		}
 	case "windows":
-		out, err := exec.Command("icacls", abs).Output()
+		out, err := exec.Command(windowsSystemBinary("icacls"), abs).Output()
 		if err == nil && strings.Contains(string(out), "S-1-3-4") {
 			l.How, l.Immutable = "icacls deny + OWNER_RIGHTS", true
 		}
@@ -167,10 +167,25 @@ func CheckLock(path string) Lock {
 		if err == nil && len(out) > 0 && strings.ContainsRune(strings.Fields(string(out))[0], 'i') {
 			l.How, l.Immutable = "chattr +i", true
 		} else if info.Mode().Perm()&0o222 == 0 {
-			l.How, l.Immutable = "chmod 0444", false
+			l.How, l.Immutable = "chmod 0400", false
 		}
 	}
 	return l
+}
+
+// windowsSystemBinary resolves a Windows system utility to its fixed,
+// unwriteable System32 location instead of trusting a PATH lookup, falling
+// back to the bare name only if that location doesn't exist on this machine.
+func windowsSystemBinary(name string) string {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = `C:\Windows`
+	}
+	p := root + `\System32\` + name + `.exe`
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return name
 }
 
 func chattrSet(path, flag string, withSudo bool) error {

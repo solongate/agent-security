@@ -22,7 +22,7 @@ func lockFile(file string) {
 		run("chflags", "uchg", file)
 	default:
 		run("chattr", "+i", file)
-		_ = os.Chmod(file, 0o444)
+		_ = os.Chmod(file, 0o400)
 	}
 }
 
@@ -40,7 +40,7 @@ func unlockFile(file string) {
 		run("chflags", "nouchg", file)
 	default:
 		run("chattr", "-i", file)
-		_ = os.Chmod(file, 0o644)
+		_ = os.Chmod(file, 0o600)
 	}
 }
 
@@ -52,11 +52,11 @@ func run(name string, args ...string) {
 }
 
 func WriteProtectedFile(file string, contents []byte) bool {
-	if os.WriteFile(file, contents, 0o644) == nil {
+	if os.WriteFile(file, contents, 0o600) == nil {
 		return true
 	}
 	unlockFile(file)
-	ok := os.WriteFile(file, contents, 0o644) == nil
+	ok := os.WriteFile(file, contents, 0o600) == nil
 	if os.Getenv("SOLONGATE_NO_OS_LOCK") != "1" {
 		lockFile(file)
 	}

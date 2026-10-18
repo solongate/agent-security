@@ -106,5 +106,5 @@ func copyExecutable(from, to string) error {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Chmod(to, 0o755)
+	return os.Chmod(to, 0o700)
 }

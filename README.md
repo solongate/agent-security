@@ -32,10 +32,10 @@
       <a href="https://github.com/solongate/agent-security/attestations"><img src="https://img.shields.io/badge/SLSA-Level%202-3ba9ee.svg" alt="SLSA Build Level 2" height="20"></a>
       <a href="https://github.com/solongate/agent-security/attestations"><img src="https://img.shields.io/badge/SLSA-Level%203-3ba9ee.svg" alt="SLSA Build Level 3" height="20"></a><br><br>
       <a href="https://api.reuse.software/info/github.com/solongate/agent-security"><img src="https://api.reuse.software/badge/github.com/solongate/agent-security" alt="REUSE status" height="20"></a><br><br>
-      <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=alert_status" alt="Quality Gate" height="20"></a>
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=security_rating" alt="Security Rating" height="20"></a>
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=reliability_rating" alt="Reliability Rating" height="20"></a>
-      <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=sqale_rating" alt="Maintainability Rating" height="20"></a>
+      <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=sqale_rating" alt="Maintainability Rating" height="20"></a><br>
+      <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=alert_status" alt="Quality Gate" height="20"></a>
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=coverage" alt="Coverage" height="20"></a>
     </td>
   </tr>

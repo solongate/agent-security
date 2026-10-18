@@ -87,7 +87,7 @@ func SandboxAgent(argv []string) int {
 		"TMPDIR=/tmp",
 		"XDG_CACHE_HOME="+home+"/.cache",
 		"XDG_CONFIG_HOME="+home+"/.config",
-		"PWD=/workspace",
+		"PWD=/workspace", // NOSONAR go:S2068 -- PWD is the working-directory env var, not a credential
 	)
 
 	plan := sandbox.BoxPlan{

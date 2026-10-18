@@ -93,11 +93,22 @@ function tokenOK(url) {
 }
 
 
+// unixBinary resolves a Unix system utility to its fixed, unwriteable
+// location in a standard system directory instead of trusting a PATH lookup,
+// falling back to the bare name only if none of those directories has it.
+function unixBinary(name) {
+  for (const dir of ['/usr/bin', '/bin', '/usr/local/bin', '/opt/homebrew/bin']) {
+    const p = join(dir, name);
+    if (existsSync(p)) return p;
+  }
+  return name;
+}
+
 function makeCert(dir) {
   const key = join(dir, 'shield-key.pem');
   const crt = join(dir, 'shield-cert.pem');
   try {
-    execFileSync('openssl', [
+    execFileSync(unixBinary('openssl'), [
       'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
       '-keyout', key, '-out', crt,
       '-days', '1',

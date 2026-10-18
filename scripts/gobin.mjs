@@ -2,7 +2,6 @@
 // Copyright 2026 the SolonGate contributors
 
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -17,11 +16,6 @@ export function goBin() {
 
 function find() {
   if (process.env.GO_BIN) return process.env.GO_BIN;
-
-  try {
-    execFileSync('go', ['version'], { stdio: 'ignore' });
-    return 'go';
-  } catch {}
 
   const home = homedir();
   const fixed = [

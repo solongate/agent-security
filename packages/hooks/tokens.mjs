@@ -324,4 +324,4 @@ function tokenSourceOf(data) {
   const sessionId = data.session_id || data.sessionId || data.conversation_id || '';
   if (!sessionId) return;
   reportTokens(data, tokenSourceOf(data), sessionId, data.agent_name || '');
-})();
+})().catch(() => {});

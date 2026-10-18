@@ -1,5 +1,6 @@
 #!/usr/bin/env sh
 # SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the SolonGate contributors
 #
 # Install SolonGate from this checkout: install the workspace, bundle the
 # hooks, build this host's binaries, then run the freshly built binary to

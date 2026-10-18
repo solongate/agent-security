@@ -26,9 +26,10 @@ jobs:
       - name: download existing release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
         run: |
           mkdir -p assets
-          gh release download "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" -D assets --pattern '*.tar.gz'
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D assets --pattern '*.tar.gz'
           ls -la assets
 
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
@@ -38,6 +39,7 @@ jobs:
       - name: download the attestation bundles and upload to the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
         run: |
           cd assets
           for f in *.tar.gz; do
@@ -47,4 +49,4 @@ jobs:
             mv "$d"/*.jsonl "$f.intoto.jsonl"
             rm -rf "$d"
           done
-          gh release upload "${{ inputs.tag }}" *.intoto.jsonl -R "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" *.intoto.jsonl -R "$GITHUB_REPOSITORY"

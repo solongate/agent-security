@@ -176,7 +176,7 @@ function scanTargetStrings(v) {
     }
     if (Array.isArray(x)) { for (const item of x) walk(item); return; }
     if (x && typeof x === 'object') {
-      for (const k of Object.keys(x).sort()) {
+      for (const k of Object.keys(x).sort((a, b) => a.localeCompare(b))) {
         if (CONTENT_FIELDS.has(k.toLowerCase())) continue;
         walk(x[k]);
       }

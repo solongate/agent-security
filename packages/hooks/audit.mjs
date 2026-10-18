@@ -416,4 +416,4 @@ try { input += readFileSync(0, 'utf-8'); } catch {}
   } catch {
     process.exitCode = 0;
   }
-})();
+})().catch(() => { process.exitCode = process.exitCode || 0; });

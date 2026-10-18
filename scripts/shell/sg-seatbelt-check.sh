@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the SolonGate contributors
 # Does the Seatbelt profile this repository generates actually confine anything?
 #
 # MACOS ONLY, and it exists because nothing ever ran it. packages/sandbox has a
@@ -21,7 +22,7 @@
 # can do.
 set -u
 
-if [ "$(uname -s)" != "Darwin" ]; then
+if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "This check is for macOS. Seatbelt is the mechanism it exercises, and"
   echo "this machine is $(uname -s). On Linux run ./scripts/shell/sg-parity-check.sh and"
   echo "./scripts/shell/sg-box-check.sh instead."
@@ -70,7 +71,7 @@ fail=0
 ask() { # ask LABEL EXPECT SHELL
   label=$1; expect=$2; code=$3
   got=$("$APP" run -- /bin/sh -c "$code" 2>/dev/null | tail -1)
-  if [ "$got" = "$expect" ]; then
+  if [[ "$got" = "$expect" ]]; then
     printf '  OK      %-44s %s\n' "$label" "$got"; pass=$((pass+1))
   else
     printf '  WRONG   %-44s got %-6s wanted %s\n' "$label" "${got:-<nothing>}" "$expect"; fail=$((fail+1))
@@ -93,7 +94,7 @@ ask "a script it wrote reaches it"  NO "printf '#!/bin/sh\ncat %s\n' '$PROTECTED
 # because the sandboxed process can't stat what it's denied from reading.
 # The only true answer is from out here, outside the sandbox, after the fact.
 "$APP" run -- /bin/sh -c "find '$(dirname "$PROTECTED")' -name '$(basename "$PROTECTED")' -delete 2>/dev/null" >/dev/null 2>&1
-if [ -e "$PROTECTED" ]; then
+if [[ -e "$PROTECTED" ]]; then
   printf '  OK      %-44s %s\n' "find -delete over its folder" NO; pass=$((pass+1))
 else
   printf '  WRONG   %-44s got %-6s wanted %s\n' "find -delete over its folder" YES NO; fail=$((fail+1))
@@ -111,7 +112,7 @@ ask "write /tmp"                    YES "touch /tmp/sg-seatbelt-check 2>/dev/nul
 
 echo
 echo "the file survived:"
-if [ -e "$PROTECTED" ]; then
+if [[ -e "$PROTECTED" ]]; then
   echo "  OK      it is still there"; pass=$((pass+1))
 else
   echo "  WRONG   it is gone"; fail=$((fail+1))
@@ -131,4 +132,4 @@ printf 'passed=%s  wrong=%s\n' "$pass" "$fail"
 rm -f /tmp/sg-seatbelt-check
 chmod -R u+w "$T" 2>/dev/null
 rm -rf "$T"
-[ "$fail" = 0 ]
+[[ "$fail" = 0 ]]

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 the SolonGate contributors
 # Runs the Go guard and the bundled Node guard against the SAME machine policy
 # and compares verdicts. Exit 2 = deny, 0 = allow.
 #
@@ -14,12 +15,12 @@ set -u
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 G=${1:-}
-if [ -z "$G" ]; then
+if [[ -z "$G" ]]; then
   G=$(mktemp -d)/sg-guard
   (cd "$REPO/packages/guard" && go build -o "$G" .) || { echo "guard build failed"; exit 1; }
 fi
 J="$REPO/packages/hooks/guard.bundled.mjs"
-[ -f "$J" ] || { echo "no bundle at $J, run: node packages/hooks/scripts/bundle-hooks.mjs"; exit 1; }
+[[ -f "$J" ]] || { echo "no bundle at $J, run: node packages/hooks/scripts/bundle-hooks.mjs"; exit 1; }
 
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
@@ -51,7 +52,7 @@ run_both() {
   go_out=$(printf '%s' "$payload" | env -u SOLONGATE_SANDBOX HOME="$T/home" "$@" "$G" "$client" 2>&1); go_rc=$?
   js_out=$(printf '%s' "$payload" | env -u SOLONGATE_SANDBOX HOME="$T/home" SOLONGATE_NO_GO_GUARD=1 "$@" node "$J" "$client" 2>&1); js_rc=$?
 
-  if [ "$go_rc" = "$js_rc" ]; then
+  if [[ "$go_rc" = "$js_rc" ]]; then
     ok "$desc" "go=$go_rc js=$js_rc"
   else
     bad "$desc" "go=$go_rc js=$js_rc"
@@ -60,12 +61,12 @@ run_both() {
     return
   fi
 
-  if [ "$go_rc" = 2 ]; then
+  if [[ "$go_rc" = 2 ]]; then
     local pat gr jr
     pat='Protected path[^"]*|Refused: this machine[^"]*|Security layer[^"]*|Tamper protection[^"]*|Blocked by policy[^"]*'
     gr=$(printf '%s' "$go_out" | grep -oE "$pat" | head -1 | cut -c1-74)
     jr=$(printf '%s' "$js_out" | grep -oE "$pat" | head -1 | cut -c1-74)
-    if [ -n "$gr" ] && [ "$gr" = "$jr" ]; then
+    if [[ -n "$gr" ]] && [[ "$gr" = "$jr" ]]; then
       note "reason identical: $gr"
     elif printf '%s%s' "$gr" "$jr" | grep -q 'Blocked by policy'; then
       # The policy layer's WORDING comes from two different engines. OPA emits a
@@ -90,7 +91,7 @@ expect_codes() {
   local go_rc js_rc
   printf '%s' "$payload" | env -u SOLONGATE_SANDBOX HOME="$T/home" "$G" "$client" >/dev/null 2>&1; go_rc=$?
   printf '%s' "$payload" | env -u SOLONGATE_SANDBOX HOME="$T/home" SOLONGATE_NO_GO_GUARD=1 node "$J" "$client" >/dev/null 2>&1; js_rc=$?
-  if [ "$go_rc" = "$want_go" ] && [ "$js_rc" = "$want_js" ]; then
+  if [[ "$go_rc" = "$want_go" ]] && [[ "$js_rc" = "$want_js" ]]; then
     ok "$desc" "go=$go_rc js=$js_rc (expected)"
   else
     bad "$desc" "go=$go_rc js=$js_rc (wanted go=$want_go js=$want_js)"
@@ -178,16 +179,16 @@ echo
 echo "[5] .last-deny flag                 (before: JS only)"
 for impl in go js; do
   rm -f "$FLAG"
-  if [ "$impl" = go ]; then
+  if [[ "$impl" = go ]]; then
     printf '%s' "$(call Read '{"file_path":"/etc/hostname"}' tu_go)" \
       | env -u SOLONGATE_SANDBOX HOME="$T/home" "$G" claude-code >/dev/null 2>&1
   else
     printf '%s' "$(call Read '{"file_path":"/etc/hostname"}' tu_js)" \
       | env -u SOLONGATE_SANDBOX HOME="$T/home" SOLONGATE_NO_GO_GUARD=1 node "$J" claude-code >/dev/null 2>&1
   fi
-  if [ -f "$FLAG" ]; then
+  if [[ -f "$FLAG" ]]; then
     id=$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).id||""))' "$FLAG")
-    [ "$id" = "tu_$impl" ] \
+    [[ "$id" = "tu_$impl" ]] \
       && ok "$impl wrote it, with the call id" "id=$id" \
       || bad "$impl wrote it with the wrong id" "id=$id"
   else
@@ -200,7 +201,7 @@ echo
 echo "[6] version handshake"
 gv=$("$G" --sg-version)
 jv=$(grep -oE 'HOOK_VERSION *= *[0-9]+' "$J" | grep -oE '[0-9]+$')
-[ "$gv" = "$jv" ] && ok "both sides agree" "$gv" || bad "numbers differ" "go=$gv js=$jv"
+[[ "$gv" = "$jv" ]] && ok "both sides agree" "$gv" || bad "numbers differ" "go=$gv js=$jv"
 
 echo
 printf 'passed=%s  failed=%s\n' "$pass" "$fail"
@@ -210,4 +211,4 @@ echo "cases here, all of them about the two implementations reaching the same"
 echo "verdict on the same input. Whether DLP, the rate limit, the four policy"
 echo "constraint kinds and whitelist mode do what they claim is a separate"
 echo "question, and ./scripts/shell/sg-layers-check.sh is where it is asked."
-[ "$fail" = 0 ]
+[[ "$fail" = 0 ]]

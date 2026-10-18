@@ -1,0 +1,24 @@
+version = 1
+SPDX-PackageName = "agent-security"
+SPDX-PackageDownloadLocation = "https://github.com/solongate/agent-security"
+
+[[annotations]]
+path = [
+  "**/*.md",
+  "**/*.yml",
+  "**/*.yaml",
+  "**/*.json",
+  "**/*.toml",
+  "**/*.mod",
+  "**/*.sum",
+  "**/*.mts",
+  "**/*.png",
+  "**/*.gif",
+  "**/*.svg",
+  "**/.gitignore",
+  "**/.npmrc",
+  "**/.npmignore",
+  ".github/CODEOWNERS",
+]
+SPDX-FileCopyrightText = "2026 the SolonGate contributors"
+SPDX-License-Identifier = "Apache-2.0"

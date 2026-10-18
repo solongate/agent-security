@@ -435,6 +435,33 @@ jobs:
             exit 1
           fi
 
+  # SonarQube Cloud analysis: quality gate, security/reliability/maintainability
+  # ratings and coverage, surfaced as README badges. Skipped on fork PRs, which
+  # cannot see the SONAR_TOKEN secret.
+  sonarqube:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: packages/guard/go.mod
+
+      - name: coverage per module
+        run: |
+          for m in guard policy shared sandbox core cli tui app; do
+            (cd "packages/$m" && go test -count=1 -coverprofile=coverage.out ./... || true)
+          done
+
+      - name: SonarQube Cloud scan
+        uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
   secrets:
     name: secret scan
     runs-on: ubuntu-latest
@@ -468,7 +495,7 @@ jobs:
         run: |
           set -euo pipefail
           tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfL -o "$tarball" \
+          curl -sSfL --proto '=https' --tlsv1.2 -o "$tarball" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
           echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
           tar -xzf "$tarball" gitleaks

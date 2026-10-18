@@ -23,10 +23,10 @@ func desktopNotify(title, msg string) {
 			"$n.Icon=[System.Drawing.SystemIcons]::Information;$n.Visible=$true;" +
 			"$n.ShowBalloonTip(6000,'" + q(title) + "','" + q(msg) + "',[System.Windows.Forms.ToolTipIcon]::Warning);" +
 			"Start-Sleep -Milliseconds 6500;$n.Dispose()"
-		cmd = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
+		cmd = exec.Command(windowsPowerShell(), "-NoProfile", "-NonInteractive", "-Command", ps)
 	case "darwin":
 		esc := func(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
-		cmd = exec.Command("osascript", "-e",
+		cmd = exec.Command(darwinBinary("osascript"), "-e",
 			`display notification "`+esc(msg)+`" with title "`+esc(title)+`"`)
 	default:
 		return
@@ -41,3 +41,28 @@ func desktopNotify(title, msg string) {
 }
 
 func bell() { _, _ = os.Stdout.WriteString("\a") }
+
+// windowsPowerShell resolves the fixed, unwriteable System32 location of
+// powershell.exe instead of trusting a PATH lookup, falling back to the bare
+// name only if that location doesn't exist on this machine.
+func windowsPowerShell() string {
+	root := os.Getenv("SystemRoot")
+	if root == "" {
+		root = `C:\Windows`
+	}
+	p := root + `\System32\WindowsPowerShell\v1.0\powershell.exe`
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return "powershell"
+}
+
+// darwinBinary resolves a macOS system utility to its fixed /usr/bin location
+// instead of trusting a PATH lookup, falling back to the bare name if absent.
+func darwinBinary(name string) string {
+	p := "/usr/bin/" + name
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	return name
+}

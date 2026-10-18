@@ -197,7 +197,11 @@ func asExitError(err error, out **exec.ExitError) bool {
 }
 
 func gitOutput(dir string, args ...string) (string, bool) {
-	cmd := exec.Command("git", args...)
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return "", false
+	}
+	cmd := exec.Command(git, args...)
 	cmd.Dir = dir
 	b, err := cmd.Output()
 	if err != nil {

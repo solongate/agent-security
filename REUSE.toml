@@ -12,6 +12,7 @@ path = [
   "**/*.mod",
   "**/*.sum",
   "**/*.mts",
+  "**/*.properties",
   "**/*.png",
   "**/*.gif",
   "**/*.svg",

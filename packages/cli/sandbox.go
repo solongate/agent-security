@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/solongate/agent-security/packages/core/client"
@@ -28,7 +29,28 @@ func sandboxUsage() string {
 	})
 }
 
+func parseSandboxArgs(argv []string) (id string, rest []string, ok bool) {
+	if len(argv) > 0 && argv[0] == "--" {
+		argv = argv[1:]
+	}
+	if len(argv) < 2 {
+		return "", nil, false
+	}
+	id = argv[0]
+	rest = argv[1:]
+	if len(rest) > 0 && rest[0] == "--" {
+		rest = rest[1:]
+	}
+	if len(rest) == 0 {
+		return "", nil, false
+	}
+	return id, rest, true
+}
+
 func SandboxAgent(argv []string) int {
+	if len(argv) > 0 && argv[0] == "--" {
+		argv = argv[1:]
+	}
 	if len(argv) == 0 {
 		errln(sandboxUsage())
 		return 1
@@ -49,12 +71,8 @@ func SandboxAgent(argv []string) int {
 		return 1
 	}
 
-	id := argv[0]
-	rest := argv[1:]
-	if i := indexOf(rest, "--"); i >= 0 {
-		rest = rest[i+1:]
-	}
-	if len(rest) == 0 {
+	id, rest, ok := parseSandboxArgs(argv)
+	if !ok {
 		errln(sandboxUsage())
 		return 1
 	}
@@ -68,7 +86,19 @@ func SandboxAgent(argv []string) int {
 		errln("")
 		return 1
 	}
-	ws := box.Dir
+	ws := filepath.Clean(box.Dir)
+	if !filepath.IsAbs(ws) {
+		errln("")
+		errln("  " + red("Workspace must be an absolute path, got: ") + box.Dir)
+		errln("")
+		return 1
+	}
+	if st, err := os.Stat(ws); err != nil || !st.IsDir() {
+		errln("")
+		errln("  " + red("Workspace "+ws+" is not a readable directory"))
+		errln("")
+		return 1
+	}
 
 	tree, inside, err := sandbox.BoxAgent(rest[0], rest[1:])
 	if err != nil {
@@ -79,16 +109,14 @@ func SandboxAgent(argv []string) int {
 	}
 
 	home := "/workspace/.sandbox-home"
-	_ = os.MkdirAll(filepath.Join(ws, ".sandbox-home"), 0o755)
+	if err := os.MkdirAll(filepath.Join(ws, ".sandbox-home"), 0o755); err != nil {
+		errln("")
+		errln("  " + red("Could not create sandbox home directory: ") + err.Error())
+		errln("")
+		return 1
+	}
 
-	env := append(os.Environ(),
-		shared.SandboxEnv+"="+shared.SandboxMarker(shared.SandboxModeBox, buildTag()),
-		"HOME="+home,
-		"TMPDIR=/tmp",
-		"XDG_CACHE_HOME="+home+"/.cache",
-		"XDG_CONFIG_HOME="+home+"/.config",
-		"PWD=/workspace", // NOSONAR go:S2068 -- PWD is the working-directory env var, not a credential
-	)
+	env := buildSandboxEnv(home)
 
 	plan := sandbox.BoxPlan{
 		Workspace: ws,
@@ -108,22 +136,48 @@ func SandboxAgent(argv []string) int {
 	errln("  " + dim("  `solongate sandbox --explain` for everything that is in the box"))
 	errln("")
 
-	rep, err := sandbox.BoxLaunch(plan, env)
+	_, err = sandbox.BoxLaunch(plan, env)
+	// BoxLaunch execs with bwrap, so reaching here means it failed before the agent ran.
+	errln("")
+	errln("  " + red("Could not build the box: ") + err.Error())
+	errln("")
+	return 1
+}
 
-	if err != nil {
-		if code, ok := exitCodeOf(err); ok {
-			return code
+func buildSandboxEnv(home string) []string {
+	overrides := map[string]string{
+		shared.SandboxEnv: shared.SandboxMarker(shared.SandboxModeBox, buildTag()),
+		"HOME":            home,
+		"TMPDIR":          "/tmp",
+		"XDG_CACHE_HOME":  home + "/.cache",
+		"XDG_CONFIG_HOME": home + "/.config",
+		"PWD":             "/workspace", // NOSONAR go:S2068 -- PWD is the working-directory env var, not a credential
+	}
+
+	// Host-specific sockets that cannot be reached inside the isolated namespace.
+	drop := map[string]bool{
+		"SSH_AUTH_SOCK":            true,
+		"DBUS_SESSION_BUS_ADDRESS": true,
+	}
+
+	var env []string
+	seen := make(map[string]bool)
+	for _, kv := range os.Environ() {
+		idx := strings.IndexByte(kv, '=')
+		if idx <= 0 {
+			continue
 		}
-		errln("")
-		errln("  " + red("Could not build the box: ") + err.Error())
-		errln("")
-		return 1
+		k := kv[:idx]
+		if _, ok := overrides[k]; ok || drop[k] || seen[k] {
+			continue
+		}
+		seen[k] = true
+		env = append(env, kv)
 	}
-	if !rep.Enforced {
-		errln("  " + red("Nothing was confined.") + dim(" Refusing to continue."))
-		return 1
+	for k, v := range overrides {
+		env = append(env, k+"="+v)
 	}
-	return 0
+	return env
 }
 
 func listBoxes() int {
@@ -145,7 +199,7 @@ func listBoxes() int {
 	for _, b := range boxes {
 		net := red("no network")
 		if b.Network {
-			net = dim("network on ")
+			net = dim("network on")
 		}
 		label := ""
 		if b.Label != "" {
@@ -198,17 +252,17 @@ func explainBox(argv []string) int {
 	errln("")
 	errln("  " + dim("Inside a box, the agent's root is a tmpfs holding only:"))
 	errln("")
-	errln("  " + dim("  /workspace    the box's directory, read-write"))
-	errln("  " + dim("  /opt/agent    the agent's own program, read-only"))
+	errln("  " + dim("  "+padRight("/workspace", 22)+"  the box's directory, read-write"))
+	errln("  " + dim("  "+padRight("/opt/agent", 22)+"  the agent's own program, read-only"))
 	for _, d := range sandbox.DefaultBoxRuntime() {
 		if _, err := os.Stat(d); err != nil {
 			continue
 		}
-		errln("  " + dim("  "+padRight(d, 13)+" read-only"))
+		errln("  " + dim("  "+padRight(d, 22)+"  read-only"))
 	}
-	errln("  " + dim("  /proc         this box's processes only"))
-	errln("  " + dim("  /dev          null, zero, full, random, urandom, tty"))
-	errln("  " + dim("  /tmp          empty, and gone when the box exits"))
+	errln("  " + dim("  "+padRight("/proc", 22)+"  this box's processes only"))
+	errln("  " + dim("  "+padRight("/dev", 22)+"  null, zero, full, random, urandom, tty"))
+	errln("  " + dim("  "+padRight("/tmp", 22)+"  empty, and gone when the box exits"))
 	errln("")
 	errln("  " + dim("ABSENT, not forbidden: $HOME, /etc/passwd, /root, /var, /mnt and"))
 	errln("  " + dim("every other project. There is no path to any of them from inside,"))

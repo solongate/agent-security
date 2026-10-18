@@ -49,11 +49,12 @@ func hasImmutableCap() bool {
 	if os.WriteFile(probe, []byte("x"), FileMode) != nil {
 		return false
 	}
+	chattr := unixSystemBinary("chattr")
 	defer func() {
-		_ = exec.Command("chattr", "-i", probe).Run()
+		_ = exec.Command(chattr, "-i", probe).Run()
 		_ = os.Remove(probe)
 	}()
-	return exec.Command("chattr", "+i", probe).Run() == nil
+	return exec.Command(chattr, "+i", probe).Run() == nil
 }
 
 func LockPath(path string, withSudo bool) Lock {
@@ -153,7 +154,7 @@ func CheckLock(path string) Lock {
 
 	switch runtime.GOOS {
 	case "darwin":
-		out, err := exec.Command("ls", "-lO", abs).Output()
+		out, err := exec.Command(unixSystemBinary("ls"), "-lO", abs).Output()
 		if err == nil && strings.Contains(string(out), "uchg") {
 			l.How, l.Immutable = "chflags uchg", true
 		}
@@ -163,7 +164,7 @@ func CheckLock(path string) Lock {
 			l.How, l.Immutable = "icacls deny + OWNER_RIGHTS", true
 		}
 	default:
-		out, err := exec.Command("lsattr", "-d", abs).Output()
+		out, err := exec.Command(unixSystemBinary("lsattr"), "-d", abs).Output()
 		if err == nil && len(out) > 0 && strings.ContainsRune(strings.Fields(string(out))[0], 'i') {
 			l.How, l.Immutable = "chattr +i", true
 		} else if info.Mode().Perm()&0o222 == 0 {
@@ -188,15 +189,29 @@ func windowsSystemBinary(name string) string {
 	return name
 }
 
+// unixSystemBinary resolves a Unix utility to its fixed, unwriteable location
+// in a standard system directory instead of trusting a PATH lookup, falling
+// back to the bare name only if none of those directories has it.
+func unixSystemBinary(name string) string {
+	for _, dir := range []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"} {
+		p := dir + "/" + name
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	return name
+}
+
 func chattrSet(path, flag string, withSudo bool) error {
-	if err := runReport("chattr", flag, path); err == nil {
+	chattr := unixSystemBinary("chattr")
+	if err := runReport(chattr, flag, path); err == nil {
 		return nil
 	}
 	if !withSudo {
 		return errors.New("chattr needs CAP_LINUX_IMMUTABLE")
 	}
 
-	return runReport("sudo", "-n", "chattr", flag, path)
+	return runReport(unixSystemBinary("sudo"), "-n", chattr, flag, path)
 }
 
 func runReport(name string, args ...string) error {

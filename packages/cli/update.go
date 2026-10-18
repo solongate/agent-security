@@ -63,7 +63,7 @@ func RunUpdate(args []string) int {
 		fmt.Fprintln(os.Stderr, "         "+script+" is missing, so there is nothing to run.")
 		return 1
 	}
-	if code := step(root, "Rebuilding and reinstalling", "sh", script, "--yes"); code != 0 {
+	if code := step(root, "Rebuilding and reinstalling", shInterpreter(), script, "--yes"); code != 0 {
 		return code
 	}
 
@@ -158,6 +158,16 @@ func spin(label string) func() {
 func isTerminal(f *os.File) bool {
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// shInterpreter resolves /bin/sh, the POSIX-guaranteed location for the
+// system shell, instead of trusting a PATH lookup; it falls back to the bare
+// name only if that path doesn't exist on this machine.
+func shInterpreter() string {
+	if info, err := os.Stat("/bin/sh"); err == nil && !info.IsDir() {
+		return "/bin/sh"
+	}
+	return "sh"
 }
 
 func step(dir, label, name string, args ...string) int {

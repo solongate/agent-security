@@ -7,9 +7,12 @@ import { mkdirSync, writeFileSync, rmSync, statSync, readFileSync, copyFileSync 
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { goBin } from '../../../scripts/gobin.mjs';
+
 const here = dirname(fileURLToPath(import.meta.url));
 const goDir = resolve(here, '..');
 const outDir = join(goDir, 'dist-platforms');
+const go = process.env.GO_BIN || goBin();
 
 const TARGETS = [
   { os: 'linux', arch: 'amd64', npmOs: 'linux', npmCpu: 'x64' },
@@ -36,7 +39,7 @@ function build(t) {
   const dest = join(outDir, `${t.npmOs}-${t.npmCpu}`);
   mkdirSync(dest, { recursive: true });
   const bin = join(dest, binName(t));
-  execFileSync('go', ['build', '-trimpath', '-ldflags', ldflags, '-o', bin, '.'], {
+  execFileSync(go, ['build', '-trimpath', '-ldflags', ldflags, '-o', bin, '.'], {
     cwd: goDir,
     env: { ...process.env, CGO_ENABLED: '0', GOOS: t.os, GOARCH: t.arch },
     stdio: ['ignore', 'inherit', 'inherit'],

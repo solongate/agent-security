@@ -14,7 +14,7 @@ func desktopNotify(title, msg string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "linux":
-		cmd = exec.Command("notify-send", "-a", "SolonGate", title, msg)
+		cmd = exec.Command(unixBinary("notify-send"), "-a", "SolonGate", title, msg)
 	case "windows":
 		q := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
 		ps := "Add-Type -AssemblyName System.Windows.Forms;" +
@@ -26,7 +26,7 @@ func desktopNotify(title, msg string) {
 		cmd = exec.Command(windowsPowerShell(), "-NoProfile", "-NonInteractive", "-Command", ps)
 	case "darwin":
 		esc := func(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
-		cmd = exec.Command(darwinBinary("osascript"), "-e",
+		cmd = exec.Command(unixBinary("osascript"), "-e",
 			`display notification "`+esc(msg)+`" with title "`+esc(title)+`"`)
 	default:
 		return
@@ -57,9 +57,9 @@ func windowsPowerShell() string {
 	return "powershell"
 }
 
-// darwinBinary resolves a macOS system utility to its fixed /usr/bin location
+// unixBinary resolves a Unix system utility to its fixed /usr/bin location
 // instead of trusting a PATH lookup, falling back to the bare name if absent.
-func darwinBinary(name string) string {
+func unixBinary(name string) string {
 	p := "/usr/bin/" + name
 	if _, err := os.Stat(p); err == nil {
 		return p

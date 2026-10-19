@@ -57,6 +57,7 @@ id_ed25519
 !/scripts/shell/sg-layers-check.sh
 !/scripts/shell/sg-unit-check.sh
 !/scripts/shell/install.sh
+!/packages/hooks/scripts/build-platforms.sh
 
 # Icon/Logo files (served from CDN)
 **/public/icon-*.png

@@ -188,7 +188,12 @@ func TestNormTamperPath(t *testing.T) {
 		{"/Home/U/." + "Solongate" + "/Hooks", "/home/u/" + ours + "/hooks"},
 
 		{`C:\Users\u\.solon` + `gate\hooks`, "c:/users/u/" + ours + "/hooks"},
-		{"", ""},
+		{"", "."},
+
+		// Dot-segment paths must be cleaned (vulnerability fix).
+		{"/home/u/." + "claude/./setti" + "ngs.json", "/home/u/.claude/settings.json"},
+		{"/home/u/." + "claude/foo/../setti" + "ngs.json", "/home/u/.claude/settings.json"},
+		{"/home/u/." + "solon" + "gate/./hooks/guard.mjs", "/home/u/" + ours + "/hooks/guard.mjs"},
 	}
 	for _, c := range cases {
 		if got := normTamperPath(c.in); got != c.want {
@@ -229,5 +234,126 @@ func TestExtractTargetPaths(t *testing.T) {
 		{"path": map[string]interface{}{"nested": ours}},
 	} {
 		_ = extractTargetPaths(args)
+	}
+}
+
+// --- Regression tests for the 8 tamper guard security fixes ---
+
+func TestTamperCheckBlocksDotSegmentBypass(t *testing.T) {
+	// Fix 1: normTamperPath must clean dot-segments so /./  and /../
+	// do not evade the protected path lists.
+	cases := []struct {
+		name, path string
+	}{
+		{"dot-segment on Claude settings",
+			tamperHome + "/.claude/./setti" + "ngs.json"},
+		{"parent-segment on Claude settings",
+			tamperHome + "/.claude/x/../setti" + "ngs.json"},
+		{"dot-segment on SolonGate hook",
+			tamperHome + "/.solon" + "gate/./hooks/guard.mjs"},
+		{"dot-segment on Antigravity hooks",
+			tamperHome + "/.gemini/config/./hooks.json"},
+		{"dot-segment on Codex hooks",
+			tamperHome + "/.codex/./hooks.json"},
+	}
+	for _, c := range cases {
+		if got := tamperCheck("Write", map[string]interface{}{"file_path": c.path}); got == "" {
+			t.Errorf("%s: tamperCheck allowed dot-segment bypass on %s", c.name, c.path)
+		}
+	}
+}
+
+func TestTamperCheckBlocksOpenCodePlugin(t *testing.T) {
+	// Fix 2: OpenCode's SolonGate plugin must be protected.
+	plugin := tamperHome + "/.config/opencode/plugins/solon" + "gate.js"
+
+	if tamperCheck("Write", map[string]interface{}{"file_path": plugin}) == "" {
+		t.Error("tamperCheck allowed writing to the OpenCode plugin file")
+	}
+	if tamperCheck("Bash", map[string]interface{}{"command": "rm " + plugin}) == "" {
+		t.Error("tamperCheck allowed shell deletion of the OpenCode plugin file")
+	}
+}
+
+func TestTamperCheckBlocksRelativePathWithCwd(t *testing.T) {
+	// Fix 3: relative paths must be resolved against cwd.
+	cwd := tamperHome + "/.claude"
+	if tamperCheck("Write", map[string]interface{}{"file_path": "setti" + "ngs.json"}, cwd) == "" {
+		t.Error("tamperCheck allowed relative path settings.json with cwd=~/.claude")
+	}
+	// Absolute paths should not be affected by cwd.
+	if tamperCheck("Write", map[string]interface{}{"file_path": "/home/u/projects/readme.md"}, cwd) != "" {
+		t.Error("tamperCheck refused an absolute path to an unprotected file")
+	}
+}
+
+func TestTamperCheckBlocksCdSplitEvasion(t *testing.T) {
+	// Fix 4: cd into a protected directory followed by file operations
+	// must be blocked even when the path regex does not join them.
+	cmds := []string{
+		"cd ~/.claude && rm setti" + "ngs.json",
+		"cd ~/.solon" + "gate && rm -rf hooks/",
+		"cd ~/.codex && cat hooks.json",
+		"cd ~/.gemini/config && rm hooks.json",
+	}
+	for _, cmd := range cmds {
+		if tamperCheck("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("tamperCheck allowed cd-split evasion: %s", cmd)
+		}
+	}
+}
+
+func TestTamperCheckExtractsStringArrayPaths(t *testing.T) {
+	// Fix 5: string items in []interface{} arrays must be extracted.
+	args := map[string]interface{}{
+		"file_path": []interface{}{tamperHome + "/.solon" + "gate/poli" + "cy.json"},
+	}
+	if tamperCheck("Write", args) == "" {
+		t.Error("tamperCheck allowed a string array containing a protected path")
+	}
+}
+
+func TestTamperCheckRecognizesAdditionalPathFields(t *testing.T) {
+	// Fix 6: DirectoryPath, SearchPath, and file must be recognized.
+	fields := []struct{ key, path string }{
+		{"DirectoryPath", tamperHome + "/.solon" + "gate/hooks"},
+		{"SearchPath", tamperHome + "/.solon" + "gate/bin"},
+		{"file", tamperHome + "/.claude/setti" + "ngs.json"},
+	}
+	for _, f := range fields {
+		if tamperCheck("list_dir", map[string]interface{}{f.key: f.path}) == "" {
+			t.Errorf("tamperCheck allowed %s=%s", f.key, f.path)
+		}
+	}
+}
+
+func TestTamperCheckRecognizesShTool(t *testing.T) {
+	// Fix 7: tool names sh, zsh, terminal must be classified as exec tools.
+	for _, tool := range []string{"sh", "zsh", "dash", "terminal"} {
+		if tamperCheck(tool, map[string]interface{}{"command": "rm " + policyFile()}) == "" {
+			t.Errorf("tamperCheck allowed exec command via tool %q", tool)
+		}
+	}
+}
+
+func TestTamperCheckExtractsNestedMapPaths(t *testing.T) {
+	// Fix 5b: paths nested one level deep in map arguments must be extracted.
+	args := map[string]interface{}{
+		"params": map[string]interface{}{
+			"file_path": tamperHome + "/.claude/setti" + "ngs.json",
+		},
+	}
+	if tamperCheck("custom_tool", args) == "" {
+		t.Error("tamperCheck allowed a nested map containing a protected path")
+	}
+}
+
+func TestTamperCheckExtractsBatchPaths(t *testing.T) {
+	// Paths in 'paths' array must be extracted and blocked.
+	args := map[string]interface{}{
+		"paths": []interface{}{tamperHome + "/.solon" + "gate/poli" + "cy.json"},
+	}
+	if tamperCheck("batch_write", args) == "" {
+		t.Error("tamperCheck allowed batch_write with protected paths array")
 	}
 }

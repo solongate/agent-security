@@ -8,9 +8,6 @@ out/
 build/
 *.tsbuildinfo
 
-# Turbo
-.turbo/
-
 # Environment
 .env
 .env.*
@@ -29,7 +26,6 @@ Thumbs.db
 # Debug / Logs
 npm-debug.log*
 yarn-debug.log*
-pnpm-debug.log*
 *.log
 
 # Coverage
@@ -83,7 +79,7 @@ deploy-package/
 !ROADMAP.md
 !.github/ISSUE_TEMPLATE/*.md
 
-# Lock files (pnpm only)
+# Lock files from other ecosystems: this repo has none of its own to ignore
 package-lock.json
 yarn.lock
 

@@ -65,29 +65,25 @@ func readIfPresent(path string) ([]byte, error) {
 	return nil, err
 }
 
-func claudeHookCommand(p Paths, node, script string) string {
-	return hookCommand(p, node, script, "claude-code", "Claude Code")
+func claudeHookCommand(p Paths, kind string) string {
+	return hookCommand(p, kind, "claude-code", "Claude Code")
 }
 
-func claudeHooksValue(p Paths, node string) map[string][]hookGroup {
-	group := func(script string) []hookGroup {
+func claudeHooksValue(p Paths) map[string][]hookGroup {
+	group := func(kind string) []hookGroup {
 		return []hookGroup{{
 			Matcher: matcher(""),
-			Hooks:   []hookHandler{{Type: "command", Command: claudeHookCommand(p, node, script)}},
+			Hooks:   []hookHandler{{Type: "command", Command: claudeHookCommand(p, kind)}},
 		}}
 	}
 	return map[string][]hookGroup{
-		"PreToolUse":  group(GuardHookName),
-		"PostToolUse": group(auditHookName),
-
-		"Stop": {
-			{Matcher: matcher(""), Hooks: []hookHandler{{Type: "command", Command: claudeHookCommand(p, node, stopHookName)}}},
-			{Matcher: matcher(""), Hooks: []hookHandler{{Type: "command", Command: claudeHookCommand(p, node, tokensHookName)}}},
-		},
+		"PreToolUse":  group(guardKind),
+		"PostToolUse": group(auditKind),
+		"Stop":        group(tokensKind),
 	}
 }
 
-func planClaude(p Paths, node string) (registration, error) {
+func planClaude(p Paths) (registration, error) {
 	raw, err := readIfPresent(p.SettingsPath)
 	if err != nil {
 		return registration{}, err
@@ -98,7 +94,7 @@ func planClaude(p Paths, node string) (registration, error) {
 	}
 
 	hooks := newJSONObject()
-	values := claudeHooksValue(p, node)
+	values := claudeHooksValue(p)
 	for _, ev := range []string{"PreToolUse", "PostToolUse", "Stop"} {
 		if err := hooks.setValue(ev, values[ev]); err != nil {
 			return registration{}, err
@@ -186,19 +182,19 @@ func claudeRegisteredCommand(p Paths) string {
 
 const antigravityGroup = "solongate-guard"
 
-func antigravityHookCommand(p Paths, node string) string {
-	return hookCommand(p, node, GuardHookName, "antigravity", "Antigravity")
+func antigravityHookCommand(p Paths) string {
+	return hookCommand(p, guardKind, "antigravity", "Antigravity")
 }
 
-func antigravityAuditCommand(p Paths, node string) string {
-	return hookCommand(p, node, auditHookName, "antigravity", "Antigravity")
+func antigravityAuditCommand(p Paths) string {
+	return hookCommand(p, auditKind, "antigravity", "Antigravity")
 }
 
-func antigravityTokensCommand(p Paths, node string) string {
-	return hookCommand(p, node, tokensHookName, "antigravity", "Antigravity")
+func antigravityTokensCommand(p Paths) string {
+	return hookCommand(p, tokensKind, "antigravity", "Antigravity")
 }
 
-func planAntigravity(p Paths, node string) (registration, error) {
+func planAntigravity(p Paths) (registration, error) {
 	raw, err := readIfPresent(p.AntigravityHooksPath)
 	if err != nil {
 		return registration{}, err
@@ -210,19 +206,19 @@ func planAntigravity(p Paths, node string) (registration, error) {
 	group := newJSONObject()
 	if err := group.setValue("PreToolUse", []hookGroup{{
 		Matcher: matcher(""),
-		Hooks:   []hookHandler{{Type: "command", Command: antigravityHookCommand(p, node)}},
+		Hooks:   []hookHandler{{Type: "command", Command: antigravityHookCommand(p)}},
 	}}); err != nil {
 		return registration{}, err
 	}
 	if err := group.setValue("PostToolUse", []hookGroup{{
 		Matcher: matcher(""),
-		Hooks:   []hookHandler{{Type: "command", Command: antigravityAuditCommand(p, node)}},
+		Hooks:   []hookHandler{{Type: "command", Command: antigravityAuditCommand(p)}},
 	}}); err != nil {
 		return registration{}, err
 	}
 	if err := group.setValue("Stop", []hookGroup{{
 		Matcher: matcher(""),
-		Hooks:   []hookHandler{{Type: "command", Command: antigravityTokensCommand(p, node)}},
+		Hooks:   []hookHandler{{Type: "command", Command: antigravityTokensCommand(p)}},
 	}}); err != nil {
 		return registration{}, err
 	}

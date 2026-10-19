@@ -37,7 +37,7 @@ commands, so there's nothing to unit-test in them.
 Four end-to-end scripts too (Seatbelt needs a Mac):
 
 ```bash
-./scripts/shell/sg-parity-check.sh      # the Go guard and the Node hook must agree
+./scripts/shell/sg-parity-check.sh      # the guard decides every case the way it's supposed to
 ./scripts/shell/sg-layers-check.sh      # every layer (DLP, rate limit, tamper, etc.) must block what it says it blocks
 ./scripts/shell/sg-box-check.sh         # the sandbox must actually lock the agent in   (Linux, needs bwrap)
 ./scripts/shell/sg-seatbelt-check.sh    # same check, for macOS's Seatbelt              (macOS)
@@ -53,8 +53,9 @@ or `core`, add tests for it to that package's suite in the same pull request.
 ## Code style
 
 - **Go code**: run `gofmt` and make sure `go vet` is clean. No other linter.
-- **Hook files** (`.mjs`): edit `guard.mjs` directly, never the bundled file.
-  Rerun `./scripts/shell/install.sh` after so the bundle matches your edit.
+- **`packages/hooks/opencode-plugin.mjs`**: the one JavaScript file in the
+  tree. It's a thin protocol shim with no policy logic of its own, spawning
+  the Go binary for every event; keep it that way.
 - **Comment the "why", not the "what"**: say what a piece of code is
   protecting against, not what it does. If you delete a check, explain in the
   pull request why it's safe to remove.
@@ -72,8 +73,8 @@ for it on every commit in a pull request and rejects any that are missing it.
 
 ## Dependencies
 
-Go modules (`go.sum` per package) and pnpm (`pnpm-lock.yaml`) are the only
-ways a dependency enters this repository; nothing is vendored by hand.
+Go modules (`go.sum` per package) are the only way a dependency enters this
+repository; nothing is vendored by hand.
 [Dependabot](.github/dependabot.yml) opens a weekly pull request per
 ecosystem/module, grouped so a bump arrives as one review rather than several
 duplicates. There is no conformance suite backing these any more (see

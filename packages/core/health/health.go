@@ -8,9 +8,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -58,7 +56,6 @@ func CollectChecks(ctx context.Context, c *client.Client) []Check {
 	checks = append(checks, policyChecks(ctx, c)...)
 	checks = append(checks, guardHookCheck(ctx, c)...)
 
-	checks = append(checks, nativeGuardCheck()...)
 	checks = append(checks, clientChecks()...)
 	checks = append(checks, localLogCheck()...)
 	checks = append(checks, protectedCheck(ctx, c)...)
@@ -289,9 +286,9 @@ func clientChecks() []Check {
 	if isGuardInstalled() {
 		rt := install.CheckHookRuntime()
 		if rt.OK {
-			checks = append(checks, Check{Name: "hook runtime", OK: StateOK, Detail: "node " + rt.Detail})
+			checks = append(checks, Check{Name: "guard binary", OK: StateOK, Detail: rt.Detail})
 		} else {
-			checks = append(checks, Check{Name: "hook runtime", OK: StateFail,
+			checks = append(checks, Check{Name: "guard binary", OK: StateFail,
 				Detail: rt.Detail + ", nothing is being enforced or logged"})
 		}
 
@@ -299,12 +296,12 @@ func clientChecks() []Check {
 		case beat == nil:
 			checks = append(checks, Check{Name: "guard fired", OK: StateWarn,
 				Detail: "never. Open your agent, run one tool call, then check again"})
-		case beat.Node == "no-node":
+		case beat.Status == "no-binary":
 			checks = append(checks, Check{Name: "guard fired", OK: StateFail,
-				Detail: install.Ago(beat.At) + ", but found no node to run with. Run `solongate repair`"})
+				Detail: install.Ago(beat.At) + ", but found no guard binary. Run `solongate repair`"})
 		default:
 			checks = append(checks, Check{Name: "guard fired", OK: StateOK,
-				Detail: install.Ago(beat.At) + " · " + beat.Node})
+				Detail: install.Ago(beat.At)})
 		}
 	}
 
@@ -363,45 +360,3 @@ func localLogCheck() []Check {
 func roundHalfUp(v float64) int64 { return int64(math.Floor(v + 0.5)) }
 
 func fixed0(v float64) string { return strconv.FormatInt(int64(math.Round(v)), 10) }
-
-func nativeGuardCheck() []Check {
-	const name = "native guard"
-
-	if os.Getenv("SOLONGATE_NO_GO_GUARD") == "1" {
-		return []Check{{Name: name, OK: StateWarn,
-			Detail: "off · SOLONGATE_NO_GO_GUARD=1 pins the guard to its Node implementation"}}
-	}
-
-	bin := filepath.Join(install.BinDir(), nativeGuardName())
-	if override := strings.TrimSpace(os.Getenv("SOLONGATE_GUARD_BIN")); override != "" {
-		bin = override
-	}
-	if _, err := os.Stat(bin); err != nil {
-
-		return []Check{{Name: name, OK: StateWarn,
-			Detail: "not installed · the guard runs its Node implementation (same policy, slower). " +
-				"`solongate repair` installs it if this platform has one"}}
-	}
-
-	out, err := exec.Command(bin, "--sg-version").Output()
-	if err != nil {
-		return []Check{{Name: name, OK: StateWarn,
-			Detail: "present but did not answer · the hook will refuse it and use Node. Run `solongate repair`"}}
-	}
-	got := strings.TrimSpace(string(out))
-
-	want := installedGuardVersion()
-	if want != nil && got != strconv.Itoa(*want) {
-		return []Check{{Name: name, OK: StateWarn,
-			Detail: "v" + got + " but the hook is v" + strconv.Itoa(*want) +
-				" · refused for the mismatch, running Node. Run `solongate repair`"}}
-	}
-	return []Check{{Name: name, OK: StateOK, Detail: "v" + got + " · in use"}}
-}
-
-func nativeGuardName() string {
-	if runtime.GOOS == "windows" {
-		return "solongate-guard.exe"
-	}
-	return "solongate-guard"
-}

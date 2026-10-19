@@ -6,9 +6,7 @@ package install
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 )
 
@@ -111,15 +109,11 @@ func (f codexFile) encode() ([]byte, error) {
 	return body.encodeFile()
 }
 
-func codexHookCommand(p Paths, node, script string) string {
-
-	if runtime.GOOS == "windows" {
-		return `"` + filepath.ToSlash(node) + `" "` + filepath.ToSlash(filepath.Join(p.HooksDir, script)) + `" codex "Codex"`
-	}
-	return hookCommand(p, node, script, "codex", "Codex")
+func codexHookCommand(p Paths, kind string) string {
+	return hookCommand(p, kind, "codex", "Codex")
 }
 
-func planCodex(p Paths, node string) (registration, error) {
+func planCodex(p Paths) (registration, error) {
 
 	raw, err := readIfPresent(p.CodexHooksPath)
 	if err != nil {
@@ -127,10 +121,10 @@ func planCodex(p Paths, node string) (registration, error) {
 	}
 	file := readCodexHooks(p.CodexHooksPath)
 
-	script := map[string]string{
-		"PreToolUse":  GuardHookName,
-		"PostToolUse": auditHookName,
-		"Stop":        tokensHookName,
+	kind := map[string]string{
+		"PreToolUse":  guardKind,
+		"PostToolUse": auditKind,
+		"Stop":        tokensKind,
 	}
 	status := map[string]string{
 		"PreToolUse":  "SolonGate policy check",
@@ -149,7 +143,7 @@ func planCodex(p Paths, node string) (registration, error) {
 
 			Hooks: []hookHandler{{
 				Type:          "command",
-				Command:       codexHookCommand(p, node, script[ev]),
+				Command:       codexHookCommand(p, kind[ev]),
 				Timeout:       codexTimeoutSec,
 				StatusMessage: status[ev],
 			}},

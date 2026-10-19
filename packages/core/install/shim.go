@@ -19,32 +19,26 @@ const (
 
 var shimBlockRe = regexp.MustCompile(`(?s)` + regexp.QuoteMeta(shimBegin) + `.*?` + regexp.QuoteMeta(shimEnd) + `\r?\n?`)
 
-func InstallClaudeShim(shieldPath string) bool {
+func InstallClaudeShim(p Paths) bool {
 	real := resolveRealClaude()
 	if real == "" {
 		return false
 	}
-	p := GlobalPaths()
-	node, err := resolveNode(p)
-	if err != nil {
-		return false
-	}
-	node = filepath.ToSlash(node)
-	shield := filepath.ToSlash(shieldPath)
+	gobin := filepath.ToSlash(p.GuardBinaryPath())
 
 	sg := filepath.ToSlash(filepath.Join(BinDir(), "solongate"))
 	block := `claude() {
   if [ -x "` + sg + `" ]; then
-    "` + sg + `" run -- "` + node + `" "` + shield + `" -- "` + real + `" "$@"
+    "` + sg + `" run -- "` + gobin + `" shield -- "` + real + `" "$@"
   else
-    "` + node + `" "` + shield + `" -- "` + real + `" "$@"
+    "` + gobin + `" shield -- "` + real + `" "$@"
   fi
 }`
 	if runtime.GOOS == "windows" {
 
 		block = `function claude {
-  if (Test-Path "` + sg + `.exe") { & "` + sg + `.exe" run -- "` + node + `" "` + shield + `" -- "` + real + `" @args }
-  else { & "` + node + `" "` + shield + `" -- "` + real + `" @args }
+  if (Test-Path "` + sg + `.exe") { & "` + sg + `.exe" run -- "` + gobin + `" shield -- "` + real + `" @args }
+  else { & "` + gobin + `" shield -- "` + real + `" @args }
 }`
 	}
 	block = shimBegin + "\n" + block + "\n" + shimEnd

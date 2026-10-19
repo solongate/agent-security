@@ -1,11 +1,11 @@
 # @solongate/hooks
 
-The hook programs, and the two scripts that build what ships.
+The guard and CLI binaries, and the script that builds what ships.
 
 This package used to be the product: a CLI, a TUI, an MCP proxy and the hooks,
-all in TypeScript, published to npm. The CLI and the TUI are in Go now
-(`packages/app`), distribution is over git, and the TypeScript that is left
-is the part nothing replaced.
+all in TypeScript, published to npm. All of that is Go now (`packages/guard`,
+`packages/app`), distribution is over git, and what is left here is the one
+piece that has to stay JavaScript: the OpenCode plugin shim.
 
 For what SolonGate is and how to install it, read the
 [root README](../../README.md).
@@ -13,32 +13,28 @@ For what SolonGate is and how to install it, read the
 ## What is in here
 
 ```
-hooks/guard.mjs           the guard: decides every tool call
-hooks/guard.bundled.mjs   the above with its imports inlined, which is what installs
-hooks/policy-eval.mjs     the decision itself, shared
-hooks/dlp.mjs             the pattern list, shared
-hooks/audit.mjs           PostToolUse: records the calls that ran
-hooks/tokens.mjs          Stop: what the turn cost
-hooks/shield.mjs          masks the prompt, through a shell shim
-hooks/stop.mjs            end of turn
-hooks/opencode-plugin.mjs the OpenCode adapter
+opencode-plugin.mjs   the OpenCode adapter: spawns the Go guard binary
+scripts/build-platforms.sh   cross-compiles the Go binaries, one directory per platform
+platforms/            build output, laid out per platform tag
+VERSION                the version stamped into the binaries
 ```
 
-The hooks import node builtins and each other. Nothing else.
+OpenCode loads plugins as native JS modules; there is no way to register a
+bare Go binary as one. `opencode-plugin.mjs` is a thin protocol translator:
+every event it receives spawns the Go guard binary's matching subcommand and
+relays its JSON verdict back to OpenCode. No policy, DLP, or tamper logic
+lives in this file.
 
 ## Building
 
 ```sh
-pnpm build        # bundles guard.mjs into guard.bundled.mjs
-pnpm build:go     # cross-compiles the Go guard and CLI, one directory per platform
+packages/hooks/scripts/build-platforms.sh            # all six release targets
+packages/hooks/scripts/build-platforms.sh linux-x64   # just this machine
 ```
 
-`pnpm build:go` with no argument builds all six targets, which is what a release
-needs. Pass a tag (`linux-x64`) for just this machine.
-
-The Go installer reads `hooks/` from this directory and copies it onto the
-machine, so `pnpm build` has to have run before `solongate repair` means
-anything.
+The Go installer reads `platforms/<tag>/` and copies the binaries it finds
+there onto the machine, so this script has to have run before `solongate
+repair` means anything.
 
 ## Licence
 

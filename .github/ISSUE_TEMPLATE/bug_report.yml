@@ -9,7 +9,7 @@ body:
         That is a bypass, and it belongs in a
         [private advisory](https://github.com/solongate/agent-security/security/advisories/new)
         rather than a public issue. See
-        [SECURITY.md](https://github.com/solongate/agent-security/blob/main/SECURITY.md).
+        [SECURITY.md](https://github.com/solongate/agent-security/blob/main/.github/SECURITY.md).
 
         For everything else, thanks for filing. The three fields below answer
         most reports on their own.
@@ -48,21 +48,6 @@ body:
         - Linux
         - macOS
         - Windows
-    validations:
-      required: true
-
-  - type: dropdown
-    id: decider
-    attributes:
-      label: Which implementation decided the call
-      description: >-
-        `solongate doctor` says whether the Go binary or the Node hook is in
-        use. It matters: they are separate implementations, and a bug in one is
-        not automatically a bug in the other.
-      options:
-        - The Go binary
-        - The bundled Node hook
-        - I do not know
     validations:
       required: true
 

@@ -3,12 +3,12 @@
 # Copyright 2026 the SolonGate contributors
 # Does each enforcement layer actually enforce?
 #
-# WHY THIS EXISTS. The parity check proves the two guards AGREE; it says nothing
-# about whether what they agree on is right. Both could refuse nothing and pass
-# every case in it. The box check covers one layer, the strongest one. That left
-# the middle of the ladder, which is most of the product, measured by nothing:
-# DLP in each of its four modes, the rate limit, the tamper sweep, and the four
-# kinds of policy constraint.
+# WHY THIS EXISTS. The parity check used to prove the two guards AGREE; it
+# said nothing about whether what they agreed on was right. Both could have
+# refused nothing and passed every case in it. The box check covers one
+# layer, the strongest one. That left the middle of the ladder, which is
+# most of the product, measured by nothing: DLP in each of its four modes,
+# the rate limit, the tamper sweep, and the four kinds of policy constraint.
 #
 # This drives the real guard binary with real payloads on a throwaway HOME, one
 # policy file per case, and asserts the exit code: 2 is a refusal, 0 is not.
@@ -23,8 +23,6 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 
 G=$(mktemp -d)/guard
 (cd "$REPO/packages/guard" && go build -o "$G" .) || { echo "guard build failed"; exit 1; }
-J="$REPO/packages/hooks/guard.bundled.mjs"
-[[ -f "$J" ]] || { echo "no bundle; run: node packages/hooks/scripts/bundle-hooks.mjs"; exit 1; }
 
 T=$(mktemp -d)
 trap 'chmod -R u+w "$T" 2>/dev/null; rm -rf "$T"' EXIT
@@ -49,22 +47,17 @@ call() { # call TOOL JSON_INPUT
   printf '{"tool_name":"%s","tool_input":%s,"cwd":"%s/proj","tool_use_id":"t"}' "$1" "$2" "$T"
 }
 
-# both DESC WANT PAYLOAD [CLIENT] - runs the case through BOTH implementations
-# and requires the wanted exit code from each. Both, because a layer that only
-# one of them enforces is the bug this repository keeps finding, and the parity
-# check cannot see it when neither is asked the question.
-both() {
+# expect DESC WANT PAYLOAD [CLIENT] -- runs one case through the guard and
+# requires the wanted exit code.
+expect() {
   desc=$1; want=$2; payload=$3; client=${4:-claude-code}
   printf '%s' "$payload" | env -u SOLONGATE_SANDBOX HOME="$HOME" "$G" "$client" >/dev/null 2>&1
-  go=$?
-  printf '%s' "$payload" | env -u SOLONGATE_SANDBOX HOME="$HOME" SOLONGATE_NO_GO_GUARD=1 \
-    node "$J" "$client" >/dev/null 2>&1
-  js=$?
-  if [[ "$go" = "$want" ]] && [[ "$js" = "$want" ]]; then
-    printf '  OK      %-46s go=%s js=%s\n' "$desc" "$go" "$js"
+  got=$?
+  if [[ "$got" = "$want" ]]; then
+    printf '  OK      %-46s got=%s\n' "$desc" "$got"
     pass=$((pass + 1))
   else
-    printf '  WRONG   %-46s go=%s js=%s  wanted %s from both\n' "$desc" "$go" "$js" "$want"
+    printf '  WRONG   %-46s got=%s want=%s\n' "$desc" "$got" "$want"
     fail=$((fail + 1))
   fi
 }
@@ -81,31 +74,31 @@ echo "DLP, a secret in an argument:"
 policy <<JSON
 { "policy": null, "security": { "dlpBlock": { "patterns": ["AWS access key"], "custom": [] } } }
 JSON
-both "block mode refuses it" 2 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
+expect "block mode refuses it" 2 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
 
 policy <<JSON
 { "policy": null, "security": { "dlpRedact": { "patterns": ["AWS access key"], "custom": [] } } }
 JSON
-both "redact mode allows it" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
+expect "redact mode allows it" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
 
 policy <<JSON
 { "policy": null, "security": { "dlpObserve": { "patterns": ["AWS access key"], "custom": [] } } }
 JSON
-both "detect mode allows it" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
+expect "detect mode allows it" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
 
 policy <<JSON
 { "policy": null, "security": {} }
 JSON
-both "off: nothing configured, nothing refused" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
+expect "off: nothing configured, nothing refused" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
 
 policy <<JSON
 { "policy": null, "security": { "dlpBlock": { "patterns": ["AWS access key"], "custom": [] } } }
 JSON
-both "a clean argument still passes in block mode" 0 "$(call Bash '{"command":"echo hello"}')"
+expect "a clean argument still passes in block mode" 0 "$(call Bash '{"command":"echo hello"}')"
 
 # A secret SPLIT across shell quoting, which is the de-obfuscation view's whole
 # reason for existing: the pattern does not match the raw text.
-both "a split secret is still caught" 2 "$(call Bash '{"command":"printf AKIA\"\"IOSFODNN7EXAMPLE"}')"
+expect "a split secret is still caught" 2 "$(call Bash '{"command":"printf AKIA\"\"IOSFODNN7EXAMPLE"}')"
 
 # ── reading a file whose CONTENTS hold a secret ──────────────────────────────
 #
@@ -113,8 +106,8 @@ both "a split secret is still caught" 2 "$(call Bash '{"command":"printf AKIA\"\
 # file before the tool does.
 echo
 echo "DLP, a secret in the file being read:"
-both "block mode refuses the read" 2 "$(call Read '{"file_path":"'"$T"'/proj/secret.env"}')"
-both "a clean file is still readable" 0 "$(call Read '{"file_path":"'"$T"'/proj/ok.txt"}')"
+expect "block mode refuses the read" 2 "$(call Read '{"file_path":"'"$T"'/proj/secret.env"}')"
+expect "a clean file is still readable" 0 "$(call Read '{"file_path":"'"$T"'/proj/ok.txt"}')"
 
 # ── the rate limit ───────────────────────────────────────────────────────────
 #
@@ -125,29 +118,19 @@ echo "rate limit, two calls a minute:"
 policy <<JSON
 { "policy": null, "security": { "rateLimit": { "mode": "block", "perMinute": 2, "perHour": 0, "perDay": 0 } } }
 JSON
-# Each implementation keeps its own counter file, keyed by agent, so they are
-# driven separately here rather than through both().
-for impl in go js; do
-  refused=0
-  for i in 1 2 3 4; do
-    if [[ "$impl" = go ]]; then
-      printf '%s' "$(call Bash '{"command":"echo hi"}')" \
-        | env -u SOLONGATE_SANDBOX HOME="$HOME" SOLONGATE_AGENT_ID="rl-$impl" "$G" claude-code >/dev/null 2>&1
-    else
-      printf '%s' "$(call Bash '{"command":"echo hi"}')" \
-        | env -u SOLONGATE_SANDBOX HOME="$HOME" SOLONGATE_NO_GO_GUARD=1 SOLONGATE_AGENT_ID="rl-$impl" \
-          node "$J" claude-code >/dev/null 2>&1
-    fi
-    [[ $? -eq 2 ]] && refused=$((refused + 1))
-  done
-  if [[ "$refused" -ge 1 ]] && [[ "$refused" -le 3 ]]; then
-    printf '  OK      %-46s %s of 4 refused\n' "$impl: the cap bites" "$refused"
-    pass=$((pass + 1))
-  else
-    printf '  WRONG   %-46s %s of 4 refused, wanted 1 to 3\n' "$impl: the cap bites" "$refused"
-    fail=$((fail + 1))
-  fi
+refused=0
+for i in 1 2 3 4; do
+  printf '%s' "$(call Bash '{"command":"echo hi"}')" \
+    | env -u SOLONGATE_SANDBOX HOME="$HOME" SOLONGATE_AGENT_ID="rl" "$G" claude-code >/dev/null 2>&1
+  [[ $? -eq 2 ]] && refused=$((refused + 1))
 done
+if [[ "$refused" -ge 1 ]] && [[ "$refused" -le 3 ]]; then
+  printf '  OK      %-46s %s of 4 refused\n' "the cap bites" "$refused"
+  pass=$((pass + 1))
+else
+  printf '  WRONG   %-46s %s of 4 refused, wanted 1 to 3\n' "the cap bites" "$refused"
+  fail=$((fail + 1))
+fi
 
 # ── tamper protection ────────────────────────────────────────────────────────
 #
@@ -158,17 +141,17 @@ echo "tamper protection, with no policy at all:"
 policy <<JSON
 { "policy": null, "security": {} }
 JSON
-both "reading the guard's own policy file"  2 "$(call Read '{"file_path":"'"$HOME"'/.solongate/poli'"cy.json"'"}')"
-both "reading a client's hook registration" 2 "$(call Read '{"file_path":"'"$HOME"'/.claude/settings.json"}')"
-both "a command naming the guard binary"    2 "$(call Bash '{"command":"cp /bin/true '"$HOME"'/.solongate/bin/solongate-guard"}')"
-both "a command invoking the CLI"           2 "$(call Bash '{"command":"solongate policy delete all"}')"
-both "an unrelated read is untouched"       0 "$(call Read '{"file_path":"'"$T"'/proj/ok.txt"}')"
+expect "reading the guard's own policy file"  2 "$(call Read '{"file_path":"'"$HOME"'/.solongate/poli'"cy.json"'"}')"
+expect "reading a client's hook registration" 2 "$(call Read '{"file_path":"'"$HOME"'/.claude/settings.json"}')"
+expect "a command naming the guard binary"    2 "$(call Bash '{"command":"cp /bin/true '"$HOME"'/.solongate/bin/solongate-guard"}')"
+expect "a command invoking the CLI"           2 "$(call Bash '{"command":"solongate policy delete all"}')"
+expect "an unrelated read is untouched"       0 "$(call Read '{"file_path":"'"$T"'/proj/ok.txt"}')"
 
 # ── the four policy constraint kinds ─────────────────────────────────────────
 #
 # toolPattern "*" is load-bearing in every one of these: without the field the
-# Go side used to compile `input.tool_name == ""` and the rule never fired, so a
-# case written without it would pass on two engines that both ignored the rule.
+# Go side compiles `input.tool_name == ""` and the rule never fires, so a case
+# written without it would pass while ignoring the rule it claims to test.
 echo
 echo "policy rules, one case per constraint kind:"
 
@@ -177,40 +160,41 @@ policy <<JSON
   { "id": "r", "effect": "DENY", "enabled": true, "toolPattern": "*",
     "filenameConstraints": { "denied": ["secret.env"] } } ] }, "security": {} }
 JSON
-both "filenameConstraints refuses"  2 "$(call Read '{"file_path":"'"$T"'/proj/secret.env"}')"
-both "and leaves another file alone" 0 "$(call Read '{"file_path":"'"$T"'/proj/ok.txt"}')"
+expect "filenameConstraints refuses"  2 "$(call Read '{"file_path":"'"$T"'/proj/secret.env"}')"
+expect "and leaves another file alone" 0 "$(call Read '{"file_path":"'"$T"'/proj/ok.txt"}')"
 
 policy <<JSON
 { "policy": { "id": "p", "name": "t", "mode": "denylist", "rules": [
   { "id": "r", "effect": "DENY", "enabled": true, "toolPattern": "*",
     "commandConstraints": { "denied": ["rm *"] } } ] }, "security": {} }
 JSON
-both "commandConstraints refuses"   2 "$(call Bash '{"command":"rm -rf /tmp/whatever"}')"
-both "and leaves another command alone" 0 "$(call Bash '{"command":"ls -la"}')"
+expect "commandConstraints refuses"   2 "$(call Bash '{"command":"rm -rf /tmp/whatever"}')"
+expect "and leaves another command alone" 0 "$(call Bash '{"command":"ls -la"}')"
 
 policy <<JSON
 { "policy": { "id": "p", "name": "t", "mode": "denylist", "rules": [
   { "id": "r", "effect": "DENY", "enabled": true, "toolPattern": "*",
     "urlConstraints": { "denied": ["*evil.example.com*"] } } ] }, "security": {} }
 JSON
-both "urlConstraints refuses"       2 "$(call Bash '{"command":"curl https://evil.example.com/x"}')"
-both "and leaves another host alone" 0 "$(call Bash '{"command":"curl https://good.example.com/x"}')"
+expect "urlConstraints refuses"       2 "$(call Bash '{"command":"curl https://evil.example.com/x"}')"
+expect "and leaves another host alone" 0 "$(call Bash '{"command":"curl https://good.example.com/x"}')"
 
 policy <<JSON
 { "policy": { "id": "p", "name": "t", "mode": "denylist", "rules": [
   { "id": "r", "effect": "DENY", "enabled": true, "toolPattern": "*",
     "pathConstraints": { "denied": ["$T/proj/key.txt"] } } ] }, "security": {} }
 JSON
-both "pathConstraints refuses"      2 "$(call Read '{"file_path":"'"$T"'/proj/key.txt"}')"
+expect "pathConstraints refuses"      2 "$(call Read '{"file_path":"'"$T"'/proj/key.txt"}')"
 
-# A rule with NO toolPattern. This is the sixth parity divergence, fixed: it
-# used to fire on the Node side and not on the Go one.
+# A rule with NO toolPattern. This cost a real divergence once: it fired on the
+# Node side and not on the Go one, because the Go side compiled an empty
+# toolPattern into a rule that could never match.
 policy <<JSON
 { "policy": { "id": "p", "name": "t", "mode": "denylist", "rules": [
   { "id": "r", "effect": "DENY", "enabled": true,
     "filenameConstraints": { "denied": ["key.txt"] } } ] }, "security": {} }
 JSON
-both "a rule with no toolPattern fires in both" 2 "$(call Read '{"file_path":"'"$T"'/proj/key.txt"}')"
+expect "a rule with no toolPattern still fires" 2 "$(call Read '{"file_path":"'"$T"'/proj/key.txt"}')"
 
 # ── whitelist mode ───────────────────────────────────────────────────────────
 #
@@ -223,8 +207,8 @@ policy <<JSON
   { "id": "r", "effect": "ALLOW", "enabled": true, "toolPattern": "*",
     "pathConstraints": { "allowed": ["$T/proj/ok.txt"] } } ] }, "security": {} }
 JSON
-both "a path outside the allow list is refused" 2 "$(call Read '{"file_path":"'"$T"'/proj/key.txt"}')"
-both "the allowed path passes"                  0 "$(call Read '{"file_path":"'"$T"'/proj/ok.txt"}')"
+expect "a path outside the allow list is refused" 2 "$(call Read '{"file_path":"'"$T"'/proj/key.txt"}')"
+expect "the allowed path passes"                  0 "$(call Read '{"file_path":"'"$T"'/proj/ok.txt"}')"
 
 # ── a project file may add rules and nothing else ────────────────────────────
 #
@@ -239,7 +223,7 @@ cat > "$T/proj/$(printf 'poli')cy.json" <<JSON
 { "mode": "denylist", "rules": [], "selfProtect": false,
   "security": { "dlpBlock": null, "dlpRedact": null } }
 JSON
-both "selfProtect: false there does not disarm tamper" 2 \
+expect "selfProtect: false there does not disarm tamper" 2 \
   "$(call Read '{"file_path":"'"$HOME"'/.claude/settings.json"}')"
 
 echo

@@ -192,11 +192,11 @@ func (m *setupModel) probe() tea.Cmd {
 
 		case beat == nil:
 			out.guardDetail = "registered, not fired yet"
-		case beat.Node == "no-node":
-			out.guardDetail = "fired " + install.Ago(beat.At) + ", but found no node to run with"
+		case beat.Status == "no-binary":
+			out.guardDetail = "fired " + install.Ago(beat.At) + ", but found no guard binary"
 			out.guardReady = false
 		default:
-			out.guardDetail = "fired " + install.Ago(beat.At) + " · " + beat.Node
+			out.guardDetail = "fired " + install.Ago(beat.At)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

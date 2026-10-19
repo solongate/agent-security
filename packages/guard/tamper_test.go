@@ -40,7 +40,7 @@ func TestTamperCheckBlocksReadsNotJustWrites(t *testing.T) {
 }
 
 func TestTamperCheckBasenamesAreScopedToOurDirectory(t *testing.T) {
-	names := []string{"guar" + "d.mjs", "shie" + "ld.mjs", "solongate" + ".db"}
+	names := []string{"solongate" + "-guard", "solongate" + ".exe", "solongate" + ".db"}
 
 	for _, name := range names {
 		inside := filepath.Join(tamperHome, ".solongate", name)

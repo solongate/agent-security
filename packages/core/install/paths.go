@@ -11,18 +11,6 @@ import (
 )
 
 const (
-	GuardHookName = "guard.mjs"
-	auditHookName = "audit.mjs"
-	stopHookName  = "stop.mjs"
-
-	tokensHookName = "tokens.mjs"
-
-	shieldHookName = "shield.mjs"
-
-	dlpModuleName = "dlp.mjs"
-
-	bundledGuardName = "guard.bundled.mjs"
-
 	opencodePluginName = "opencode-plugin.mjs"
 )
 
@@ -104,26 +92,18 @@ func Exists(p string) bool {
 	return err == nil
 }
 
-func (p Paths) GuardPath() string { return filepath.Join(p.HooksDir, GuardHookName) }
+func (p Paths) GuardBinaryPath() string { return filepath.Join(BinDir(), guardBinaryName()) }
 
 func (p Paths) protectedTargets() []string {
 	return []string{
-		filepath.Join(p.HooksDir, GuardHookName),
-		filepath.Join(p.HooksDir, auditHookName),
-		filepath.Join(p.HooksDir, stopHookName),
-		filepath.Join(p.HooksDir, shieldHookName),
-
 		p.SettingsPath,
-		filepath.Join(p.HooksDir, tokensHookName),
-
-		filepath.Join(p.HooksDir, dlpModuleName),
 
 		filepath.Join(p.HooksDir, LauncherName),
 		p.AntigravityHooksPath,
 		p.CodexHooksPath,
 		p.OpencodePluginPath,
 
-		filepath.Join(BinDir(), guardBinaryName()),
+		p.GuardBinaryPath(),
 	}
 }
 

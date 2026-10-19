@@ -6,30 +6,81 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const HOOKS_DIR = join(homedir(), '.solongate', 'hooks');
-const GUARD = join(HOOKS_DIR, 'guard.mjs');
-const AUDIT = join(HOOKS_DIR, 'audit.mjs');
-const TOKENS = join(HOOKS_DIR, 'tokens.mjs');
+const GUARD_TIMEOUT_MS = 8000;
 
-const NODE_BAKED = '__SOLONGATE_NODE__';
-const NODE = NODE_BAKED.startsWith('__SOLONGATE') || !existsSync(NODE_BAKED) ? 'node' : NODE_BAKED;
+const GUARD_BAKED = '__SOLONGATE_GUARD_BIN__';
+const GUARD_BIN = GUARD_BAKED.startsWith('__SOLONGATE') || !existsSync(GUARD_BAKED)
+  ? join(homedir(), '.solongate', 'bin', 'solongate-guard')
+  : GUARD_BAKED;
 
-const LAUNCHER = join(HOOKS_DIR, 'sg-run.sh');
-const USE_LAUNCHER = process.platform !== 'win32' && existsSync(LAUNCHER);
+// Talks to the guard binary directly: spawn it with the same argv shape the
+// shell launcher would have used (an optional subcommand, then client and
+// label), write the JSON payload to stdin, and parse whatever it printed to
+// stdout. Any failure here (binary missing, crash, timeout) resolves to null
+// so callers fail open, same as every other agent's hook wiring.
+function runGuard(args, payload, timeoutMs) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(GUARD_BIN, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch {
+      resolve(null);
+      return;
+    }
 
-function spawnArgs(script) {
-  return USE_LAUNCHER
-    ? ['/bin/sh', [LAUNCHER, script, 'opencode', 'OpenCode']]
-    : [NODE, [script, 'opencode', 'OpenCode']];
+    let out = '';
+    let settled = false;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      let body = null;
+      try { body = out ? JSON.parse(out) : null; } catch {  }
+      resolve({ code, body });
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      try { child.kill('SIGKILL'); } catch {  }
+      finish(0);
+    }, timeoutMs);
+
+    child.stdout?.on('data', (d) => { out += d; });
+    child.on('error', () => finish(0));
+    child.on('close', (code) => finish(code ?? 0));
+
+    try {
+      child.stdin.end(JSON.stringify(payload));
+    } catch {
+      finish(0);
+    }
+  });
 }
 
+function denyReason(res) {
+  return res?.body?.hookSpecificOutput?.permissionDecisionReason || '[SolonGate] Blocked by policy';
+}
+
+function rewritePatch(res) {
+  const out = res?.body?.hookSpecificOutput;
+  if (out?.permissionDecision === 'allow' && out.updatedInput && typeof out.updatedInput === 'object') {
+    return out.updatedInput;
+  }
+  return null;
+}
+
+function redactedOutput(res) {
+  const out = res?.body?.hookSpecificOutput;
+  if (!out || out.updatedToolOutput === undefined) return null;
+  return out.updatedToolOutput;
+}
 
 export const SolonGate = async ({ directory, worktree } = {}) => {
   const cwd = directory || worktree || process.cwd();
 
   return {
     'tool.execute.before': async (input, output) => {
-      const res = await runHook(GUARD, {
+      const res = await runGuard(['opencode', 'OpenCode'], {
         tool_name: input?.tool ?? '',
         tool_input: output?.args ?? {},
         session_id: input?.sessionID ?? '',
@@ -48,7 +99,6 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
         try { Object.assign(output.args, patch); } catch {  }
       }
     },
-
 
     event: async ({ event } = {}) => {
       if (!event || typeof event !== 'object') return;
@@ -70,7 +120,7 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
           const cacheWrite = numberOr(t.cache?.write);
           const total = numberOr(t.total) || input + output + reasoning + cacheRead + cacheWrite;
           if (total > 0) {
-            void runHook(TOKENS, {
+            void runGuard(['tokens', 'opencode', 'OpenCode'], {
               opencode: true,
               tokens: true,
               session_id: info.sessionID || '',
@@ -89,7 +139,7 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
     },
 
     'tool.execute.after': async (input, output) => {
-      const res = await runHook(AUDIT, {
+      const res = await runGuard(['audit', 'opencode', 'OpenCode'], {
         tool_name: input?.tool ?? '',
         tool_input: input?.args ?? {},
         tool_response: output?.output ?? output?.metadata ?? {},
@@ -111,4 +161,4 @@ export const SolonGate = async ({ directory, worktree } = {}) => {
       } catch {  }
     },
   };
-};
+}

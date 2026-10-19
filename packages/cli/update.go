@@ -225,11 +225,11 @@ func noSourceToUpdateFrom() int {
 	return 1
 }
 
-var installArtifacts = []string{
-	"pnpm-lock.yaml",
-	"packages/hooks/package.json",
-	"packages/hooks/guard.bundled.mjs",
-}
+// Nothing generates into a tracked file any more: the Go build writes only to
+// packages/hooks/platforms/, which .gitignore already excludes. Kept rather
+// than deleted, empty, because the mechanism below is still the right shape
+// if a future build step starts writing somewhere tracked again.
+var installArtifacts = []string{}
 
 func rangeOneLiner(rng string) string {
 	if rng == config.UpdateRangeShort {

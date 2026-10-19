@@ -23,23 +23,19 @@ var ErrNoLogin = errors.New("no login on this device")
 
 func Install() Result {
 	p := GlobalPaths()
+	guardBin := p.GuardBinaryPath()
 
-	node, err := resolveNode(p)
+	st, err := stageOpencodePlugin(p, guardBin)
 	if err != nil {
 		return Result{Message: err.Error()}
 	}
 
-	st, err := stageHooks(p, node)
+	claude, err := planClaude(p)
 	if err != nil {
 		return Result{Message: err.Error()}
 	}
-
-	claude, err := planClaude(p, node)
-	if err != nil {
-		return Result{Message: err.Error()}
-	}
-	antigravity, agErr := planAntigravity(p, node)
-	codex, cxErr := planCodex(p, node)
+	antigravity, agErr := planAntigravity(p)
+	codex, cxErr := planCodex(p)
 
 	if err := os.MkdirAll(p.HooksDir, 0o755); err != nil {
 		return Result{Message: err.Error()}
@@ -57,18 +53,8 @@ func Install() Result {
 		return Result{Message: msg}
 	}
 
-	for _, name := range []string{GuardHookName, auditHookName, stopHookName, tokensHookName, shieldHookName, dlpModuleName} {
-		body, ok := st.hooks[name]
-		if !ok {
-			continue
-		}
-		if err := writeFileAtomic(filepath.Join(p.HooksDir, name), body); err != nil {
-			return fail(err.Error())
-		}
-	}
-
 	if runtime.GOOS != "windows" {
-		if err := writeFileAtomic(filepath.Join(p.HooksDir, LauncherName), []byte(launcherScript(node))); err != nil {
+		if err := writeFileAtomic(filepath.Join(p.HooksDir, LauncherName), []byte(launcherScript(guardBin))); err != nil {
 			return fail(err.Error())
 		}
 
@@ -76,7 +62,10 @@ func Install() Result {
 		_ = os.MkdirAll(filepath.Join(p.SGDir, BeatDirName), config.DirMode)
 	}
 
-	goBins := InstallGoBinaries()
+	InstallGoBinaries()
+	if !Exists(guardBin) {
+		return fail("no guard binary for this platform; run ./scripts/shell/install.sh from a checkout to build one")
+	}
 
 	RecordInstallSource()
 
@@ -94,7 +83,7 @@ func Install() Result {
 		_ = installOpencodePlugin(p, st.plugin)
 	}
 
-	shimmed := InstallClaudeShim(filepath.Join(p.HooksDir, shieldHookName))
+	shimmed := InstallClaudeShim(p)
 
 	if !locksDisabled() {
 		LockProtected()
@@ -109,13 +98,9 @@ func Install() Result {
 	if st.sourceMissing {
 
 		res.Notes = append(res.Notes,
-			"The hook programs already on this device were re-registered but NOT rewritten: this build could not find the hook files to copy. Run ./scripts/shell/install.sh from a checkout to replace them.")
+			"The OpenCode plugin already on this device was re-registered but NOT rewritten: this build could not find it to copy. Run ./scripts/shell/install.sh from a checkout to replace it.")
 	}
 
-	if len(goBins) == 0 {
-		res.Notes = append(res.Notes,
-			"No native binary for this platform, so the guard runs its Node implementation: same policy, a few tens of milliseconds slower per tool call.")
-	}
 	return res
 }
 

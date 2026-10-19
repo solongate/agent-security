@@ -14,7 +14,6 @@
       <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
       <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
       <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26%2B-00ADD8.svg" alt="Go 1.26+"></a>
-      <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-22%2B-339933.svg" alt="Node 22+"></a>
     </td>
   </tr>
   <tr>
@@ -42,8 +41,8 @@
 </table>
 
 <p align="center">
-  <a href="CONTRIBUTING.md"><b>Contributing</b></a> ·
-  <a href="SECURITY.md"><b>Security</b></a>
+  <a href=".github/CONTRIBUTING.md"><b>Contributing</b></a> ·
+  <a href=".github/SECURITY.md"><b>Security</b></a>
 </p>
 
 ---
@@ -80,23 +79,6 @@ cd agent-security
 
 Then open a new terminal: hooks load when a session starts, so an already open
 one is not guarded yet.
-
-## Updates
-
-```bash
-solongate update          # move this checkout and reinstall from it
-solongate range           # how far an update is allowed to move
-solongate range short     # every commit on the branch
-solongate range long      # tagged releases only  (the default)
-```
-
-**long** takes only tagged releases: somebody decided a state was worth naming
-and the release job agreed. **short** takes whatever is on the branch, so a fix
-reaches you the day it lands and so does whatever the next commit fixes. Both
-are reasonable, for different people. The default is the cautious one, and the
-TUI shows which one this machine is on under Settings.
-
-The installer refuses to run from an agent, by design.
 
 ## What it looks like when it fires
 
@@ -245,7 +227,18 @@ solongate trace        what the guard saw in this directory
 solongate doctor       health check
 solongate repair       restore the guard, hooks and settings
 solongate update       pull the newest version and reinstall
+solongate range        how far an update is allowed to move
+solongate range short  every commit on the branch
+solongate range long   tagged releases only (the default)
 ```
+
+**long** takes only tagged releases: somebody decided a state was worth naming
+and the release job agreed. **short** takes whatever is on the branch, so a fix
+reaches you the day it lands and so does whatever the next commit fixes. Both
+are reasonable, for different people. The default is the cautious one, and the
+TUI shows which one this machine is on under Settings.
+
+The installer refuses to run from an agent, by design.
 
 Most of these read or change a security posture, so they require a real
 terminal on both stdin and stdout, and the guard refuses a tool call that
@@ -287,48 +280,29 @@ invokes them. Two are not gated that way:
 
 ## Contributing
 
-Go 1.26 and Node 22+.
+Go 1.26.
 
-```bash
-pnpm install
-pnpm build
-```
+There is one implementation of the guard, in Go. The one JavaScript file left
+in the tree, `packages/hooks/opencode-plugin.mjs`, is a thin protocol shim
+with no policy logic of its own: it spawns the Go binary and translates
+OpenCode's plugin API to SolonGate's hook protocol, nothing more.
 
-There are two implementations of the guard, in Go and in bundled JavaScript. The
-hook always starts as Node and hands the call to the binary when it can, so
-which one decides is not simply whether the binary is there. `sgTryGoGuard`
-applies five gates, and the first two are environment switches:
-
-- `SOLONGATE_NO_GO_GUARD=1` skips delegation and pins the decision to Node.
-- `SOLONGATE_GUARD_BIN` goes to the **front** of the candidate list, ahead of
-  `~/.solongate/bin`, which is the other candidate.
-- the candidate must exist and, off Windows, be executable.
-- `<binary> --sg-version` must print an integer **equal** to the hook's own
-  `HOOK_VERSION`, within two seconds.
-- a spawn error, a signal, or any exit status outside `{0, 2}` falls back to
-  Node silently.
-
-That version number is the interlock: it is what makes a half-upgraded machine
-fall back to Node instead of running a binary that decides differently from its
-hook. So the two have to agree, and a change to the decision path lands in both
-and bumps the number.
-
-Two things check that they still agree, and neither is a test suite. Forty
-end-to-end cases drive both implementations through the same policy files and
-require the same verdict; forty-one Go tests cover the decisions a pure function
-can answer. Together they found the seventh divergence: an argument scan reading
-one view of the text where its twin read three, so a secret split across a quote
-boundary was refused by one guard and allowed by the other. What is left is what
-you ran it against by hand, and that is most of it.
-[CONTRIBUTING.md](CONTRIBUTING.md) is the rest.
+Two things check the decision path, and neither is a test suite. Ten
+end-to-end cases drive the real guard binary through protected paths,
+require-sandbox, agent scoping, and the `.last-deny` flag, asserting the exit
+code the guard must produce; twenty-five more drive it through every layer
+that refuses something — DLP in all four modes and on file content, the rate
+limit, tamper protection, the four policy constraint kinds, whitelist mode.
+Alongside them, Go's own unit tests cover the decisions a pure function can
+answer. What is left is what you ran it against by hand, and that is most of
+it. [CONTRIBUTING.md](.github/CONTRIBUTING.md) is the rest.
 
 How it's put together: [docs/DESIGN.md](docs/DESIGN.md) for the actors and the
-decision path a tool call takes, [docs/INTERFACES.md](docs/INTERFACES.md) for
-every external interface (CLI, hook, policy file, audit log), and
-[ROADMAP.md](ROADMAP.md) for what's next.
+decision path a tool call takes, and [docs/INTERFACES.md](docs/INTERFACES.md) for
+every external interface (CLI, hook, policy file, audit log).
 
-Reporting a vulnerability: [SECURITY.md](SECURITY.md), privately, never a public
-issue. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies everywhere.
+Reporting a vulnerability: [SECURITY.md](.github/SECURITY.md), privately, never a public
+issue. [CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md) applies everywhere.
 
 ## Licence
 

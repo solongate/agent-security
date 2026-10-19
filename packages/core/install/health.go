@@ -17,7 +17,6 @@ import (
 type HookRuntime struct {
 	OK bool
 
-	Node   string
 	Detail string
 }
 
@@ -25,12 +24,11 @@ func CheckHookRuntime() HookRuntime {
 	p := GlobalPaths()
 
 	if runtime.GOOS == "windows" {
-
-		node := nodeFromRegistration(p)
-		if node == "" {
-			return HookRuntime{Detail: "no node recorded in any registration, run `solongate repair`"}
+		bin := p.GuardBinaryPath()
+		if !Exists(bin) {
+			return HookRuntime{Detail: "guard binary missing, run `solongate repair`"}
 		}
-		return HookRuntime{OK: true, Node: node, Detail: node}
+		return HookRuntime{OK: true, Detail: bin}
 	}
 
 	launcher := filepath.Join(p.HooksDir, LauncherName)
@@ -41,33 +39,33 @@ func CheckHookRuntime() HookRuntime {
 	cmd := exec.Command("/bin/sh", launcher, "--sg-doctor")
 	out, err := cmd.Output()
 	if err != nil {
-		return HookRuntime{Detail: "launcher found no node runtime, install node, or set SOLONGATE_NODE"}
+		return HookRuntime{Detail: "launcher found no guard binary, run `solongate repair`"}
 	}
-	node := strings.TrimSpace(string(out))
-	if node == "" {
-		return HookRuntime{Detail: "launcher found no node runtime, install node, or set SOLONGATE_NODE"}
+	bin := strings.TrimSpace(string(out))
+	if bin == "" {
+		return HookRuntime{Detail: "launcher found no guard binary, run `solongate repair`"}
 	}
-	return HookRuntime{OK: true, Node: node, Detail: node}
+	return HookRuntime{OK: true, Detail: bin}
 }
 
 type Beat struct {
 	Hook string
 	At   time.Time
 
-	Node string
+	Status string
 }
 
 func Beats() []Beat {
 	dir := filepath.Join(GlobalPaths().SGDir, BeatDirName)
 	out := []Beat{}
-	for _, hook := range []string{GuardHookName, auditHookName, tokensHookName, stopHookName} {
+	for _, hook := range []string{guardKind, auditKind, tokensKind} {
 		f := filepath.Join(dir, hook)
 		info, err := os.Stat(f)
 		if err != nil {
 			continue
 		}
 		body, _ := os.ReadFile(f)
-		out = append(out, Beat{Hook: hook, At: info.ModTime(), Node: strings.TrimSpace(string(body))})
+		out = append(out, Beat{Hook: hook, At: info.ModTime(), Status: strings.TrimSpace(string(body))})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
 	return out
@@ -75,7 +73,7 @@ func Beats() []Beat {
 
 func GuardBeat() *Beat {
 	for _, b := range Beats() {
-		if b.Hook == GuardHookName {
+		if b.Hook == guardKind {
 			return &b
 		}
 	}

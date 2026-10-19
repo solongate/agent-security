@@ -39,15 +39,11 @@ func Repair() Report {
 
 	runtime := func() ReportLine {
 		rt := CheckHookRuntime()
-		detail := rt.Detail
-		if rt.OK {
-			detail = "node " + detail
-		}
-		return ReportLine{Label: "hook runtime", OK: rt.OK, Detail: detail}
+		return ReportLine{Label: "guard binary", OK: rt.OK, Detail: rt.Detail}
 	}
 
 	before := []ReportLine{
-		reportLine("guard hook file", Exists(p.GuardPath()), "present", "MISSING"),
+		reportLine("guard binary", Exists(p.GuardBinaryPath()), "present", "MISSING"),
 
 		runtime(),
 		reportLine("Claude hooks", ClaudeGuardInstalled(), "guard registered", "guard NOT registered"),
@@ -66,7 +62,7 @@ func Repair() Report {
 		version = strconv.Itoa(*v)
 	}
 	after := []ReportLine{
-		{Label: "guard hook file", OK: true, Detail: "present (v" + version + ")"},
+		{Label: "guard binary", OK: true, Detail: "present (v" + version + ")"},
 		runtime(),
 		reportLine("Claude hooks", ClaudeGuardInstalled(), "guard registered", "NOT registered"),
 		reportLine("Antigravity hooks", Exists(p.AntigravityHooksPath), "guard registered", "NOT registered"),

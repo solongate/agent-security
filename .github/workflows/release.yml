@@ -2,11 +2,11 @@ name: release
 
 # A TAG IS THE ONLY THING THAT MAKES A VERSION VISIBLE.
 #
-# The version lives in packages/hooks/package.json and is stamped into the
-# binaries with -ldflags, so `solongate doctor` can print it. That was the whole
-# of it: nothing on GitHub showed the number, there were no tags and no releases,
-# and the only way to learn what 0.91.31 meant was to read the commit that typed
-# it. Twice in one day the manifest and the commit message disagreed, because
+# The version lives in packages/hooks/VERSION and is stamped into the binaries
+# with -ldflags, so `solongate doctor` can print it. That was the whole of it:
+# nothing on GitHub showed the number, there were no tags and no releases, and
+# the only way to learn what 0.91.31 meant was to read the commit that typed
+# it. Twice in one day the file and the commit message disagreed, because
 # nothing compared them.
 #
 # This repository is distributed over git, not a registry: `solongate update`
@@ -44,19 +44,14 @@ jobs:
       - name: the tag matches the version it claims
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          pkg="$(node -p "require('./packages/hooks/package.json').version")"
+          pkg="$(cat packages/hooks/VERSION)"
           if [ "$tag" != "$pkg" ]; then
-            echo "tag v$tag, but packages/hooks/package.json says $pkg" >&2
-            echo "bump the manifest and the tag together, or the binaries lie about which one they are" >&2
+            echo "tag v$tag, but packages/hooks/VERSION says $pkg" >&2
+            echo "bump the file and the tag together, or the binaries lie about which one they are" >&2
             exit 1
           fi
           echo "v$tag"
 
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: '22'
-          cache: pnpm
       # go.mod rather than a number, for the reason given in ci.yml. A release
       # built by a toolchain older than the modules declare does not build at
       # all, and this is the job where that produces no binaries and no release.
@@ -65,18 +60,10 @@ jobs:
           go-version-file: packages/guard/go.mod
           cache-dependency-path: packages/guard/go.sum
 
-      # --ignore-scripts, like CI. This is the job whose output people run, so
-      # it is the LAST place a dependency's postinstall should get to execute.
-      # CI had the flag and this did not, which is backwards: a lifecycle script
-      # here reaches the binaries, and in CI it reaches a throwaway runner.
-      - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm build
-
       # All six targets cross-compile from here: CGO is off, so there is no
       # per-platform toolchain to install.
       - name: build every platform
-        working-directory: packages/hooks
-        run: pnpm build:go
+        run: ./packages/hooks/scripts/build-platforms.sh
 
       - name: one archive per platform
         run: |

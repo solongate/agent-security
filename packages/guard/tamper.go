@@ -81,7 +81,6 @@ var tamperProtectedGlobs = []string{
 }
 
 var tamperBasenames = []string{
-	"guard.mjs", "audit.mjs", "stop.mjs", "shield.mjs",
 	"policy.json",
 
 	".policy-cache", ".ratelimit-",

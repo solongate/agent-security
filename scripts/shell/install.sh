@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
 #
-# Install SolonGate from this checkout: install the workspace, bundle the
-# hooks, build this host's binaries, then run the freshly built binary to
-# register the guard. Afterwards `solongate` is a command.
+# Install SolonGate from this checkout: build this host's binaries, then run
+# the freshly built binary to register the guard. Afterwards `solongate` is
+# a command.
 #
 # This is the one path through those steps that ends by running the binary
 # BY PATH rather than by a `solongate` that might still point at an older
@@ -87,7 +87,7 @@ say() { printf '         %b' "$DIM" >&2; type_out "$1"; printf '%b\n' "$OFF" >&2
 mark_ok() { printf '%b[  OK  ]%b ' "$GREEN" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
 mark_no() { printf '%b[FAILED]%b ' "$RED" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
 
-# A file, not a variable: `pnpm install` emits more than a shell should hold
+# A file, not a variable: a cross-compile emits more than a shell should hold
 # in a command substitution, and a substitution would miss anything the
 # child writes straight to the terminal.
 RUNLOG=$(mktemp 2>/dev/null || echo /tmp/solongate-install.log)
@@ -166,16 +166,17 @@ printf '\n' >&2
 
 # ── which host is this ────────────────────────────────────────────────
 
-# The npm spelling of the platform, which names the directory the binaries
-# land in. Go spells two of these differently; scripts/build-go-binaries.mjs
-# holds the same mapping.
+# The platform tag used throughout this repo, which names the directory the
+# binaries land in. Go spells two of these differently;
+# packages/hooks/scripts/build-platforms.sh holds the same mapping.
 case $(uname -s) in
 Linux) os=linux ;;
 Darwin) os=darwin ;;
 *)
 	die "this script covers Linux and macOS; found $(uname -s)." \
-		"On Windows, build with: pnpm install && cd packages/hooks && pnpm build && pnpm build:go win32-x64" \
-		"then run platforms\\win32-x64\\solongate.exe repair from a terminal."
+		"On Windows, build with: packages\\hooks\\scripts\\build-platforms.sh win32-x64" \
+		"(Git Bash or WSL, with Go on PATH), then run" \
+		"platforms\\win32-x64\\solongate.exe repair from a terminal."
 	;;
 esac
 
@@ -190,61 +191,41 @@ bin="$repo/packages/hooks/platforms/$tag/solongate"
 
 # ── 1. the tools this needs ───────────────────────────────────────────
 
-command -v node >/dev/null 2>&1 || die "node was not found on PATH." \
-	"SolonGate's hooks are .mjs programs and run under node. Install Node 22 or newer."
-
-node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-if [ "$node_major" -lt 22 ]; then
-	die "node $(node -v) is too old; SolonGate needs 22 or newer." \
-		"Node 20 reached end of life in April 2026 and no longer receives security" \
-		"patches, which is not a runtime to put a security tool on."
+# Go is found the way packages/hooks/scripts/build-platforms.sh finds it, not
+# just PATH: a toolchain fetched by `go` itself for a newer go.mod lives in
+# the module cache with no symlink anywhere.
+go_bin=go
+for p in "$HOME/go/bin/go" /usr/local/go/bin/go /usr/lib/go/bin/go /opt/homebrew/bin/go /usr/local/bin/go; do
+	[ -x "$p" ] && { go_bin=$p; break; }
+done
+if [ "$go_bin" = go ]; then
+	cache="$HOME/go/pkg/mod/golang.org"
+	if [ -d "$cache" ]; then
+		found=$(find "$cache" -maxdepth 1 -type d -name 'toolchain@*' 2>/dev/null | sort -r | while read -r d; do
+			[ -x "$d/bin/go" ] && { printf '%s\n' "$d/bin/go"; break; }
+		done)
+		[ -n "$found" ] && go_bin=$found
+	fi
 fi
 
-command -v pnpm >/dev/null 2>&1 || die "pnpm was not found on PATH." \
-	"This repository is a pnpm workspace: npm and yarn cannot resolve the" \
-	"workspace links between its packages. Install it with:" \
-	"    corepack enable pnpm" \
-	"  or" \
-	"    npm install -g pnpm"
-
-# Go is found the way scripts/gobin.mjs finds it, not just PATH: a toolchain
-# fetched by `go` itself for a newer go.mod lives in the module cache with no
-# symlink anywhere.
-go_bin=$(node -e 'import("./scripts/gobin.mjs").then(m => console.log(m.goBin()))' 2>/dev/null || echo go)
 if ! "$go_bin" version >/dev/null 2>&1; then
 	die "no Go toolchain was found." \
 		"The guard and the CLI are Go programs. Install Go 1.26 or newer, or set" \
 		"GO_BIN to the binary if it is somewhere this did not look."
 fi
 
-mark_ok "Toolchain: node $(node -v), pnpm $(pnpm --version), $("$go_bin" version | cut -d' ' -f3 | sed 's/^go/go /')."
+mark_ok "Toolchain: $("$go_bin" version | cut -d' ' -f3 | sed 's/^go/go /')."
 
-# ── 2. the workspace ──────────────────────────────────────────────────
-
-# Not pnpm's own upgrade ad, which it would otherwise draw in a box in the
-# middle of this run and which reads as the next thing gone wrong in the
-# install of a security tool.
-export npm_config_update_notifier=false
-
-run "Installing workspace dependencies" "Installed workspace dependencies." \
-	pnpm install
-
-# ── 3. the hooks ──────────────────────────────────────────────────────
-
-cd "$repo/packages/hooks"
-run "Bundling the hooks" "Bundled the hooks that watch your agents." \
-	pnpm build
-
-# ── 4. this host's binaries ───────────────────────────────────────────
+# ── 2. this host's binaries ───────────────────────────────────────────
 
 # One target, not all six: six is what a release needs; this is the machine
 # in front of us.
 GO_BIN="$go_bin" run "Building the guard and CLI for $tag" "Built the guard and the CLI." \
-	pnpm build:go "$tag"
+	"$repo/packages/hooks/scripts/build-platforms.sh" "$tag"
 [ -x "$bin" ] || die "the build reported success but $bin is not there." \
-	"Run \`pnpm build:go $tag\` in packages/hooks and read what it says."
+	"Run \`packages/hooks/scripts/build-platforms.sh $tag\` and read what it says."
 
-# ── 5. the install ────────────────────────────────────────────────────
+# ── 3. the install ────────────────────────────────────────────────────
 
 # The binary is run by path here, not through whatever `solongate` is
 # already on PATH: that could be an older install, and asking it to install

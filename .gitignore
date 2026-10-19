@@ -8,9 +8,6 @@ out/
 build/
 *.tsbuildinfo
 
-# Turbo
-.turbo/
-
 # Environment
 .env
 .env.*
@@ -29,7 +26,6 @@ Thumbs.db
 # Debug / Logs
 npm-debug.log*
 yarn-debug.log*
-pnpm-debug.log*
 *.log
 
 # Coverage
@@ -61,6 +57,7 @@ id_ed25519
 !/scripts/shell/sg-layers-check.sh
 !/scripts/shell/sg-unit-check.sh
 !/scripts/shell/install.sh
+!/packages/hooks/scripts/build-platforms.sh
 
 # Icon/Logo files (served from CDN)
 **/public/icon-*.png
@@ -83,7 +80,7 @@ deploy-package/
 !ROADMAP.md
 !.github/ISSUE_TEMPLATE/*.md
 
-# Lock files (pnpm only)
+# Lock files from other ecosystems: this repo has none of its own to ignore
 package-lock.json
 yarn.lock
 

@@ -12,5 +12,5 @@ contact_links:
       Not sure whether it is a bug? Start here. Run `solongate doctor` first and
       paste its output.
   - name: Code of Conduct
-    url: https://github.com/solongate/agent-security/blob/main/CODE_OF_CONDUCT.md
+    url: https://github.com/solongate/agent-security/blob/main/.github/CODE_OF_CONDUCT.md
     about: Reports go to hello@solongate.com.

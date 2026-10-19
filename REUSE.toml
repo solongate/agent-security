@@ -17,7 +17,6 @@ path = [
   "**/*.gif",
   "**/*.svg",
   "**/.gitignore",
-  "**/.npmrc",
   "**/.npmignore",
   ".github/CODEOWNERS",
 ]

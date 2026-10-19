@@ -12,11 +12,21 @@ const LauncherName = "sg-run.sh"
 
 const BeatDirName = ".beat"
 
-func hookCommand(p Paths, node, script, client, label string) string {
-	target := filepath.ToSlash(filepath.Join(p.HooksDir, script))
+const (
+	guardKind  = "guard"
+	auditKind  = "audit"
+	tokensKind = "tokens"
+)
+
+func hookCommand(p Paths, kind, client, label string) string {
+	bin := filepath.ToSlash(p.GuardBinaryPath())
+	sub := ""
+	if kind != guardKind {
+		sub = kind + " "
+	}
 	if runtime.GOOS == "windows" {
-		return callPrefix() + `"` + filepath.ToSlash(node) + `" "` + target + `" ` + client + ` "` + label + `"`
+		return callPrefix() + `"` + bin + `" ` + sub + client + ` "` + label + `"`
 	}
 	launcher := filepath.ToSlash(filepath.Join(p.HooksDir, LauncherName))
-	return `/bin/sh "` + launcher + `" "` + target + `" ` + client + ` "` + label + `"`
+	return `/bin/sh "` + launcher + `" ` + kind + ` ` + client + ` "` + label + `"`
 }

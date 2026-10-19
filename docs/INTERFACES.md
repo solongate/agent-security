@@ -17,7 +17,7 @@ SolonGate as a pre-tool-call hook through that agent's own hook mechanism.
 The hook receives the pending call, asks the guard for a verdict, and allows
 or blocks accordingly; an agent cannot reach the guard's decision logic by
 any route other than this hook (a guard bypass through any other route is a
-vulnerability — see [SECURITY.md](../SECURITY.md)).
+vulnerability — see [SECURITY.md](../.github/SECURITY.md)).
 
 ## Policy file
 

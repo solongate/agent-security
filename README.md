@@ -111,6 +111,7 @@ solongate sandbox 001 claude      start the agent inside box 001
 solongate sandbox --explain 001   everything that is in that box
 
 solongate run -- claude           start an agent with protected paths out of reach
+solongate run --explain           what this machine's confinement can and cannot do
 
 solongate audit        browse the audit trail
 solongate watch        live tail tool calls

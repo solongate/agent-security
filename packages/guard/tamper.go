@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/solongate/agent-security/packages/policy"
@@ -15,6 +16,7 @@ import (
 var tamperGuardToolsExec = map[string]bool{
 	"bash": true, "powershell": true, "shell": true, "exec": true, "run": true,
 	"eval": true, "cmd": true,
+	"sh": true, "zsh": true, "dash": true, "terminal": true,
 }
 
 const (
@@ -23,6 +25,7 @@ const (
 
 	tamperCX  = "/.codex"
 	tamperAGY = "/.gemini/config"
+	tamperOC  = "/.config/opencode"
 
 	tamperInstall = "/solongate"
 )
@@ -31,6 +34,9 @@ var tamperHome = func() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		home = os.Getenv("HOME")
+	}
+	if home == "" && runtime.GOOS == "windows" {
+		home = os.Getenv("USERPROFILE")
 	}
 	abs, err := filepath.Abs(home)
 	if err != nil {
@@ -53,6 +59,8 @@ var tamperProtectedAbs = []string{
 	tamperHome + tamperSG + "/cloud-guard.json",
 
 	tamperHome + tamperSG + "/accounts.json",
+
+	tamperHome + tamperOC + "/plugins/solongate.js",
 }
 
 var tamperProtectedGlobs = []string{
@@ -73,6 +81,9 @@ var tamperProtectedGlobs = []string{
 	"**" + tamperSG + "/bin/**",
 
 	"**" + tamperSG + "/data/**",
+
+	"**" + tamperOC + "/plugins/solongate.js",
+	"**" + tamperOC + "/plugins/solongate/**",
 
 	"**" + tamperInstall + "/compose/**",
 	"**" + tamperInstall + "/data/**",
@@ -101,6 +112,8 @@ var tamperPathFields = map[string]bool{
 	"directory": true, "dir": true, "folder": true,
 
 	"targetfile": true, "absolutepath": true, "filepath": true,
+	"directorypath": true, "searchpath": true, "file": true,
+	"paths": true, "files": true,
 }
 
 const tamperJSSpace = `[\t\n\v\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]`
@@ -112,21 +125,26 @@ var (
 	reTamperSGBin    = regexp.MustCompile(`/\.solongate/bin(/|$)`)
 	reTamperCXHooks  = regexp.MustCompile(`/\.codex/(hooks\.json|config\.toml)$`)
 	reTamperAGYHooks = regexp.MustCompile(`/\.gemini/config/hooks\.json$`)
+	reTamperOCPlugin = regexp.MustCompile(`/\.config/opencode/plugins/solongate\b`)
 
 	reTamperCmdCCSettings = regexp.MustCompile(`\.claude[\\/]+settings(\.local)?\.json`)
 	reTamperCmdSGHooks    = regexp.MustCompile(`\.solongate[\\/]+hooks`)
 	reTamperCmdSGBin      = regexp.MustCompile(`\.solongate[\\/]+bin`)
 	reTamperCmdCXHooks    = regexp.MustCompile(`\.codex[\\/]+(hooks\.json|config\.toml)`)
 	reTamperCmdAGYHooks   = regexp.MustCompile(`\.gemini[\\/]+config[\\/]+hooks\.json`)
+	reTamperCmdOCPlugin   = regexp.MustCompile(`opencode[\\/]+plugins[\\/]+solongate`)
 	reTamperInstallDirs   = regexp.MustCompile(`[\\/]solongate[\\/]+(compose|data|images|helm)[\\/]`)
 
-	reTamperMutatingVerb = regexp.MustCompile(`\b(post|put|delete|patch)\b`)
-	reTamperMutatingFlag = regexp.MustCompile(`(-x|--request|-method)` + tamperJSSpace + `+(post|put|delete|patch)\b`)
-	reTamperAPIEndpoint  = regexp.MustCompile(`api/v1/(policies|audit-logs)`)
+	// reTamperCdSplit detects commands that change into a protected directory
+	// before operating on filenames (e.g. "cd ~/.claude && rm settings.json").
+	reTamperCdSplit = regexp.MustCompile(`(?i)\bcd\s+[^;&|]*(\.claude|\.solongate|\.codex|\.gemini/config|\.config/opencode)\b`)
 )
 
 func normTamperPath(p string) string {
-	return strings.ToLower(strings.ReplaceAll(p, `\`, "/"))
+	p = strings.ReplaceAll(p, `\`, "/")
+	p = filepath.Clean(p)
+	p = filepath.ToSlash(p)
+	return strings.ToLower(p)
 }
 
 func isProtectedPath(p string) string {
@@ -159,6 +177,9 @@ func isProtectedPath(p string) string {
 	}
 	if reTamperAGYHooks.MatchString(np) {
 		return "antigravity-hooks"
+	}
+	if reTamperOCPlugin.MatchString(np) {
+		return "opencode-plugin"
 	}
 
 	if strings.Contains(np, "/.solongate/") || strings.HasPrefix(np, ".solongate/") {
@@ -197,15 +218,22 @@ func commandTargetsProtected(cmd string) string {
 	if reTamperCmdAGYHooks.MatchString(c) {
 		return "antigravity-hooks"
 	}
+	if reTamperCmdOCPlugin.MatchString(c) {
+		return "opencode-plugin"
+	}
 
 	if reTamperInstallDirs.MatchString(c) {
 		return "solongate-install"
 	}
 
-	mutating := reTamperMutatingVerb.MatchString(c) || reTamperMutatingFlag.MatchString(c)
-	if mutating && reTamperAPIEndpoint.MatchString(c) {
-		return "api-policies-mutation"
+	// Detect cd-based evasion: "cd ~/.claude && rm settings.json" splits the
+	// directory from the filename across shell operators, evading the joined
+	// path regexes above. If the command changes into a protected directory,
+	// block it.
+	if reTamperCdSplit.MatchString(c) {
+		return "cd-into-protected-dir"
 	}
+
 	return ""
 }
 
@@ -224,6 +252,13 @@ func extractTargetPaths(args map[string]interface{}) []string {
 
 		if arr, ok := v.([]interface{}); ok {
 			for _, item := range arr {
+				// Handle string items in arrays (e.g. paths: ["~/.solongate/policy.json"]).
+				if s, ok := item.(string); ok {
+					if tamperPathFields[strings.ToLower(k)] {
+						out = append(out, s)
+					}
+					continue
+				}
 				obj, ok := item.(map[string]interface{})
 				if !ok {
 					continue
@@ -238,18 +273,48 @@ func extractTargetPaths(args map[string]interface{}) []string {
 				}
 			}
 		}
+		if arr, ok := v.([]string); ok {
+			if tamperPathFields[strings.ToLower(k)] {
+				out = append(out, arr...)
+			}
+		}
+
+		// Traverse nested maps to find path fields one level deeper
+		// (e.g. {"params": {"file_path": "/..."}} ).
+		if nested, ok := v.(map[string]interface{}); ok {
+			for _, k2 := range policy.SortedKeys(nested) {
+				if !tamperPathFields[strings.ToLower(k2)] {
+					continue
+				}
+				if s, ok := nested[k2].(string); ok {
+					out = append(out, s)
+				}
+			}
+		}
 	}
 	return out
 }
 
-func tamperCheck(toolName string, args map[string]interface{}) string {
+func tamperCheck(toolName string, args map[string]interface{}, cwd ...string) string {
 	tn := strings.ToLower(toolName)
 
 	isExec := tamperGuardToolsExec[tn] || policy.IsExecTool(toolName)
 
+	resolveCwd := ""
+	if len(cwd) > 0 {
+		resolveCwd = cwd[0]
+	}
+
 	for _, p := range extractTargetPaths(args) {
 		if hit := isProtectedPath(p); hit != "" {
 			return `Tamper protection: access to "` + p + `" is blocked (protected: ` + hit + `)`
+		}
+		// If the path is relative and we have a cwd, resolve and re-check.
+		if resolveCwd != "" && !filepath.IsAbs(p) && p != "" {
+			absP := filepath.Join(resolveCwd, p)
+			if hit := isProtectedPath(absP); hit != "" {
+				return `Tamper protection: access to "` + p + `" is blocked (protected: ` + hit + `)`
+			}
 		}
 	}
 	if isExec {

@@ -222,7 +222,7 @@ func Preview(p Plan) []string {
 		"A file created directly in one of them from now on is out of the agent's",
 		"reach too, until it restarts. Anything inside a subdirectory is fine.",
 		"This applies to a protected path that is not immutable in the inode. Run",
-		"`solongate protect` again with sudo and the directory is granted whole.",
+		"`solongate policy protect` again with sudo and the directory is granted whole.",
 	}
 }
 

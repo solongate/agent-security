@@ -18,8 +18,14 @@ import (
 	"time"
 
 	"github.com/solongate/agent-security/packages/core/config"
+	pcrypto "github.com/solongate/agent-security/packages/crypto"
 	"github.com/solongate/agent-security/packages/shared"
 )
+
+// cryptoDir holds this machine's signing key pair, used to sign and verify
+// policy.json so a direct file rewrite (bypassing the CLI/guard entirely)
+// can be detected. See packages/crypto for the signing primitives.
+func cryptoDir() string { return filepath.Join(config.Dir(), "crypto") }
 
 var policyFile = "poli" + "cy.json"
 
@@ -84,6 +90,19 @@ func readStore() (stored, error) {
 	}
 	if err != nil {
 		return stored{}, fmt.Errorf("cannot read %s: %w", PolicyPath(), err)
+	}
+
+	kp, err := pcrypto.LoadOrCreateKeyPair(cryptoDir())
+	if err != nil {
+		return stored{}, fmt.Errorf("cannot load the machine signing key: %w", err)
+	}
+	_, signed, valid, err := pcrypto.VerifyDocument(b, kp.Public)
+	if err != nil {
+		return stored{}, fmt.Errorf("%s is not valid JSON: %w", PolicyPath(), err)
+	}
+	if signed && !valid {
+		return stored{}, fmt.Errorf("%s failed signature verification: refusing to trust a policy file "+
+			"that may have been modified outside SolonGate", PolicyPath())
 	}
 
 	var probe struct {
@@ -155,6 +174,15 @@ func writeStore(s stored) error {
 	}
 
 	doc["_v"] = localVersion
+
+	kp, err := pcrypto.LoadOrCreateKeyPair(cryptoDir())
+	if err != nil {
+		return fmt.Errorf("cannot load the machine signing key: %w", err)
+	}
+	doc, err = pcrypto.SignDocument(kp, doc)
+	if err != nil {
+		return err
+	}
 
 	body, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {

@@ -120,7 +120,7 @@ func (m *setupModel) viewGuard(w int) []string {
 	push(sg("Run the installer from the checkout, in your own terminal. This", theme.Dim))
 	push(sg("screen notices on its own when it is done:", theme.Dim))
 	push(plain(""))
-	push(sg("    ./scripts/shell/install.sh", theme.AccentBright))
+	push(sg("    ./scripts/install.sh", theme.AccentBright))
 	if m.guardDetail != "" {
 		push(plain(""))
 		push(sg("what this screen can see: "+m.guardDetail, theme.Dim))

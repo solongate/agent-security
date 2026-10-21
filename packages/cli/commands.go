@@ -35,7 +35,6 @@ func handlers() map[string]handler {
 		"doctor":    runDoctor,
 		"trace":     runTrace,
 		"watch":     runWatch,
-		"protect":   runProtect,
 		"range":     runRange,
 	}
 }

@@ -1,24 +1,9 @@
 #!/usr/bin/env sh
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
-#
-# Install SolonGate from this checkout: build this host's binaries, then run
-# the freshly built binary to register the guard. Afterwards `solongate` is
-# a command.
-#
-# This is the one path through those steps that ends by running the binary
-# BY PATH rather than by a `solongate` that might still point at an older
-# install, which is why it exists instead of four lines in the README.
-#
-# An agent cannot use this: the install step runs the CLI's `repair`, and
-# every CLI command changes a security posture, so it refuses to run without
-# a terminal on both stdin and stdout, which an agent tool call never has.
-# The build steps still succeed; only that last step is refused, and it says
-# so rather than looking like a bug.
 
+# Installs SolonGate from this checkout. Builds the binaries for this host then runs the new binary to register the guard.
 set -eu
-
-# ── arguments ────────────────────────────────────────
 
 AUTO=0
 for arg in "$@"; do
@@ -28,8 +13,8 @@ for arg in "$@"; do
 		cat <<'USAGE'
 Install SolonGate from this checkout.
 
-  ./scripts/shell/install.sh         walk through it, pausing between steps
-  ./scripts/shell/install.sh --yes   assume yes; there is nothing to prompt for today
+  ./scripts/install.sh         walk through it, pausing between steps
+  ./scripts/install.sh --yes   assume yes; there is nothing to prompt for today
 
 Afterwards "solongate" is a command. Open a new terminal before testing it:
 hooks load when a session starts, so sessions already open are not guarded.
@@ -43,27 +28,15 @@ USAGE
 	esac
 done
 
-# ── output ────────────────────────────────────────────────────────────
-
-# Colour only on a real terminal; a pipe or CI log gets plain text.
+# Shows colors only when connected to a real terminal.
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-	# The same green/red packages/core/term uses, so this script and the Go CLI
-	# read as one program when a run crosses from one into the other.
 	B='\033[1m'; DIM='\033[2m'
 	RED='\033[38;2;220;80;80m'; GREEN='\033[38;2;80;200;120m'; OFF='\033[0m'
 else
 	B=''; DIM=''; RED=''; GREEN=''; OFF=''
 fi
 
-# Each step prints one line when it's done, not a package manager's raw
-# output: [  OK  ] Installed workspace dependencies. On failure the captured
-# output is printed underneath a [FAILED] line instead of being thrown away.
-#
-# Everything below goes to stderr: it's the only stream sh can rely on being
-# unbuffered, which is what lets a partial line (the typewriter effect, the
-# spinner) reach the screen before a command finishes. It also puts this
-# script on the same stream `solongate update` and the Go CLI print their own
-# marks to, so a run that crosses between them reads as one.
+# Output goes to stderr so it stays unbuffered and the spinner can update mid-command.
 TYPE_DELAY=0.002
 [ -t 2 ] || TYPE_DELAY=''
 sleep "$TYPE_DELAY" 2>/dev/null || TYPE_DELAY=''
@@ -73,8 +46,6 @@ type_out() {
 		printf '%s' "$1" >&2
 		return 0
 	fi
-	# ${rest#?} drops the first character; ${rest%"${rest#?}"} is that character.
-	# Shell builtins only: a `cut` per character triples the cost of the line.
 	_rest=$1
 	while [ -n "$_rest" ]; do
 		printf '%s' "${_rest%"${_rest#?}"}" >&2
@@ -87,27 +58,19 @@ say() { printf '         %b' "$DIM" >&2; type_out "$1"; printf '%b\n' "$OFF" >&2
 mark_ok() { printf '%b[  OK  ]%b ' "$GREEN" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
 mark_no() { printf '%b[FAILED]%b ' "$RED" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
 
-# A file, not a variable: a cross-compile emits more than a shell should hold
-# in a command substitution, and a substitution would miss anything the
-# child writes straight to the terminal.
+# Write build output to a file.
 RUNLOG=$(mktemp 2>/dev/null || echo /tmp/solongate-install.log)
 
 trap 'rm -f "$RUNLOG"' EXIT
 
 if sleep 0.35 2>/dev/null; then SPIN_DELAY=0.35; else SPIN_DELAY=1; fi
 
-# run: announce a step, capture its output, and say one line about how it
-# went. The dots keep the screen moving while output is captured and the
-# step takes tens of seconds; only on a terminal, since a \r into a log file
-# would just repeat the same line.
 run() {
 	_doing=$1
 	_done=$2
 	shift 2
 
 	if [ -t 2 ]; then
-		# set +e around wait: the whole point is to read the exit status, and
-		# set -e would take the script out before the [FAILED] line could print.
 		"$@" >"$RUNLOG" 2>&1 </dev/null &
 		_pid=$!
 		_d=''
@@ -144,8 +107,6 @@ run() {
 	exit 1
 }
 
-# die prints the problem and what to do about it, so a failure doesn't leave
-# somebody searching.
 die() {
 	printf '\n%berror:%b %s\n' "$RED" "$OFF" "$1" >&2
 	shift
@@ -153,22 +114,13 @@ die() {
 	exit 1
 }
 
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 repo=$(pwd)
 
-# Every line starts in the same column: a mark is "[  OK  ] ", nine
-# characters, so everything else is indented nine. This script can run in
-# the middle of `solongate update`, and a header flush against the margin
-# would read as a separate program's banner.
 printf '         %bSolonGate%b  ' "$B" "$OFF" >&2
 type_out "installing from $repo"
 printf '\n' >&2
 
-# ── which host is this ────────────────────────────────────────────────
-
-# The platform tag used throughout this repo, which names the directory the
-# binaries land in. Go spells two of these differently;
-# packages/hooks/scripts/build-platforms.sh holds the same mapping.
 case $(uname -s) in
 Linux) os=linux ;;
 Darwin) os=darwin ;;
@@ -189,11 +141,7 @@ esac
 tag="$os-$cpu"
 bin="$repo/packages/hooks/platforms/$tag/solongate"
 
-# ── 1. the tools this needs ───────────────────────────────────────────
-
-# Go is found the way packages/hooks/scripts/build-platforms.sh finds it, not
-# just PATH: a toolchain fetched by `go` itself for a newer go.mod lives in
-# the module cache with no symlink anywhere.
+# Look for Go the same way packages/hooks/scripts/build-platforms.sh does.
 go_bin=go
 for p in "$HOME/go/bin/go" /usr/local/go/bin/go /usr/lib/go/bin/go /opt/homebrew/bin/go /usr/local/bin/go; do
 	[ -x "$p" ] && { go_bin=$p; break; }
@@ -216,34 +164,23 @@ fi
 
 mark_ok "Toolchain: $("$go_bin" version | cut -d' ' -f3 | sed 's/^go/go /')."
 
-# ── 2. this host's binaries ───────────────────────────────────────────
-
-# One target, not all six: six is what a release needs; this is the machine
-# in front of us.
 GO_BIN="$go_bin" run "Building the guard and CLI for $tag" "Built the guard and the CLI." \
 	"$repo/packages/hooks/scripts/build-platforms.sh" "$tag"
 [ -x "$bin" ] || die "the build reported success but $bin is not there." \
 	"Run \`packages/hooks/scripts/build-platforms.sh $tag\` and read what it says."
 
-# ── 3. the install ────────────────────────────────────────────────────
-
-# The binary is run by path here, not through whatever `solongate` is
-# already on PATH: that could be an older install, and asking it to install
-# itself would install the old version over the new one.
 if [ ! -t 0 ] || [ ! -t 1 ]; then
 	die "no interactive terminal (stdin and stdout are not both a tty)." \
-		"Everything above this point succeeded: the build is done." \
+		"Everything above this point succeeded. The build is done." \
 		"" \
 		"The install step is refused because every command in the SolonGate CLI" \
 		"changes a security posture, so the CLI requires a terminal, which an AI" \
 		"agent's tool call does not have. This is deliberate." \
 		"" \
-		"Run ./scripts/shell/install.sh yourself, in your own terminal."
+		"Run ./scripts/install.sh yourself, in your own terminal."
 fi
 
-# Not through run(): repair refuses to work unless stdout AND stdin are both
-# a terminal, for the same reason above, and capturing its output would take
-# the terminal away from the one step that needs it.
+# Runs the fresh binary by its own path
 if "$bin" repair; then
 	mark_ok "SolonGate is installed. Your agents ask it before they act."
 else
@@ -251,22 +188,15 @@ else
 	exit 1
 fi
 
-# ── and a command called solongate ────────────────────────────────────
-
-# An install puts the binaries in the store, where the guard hook looks for
-# them; putting `solongate` on PATH is a separate step, since somebody who
-# cloned this repository never ran npm.
 store_bin="$HOME/.solongate/bin/solongate"
 [ -x "$store_bin" ] || die "the install finished but $store_bin is not there." \
-	"Nothing was added to your PATH. Run ./scripts/shell/install.sh again and read the last lines."
+	"Nothing was added to your PATH. Run ./scripts/install.sh again and read the last lines."
 
 linked=''
 for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
 	case ":$PATH:" in *":$dir:"*) ;; *) continue ;; esac
 	[ -d "$dir" ] && [ -w "$dir" ] || continue
 
-	# A real file is somebody else's install, not a link this script can
-	# replace. Keep it, renamed, so the change can be undone by hand.
 	if [ -e "$dir/solongate" ] && [ ! -L "$dir/solongate" ]; then
 		mv "$dir/solongate" "$dir/solongate.before-solongate-install" || continue
 		say "moved an existing $dir/solongate aside as solongate.before-solongate-install"

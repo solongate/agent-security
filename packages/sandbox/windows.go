@@ -20,7 +20,7 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 		rep.Mechanism = ""
 		rep.Err = errors.New("workspace confinement is not implemented on Windows: " +
 			"it needs a restricted token with a default-deny ACL, not the per-path deny this uses. " +
-			"Use `solongate protect` for the paths that matter, which applies a permanent lock " +
+			"Use `solongate policy protect` for the paths that matter, which applies a permanent lock " +
 			"independent of how the agent was started")
 		return rep, rep.Err
 	}
@@ -45,7 +45,7 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 	}
 	rep.Enforced = len(applied) > 0 || len(p.Deny) == 0
 	if len(applied) < len(p.Deny) {
-		rep.Notes = append(rep.Notes, "not every path could be denied; `solongate protect list` says which")
+		rep.Notes = append(rep.Notes, "not every path could be denied; `solongate policy protect list` says which")
 	}
 	rep.Notes = append(rep.Notes,
 		"per-path rather than default-deny: it covers the protected list and",
@@ -91,7 +91,7 @@ func Preview(p Plan) []string {
 	return []string{
 		"the deny ACEs go on for the lifetime of this run and come off when it",
 		"ends, so an agent killed with the machine may leave them behind;",
-		"`solongate protect list` shows what is actually on each path",
+		"`solongate policy protect list` shows what is actually on each path",
 	}
 }
 
@@ -99,7 +99,7 @@ func Describe() (string, []string) {
 	return "icacls deny (per run)", []string{
 		"weaker than the Landlock and Seatbelt paths: per-path rather than",
 		"default-deny, and written rather than verified on a real Windows machine",
-		"the permanent lock from `solongate protect` is the stronger one here",
+		"the permanent lock from `solongate policy protect` is the stronger one here",
 	}
 }
 

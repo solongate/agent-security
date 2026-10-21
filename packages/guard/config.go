@@ -5,9 +5,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
+	pcrypto "github.com/solongate/agent-security/packages/crypto"
 	"github.com/solongate/agent-security/packages/shared"
 )
 
@@ -28,7 +30,15 @@ func securityInsidePolicy(doc []byte) (*shared.Security, bool) {
 	return &sec, true
 }
 
-func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
+// errPolicyTampered is returned when the home policy.json carries a
+// signature that fails verification against this machine's recorded key -
+// a direct rewrite that bypassed SolonGate entirely. Project-local policy
+// files are never signature-checked: loadLocalPolicyFile already strips
+// their Security/SelfProtect fields below, so they carry no trust to forge.
+var errPolicyTampered = errors.New("policy.json failed signature verification: " +
+	"it was modified outside SolonGate; refusing to trust it")
+
+func loadLocalPolicyFile(cwd string) (*shared.PolicyCache, error) {
 	if cwd == "" {
 		if wd, err := os.Getwd(); err == nil {
 			cwd = wd
@@ -39,6 +49,14 @@ func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
 		b, err := os.ReadFile(p)
 		if err != nil {
 			continue
+		}
+		if p == own {
+			kp, kerr := pcrypto.LoadOrCreateKeyPair(filepath.Join(shared.SGDir(), "crypto"))
+			if kerr == nil {
+				if _, signed, valid, verr := pcrypto.VerifyDocument(b, kp.Public); verr == nil && signed && !valid {
+					return nil, errPolicyTampered
+				}
+			}
 		}
 		var env *shared.PolicyCache
 		var probe struct {
@@ -72,7 +90,7 @@ func loadLocalPolicyFile(cwd string) *shared.PolicyCache {
 		if p != own {
 			env.Security, env.HasSecurity, env.SelfProtect = nil, false, nil
 		}
-		return env
+		return env, nil
 	}
-	return nil
+	return nil, nil
 }

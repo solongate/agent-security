@@ -24,7 +24,7 @@ var buildVersion = "dev"
 var cliSubcommands = map[string]bool{
 	"repair": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
-	"doctor": true, "trace": true, "watch": true, "protect": true, "range": true,
+	"doctor": true, "trace": true, "watch": true, "range": true,
 	"tui": true,
 }
 
@@ -140,10 +140,9 @@ func table() []command {
 		{"tui", "open the terminal UI (policies, audit, settings)",
 			func([]string) int { return launchTUI() }},
 
-		{"policy", "list, create, edit and activate policies", cli.Runner("policy")},
+		{"policy", "list, create, edit and activate policies; also locks paths with the OS", cli.Runner("policy")},
 		{"ratelimit", "show and edit rate limits", cli.Runner("ratelimit")},
 		{"dlp", "show and edit secret detection", cli.Runner("dlp")},
-		{"protect", "paths the agent may not touch, locked by the OS", cli.Runner("protect")},
 
 		{"run", "start an agent with the protected paths out of its reach", cli.RunAgent},
 
@@ -255,15 +254,15 @@ func printHelp() {
 	cmd("policy rule <id> <ruleId> <enable|disable>", "turn one rule on or off without deleting it")
 	cmd("policy revoke <id> <ruleId>", "remove a rule")
 	cmd("policy activate <id> | --off", "pin the active policy, or enforce nothing")
+	cmd("policy active", "show the resolved active policy")
 
 	head("Protected paths")
-	cmd("protect <path>", "put a path out of the agent's reach, with the OS")
-	cmd("protect list", "every protected path, and what is actually holding it")
-	cmd("protect remove <path>", "drop a path and lift its lock")
-	cmd("protect require-sandbox on|off", "refuse calls from agents not started by `solongate run`")
+	cmd("policy protect <path>", "put a path out of the agent's reach, with the OS")
+	cmd("policy protect list", "every protected path, and what is actually holding it")
+	cmd("policy protect remove <path>", "drop a path and lift its lock")
+	cmd("policy protect require-sandbox on|off", "refuse calls from agents not started by `solongate run`")
 	cmd("run -- <agent>", "start an agent inside OS-level confinement")
 	cmd("run --explain", "what this machine's confinement can and cannot do")
-	cmd("policy active", "show the resolved active policy")
 
 	head("Rate limits")
 	cmd("ratelimit show", "current limits + change history")

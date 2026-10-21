@@ -167,9 +167,9 @@ func explainSandbox() int {
 	}
 
 	errln("  " + dim("What this does NOT cover: an agent started any other way. The OS lock"))
-	errln("  " + dim("from `solongate protect` still applies to it, and the guard still reads"))
+	errln("  " + dim("from `solongate policy protect` still applies to it, and the guard still reads"))
 	errln("  " + dim("its tool calls, but neither is the kernel refusing to open the file."))
-	errln("  " + dim("`solongate protect require-sandbox on` refuses those agents outright."))
+	errln("  " + dim("`solongate policy protect require-sandbox on` refuses those agents outright."))
 	errln("")
 	return 0
 }

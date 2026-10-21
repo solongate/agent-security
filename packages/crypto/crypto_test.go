@@ -118,10 +118,17 @@ func TestVerifyDocumentDetectsTamper(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Flip the last 'd', not the first: map keys marshal as
+	// _sig, _sig_pub, policy (alphabetical), so the first 'd' can land
+	// inside _sig_pub's base64 - a field VerifyDocument deliberately
+	// ignores (it trusts the caller's key, never the document's own
+	// embedded one), making that tamper invisible to verification.
+	// "policy":"default" is the last field, so searching from the end
+	// guarantees the flip lands in the actually-verified payload.
 	tampered := make([]byte, len(raw))
 	copy(tampered, raw)
-	for i, b := range tampered {
-		if b == 'd' {
+	for i := len(tampered) - 1; i >= 0; i-- {
+		if tampered[i] == 'd' {
 			tampered[i] = 'x'
 			break
 		}

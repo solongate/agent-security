@@ -52,22 +52,22 @@ echo "DLP, a secret in an argument:"
 policy <<JSON
 { "policy": null, "security": { "dlpBlock": { "patterns": ["AWS access key"], "custom": [] } } }
 JSON
-expect "block mode refuses it" 2 "$(call Bash '{"command":"echo [REDACTED: AWS access key]"}')"
+expect "block mode refuses it" 2 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
 
 policy <<JSON
 { "policy": null, "security": { "dlpRedact": { "patterns": ["AWS access key"], "custom": [] } } }
 JSON
-expect "redact mode allows it" 0 "$(call Bash '{"command":"echo [REDACTED: AWS access key]"}')"
+expect "redact mode allows it" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
 
 policy <<JSON
 { "policy": null, "security": { "dlpObserve": { "patterns": ["AWS access key"], "custom": [] } } }
 JSON
-expect "detect mode allows it" 0 "$(call Bash '{"command":"echo [REDACTED: AWS access key]"}')"
+expect "detect mode allows it" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
 
 policy <<JSON
 { "policy": null, "security": {} }
 JSON
-expect "off: nothing configured, nothing refused" 0 "$(call Bash '{"command":"echo [REDACTED: AWS access key]"}')"
+expect "off: nothing configured, nothing refused" 0 "$(call Bash '{"command":"echo AKIAIOSFODNN7EXAMPLE"}')"
 
 policy <<JSON
 { "policy": null, "security": { "dlpBlock": { "patterns": ["AWS access key"], "custom": [] } } }

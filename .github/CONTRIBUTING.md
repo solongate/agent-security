@@ -7,7 +7,8 @@ Thanks for being here. Read this once before your first pull request please.
 ```bash
 git clone https://github.com/solongate/agent-security.git
 cd agent-security
-./scripts/shell/install.sh
+./scripts/install.sh
+solongate
 ```
 
 ### What lives where
@@ -27,21 +28,32 @@ cd agent-security
 ## Checking your change
 
 ```bash
-./scripts/shell/sg-unit-check.sh
+./scripts/sg-unit-check.sh
 ```
 
 That runs the unit tests for `shared`, `sandbox`, `guard`, `policy` and `core`.
-`cli`, `tui` and `app` have none: they just print to the screen and run
+`cli`, `tui` and `app` have none. They just print to the screen and run
 commands, so there's nothing to unit-test in them.
 
-Four end-to-end scripts too (Seatbelt needs a Mac):
+Four end-to-end scripts too.
+
+For Linux:
 
 ```bash
-./scripts/shell/sg-parity-check.sh      # the guard decides every case the way it's supposed to
-./scripts/shell/sg-layers-check.sh      # every layer (DLP, rate limit, tamper, etc.) must block what it says it blocks
-./scripts/shell/sg-box-check.sh         # the sandbox must actually lock the agent in   (Linux, needs bwrap)
-./scripts/shell/sg-seatbelt-check.sh    # same check, for macOS's Seatbelt              (macOS)
+./scripts/sg-parity-check.sh      # the guard decides every case the way it's supposed to
+./scripts/sg-layers-check.sh      # every layer (DLP, rate limit, tamper, etc.) must block what it says it blocks
+./scripts/sg-box-check.sh         # the sandbox must actually lock the agent in, needs bwrap
 ```
+
+For macOS:
+
+```bash
+./scripts/sg-parity-check.sh      # the guard decides every case the way it's supposed to
+./scripts/sg-layers-check.sh      # every layer (DLP, rate limit, tamper, etc.) must block what it says it blocks
+./scripts/sg-seatbelt-check.sh    # same check, for macOS's Seatbelt
+```
+
+For Windows, none of these run. Only the unit tests above do.
 
 These scripts don't cover everything, so also try your change by hand against
 a real agent, and say in the pull request which client you used and whether

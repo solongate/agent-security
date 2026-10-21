@@ -1,0 +1,8 @@
+# GO-2026-5932: golang.org/x/crypto/openpgp flagged as unmaintained/unsafe.
+# Neither packages/guard nor packages/policy imports openpgp - the only
+# reachable x/crypto import in either module's build graph is pbkdf2 (pulled
+# in transitively by OPA's JWT handling). This advisory has no Fixed Version:
+# it is not a patched CVE, it is a blanket "do not use this subpackage"
+# notice, so no dependency bump clears it. Verified via `go list -deps ./...`
+# showing no openpgp import in either module.
+GO-2026-5932

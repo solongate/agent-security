@@ -51,12 +51,12 @@ id_ed25519
 
 # Shell scripts (dev/test only)
 **/*.sh
-!/scripts/shell/sg-parity-check.sh
-!/scripts/shell/sg-box-check.sh
-!/scripts/shell/sg-seatbelt-check.sh
-!/scripts/shell/sg-layers-check.sh
-!/scripts/shell/sg-unit-check.sh
-!/scripts/shell/install.sh
+!/scripts/sg-parity-check.sh
+!/scripts/sg-box-check.sh
+!/scripts/sg-seatbelt-check.sh
+!/scripts/sg-layers-check.sh
+!/scripts/sg-unit-check.sh
+!/scripts/install.sh
 !/packages/hooks/scripts/build-platforms.sh
 
 # Icon/Logo files (served from CDN)

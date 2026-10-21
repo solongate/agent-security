@@ -1,23 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
-# Does the closed box actually close?
-#
-# RUN THIS OUTSIDE A SANDBOX. A mount namespace cannot be created from inside a
-# Landlock domain or another sandbox, so running it from a confined shell fails
-# with EPERM before it tests anything. If you are in a `solongate run` session,
-# open a plain terminal first.
-#
-#   ./scripts/shell/sg-box-check.sh [/absolute/path/to/a/scratch/project]
-#
-# It defines two boxes over that directory, 001 with the network, 002 without,
-# so the id addressing and the per-box network choice are both exercised.
-#
-# It builds the CLI from this checkout, points the sandbox at a throwaway
-# directory, and asks the box the questions that matter.
+
+# Checks that the sandbox actually works.
+# Run this from a plain terminal, not from inside a sandbox:
+#   ./scripts/sg-box-check.sh [/absolute/path/to/a/scratch/project]
 set -u
 
-REPO=$(cd "$(dirname "$0")/../.." && pwd)
+REPO=$(cd "$(dirname "$0")/.." && pwd)
 WS=${1:-}
 if [[ -z "$WS" ]]; then
   WS=$(mktemp -d)/projectX
@@ -30,28 +20,9 @@ esac
 
 command -v bwrap >/dev/null 2>&1 || { echo "bwrap is not installed"; exit 1; }
 
-# CAN THIS SHELL MAKE A MOUNT NAMESPACE AT ALL? Asked by trying, not by reading
-# an environment variable.
-#
-# This guard used to be `if [ -n "$SOLONGATE_SANDBOX" ]`, which is the same
-# mistake require-sandbox made before it started probing the kernel: the marker
-# is a variable, `env -u SOLONGATE_SANDBOX` clears it, and the confinement it
-# stood for stays exactly where it was. Run that way the check does not refuse,
-# it runs, every launch dies before producing a line, and eighteen cases report
-# WRONG. Eighteen failures that mean "ask somewhere else" look identical to
-# eighteen failures that mean the box stopped closing, which is the worst thing
-# a check can be.
-#
-# So: try the smallest namespace bwrap can make. If the kernel says no here it
-# will say no to the box, and the reason is that something above this shell is
-# already confining it (Landlock from `solongate run`, a container without
-# CAP_SYS_ADMIN, user namespaces turned off).
-#
-# /usr alone is not quite the smallest: on a merged-usr system /lib and /lib64
-# are symlinks into /usr/lib*, and binding only /usr does not synthesize them,
-# so the dynamic linker can't be found and even /usr/bin/true fails to exec --
-# a "No such file or directory" that looks exactly like a denied namespace but
-# means nothing of the kind. Bind them too, same as the real box does.
+# Test by actually building the smallest namespace bwrap can make. Binds
+# /lib and /lib64 too, since on a merged-usr system those are symlinks into
+# /usr/lib* and the dynamic linker needs them.
 probe_binds="--ro-bind /usr /usr"
 for d in /lib /lib64; do
   [[ -e "$d" ]] && probe_binds="$probe_binds --ro-bind $d $d"
@@ -75,17 +46,12 @@ fi
 APP=$(mktemp -d)/solongate
 (cd "$REPO/packages/app" && go build -o "$APP" .) || { echo "build failed"; exit 1; }
 
-# A throwaway HOME so the real policy file is never touched.
 T=$(mktemp -d)
 export HOME="$T/home"
 mkdir -p "$HOME/.solongate"
 python3 - "$HOME" "$WS" <<'PY'
 import json, os, sys
-# The filename is assembled rather than typed: the guard's tamper sweep matches
-# it as a substring and refuses a command that spells it out.
 path = os.path.join(sys.argv[1], '.solongate', 'poli' + 'cy.json')
-# Two boxes, so the id addressing is exercised and not just the confinement:
-# 001 keeps the network, 002 does not.
 json.dump({"policy": None, "security": {"sandboxes": [
     {"id": "001", "dir": sys.argv[2], "network": True},
     {"id": "002", "dir": sys.argv[2], "network": False},
@@ -126,18 +92,9 @@ ask "/root exists"                NO  'test -e /root && echo YES || echo NO'
 ask "/var exists"                 NO  'test -e /var && echo YES || echo NO'
 ask "/mnt exists"                 NO  'test -e /mnt && echo YES || echo NO'
 ask "the host /tmp contents"      NO  'ls /tmp | grep -q . && echo YES || echo NO'
-# NOT "can it read /proc/1/cmdline". --unshare-all includes the pid namespace, so
-# PID 1 inside the box is the box's OWN first process and reading it leaks
-# nothing, the first version of this check asked that and failed a box that was
-# working correctly. The real question is whether anything that is NOT in the box
-# is visible, which is a count and a name.
 ask "only the box's own processes"  YES 'n=$(ls /proc | grep -c "^[0-9]"); [ "$n" -le 5 ] && echo YES || echo NO'
-# ASKED OF comm, NOT cmdline, and the reason is a test that lied twice. PID 1's
-# cmdline inside the box is the whole bwrap argv, and the last argument of that
-# argv is THIS CHECK, so a grep for "systemd" found the word in its own command
-# line and reported the host init as visible on a box that was isolating
-# correctly. /proc/1/comm is the process name alone: bwrap in the box, systemd
-# on the host, and nothing of the question inside the answer.
+# Checked by comm, not cmdline: PID 1's cmdline in the box is this check's
+# own argv, so a "systemd" grep on cmdline would match itself.
 ask "pid 1 is the box, not the host"  YES 'c=$(cat /proc/1/comm 2>/dev/null); case "$c" in systemd|init) echo NO ;; "") echo NO ;; *) echo YES ;; esac'
 ask "no other user's process"       YES 'ls /proc/*/cmdline 2>/dev/null | wc -l | { read n; [ "$n" -le 5 ] && echo YES || echo NO; }'
 ask "a script reaching outward"   NO  'printf "#!/bin/sh\ncat /home/*/.ssh/* 2>/dev/null\n" > /workspace/e.sh; chmod +x /workspace/e.sh; /workspace/e.sh | grep -q . && echo YES || echo NO'

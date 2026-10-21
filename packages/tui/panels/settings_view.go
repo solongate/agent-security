@@ -136,7 +136,7 @@ func (p *Settings) viewList() string {
 			push(st.Render("  "+mark+" ")+truncate(r.path, max(20, p.cols-6)), "")
 			push(stDim.Render("      "+r.lock.Summary()), "")
 		}
-		push(stDim.Render("      `solongate protect` adds and removes them"), "")
+		push(stDim.Render("      `solongate policy protect` adds and removes them"), "")
 	}
 
 	push(" ", "")

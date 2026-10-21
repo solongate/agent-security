@@ -74,12 +74,16 @@ func main() {
 	nc := normalizeToolCall(activeClient, agentType, input)
 	c := nc.call
 
-	local := loadLocalPolicyFile(c.Cwd)
+	local, localErr := loadLocalPolicyFile(c.Cwd)
 
 	var sec *shared.Security
 	hasSecurity := false
 	if local != nil && local.HasSecurity {
 		sec, hasSecurity = local.Security, true
+	}
+	if localErr != nil {
+		record(sec, hasSecurity, c, agentType, agentName, localErr.Error(), started)
+		deny(localErr.Error())
 	}
 
 	selfProtect := true

@@ -152,7 +152,7 @@ func shieldProxyHandler(upstream *url.URL) http.HandlerFunc {
 
 func shieldLoadDLPConfig() *shared.DLPConfig {
 	defaults := func() *shared.DLPConfig { return &shared.DLPConfig{Patterns: shared.DLPPatternNames()} }
-	cache := loadLocalPolicyFile("")
+	cache, _ := loadLocalPolicyFile("")
 	if cache == nil || !cache.HasSecurity || cache.Security == nil {
 		return defaults()
 	}

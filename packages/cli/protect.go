@@ -16,12 +16,12 @@ import (
 )
 
 func protectUsage() string {
-	return usage("solongate protect", "paths the agent may not touch", []usageRow{
-		row("protect <path>", "add a path, and lock it with the OS"),
-		row("protect list", "every protected path, and what is holding it"),
-		row("protect remove <path>", "drop a path and lift its lock"),
+	return usage("solongate policy protect", "paths the agent may not touch", []usageRow{
+		row("<path>", "add a path, and lock it with the OS"),
+		row("list", "every protected path, and what is holding it"),
+		row("remove <path>", "drop a path and lift its lock"),
 		line(""),
-		row("protect require-sandbox on|off", "refuse calls from agents not started by `solongate run`"),
+		row("require-sandbox on|off", "refuse calls from agents not started by `solongate run`"),
 	})
 }
 
@@ -51,7 +51,7 @@ func protectList(ctx context.Context, c *client.Client) (int, error) {
 
 	errln("")
 	if len(paths) == 0 {
-		errln("  " + dim("No protected paths. `solongate protect <path>` adds one."))
+		errln("  " + dim("No protected paths. `solongate policy protect <path>` adds one."))
 		errln("")
 		return 0, nil
 	}
@@ -75,7 +75,7 @@ func protectList(ctx context.Context, c *client.Client) (int, error) {
 	errln("")
 	if !needSandbox {
 		errln("  " + dim("An agent started outside `solongate run` is held only by the two"))
-		errln("  " + dim("above. `solongate protect require-sandbox on` refuses those calls."))
+		errln("  " + dim("above. `solongate policy protect require-sandbox on` refuses those calls."))
 		errln("")
 	}
 	return 0, nil
@@ -191,7 +191,7 @@ func askForRoot(path string) (bool, error) {
 	errln("")
 	errln("  " + dim("Nothing else is elevated. No service is installed, no privileged"))
 	errln("  " + dim("helper is kept, and you are not asked again until you protect"))
-	errln("  " + dim("another path. `solongate protect remove` runs `sudo chattr -i` on"))
+	errln("  " + dim("another path. `solongate policy protect remove` runs `sudo chattr -i` on"))
 	errln("  " + dim("the same file."))
 	errln("")
 	errln("  " + dim("If you say no: the file is set to 0444, which stops it being"))
@@ -303,7 +303,7 @@ func protectRequireSandbox(ctx context.Context, c *client.Client, arg string) (i
 		errln("  " + dim("protected path: all of them. An agent you start the usual way"))
 		errln("  " + dim("stops working until you start it through SolonGate."))
 		errln("")
-		errln("  " + dim("Turn it off again with `solongate protect require-sandbox off`,"))
+		errln("  " + dim("Turn it off again with `solongate policy protect require-sandbox off`,"))
 		errln("  " + dim("which is a command only a person at a terminal can run."))
 		errln("")
 		if !askYes("  Turn it on? [y/N] ") {

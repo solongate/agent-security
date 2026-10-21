@@ -5,13 +5,20 @@ package cli
 
 import (
 	"bufio"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	pcrypto "github.com/solongate/agent-security/packages/crypto"
 
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/install"
@@ -220,7 +227,7 @@ func noSourceToUpdateFrom() int {
 	fmt.Fprintln(w, "  the install script once; `update` will remember where it is:")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "      git clone https://github.com/solongate/agent-security")
-	fmt.Fprintln(w, "      cd agent-security && ./scripts/shell/install.sh")
+	fmt.Fprintln(w, "      cd agent-security && ./scripts/install.sh")
 	fmt.Fprintln(w)
 	return 1
 }
@@ -268,6 +275,16 @@ func moveToNewestRelease(root string) int {
 		fmt.Fprintln(os.Stderr)
 		return 1
 	}
+
+	if reason := verifyTagSignature(root, tag); reason != "" {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "         Refusing to move to "+tag+": "+reason)
+		fmt.Fprintln(os.Stderr, "         That is the whole point of checking the signature. Update manually")
+		fmt.Fprintln(os.Stderr, "         if you trust this tag anyway: cd "+root+" && git checkout --detach "+tag)
+		fmt.Fprintln(os.Stderr)
+		return 1
+	}
+
 	if c := quietStep(root, "Checking out "+tag, "git", "checkout", "--detach", tag); c != 0 {
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "         The checkout failed. Most often that is a local change:")
@@ -276,6 +293,110 @@ func moveToNewestRelease(root string) int {
 		return 1
 	}
 	return 0
+}
+
+// verifyTagSignature checks the TAG_SIG asset release.yml attached to tag's
+// GitHub release against the commit that tag resolves to in this checkout,
+// using the public key embedded in packages/crypto. It returns "" when the
+// tag is authentic and a human-readable reason otherwise. Fails closed: any
+// error resolving the repo, reaching the API, or verifying the signature is
+// treated the same as a confirmed mismatch, never as "skip the check."
+func verifyTagSignature(root, tag string) string {
+	commit, ok := gitOutput(root, "rev-parse", tag+"^{commit}")
+	if !ok || commit == "" {
+		return "could not resolve " + tag + " to a commit"
+	}
+
+	remote, _ := gitOutput(root, "remote", "get-url", "origin")
+	owner, repo, ok := parseGitHubRepoSlug(remote)
+	if !ok {
+		return "origin remote " + remote + " is not a github.com repository"
+	}
+
+	sig, err := fetchTagSig(owner, repo, tag)
+	if err != nil {
+		return err.Error()
+	}
+
+	if !pcrypto.Verify(pcrypto.ReleasePublicKey, []byte(tag+" "+commit), sig) {
+		return "TAG_SIG does not match this tag's commit - the tag may have been moved or the release tampered with"
+	}
+	return ""
+}
+
+var reGitHubRemote = regexp.MustCompile(`github\.com[:/]([^/]+)/([^/]+?)(\.git)?/?$`)
+
+func parseGitHubRepoSlug(remoteURL string) (owner, repo string, ok bool) {
+	m := reGitHubRemote.FindStringSubmatch(strings.TrimSpace(remoteURL))
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], m[2], true
+}
+
+type githubReleaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+type githubRelease struct {
+	Assets []githubReleaseAsset `json:"assets"`
+}
+
+// fetchTagSig downloads and base64-decodes the TAG_SIG asset from the
+// GitHub release tagged tag in owner/repo.
+func fetchTagSig(owner, repo, tag string) ([]byte, error) {
+	apiURL := "https://api.github.com/repos/" + owner + "/" + repo + "/releases/tags/" + tag
+	body, err := httpGet(apiURL, "application/vnd.github+json")
+	if err != nil {
+		return nil, fmt.Errorf("could not reach the GitHub API for the %s release: %w", tag, err)
+	}
+
+	var rel githubRelease
+	if err := json.Unmarshal(body, &rel); err != nil {
+		return nil, fmt.Errorf("the GitHub API's response for the %s release was not valid JSON", tag)
+	}
+
+	var assetURL string
+	for _, a := range rel.Assets {
+		if a.Name == "TAG_SIG" {
+			assetURL = a.BrowserDownloadURL
+			break
+		}
+	}
+	if assetURL == "" {
+		return nil, fmt.Errorf("the %s release has no TAG_SIG asset to verify against", tag)
+	}
+
+	sigB64, err := httpGet(assetURL, "")
+	if err != nil {
+		return nil, fmt.Errorf("could not download TAG_SIG for %s: %w", tag, err)
+	}
+	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sigB64)))
+	if err != nil {
+		return nil, fmt.Errorf("TAG_SIG for %s is not valid base64", tag)
+	}
+	return sig, nil
+}
+
+func httpGet(url, accept string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "solongate-update")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func detached(root string) bool {

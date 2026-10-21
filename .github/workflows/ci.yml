@@ -45,6 +45,7 @@ jobs:
           - packages/cli
           - packages/tui
           - packages/app
+          - packages/crypto
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -172,7 +173,7 @@ jobs:
           # per-platform toolchain to install and nothing links libc.
           CGO_ENABLED: '0'
         run: |
-          for m in guard policy shared sandbox core cli tui app; do
+          for m in guard policy shared sandbox core cli tui app crypto; do
             echo "== packages/$m"
             (cd "packages/$m" && go build ./...)
           done
@@ -186,7 +187,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
         run: |
-          for m in guard policy shared sandbox core cli tui app; do
+          for m in guard policy shared sandbox core cli tui app crypto; do
             (cd "packages/$m" && go vet ./...)
           done
 
@@ -263,7 +264,7 @@ jobs:
       # agent scoping, an out-of-scope policy not disarming the other layers, and
       # the .last-deny flag. Each asserts the exit code the guard must produce.
       - name: the guard decides correctly
-        run: ./scripts/shell/sg-parity-check.sh
+        run: ./scripts/sg-parity-check.sh
 
       # Twenty-five cases driving the guard through every layer that refuses
       # something: DLP in all four modes and on file content, the rate limit,
@@ -271,12 +272,12 @@ jobs:
       # constraint kinds, whitelist mode, and a project-local policy file trying
       # to turn tamper off.
       - name: the layers enforce
-        run: ./scripts/shell/sg-layers-check.sh
+        run: ./scripts/sg-layers-check.sh
 
       # Twenty-two questions about a closed box: what is absent, what still
       # works, the per-box network answer, and whether an unknown id is refused.
       - name: the box closes
-        run: ./scripts/shell/sg-box-check.sh
+        run: ./scripts/sg-box-check.sh
 
   # THE SEATBELT HALF, on a machine that has Seatbelt.
   #
@@ -312,7 +313,7 @@ jobs:
           echo "sandbox-exec: $(command -v sandbox-exec || echo MISSING)"
 
       - name: the profile confines
-        run: ./scripts/shell/sg-seatbelt-check.sh
+        run: ./scripts/sg-seatbelt-check.sh
 
   build:
     name: build
@@ -404,7 +405,7 @@ jobs:
       - name: coverage per module
         if: env.HAS_SONAR_TOKEN == 'true'
         run: |
-          for m in guard policy shared sandbox core cli tui app; do
+          for m in guard policy shared sandbox core cli tui app crypto; do
             (cd "packages/$m" && go test -count=1 -coverprofile=coverage.out ./... || true)
           done
 
@@ -413,6 +414,19 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # Every file needs an SPDX copyright/license identifier, either inline or
+  # via REUSE.toml - a PR can add a file nobody remembered to annotate (the
+  # bare .trivyignore and packages/hooks/VERSION both slipped through this
+  # way), and nothing caught it until someone ran `reuse lint` by hand. This
+  # runs that check on every push and PR instead.
+  reuse:
+    name: REUSE compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
 
   secrets:
     name: secret scan

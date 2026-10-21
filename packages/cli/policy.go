@@ -30,6 +30,11 @@ func policyUsage() string {
 		row("policy rule <id> <ruleId> <enable|disable>", "turn one rule on or off without deleting it"),
 		row("", ""),
 		row("policy activate <id> | --off", "pin the active policy, or enforce nothing"),
+		row("", ""),
+		row("policy protect <path>", "add a path, and lock it with the OS"),
+		row("policy protect list", "every protected path, and what is holding it"),
+		row("policy protect remove <path>", "drop a path and lift its lock"),
+		row("policy protect require-sandbox on|off", "refuse calls from agents not started by `solongate run`"),
 	}, "Add --json to any read command for machine-readable output.")
 }
 
@@ -65,6 +70,9 @@ func runPolicy(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
 			return 1, nil
 		}
 		return 0, nil
+
+	case "protect":
+		return runProtect(ctx, c, parsedArgs{positionals: p.positionals[1:], flags: p.flags})
 
 	case "list":
 		policies, err := c.Policies.List(ctx)

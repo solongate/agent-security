@@ -64,7 +64,7 @@ func Install() Result {
 
 	InstallGoBinaries()
 	if !Exists(guardBin) {
-		return fail("no guard binary for this platform; run ./scripts/shell/install.sh from a checkout to build one")
+		return fail("no guard binary for this platform; run ./scripts/install.sh from a checkout to build one")
 	}
 
 	RecordInstallSource()
@@ -98,7 +98,7 @@ func Install() Result {
 	if st.sourceMissing {
 
 		res.Notes = append(res.Notes,
-			"The OpenCode plugin already on this device was re-registered but NOT rewritten: this build could not find it to copy. Run ./scripts/shell/install.sh from a checkout to replace it.")
+			"The OpenCode plugin already on this device was re-registered but NOT rewritten: this build could not find it to copy. Run ./scripts/install.sh from a checkout to replace it.")
 	}
 
 	return res

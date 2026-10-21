@@ -32,6 +32,7 @@ require (
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
+	github.com/solongate/agent-security/packages/crypto v0.0.0
 	github.com/solongate/agent-security/packages/policy v0.0.0
 	github.com/solongate/agent-security/packages/shared v0.0.0
 	github.com/tchap/go-patricia/v2 v2.3.3 // indirect
@@ -50,3 +51,5 @@ require (
 replace github.com/solongate/agent-security/packages/shared => ../shared
 
 replace github.com/solongate/agent-security/packages/policy => ../policy
+
+replace github.com/solongate/agent-security/packages/crypto => ../crypto

@@ -19,6 +19,8 @@ path = [
   "**/.gitignore",
   "**/.npmignore",
   ".github/CODEOWNERS",
+  ".trivyignore",
+  "packages/hooks/VERSION",
 ]
 SPDX-FileCopyrightText = "2026 the SolonGate contributors"
 SPDX-License-Identifier = "Apache-2.0"

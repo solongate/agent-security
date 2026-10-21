@@ -83,6 +83,22 @@ jobs:
           sha256sum *.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
+      # A SIGNATURE OVER THE TAG ITSELF, so `solongate update` (git fetch +
+      # checkout, never a binary download) can refuse to move to a tag that
+      # didn't come from this workflow. The checksum above and the
+      # attestation below both cover the tarballs; neither says anything
+      # about which commit a tag name points to, which is what update.go
+      # actually trusts. Signed with a key that lives only in the
+      # RELEASE_SIGNING_KEY secret - packages/crypto/releasekey.go embeds
+      # just the public half.
+      - name: sign the release tag
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          commit="$(git -C "$GITHUB_WORKSPACE" rev-parse "$GITHUB_REF_NAME^{commit}")"
+          (cd "$GITHUB_WORKSPACE/packages/crypto" && go run ./cmd/sign-release "$GITHUB_REF_NAME" "$commit") > "$GITHUB_WORKSPACE/TAG_SIG"
+          cat "$GITHUB_WORKSPACE/TAG_SIG"
+
       # AND A SIGNED STATEMENT OF WHERE THEY CAME FROM. The checksum says the
       # bytes did not change; the attestation says which workflow, at which
       # commit, produced them, which is the half a checksum published beside
@@ -155,7 +171,7 @@ jobs:
             # clone itself. It was the literal "solongate" and stayed that way
             # through a rename, so the two lines of a three line install told
             # the reader to enter a directory the line above had not made.
-            echo "cd ${GITHUB_REPOSITORY#*/} && ./scripts/shell/install.sh"
+            echo "cd ${GITHUB_REPOSITORY#*/} && ./scripts/install.sh"
             echo '```'
             echo
             echo "Already installed: \`solongate update\`"
@@ -182,4 +198,5 @@ jobs:
             --notes-file notes.md \
             "$GITHUB_WORKSPACE"/*.tar.gz \
             "$GITHUB_WORKSPACE"/*.intoto.jsonl \
-            "$GITHUB_WORKSPACE/SHA256SUMS"
+            "$GITHUB_WORKSPACE/SHA256SUMS" \
+            "$GITHUB_WORKSPACE/TAG_SIG"

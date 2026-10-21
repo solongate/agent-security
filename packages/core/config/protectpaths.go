@@ -5,6 +5,7 @@ package config
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,45 +65,88 @@ func LockPath(path string, withSudo bool) Lock {
 	}
 	abs = filepath.Clean(abs)
 	l := Lock{Path: abs}
-	if _, err := os.Stat(abs); err != nil {
+	info, err := os.Stat(abs)
+	if err != nil {
 		l.Err = "no such path"
 		return l
 	}
+	dir := info.IsDir()
 
 	switch runtime.GOOS {
 	case "darwin":
-		if err := runReport("chflags", "uchg", abs); err != nil {
+		if err := runReport("chflags", chflagsArgs("uchg", abs, dir)...); err != nil {
 			l.Err = err.Error()
 			return l
 		}
 		l.How, l.Immutable = "chflags uchg", true
 
 	case "windows":
-
-		if err := runReport("icacls", abs, "/deny", "*S-1-1-0:(WD,AD,DC,DE,WDAC,WO)"); err != nil {
+		if err := runReport("icacls", icaclsArgs(abs, dir, "/deny", "*S-1-1-0:(WD,AD,DC,DE,WDAC,WO)")...); err != nil {
 			l.Err = err.Error()
 			return l
 		}
-		if err := runReport("icacls", abs, "/grant", "*S-1-3-4:(RX)"); err != nil {
+		if err := runReport("icacls", icaclsArgs(abs, dir, "/grant", "*S-1-3-4:(RX)")...); err != nil {
 			l.Err = err.Error()
 			return l
 		}
-		_ = runReport("attrib", "+R", abs)
+		_ = runReport("attrib", attribArgs("+R", abs, dir)...)
 		l.How, l.Immutable = "icacls deny + OWNER_RIGHTS", true
 
 	default:
-		if err := chattrSet(abs, "+i", withSudo); err == nil {
+		if err := chattrSet(abs, "+i", dir, withSudo); err == nil {
 			l.How, l.Immutable = "chattr +i", true
 			return l
 		}
 
-		if err := os.Chmod(abs, 0o400); err != nil {
+		if dir {
+			if err := chmodTree(abs, 0o400, 0o500); err != nil {
+				l.Err = err.Error()
+				return l
+			}
+		} else if err := os.Chmod(abs, 0o400); err != nil {
 			l.Err = err.Error()
 			return l
 		}
 		l.How, l.Immutable = "chmod 0400", false
 	}
 	return l
+}
+
+// chmodTree is the recursive fallback for filesystems without an immutable
+// flag: directories keep their execute bit so the tree stays listable while
+// locked, files lose every write bit.
+func chmodTree(root string, fileMode, dirMode os.FileMode) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return os.Chmod(p, dirMode)
+		}
+		return os.Chmod(p, fileMode)
+	})
+}
+
+func chflagsArgs(flag, path string, recursive bool) []string {
+	if recursive {
+		return []string{"-R", flag, path}
+	}
+	return []string{flag, path}
+}
+
+func icaclsArgs(path string, recursive bool, rest ...string) []string {
+	args := []string{path}
+	if recursive {
+		args = append(args, "/t")
+	}
+	return append(args, rest...)
+}
+
+func attribArgs(flag, path string, recursive bool) []string {
+	if recursive {
+		return []string{flag, path, "/s", "/d"}
+	}
+	return []string{flag, path}
 }
 
 func UnlockPath(path string, withSudo bool) Lock {
@@ -112,27 +156,33 @@ func UnlockPath(path string, withSudo bool) Lock {
 	}
 	abs = filepath.Clean(abs)
 	l := Lock{Path: abs}
-	if _, err := os.Stat(abs); err != nil {
+	info, err := os.Stat(abs)
+	if err != nil {
 		l.Err = "no such path"
 		return l
 	}
+	dir := info.IsDir()
 
 	switch runtime.GOOS {
 	case "darwin":
-		if err := runReport("chflags", "nouchg", abs); err != nil {
+		if err := runReport("chflags", chflagsArgs("nouchg", abs, dir)...); err != nil {
 			l.Err = err.Error()
 		}
 	case "windows":
-		_ = runReport("icacls", abs, "/remove:g", "*S-1-3-4")
-		_ = runReport("icacls", abs, "/remove:d", "*S-1-1-0")
-		_ = runReport("icacls", abs, "/reset")
-		_ = runReport("attrib", "-R", abs)
+		_ = runReport("icacls", icaclsArgs(abs, dir, "/remove:g", "*S-1-3-4")...)
+		_ = runReport("icacls", icaclsArgs(abs, dir, "/remove:d", "*S-1-1-0")...)
+		_ = runReport("icacls", icaclsArgs(abs, dir, "/reset")...)
+		_ = runReport("attrib", attribArgs("-R", abs, dir)...)
 	default:
-		if err := chattrSet(abs, "-i", withSudo); err != nil {
+		if err := chattrSet(abs, "-i", dir, withSudo); err != nil {
 
 			_ = err
 		}
-		if err := os.Chmod(abs, 0o600); err != nil {
+		if dir {
+			if err := chmodTree(abs, 0o600, 0o700); err != nil {
+				l.Err = err.Error()
+			}
+		} else if err := os.Chmod(abs, 0o600); err != nil {
 			l.Err = err.Error()
 		}
 	}
@@ -202,16 +252,24 @@ func unixSystemBinary(name string) string {
 	return name
 }
 
-func chattrSet(path, flag string, withSudo bool) error {
+func chattrSet(path, flag string, recursive, withSudo bool) error {
 	chattr := unixSystemBinary("chattr")
-	if err := runReport(chattr, flag, path); err == nil {
+	args := chattrArgs(flag, path, recursive)
+	if err := runReport(chattr, args...); err == nil {
 		return nil
 	}
 	if !withSudo {
 		return errors.New("chattr needs CAP_LINUX_IMMUTABLE")
 	}
 
-	return runReport(unixSystemBinary("sudo"), "-n", chattr, flag, path)
+	return runReport(unixSystemBinary("sudo"), append([]string{"-n", chattr}, args...)...)
+}
+
+func chattrArgs(flag, path string, recursive bool) []string {
+	if recursive {
+		return []string{"-R", flag, path}
+	}
+	return []string{flag, path}
 }
 
 func runReport(name string, args ...string) error {

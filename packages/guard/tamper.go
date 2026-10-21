@@ -54,6 +54,7 @@ var tamperProtectedAbs = []string{
 	tamperHome + tamperSG + "/hooks",
 	tamperHome + tamperSG + "/policy.json",
 	tamperHome + tamperSG + "/.policy-cache.json",
+	tamperHome + tamperSG + "/crypto/machine.pub",
 
 	tamperHome + tamperSG + "/cloud-guard.json",
 
@@ -72,6 +73,7 @@ var tamperProtectedGlobs = []string{
 	"**" + tamperSG + "/policy.json",
 	"**" + tamperSG + "/.policy-cache.json",
 	"**" + tamperSG + "/.policy-cache-*.json",
+	"**" + tamperSG + "/crypto/machine.pub",
 	"**" + tamperSG + "/cloud-guard.json",
 
 	"**" + tamperSG + "/.ratelimit-*",

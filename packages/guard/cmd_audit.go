@@ -112,7 +112,7 @@ func runAudit(args []string) (code int) {
 		}
 	}
 
-	local := loadLocalPolicyFile("")
+	local, _ := loadLocalPolicyFile("")
 	var sec *shared.Security
 	if local != nil && local.HasSecurity {
 		sec = local.Security

@@ -2,10 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
 
-# Checks that each enforcement layer actually avaible and enforces. 
-# Runs the real guard binary with real payloads on a throwaway HOME, one
-# policy file per case. Exit code 2 is a refusal, 0 is not.
-#   ./scripts/sg-layers-check.sh
+# Checks that each enforcement layer is actually available and enforces.
 set -u
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -29,11 +26,11 @@ fail=0
 
 policy() { cat > "$POL"; }
 
-call() { # call TOOL JSON_INPUT
+call() {
   printf '{"tool_name":"%s","tool_input":%s,"cwd":"%s/proj","tool_use_id":"t"}' "$1" "$2" "$T"
 }
 
-expect() { # expect DESC WANT PAYLOAD [CLIENT]
+expect() {
   desc=$1; want=$2; payload=$3; client=${4:-claude-code}
   printf '%s' "$payload" | env -u SOLONGATE_SANDBOX HOME="$HOME" "$G" "$client" >/dev/null 2>&1
   got=$?
@@ -145,7 +142,6 @@ policy <<JSON
 JSON
 expect "pathConstraints refuses"      2 "$(call Read '{"file_path":"'"$T"'/proj/key.txt"}')"
 
-# toolPattern left out entirely here, not set to "*", since the two used to compile differently.
 policy <<JSON
 { "policy": { "id": "p", "name": "t", "mode": "denylist", "rules": [
   { "id": "r", "effect": "DENY", "enabled": true,

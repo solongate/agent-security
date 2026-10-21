@@ -1,10 +1,6 @@
+# yaml for backfill
 name: backfill-attestation
 
-# One-off: attaches provenance attestations to a release that was published
-# before actions/attest-build-provenance was wired into release.yml. Signs
-# the artifacts already sitting on the release, not a fresh build of them --
-# run only against a tag whose binaries are known not to have changed since
-# they were uploaded.
 on:
   workflow_dispatch:
     inputs:

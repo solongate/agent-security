@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        There are 70 built in patterns. Adding one is a small, welcome change.
+        There are 70+ built in patterns. Adding one is a small, welcome change.
 
         **Never paste a real credential.** A synthetic example with the right
         shape is what is needed, and a real one would be committed into this

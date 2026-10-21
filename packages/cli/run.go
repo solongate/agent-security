@@ -20,11 +20,11 @@ import (
 
 func runUsage() string {
 	return usage("solongate run", "start an agent inside OS-level confinement", []usageRow{
-		row("run -- <command> [args...]", "run it with the protected paths out of reach"),
+		row("run <command> [args...]", "run it with the protected paths out of reach"),
 		row("run --explain", "what this machine's confinement can and cannot do"),
 		line(""),
-		line("  solongate run -- claude"),
-		line("  solongate run -- codex"),
+		line("  solongate run claude"),
+		line("  solongate run codex"),
 	})
 }
 

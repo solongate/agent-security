@@ -1,14 +1,5 @@
 version: 2
 
-# The guard runs before every tool call, so a dependency on the decision path is
-# a liability rather than a convenience. shared deliberately has none, and
-# policy has one that matters (OPA). Updates are grouped per module so a bump
-# arrives as one pull request to review rather than four.
-#
-# Review them by hand. There is no conformance suite behind these any more, so
-# a green tick on a dependency bump means it compiles, not that the guard still
-# decides the way it did before.
-
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -66,10 +57,6 @@ updates:
       go:
         patterns: ['*']
 
-  # Where the terminal UI dependencies are. Bubble Tea, Bubbles and Lipgloss
-  # live here and nowhere else now, which is the point: a bump to any of them
-  # cannot reach the guard or the policy engine, and the pull request says so by
-  # naming this module.
   - package-ecosystem: gomod
     directory: /packages/tui
     schedule:

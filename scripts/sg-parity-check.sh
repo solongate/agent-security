@@ -3,9 +3,7 @@
 # Copyright 2026 the SolonGate contributors
 
 # Runs the Go guard against fixture policies and checks the verdict each one produces. 
-# Exit 2 means deny, 0 means allow.
-#   ./scripts/sg-parity-check.sh [path-to-go-guard]
-# Builds the guard into a temp path if none is given.
+# Exit 2 means deny, 0 means allow. Builds the guard into a temp path if none is given.
 set -u
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -30,7 +28,7 @@ note()  { printf '           %s\n' "$1"; }
 ok()    { printf '  OK       %-44s %s\n' "$1" "${2:-}"; pass=$((pass+1)); }
 bad()   { printf '  WRONG    %-44s %s\n' "$1" "${2:-}"; fail=$((fail+1)); }
 
-expect() { # expect DESC WANT PAYLOAD CLIENT [env...]
+expect() {
   local desc="$1" want="$2" payload="$3" client="$4"
   shift 4
   local out rc
@@ -49,7 +47,7 @@ expect() { # expect DESC WANT PAYLOAD CLIENT [env...]
   ok "$desc" "got=$rc"
 }
 
-call() { # call TOOL JSON_INPUT ID
+call() {
   printf '{"tool_name":"%s","tool_input":%s,"cwd":"%s/proj","tool_use_id":"%s"}' "$1" "$2" "$T" "$3"
 }
 
@@ -99,7 +97,6 @@ cat > "$POL" <<JSON
   "security": { "protectedPaths": [], "requireSandbox": true } }
 JSON
 
-# The project key is a hash of the working directory, computed the same way packages/shared/paths.go computes it.
 fnv_key() {
   local s="$1" h=2166136261 i len cp
   len=${#s}

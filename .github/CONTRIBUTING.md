@@ -87,10 +87,10 @@ for it on every commit in a pull request and rejects any that are missing it.
 
 Go modules (`go.sum` per package) are the only way a dependency enters this
 repository; nothing is vendored by hand.
-[Dependabot](.github/dependabot.yml) opens a weekly pull request per
+[Dependabot](.github/dependabot.yaml) opens a weekly pull request per
 ecosystem/module, grouped so a bump arrives as one review rather than several
 duplicates. There is no conformance suite backing these any more (see
-`ci.yml`), so a bump is reviewed by hand, not merged on a green tick alone.
+`ci.yaml`), so a bump is reviewed by hand, not merged on a green tick alone.
 
 A dependency on the guard's decision path (`packages/guard`, `packages/policy`,
 `packages/shared`) is a liability rather than a convenience, which is why
@@ -113,9 +113,9 @@ a change to the decision path (`packages/guard`, `packages/policy`,
 asks for, and a behavior change updates the docs in the same pull request
 (see below). A pull request that fails any of these is not merged.
 
-If a change makes README.md, docs/DESIGN.md, docs/INTERFACES.md, or
-SECURITY.md say something that's no longer true, update it in the same pull
-request. A pull request that leaves the docs wrong is not done.
+If a change makes README.md or SECURITY.md say something that's no longer
+true, update it in the same pull request. A pull request that leaves the
+docs wrong is not done.
 
 ## Security issues
 
@@ -144,5 +144,5 @@ for the decision path (`packages/guard`, `packages/policy`, `packages/shared`,
 The maintainers review and merge pull requests, triage security reports
 per [SECURITY.md](SECURITY.md), and cut releases. Release artifacts are
 signed through Sigstore with a short-lived OIDC identity minted per run (see
-`release.yml`), so there is no long-lived signing key for a maintainer to
+`release.yaml`), so there is no long-lived signing key for a maintainer to
 hold or to lose.

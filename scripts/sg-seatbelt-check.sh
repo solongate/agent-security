@@ -2,10 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
 
-# ITS FOR MACOS 
-# Checks that the Seatbelt profile this repository generates actually confines anything. 
-#   ./scripts/sg-seatbelt-check.sh [/absolute/path/to/a/file/to/protect]
-# Builds the CLI, protects one file through the policy file, and asks 'solongate run'.
+# For macOS 
+# Checks that the Seatbelt repository generates confines anything and asking solongate run.
 set -u
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -39,9 +37,6 @@ echo 'sibling' > "$(dirname "$PROTECTED")/other.txt"
 APP=$(mktemp -d)/solongate
 (cd "$REPO/packages/app" && go build -o "$APP" .) || { echo "build failed"; exit 1; }
 
-# Write the policy file directly instead of through "solongate policy protect",
-# which would also lock the file with chflags on macOS; that lock has its
-# own check, this is only about the profile.
 python3 - "$HOME" "$PROTECTED" <<'PY'
 import json, os, sys
 path = os.path.join(sys.argv[1], '.solongate', 'poli' + 'cy.json')
@@ -53,7 +48,7 @@ echo
 
 pass=0
 fail=0
-ask() { # ask LABEL EXPECT SHELL
+ask() {
   label=$1; expect=$2; code=$3
   got=$("$APP" run -- /bin/sh -c "$code" 2>/dev/null | tail -1)
   if [[ "$got" = "$expect" ]]; then
@@ -73,8 +68,7 @@ ask "write it"                      NO "echo x > '$PROTECTED' 2>/dev/null && ech
 ask "delete it"                     NO "rm -f '$PROTECTED' 2>/dev/null && test ! -e '$PROTECTED' && echo YES || echo NO"
 ask "reach it through a symlink"    NO "ln -sf '$PROTECTED' '$T/work/link' 2>/dev/null; cat '$T/work/link' >/dev/null 2>&1 && echo YES || echo NO"
 ask "a script it wrote reaches it"  NO "printf '#!/bin/sh\ncat %s\n' '$PROTECTED' > '$T/work/e.sh'; chmod +x '$T/work/e.sh'; '$T/work/e.sh' >/dev/null 2>&1 && echo YES || echo NO"
-# Checked from outside the sandbox: a denied read means a process inside it
-# cannot tell "deleted" from "exists but unreadable to me".
+
 "$APP" run -- /bin/sh -c "find '$(dirname "$PROTECTED")' -name '$(basename "$PROTECTED")' -delete 2>/dev/null" >/dev/null 2>&1
 if [[ -e "$PROTECTED" ]]; then
   printf '  OK      %-44s %s\n' "find -delete over its folder" NO; pass=$((pass+1))

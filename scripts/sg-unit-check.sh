@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
 
-# checks gofmt, go vet and go test across every Go module in this repository.
-#   ./scripts/sg-unit-check.sh
+# Checks gofmt, go vet and go test across every Go module in this repository.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)

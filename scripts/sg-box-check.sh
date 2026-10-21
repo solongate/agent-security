@@ -2,9 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
 
-# Checks that the sandbox actually works.
-# Run this from a plain terminal, not from inside a sandbox:
-#   ./scripts/sg-box-check.sh [/absolute/path/to/a/scratch/project]
+# Checks that the sandbox actually works. Run from a plain terminal, not
+# from inside a sandbox.
 set -u
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -20,9 +19,6 @@ esac
 
 command -v bwrap >/dev/null 2>&1 || { echo "bwrap is not installed"; exit 1; }
 
-# Test by actually building the smallest namespace bwrap can make. Binds
-# /lib and /lib64 too, since on a merged-usr system those are symlinks into
-# /usr/lib* and the dynamic linker needs them.
 probe_binds="--ro-bind /usr /usr"
 for d in /lib /lib64; do
   [[ -e "$d" ]] && probe_binds="$probe_binds --ro-bind $d $d"
@@ -62,7 +58,7 @@ echo "project: $WS"
 echo
 
 pass=0; fail=0
-ask() { # ask LABEL EXPECT SHELL
+ask() {
   local label=$1 expect=$2 code=$3
   local got
   got=$("$APP" sandbox 001 /bin/sh -c "$code" 2>/dev/null | tail -1)
@@ -93,8 +89,7 @@ ask "/var exists"                 NO  'test -e /var && echo YES || echo NO'
 ask "/mnt exists"                 NO  'test -e /mnt && echo YES || echo NO'
 ask "the host /tmp contents"      NO  'ls /tmp | grep -q . && echo YES || echo NO'
 ask "only the box's own processes"  YES 'n=$(ls /proc | grep -c "^[0-9]"); [ "$n" -le 5 ] && echo YES || echo NO'
-# Checked by comm, not cmdline: PID 1's cmdline in the box is this check's
-# own argv, so a "systemd" grep on cmdline would match itself.
+
 ask "pid 1 is the box, not the host"  YES 'c=$(cat /proc/1/comm 2>/dev/null); case "$c" in systemd|init) echo NO ;; "") echo NO ;; *) echo YES ;; esac'
 ask "no other user's process"       YES 'ls /proc/*/cmdline 2>/dev/null | wc -l | { read n; [ "$n" -le 5 ] && echo YES || echo NO; }'
 ask "a script reaching outward"   NO  'printf "#!/bin/sh\ncat /home/*/.ssh/* 2>/dev/null\n" > /workspace/e.sh; chmod +x /workspace/e.sh; /workspace/e.sh | grep -q . && echo YES || echo NO'

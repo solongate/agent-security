@@ -1,0 +1,249 @@
+# yaml for all ci system, runs all the shell checks and the rest
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - packages/guard
+          - packages/policy
+          - packages/shared
+          - packages/sandbox
+          - packages/core
+          - packages/cli
+          - packages/tui
+          - packages/app
+          - packages/crypto
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: gofmt
+        working-directory: ${{ matrix.module }}
+        run: |
+          unformatted=""
+          for f in $(gofmt -l .); do
+            if ! diff -q <(gofmt "$f") <(cat "$f"; printf '\n') >/dev/null 2>&1; then
+              unformatted="$unformatted$f"$'\n'
+            fi
+          done
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt'd:"; printf '%s' "$unformatted"
+            exit 1
+          fi
+
+      - name: vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+      - name: test
+        working-directory: ${{ matrix.module }}
+        run: go test -count=1 -race ./...
+
+      - name: test (as root, for the immutable-flag cases)
+        if: matrix.module == 'packages/sandbox'
+        working-directory: ${{ matrix.module }}
+        run: sudo -E env "PATH=$PATH" go test -count=1 -run Frozen -v ./...
+
+  cross:
+    name: compile (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [darwin, windows, linux]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: packages/guard/go.mod
+          cache-dependency-path: packages/guard/go.sum
+
+      - name: build every module for this platform
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          for m in guard policy shared sandbox core cli tui app crypto; do
+            echo "== packages/$m"
+            (cd "packages/$m" && go build ./...)
+          done
+
+      - name: vet for this platform
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          for m in guard policy shared sandbox core cli tui app crypto; do
+            (cd "packages/$m" && go vet ./...)
+          done
+
+  checks:
+    name: checks (parity, layers, box)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: packages/guard/go.mod
+          cache-dependency-path: packages/guard/go.sum
+
+      - name: bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      - name: allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: what this kernel can do
+        run: |
+          echo "kernel: $(uname -r)"
+          echo "landlock in lsm: $(cat /sys/kernel/security/lsm 2>/dev/null || echo unknown)"
+          echo "userns: $(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo unknown)"
+
+      - name: the guard decides correctly
+        run: ./scripts/sg-parity-check.sh
+
+      - name: the layers enforce
+        run: ./scripts/sg-layers-check.sh
+
+      - name: the box closes
+        run: ./scripts/sg-box-check.sh
+
+  seatbelt:
+    name: seatbelt (macos)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: packages/app/go.mod
+          cache-dependency-path: packages/app/go.sum
+
+      - name: what this machine can do
+        run: |
+          echo "macos: $(sw_vers -productVersion)"
+          echo "sandbox-exec: $(command -v sandbox-exec || echo MISSING)"
+
+      - name: the profile confines
+        run: ./scripts/sg-seatbelt-check.sh
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: packages/guard/go.mod
+          cache-dependency-path: packages/guard/go.sum
+      - name: the release build works
+        run: ./packages/hooks/scripts/build-platforms.sh linux-x64
+
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: every commit is signed off
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}"
+          missing=""
+          for sha in $(git rev-list --no-merges "origin/${{ github.base_ref }}..HEAD"); do
+            if ! git log -1 --format=%B "$sha" | grep -qE '^Signed-off-by: .+ <.+>$'; then
+              missing="$missing$sha "
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "commits missing a Signed-off-by trailer: $missing" >&2
+            echo "fix with: git rebase --signoff origin/${{ github.base_ref }}" >&2
+            exit 1
+          fi
+
+  sonarqube:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: env.HAS_SONAR_TOKEN == 'true'
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        if: env.HAS_SONAR_TOKEN == 'true'
+        with:
+          go-version-file: packages/guard/go.mod
+
+      - name: coverage per module
+        if: env.HAS_SONAR_TOKEN == 'true'
+        run: |
+          for m in guard policy shared sandbox core cli tui app crypto; do
+            (cd "packages/$m" && go test -count=1 -coverprofile=coverage.out ./... || true)
+          done
+
+      - name: SonarQube Cloud scan
+        if: env.HAS_SONAR_TOKEN == 'true'
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  reuse:
+    name: REUSE compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL --proto '=https' --tlsv1.2 -o "$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+
+          ./gitleaks git --config .gitleaks.toml --redact --exit-code 1 .

@@ -113,9 +113,9 @@ a change to the decision path (`packages/guard`, `packages/policy`,
 asks for, and a behavior change updates the docs in the same pull request
 (see below). A pull request that fails any of these is not merged.
 
-If a change makes README.md, docs/DESIGN.md, docs/INTERFACES.md, or
-SECURITY.md say something that's no longer true, update it in the same pull
-request. A pull request that leaves the docs wrong is not done.
+If a change makes README.md or SECURITY.md say something that's no longer
+true, update it in the same pull request. A pull request that leaves the
+docs wrong is not done.
 
 ## Security issues
 

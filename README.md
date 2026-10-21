@@ -160,10 +160,6 @@ Alongside them, Go's own unit tests cover the decisions a pure function can
 answer. What is left is what you ran it against by hand, and that is most of
 it. [CONTRIBUTING.md](.github/CONTRIBUTING.md) is the rest.
 
-How it's put together: [docs/DESIGN.md](docs/DESIGN.md) for the actors and the
-decision path a tool call takes, and [docs/INTERFACES.md](docs/INTERFACES.md) for
-every external interface (CLI, hook, policy file, audit log).
-
 Reporting a vulnerability: [SECURITY.md](.github/SECURITY.md), privately, never a public
 issue. [CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md) applies everywhere.
 

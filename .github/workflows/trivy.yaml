@@ -1,9 +1,5 @@
+# yaml for Trivy
 name: trivy
-
-# Trivy: filesystem scan for known vulnerabilities in dependencies (go.sum)
-# and misconfigurations. Secret detection is off here; gitleaks in ci.yml
-# already owns that, scanning the full history rather than the checked-out
-# tree.
 
 on:
   push:

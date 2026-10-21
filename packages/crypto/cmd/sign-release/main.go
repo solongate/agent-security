@@ -3,7 +3,7 @@
 
 // sign-release signs "<tag> <commit-sha>" with the release-signing private
 // key and writes the base64 signature to stdout. It exists so
-// .github/workflows/release.yml never handles the raw private key bytes
+// .github/workflows/release.yaml never handles the raw private key bytes
 // itself beyond passing the RELEASE_SIGNING_KEY secret through the
 // environment - the signing logic stays in packages/crypto like everything
 // else cryptographic in this repo.

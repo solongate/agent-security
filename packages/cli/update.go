@@ -295,7 +295,7 @@ func moveToNewestRelease(root string) int {
 	return 0
 }
 
-// verifyTagSignature checks the TAG_SIG asset release.yml attached to tag's
+// verifyTagSignature checks the TAG_SIG asset release.yaml attached to tag's
 // GitHub release against the commit that tag resolves to in this checkout,
 // using the public key embedded in packages/crypto. It returns "" when the
 // tag is authentic and a human-readable reason otherwise. Fails closed: any

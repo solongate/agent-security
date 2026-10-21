@@ -1,18 +1,6 @@
+# yaml for releases in github
 name: release
 
-# A TAG IS THE ONLY THING THAT MAKES A VERSION VISIBLE.
-#
-# The version lives in packages/hooks/VERSION and is stamped into the binaries
-# with -ldflags, so `solongate doctor` can print it. That was the whole of it:
-# nothing on GitHub showed the number, there were no tags and no releases, and
-# the only way to learn what 0.91.31 meant was to read the commit that typed
-# it. Twice in one day the file and the commit message disagreed, because
-# nothing compared them.
-#
-# This repository is distributed over git, not a registry: `solongate update`
-# pulls the recorded checkout and runs install.sh, which builds from source. The
-# archives attached here are a record of what a tag produced, never the install
-# path.
 on:
   push:
     tags: ['v*']
@@ -26,21 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      # The attestation is signed through Sigstore with a short-lived OIDC
-      # identity minted for this run, so there is no key here to manage or to
-      # leak. Both scopes are what that needs and nothing more: id-token to
-      # prove which workflow is asking, attestations to record the answer.
       id-token: write
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0 # the notes are built from the log
-
-      # THE TAG AND THE MANIFEST HAVE TO AGREE. A release whose binaries report a
-      # different version than the tag that produced them is worse than no
-      # release: doctor and the download page would each be telling the truth
-      # about a different build.
+          fetch-depth: 0 
       - name: the tag matches the version it claims
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -52,16 +31,11 @@ jobs:
           fi
           echo "v$tag"
 
-      # go.mod rather than a number, for the reason given in ci.yml. A release
-      # built by a toolchain older than the modules declare does not build at
-      # all, and this is the job where that produces no binaries and no release.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: packages/guard/go.mod
           cache-dependency-path: packages/guard/go.sum
 
-      # All six targets cross-compile from here: CGO is off, so there is no
-      # per-platform toolchain to install.
       - name: build every platform
         run: ./packages/hooks/scripts/build-platforms.sh
 
@@ -74,23 +48,12 @@ jobs:
           done
           ls -la "$GITHUB_WORKSPACE"/*.tar.gz
 
-      # A CHECKSUM FILE, so somebody who downloaded an archive can tell whether
-      # it is the one this job built. There was nothing: the release had six
-      # tarballs and no way to check any of them.
       - name: checksums
         run: |
           cd "$GITHUB_WORKSPACE"
           sha256sum *.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
-      # A SIGNATURE OVER THE TAG ITSELF, so `solongate update` (git fetch +
-      # checkout, never a binary download) can refuse to move to a tag that
-      # didn't come from this workflow. The checksum above and the
-      # attestation below both cover the tarballs; neither says anything
-      # about which commit a tag name points to, which is what update.go
-      # actually trusts. Signed with a key that lives only in the
-      # RELEASE_SIGNING_KEY secret - packages/crypto/releasekey.go embeds
-      # just the public half.
       - name: sign the release tag
         env:
           RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
@@ -99,31 +62,10 @@ jobs:
           (cd "$GITHUB_WORKSPACE/packages/crypto" && go run ./cmd/sign-release "$GITHUB_REF_NAME" "$commit") > "$GITHUB_WORKSPACE/TAG_SIG"
           cat "$GITHUB_WORKSPACE/TAG_SIG"
 
-      # AND A SIGNED STATEMENT OF WHERE THEY CAME FROM. The checksum says the
-      # bytes did not change; the attestation says which workflow, at which
-      # commit, produced them, which is the half a checksum published beside
-      # the artifact cannot establish on its own, because whoever replaced the
-      # artifact could replace the checksum too.
-      #
-      # Sigstore-backed and verifiable with `gh attestation verify`, so it needs
-      # no key of ours to manage and no key of a user's to trust.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ github.workspace }}/*.tar.gz
 
-      # AND THAT ATTESTATION ATTACHED TO THE RELEASE ITSELF, not just queryable
-      # through the API. `gh attestation verify` already works against the
-      # Sigstore transparency log without this, but a checkout with no network
-      # access -- or a scanner that only reads release assets, which is how
-      # Scorecard's Signed-Releases check works -- never sees it there. This
-      # downloads the same bundle the previous step just published and attaches
-      # it next to each archive, so it verifies offline too.
-      #
-      # Each download runs in its own scratch directory: `gh attestation
-      # download` names its output by digest, not by the archive it came from,
-      # so a shared directory left five of six archives with no bundle -- the
-      # next iteration's own `*.jsonl` glob was deleting the previous one's
-      # already-renamed file along with the stale download.
       - name: download the attestation bundles
         env:
           GH_TOKEN: ${{ github.token }}
@@ -137,12 +79,6 @@ jobs:
             rm -rf "$d"
           done
 
-      # THE CHANGELOG ENTRY IS REQUIRED, NOT GENERATED. A bullet list of commit
-      # subjects is not a summary of what changed or what it means to
-      # upgrade -- it is the commit log with the hashes trimmed off. A human
-      # writes the matching `## vX.Y.Z` section in CHANGELOG.md before
-      # tagging; if it's missing, the release fails here instead of quietly
-      # shipping a notes.md nobody actually wrote.
       - name: the changelog entry for this version
         run: |
           version="${GITHUB_REF_NAME#v}"

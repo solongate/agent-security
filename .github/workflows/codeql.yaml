@@ -1,14 +1,5 @@
+# yaml for CodeQL
 name: codeql
-
-# Static analysis, not conformance. This does not decide whether the guard
-# refuses the right calls; ci.yml's own comment already says what does that
-# (nothing, right now). What this catches is the class CodeQL is built for:
-# memory and injection patterns in the Go modules, and the same in the .mjs
-# hook programs that ship outside the Go port.
-#
-# There is no root go.mod: eight independent modules live under packages/*,
-# so each is built and analyzed on its own rather than through one
-# `go build ./...` that assumes a single workspace.
 
 on:
   push:

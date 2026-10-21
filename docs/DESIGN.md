@@ -11,7 +11,7 @@ an agent reaching for something and that thing happening or not.
 | **AI coding agent** | Claude Code, Codex, OpenCode, Antigravity, or any client that calls SolonGate's hook before a tool call. Never has standing access to SolonGate's own state. |
 | **The guard** | The decision point. One Go binary that every client's hook invokes directly; OpenCode's plugin shim spawns it the same way the others do. |
 | **Policy engine** | Compiles the operator's `policy.json` rules to Rego and evaluates each call against them: allow or deny, scoped by path, command, filename, URL and action kind (READ/WRITE/EXECUTE/NETWORK). |
-| **DLP** | Scans call arguments and, in block mode, file content on egress, against 70 built-in secret patterns plus operator-defined ones. |
+| **DLP** | Scans call arguments and, in block mode, file content on egress, against 70+ built-in secret patterns plus operator-defined ones. |
 | **Sandbox** | OS-level confinement invoked explicitly (`solongate run`, `solongate sandbox`): Landlock on Linux, Seatbelt on macOS, a deny list on Windows, and a closed-box mode (bubblewrap) that removes everything but the project directory. |
 | **Audit store** | The append-only local log every decision is written to. |
 

@@ -91,7 +91,7 @@ func main() {
 		selfProtect = *local.SelfProtect
 	}
 	if selfProtect {
-		if reason := tamperCheck(c.Tool, c.Args); reason != "" {
+		if reason := tamperCheck(c.Tool, c.Args, c.Cwd); reason != "" {
 			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}

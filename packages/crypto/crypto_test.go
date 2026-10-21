@@ -163,7 +163,7 @@ func TestFingerprintIsStableAndDistinct(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if Fingerprint(kp1.Public) != Fingerprint(kp1.Public) {
+	if Fingerprint(kp1.Public) != Fingerprint(append([]byte(nil), kp1.Public...)) {
 		t.Fatal("fingerprint should be stable for the same key")
 	}
 	if Fingerprint(kp1.Public) == Fingerprint(kp2.Public) {

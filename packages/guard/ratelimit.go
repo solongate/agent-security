@@ -66,11 +66,7 @@ func rateLimitCheck(agent string, limits *shared.RateLimit) string {
 		return ""
 	}
 	token := rlNewToken()
-	rec := strconv.FormatInt(now, 10)
-	for len(rec) < rlStamp {
-		rec = "0" + rec
-	}
-	_, werr := f.WriteString(rec + token + "\n")
+	_, werr := f.WriteString(rlFormat(now, token))
 	f.Close()
 	if werr != nil {
 		return ""
@@ -110,6 +106,38 @@ func rateLimitCheck(agent string, limits *shared.RateLimit) string {
 		entries = append(entries, e)
 	}
 
+	if reason := rlExceeded(entries, mine, now, limits); reason != "" {
+		return reason
+	}
+
+	if size > rlMaxFile {
+		compact(file, entries)
+	}
+	return ""
+}
+
+// rlFormat renders one log record: the millisecond stamp zero-padded to
+// rlStamp digits, then the token, then a newline. The reader slices the file
+// at fixed offsets, so a record of any other width would shift every record
+// after it and corrupt the count.
+func rlFormat(ms int64, token string) string {
+	stamp := strconv.FormatInt(ms, 10)
+	for len(stamp) < rlStamp {
+		stamp = "0" + stamp
+	}
+	return stamp + token + "\n"
+}
+
+// rlExceeded returns the block reason for the first window, widest first, that
+// this call would push over its limit, or "" if none. It does no I/O so the
+// window arithmetic can be tested without a log file.
+//
+// mine is the index in entries of this call's own record, or -1 if it was not
+// found in the part of the log that was read. When found, only the records
+// before it count, so two calls racing at the limit cannot both see room;
+// when not found, the call's own record is somewhere in entries, so the cap
+// is exceeded one record sooner.
+func rlExceeded(entries []rlEntry, mine int, now int64, limits *shared.RateLimit) string {
 	for _, w := range rlWindows {
 		limit := rlLimitFor(limits, w.Key)
 		if limit <= 0 {
@@ -117,7 +145,6 @@ func rateLimitCheck(agent string, limits *shared.RateLimit) string {
 		}
 		var count int
 		if mine >= 0 {
-
 			for _, e := range entries[:mine] {
 				if now-e.ms < w.Ms {
 					count++
@@ -137,10 +164,6 @@ func rateLimitCheck(agent string, limits *shared.RateLimit) string {
 		if count > limit {
 			return rlReason(limit, w.Label)
 		}
-	}
-
-	if size > rlMaxFile {
-		compact(file, entries)
 	}
 	return ""
 }
@@ -166,11 +189,7 @@ func compact(file string, entries []rlEntry) {
 	tmp := file + "." + strconv.Itoa(os.Getpid()) + ".tmp"
 	var out []byte
 	for _, e := range entries {
-		rec := strconv.FormatInt(e.ms, 10)
-		for len(rec) < rlStamp {
-			rec = "0" + rec
-		}
-		out = append(out, []byte(rec+e.token+"\n")...)
+		out = append(out, rlFormat(e.ms, e.token)...)
 	}
 	if os.WriteFile(tmp, out, shared.FileMode) == nil {
 		_ = os.Rename(tmp, file)

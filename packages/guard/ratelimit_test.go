@@ -154,3 +154,61 @@ func TestRateLimitPerAgentCountersDoNotShare(t *testing.T) {
 		t.Error("agent-a's third call was allowed under a limit of 2")
 	}
 }
+
+func TestRlFormatIsTheRecordWidth(t *testing.T) {
+	for _, ms := range []int64{0, 42, 1700000000000} {
+		rec := rlFormat(ms, "abcdef0123")
+		if len(rec) != rlRecord {
+			t.Errorf("rlFormat(%d) is %d bytes, want %d", ms, len(rec), rlRecord)
+		}
+		if !strings.HasSuffix(rec, "abcdef0123\n") {
+			t.Errorf("rlFormat(%d)=%q does not end in token and newline", ms, rec)
+		}
+	}
+	if got := rlFormat(42, "abcdef0123"); !strings.HasPrefix(got, "0000000000042") {
+		t.Errorf("a short stamp must be zero-padded to %d digits, got %q", rlStamp, got)
+	}
+}
+
+func TestRlExceeded(t *testing.T) {
+	const now = int64(1700000000000)
+	at := func(agoMs ...int64) []rlEntry {
+		out := make([]rlEntry, 0, len(agoMs))
+		for _, a := range agoMs {
+			out = append(out, rlEntry{ms: now - a, token: "tok"})
+		}
+		return out
+	}
+	perMinute := func(n int) *shared.RateLimit { return &shared.RateLimit{PerMinute: n} }
+
+	tests := []struct {
+		name    string
+		entries []rlEntry
+		mine    int
+		limits  *shared.RateLimit
+		want    string
+	}{
+		{"under the cap with own record found", at(3000, 2000, 0), 2, perMinute(3), ""},
+		{"at the cap with own record found", at(3000, 2000, 0), 2, perMinute(2), "calls/minute"},
+		{"records outside the window do not count", at(120000, 90000, 0), 2, perMinute(2), ""},
+		{"own record not found, one over the cap", at(3000, 2000, 1000), -1, perMinute(2), "calls/minute"},
+		{"own record not found, exactly at the cap", at(2000, 1000), -1, perMinute(2), ""},
+		{"a zero limit is off", at(3000, 2000, 1000, 0), 3, perMinute(0), ""},
+		{"no records at all", nil, -1, perMinute(1), ""},
+	}
+	for _, tc := range tests {
+		got := rlExceeded(tc.entries, tc.mine, now, tc.limits)
+		if tc.want == "" && got != "" {
+			t.Errorf("%s: blocked with %q, want allowed", tc.name, got)
+		}
+		if tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Errorf("%s: got %q, want a reason containing %q", tc.name, got, tc.want)
+		}
+	}
+
+	// When several windows are over, the widest one is the one reported.
+	both := &shared.RateLimit{PerDay: 1, PerMinute: 1}
+	if got := rlExceeded(at(2000, 0), 1, now, both); !strings.Contains(got, "calls/day") {
+		t.Errorf("with day and minute both exceeded, got %q, want the day window", got)
+	}
+}

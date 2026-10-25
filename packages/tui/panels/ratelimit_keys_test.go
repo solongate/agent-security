@@ -62,11 +62,11 @@ func TestRateLimitKeyCtrlR(t *testing.T) {
 func TestRateLimitKeySelMovement(t *testing.T) {
 	// rows=10 keeps burstBudget() at its floor of 1, for predictable pgup/pgdown steps.
 	cases := []struct {
-		name       string
-		sel        int
-		anomalies  int
-		key        string
-		want       int
+		name      string
+		sel       int
+		anomalies int
+		key       string
+		want      int
 	}{
 		{"up decrements", 2, 0, "up", 1},
 		{"up floors at 0", 0, 0, "up", 0},

@@ -573,11 +573,11 @@ func TestProtectedCheckConfinement(t *testing.T) {
 
 func TestGuardHookCheck(t *testing.T) {
 	cases := []struct {
-		name                string
-		latest              int
-		installed           *int
-		wantOK              CheckState
-		wantDetailContains  string
+		name               string
+		latest             int
+		installed          *int
+		wantOK             CheckState
+		wantDetailContains string
 	}{
 		{"nothing known, nothing to update to", 0, nil, StateWarn, "v? → v0 available"},
 		{"a newer version is published", 5, nil, StateWarn, "v? → v5 available"},
@@ -703,11 +703,11 @@ func TestClientChecksGuardRegisteredNoBinary(t *testing.T) {
 
 func TestClientChecksCodexStates(t *testing.T) {
 	cases := []struct {
-		name                string
-		hooksJSON           string
-		configToml          string
-		wantOK              CheckState
-		wantDetailContains  string
+		name               string
+		hooksJSON          string
+		configToml         string
+		wantOK             CheckState
+		wantDetailContains string
 	}{
 		{
 			name:               "not registered",
@@ -779,10 +779,10 @@ func TestClientChecksCodexStates(t *testing.T) {
 
 func TestClientChecksOpencodeStates(t *testing.T) {
 	cases := []struct {
-		name                string
-		installPlugin       bool
-		wantOK              CheckState
-		wantDetailContains  string
+		name               string
+		installPlugin      bool
+		wantOK             CheckState
+		wantDetailContains string
 	}{
 		{"not installed", false, StateFail, "NOT registered"},
 		{"installed", true, StateOK, "not active under"},

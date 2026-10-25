@@ -80,11 +80,11 @@ func TestScanTextCustomPatternsFireEvenWithNoBuiltinPatternsEnabled(t *testing.T
 
 func TestScanTextCapsAtFiveHits(t *testing.T) {
 	text := strings.Join([]string{
-		"AKIA" + "IOSFODNN7EXAMPLE", // AWS access key, index 0
-		"ghp_" + "ABCDEFGHIJ1234567890", // GitHub token, index 4
-		"glpat-" + "ABCDEFGHIJ1234567890", // GitLab token, index 6
-		"xoxb-" + "1234567890123", // Slack token, index 7
-		"sk_live_" + "ABCDEFGHIJ1234567890", // Stripe key, index 8
+		"AKIA" + "IOSFODNN7EXAMPLE",                     // AWS access key, index 0
+		"ghp_" + "ABCDEFGHIJ1234567890",                 // GitHub token, index 4
+		"glpat-" + "ABCDEFGHIJ1234567890",               // GitLab token, index 6
+		"xoxb-" + "1234567890123",                       // Slack token, index 7
+		"sk_live_" + "ABCDEFGHIJ1234567890",             // Stripe key, index 8
 		"npm_" + "ABCDEFGHIJ1234567890ABCDEFGHIJ123456", // npm token, index 11
 	}, " ")
 

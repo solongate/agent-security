@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
+//go:build !windows
+
 package cli
 
 import (
@@ -13,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/solongate/agent-security/packages/core/client"
 )
@@ -41,7 +45,7 @@ func captureStderr(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Dup2(int(w.Fd()), int(os.Stderr.Fd())); err != nil {
+	if err := unix.Dup2(int(w.Fd()), int(os.Stderr.Fd())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,7 +54,7 @@ func captureStderr(t *testing.T, fn func()) string {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Dup2(origFd, int(os.Stderr.Fd())); err != nil {
+	if err := unix.Dup2(origFd, int(os.Stderr.Fd())); err != nil {
 		t.Fatal(err)
 	}
 	if err := syscall.Close(origFd); err != nil {

@@ -319,7 +319,7 @@ func TestNotifySecurityEvents(t *testing.T) {
 			{ID: "3", Decision: "DENY", Tool: "Write", Rule: "rule-1", Detail: "ignored because Rule wins", At: openedAt + 300},
 			{ID: "4", Decision: "DENY", Tool: "Write", Detail: "no rule given", At: openedAt + 400},
 			{ID: "5", Decision: "ALLOW", Burst: true, Tool: "Exec", At: openedAt + 500},
-			{ID: "6", Decision: "DENY", Tool: "Old", At: openedAt}, // At <= openedAt: marked notified, no alert
+			{ID: "6", Decision: "DENY", Tool: "Old", At: openedAt},                         // At <= openedAt: marked notified, no alert
 			{ID: "3", Decision: "DENY", Tool: "Write", Rule: "rule-1", At: openedAt + 300}, // duplicate id "3"
 		},
 	}

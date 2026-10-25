@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 the SolonGate contributors
 
+//go:build !windows
+
 package security
 
 import (
@@ -10,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/solongate/agent-security/packages/cli/cliutil"
 	"github.com/solongate/agent-security/packages/core/client"
@@ -47,10 +51,10 @@ func captureOutput(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Dup2(int(w.Fd()), outFd); err != nil {
+	if err := unix.Dup2(int(w.Fd()), outFd); err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Dup2(int(w.Fd()), errFd); err != nil {
+	if err := unix.Dup2(int(w.Fd()), errFd); err != nil {
 		t.Fatal(err)
 	}
 
@@ -59,10 +63,10 @@ func captureOutput(t *testing.T, fn func()) string {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Dup2(origOut, outFd); err != nil {
+	if err := unix.Dup2(origOut, outFd); err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Dup2(origErr, errFd); err != nil {
+	if err := unix.Dup2(origErr, errFd); err != nil {
 		t.Fatal(err)
 	}
 	if err := syscall.Close(origOut); err != nil {

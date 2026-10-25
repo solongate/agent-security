@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // newHome points HOME at a fresh, empty temp directory so tests that reach
@@ -46,15 +48,15 @@ func captureStderrFD(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("syscall.Dup: %v", err)
 	}
-	if err := syscall.Dup2(int(w.Fd()), fd); err != nil {
-		t.Fatalf("syscall.Dup2: %v", err)
+	if err := unix.Dup2(int(w.Fd()), fd); err != nil {
+		t.Fatalf("unix.Dup2: %v", err)
 	}
 	w.Close()
 
 	fn()
 
-	if err := syscall.Dup2(saved, fd); err != nil {
-		t.Fatalf("syscall.Dup2 restore: %v", err)
+	if err := unix.Dup2(saved, fd); err != nil {
+		t.Fatalf("unix.Dup2 restore: %v", err)
 	}
 	syscall.Close(saved)
 

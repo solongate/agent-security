@@ -1,0 +1,48 @@
+# yaml for backfill
+name: backfill-attestation
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to backfill, e.g. v0.0.6'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: download existing release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p assets
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D assets --pattern '*.tar.gz'
+          ls -la assets
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: assets/*.tar.gz
+
+      - name: download the attestation bundles and upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          cd assets
+          for f in *.tar.gz; do
+            d="$(mktemp -d)"
+            cp "$f" "$d/"
+            (cd "$d" && gh attestation download "$f" -R "$GITHUB_REPOSITORY")
+            mv "$d"/*.jsonl "$f.intoto.jsonl"
+            rm -rf "$d"
+          done
+          gh release upload "$TAG" *.intoto.jsonl -R "$GITHUB_REPOSITORY"

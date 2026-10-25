@@ -33,7 +33,7 @@ func colorOf(name, fallback string) lipgloss.Color {
 	return lipgloss.Color(fallback)
 }
 
-type palette struct {
+type Palette struct {
 	Accent       lipgloss.Color
 	AccentBright lipgloss.Color
 	OK           lipgloss.Color
@@ -43,7 +43,7 @@ type palette struct {
 	White        lipgloss.Color
 }
 
-var theme = palette{
+var Theme = Palette{
 	Accent:       lipgloss.Color("7"),
 	AccentBright: lipgloss.Color("7"),
 	OK:           lipgloss.Color("2"),
@@ -58,8 +58,8 @@ func setAccent(accent string) {
 		return
 	}
 	c := colorOf(accent, "7")
-	theme.Accent = c
-	theme.AccentBright = c
+	Theme.Accent = c
+	Theme.AccentBright = c
 }
 
 func noColor() bool {
@@ -75,81 +75,81 @@ func flatten() {
 	}
 
 	var none lipgloss.Color
-	theme.Accent, theme.AccentBright = none, none
-	theme.OK, theme.Warn, theme.Bad = none, none, none
-	theme.Dim, theme.White = none, none
+	Theme.Accent, Theme.AccentBright = none, none
+	Theme.OK, Theme.Warn, Theme.Bad = none, none, none
+	Theme.Dim, Theme.White = none, none
 }
 
 const (
-	hexPanelBG   = "#12234f"
-	hexTitleBG   = "#1432A0"
-	hexFooterBG  = "#0b1530"
-	hexSelectBG  = "#1c2f63"
-	hexDimFloor  = "#233457"
-	hexOKBG      = "#123d1f"
-	hexOKFG      = "#7bd88f"
-	hexWarnBG    = "#3d2a12"
-	hexWarnFG    = "#ffb454"
-	hexBadBG     = "#3d1220"
-	hexBadFG     = "#ff6b6b"
-	hexEventTick = "#4f8f6b"
+	HexPanelBG   = "#12234f"
+	HexTitleBG   = "#1432A0"
+	HexFooterBG  = "#0b1530"
+	HexSelectBG  = "#1c2f63"
+	HexDimFloor  = "#233457"
+	HexOKBG      = "#123d1f"
+	HexOKFG      = "#7bd88f"
+	HexWarnBG    = "#3d2a12"
+	HexWarnFG    = "#ffb454"
+	HexBadBG     = "#3d1220"
+	HexBadFG     = "#ff6b6b"
+	HexEventTick = "#4f8f6b"
 )
 
-func decisionColor(decision string) lipgloss.Color {
+func DecisionColor(decision string) lipgloss.Color {
 	switch strings.ToUpper(strings.TrimSpace(decision)) {
 	case "ALLOW":
-		return theme.OK
+		return Theme.OK
 	case "DENY", "DENIED":
-		return theme.Bad
+		return Theme.Bad
 	}
-	return theme.Dim
+	return Theme.Dim
 }
 
-func modeColor(m string) lipgloss.Color {
+func ModeColor(m string) lipgloss.Color {
 	switch m {
 	case "block", "active", "on":
-		return theme.OK
+		return Theme.OK
 
 	case "redact":
-		return theme.Accent
+		return Theme.Accent
 	case "detect", "idle":
-		return theme.Warn
+		return Theme.Warn
 	}
-	return theme.Dim
+	return Theme.Dim
 }
 
-type seg struct {
-	text string
-	fg   lipgloss.TerminalColor
-	bg   lipgloss.TerminalColor
-	bold bool
+type Seg struct {
+	Text string
+	Fg   lipgloss.TerminalColor
+	Bg   lipgloss.TerminalColor
+	Bold bool
 }
 
-func sg(text string, fg lipgloss.TerminalColor) seg { return seg{text: text, fg: fg} }
+func Sg(text string, fg lipgloss.TerminalColor) Seg { return Seg{Text: text, Fg: fg} }
 
-func sgb(text string, fg lipgloss.TerminalColor) seg {
-	return seg{text: text, fg: fg, bold: true}
+func Sgb(text string, fg lipgloss.TerminalColor) Seg {
+	return Seg{Text: text, Fg: fg, Bold: true}
 }
 
-func plain(text string) seg { return seg{text: text} }
+func Plain(text string) Seg { return Seg{Text: text} }
 
-func onBG(bg lipgloss.TerminalColor, segs []seg) []seg {
-	out := make([]seg, len(segs))
+func onBG(bg lipgloss.TerminalColor, segs []Seg) []Seg {
+	out := make([]Seg, len(segs))
 	for i, s := range segs {
-		s.bg = bg
+		s.Bg = bg
 		out[i] = s
 	}
 	return out
 }
 
-func renderRow(width int, segs ...seg) string {
+func RenderRow(width int, segs ...Seg) string {
 	var b strings.Builder
 	used := 0
 	for _, s := range segs {
-		if s.text == "" {
+		if s.Text == "" {
 			continue
 		}
-		text := s.text
+		text := s.Text
 		if width > 0 {
 			room := width - used
 			if room <= 0 {
@@ -160,19 +160,33 @@ func renderRow(width int, segs ...seg) string {
 			}
 		}
 		st := lipgloss.NewStyle()
-		if s.fg != nil {
-			st = st.Foreground(s.fg)
+		if s.Fg != nil {
+			st = st.Foreground(s.Fg)
 		}
-		if s.bg != nil {
-			st = st.Background(s.bg)
+		if s.Bg != nil {
+			st = st.Background(s.Bg)
 		}
-		if s.bold {
+		if s.Bold {
 			st = st.Bold(true)
 		}
 		b.WriteString(st.Render(text))
 		used += lipgloss.Width(text)
 	}
 	return b.String()
+}
+
+func (s Seg) Render() string {
+	st := lipgloss.NewStyle()
+	if s.Fg != nil {
+		st = st.Foreground(s.Fg)
+	}
+	if s.Bg != nil {
+		st = st.Background(s.Bg)
+	}
+	if s.Bold {
+		st = st.Bold(true)
+	}
+	return st.Render(s.Text)
 }
 
 func cutWidth(s string, n int) string {
@@ -190,7 +204,7 @@ func cutWidth(s string, n int) string {
 	return s
 }
 
-func truncate(s string, n int) string {
+func Truncate(s string, n int) string {
 	if s == "" {
 		return ""
 	}
@@ -204,7 +218,7 @@ func truncate(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-func padEnd(s string, n int) string {
+func PadEnd(s string, n int) string {
 	w := lipgloss.Width(s)
 	if w >= n {
 		return s
@@ -222,12 +236,12 @@ func padStart(s string, n int) string {
 
 func fit(s string, n int) string {
 	if lipgloss.Width(s) > n {
-		return truncate(s, n)
+		return Truncate(s, n)
 	}
-	return padEnd(s, n)
+	return PadEnd(s, n)
 }
 
-func wrapLines(s string, width int) []string {
+func WrapLines(s string, width int) []string {
 	w := width
 	if w < 8 {
 		w = 8
@@ -250,7 +264,7 @@ func wrapLines(s string, width int) []string {
 	return out
 }
 
-func prettyJson(s string) string {
+func PrettyJson(s string) string {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" || !json.Valid([]byte(trimmed)) {
 		return s
@@ -263,10 +277,10 @@ func prettyJson(s string) string {
 }
 
 func ago(atMs int64) string {
-	return agoAt(atMs, time.Now())
+	return AgoAt(atMs, time.Now())
 }
 
-func agoAt(atMs int64, now time.Time) string {
+func AgoAt(atMs int64, now time.Time) string {
 	if atMs <= 0 {
 		return ""
 	}
@@ -286,7 +300,7 @@ func agoAt(atMs int64, now time.Time) string {
 	}
 }
 
-func parseMillis(s string) (int64, bool) {
+func ParseMillis(s string) (int64, bool) {
 	v := strings.TrimSpace(s)
 	if v == "" {
 		return 0, false
@@ -312,7 +326,7 @@ func parseMillis(s string) (int64, bool) {
 	return 0, false
 }
 
-func fmtUp(ms int64) string {
+func FmtUp(ms int64) string {
 	if ms < 0 {
 		ms = 0
 	}
@@ -326,4 +340,4 @@ func fmtUp(ms int64) string {
 	return p(s/3600) + ":" + p((s%3600)/60) + ":" + p(s%60)
 }
 
-func num(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }
+func Num(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }

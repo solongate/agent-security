@@ -126,15 +126,8 @@ func (p *Policies) listKey(s string) tea.Cmd {
 		p.status = "Deactivating…"
 		t := p.tag()
 		return func() tea.Msg {
-
-			if err := p.deps.Client.Policies.SetActive(bg(), ""); err != nil {
-				return polActionMsg{genTag: t, status: "✗ " + errText(err)}
-			}
-			return polActionMsg{
-				genTag:        t,
-				status:        "✓ active policy: NONE, no rules enforced, w/b grants are refused",
-				refreshActive: true,
-			}
+			err := p.deps.Client.Policies.SetActive(bg(), "")
+			return polActionMsg{genTag: t, status: "✗ " + errText(err)}
 		}
 	case "n", "N":
 		p.status = ""

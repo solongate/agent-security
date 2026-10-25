@@ -9,8 +9,8 @@
 <table align="center">
   <tr>
     <td align="center">
-      <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-      <a href="https://github.com/solongate/agent-security/actions/workflows/codeql.yml"><img src="https://github.com/solongate/agent-security/actions/workflows/codeql.yml/badge.svg" alt="codeql"></a>
+      <a href="https://github.com/solongate/agent-security/actions/workflows/ci.yaml"><img src="https://github.com/solongate/agent-security/actions/workflows/ci.yaml/badge.svg" alt="ci"></a>
+      <a href="https://github.com/solongate/agent-security/actions/workflows/codeql.yaml"><img src="https://github.com/solongate/agent-security/actions/workflows/codeql.yaml/badge.svg" alt="codeql"></a>
       <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/v/release/solongate/agent-security?color=3ba9ee&label=release" alt="release"></a>
       <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="license: Apache 2.0"></a>
       <a href="https://go.dev"><img src="https://img.shields.io/badge/go-1.26%2B-00ADD8.svg" alt="Go 1.26+"></a>
@@ -87,7 +87,7 @@ and the agent says so rather than quietly working around it.
 | Layer | What it does |
 | --- | --- |
 | **Policy rules** | Allow or deny by path, command, filename or URL, scoped to READ, WRITE, EXECUTE or NETWORK. |
-| **DLP** | 70 built in secret patterns plus your own, in four modes: `off`, `detect`, `redact`, `block`. |
+| **DLP** | 70+ built in secret patterns plus your own, in four modes: `off`, `detect`, `redact`, `block`. |
 | **Egress** | In block mode, refuses an upload whose file holds a secret, which pattern matching on the call alone cannot see. |
 | **Rate limits** | A cap per minute, hour or day. |
 | **The prompt** | A shim masks the outbound request body on Claude Code, which no tool call hook can reach. |
@@ -110,7 +110,7 @@ solongate sandbox list            the boxes this machine has, and their ids
 solongate sandbox 001 claude      start the agent inside box 001
 solongate sandbox --explain 001   everything that is in that box
 
-solongate run -- claude           start an agent with protected paths out of reach
+solongate run claude              start an agent with protected paths out of reach
 
 solongate audit        browse the audit trail
 solongate watch        live tail tool calls
@@ -159,10 +159,6 @@ mode.
 Alongside them, Go's own unit tests cover the decisions a pure function can
 answer. What is left is what you ran it against by hand, and that is most of
 it. [CONTRIBUTING.md](.github/CONTRIBUTING.md) is the rest.
-
-How it's put together: [docs/DESIGN.md](docs/DESIGN.md) for the actors and the
-decision path a tool call takes, and [docs/INTERFACES.md](docs/INTERFACES.md) for
-every external interface (CLI, hook, policy file, audit log).
 
 Reporting a vulnerability: [SECURITY.md](.github/SECURITY.md), privately, never a public
 issue. [CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md) applies everywhere.

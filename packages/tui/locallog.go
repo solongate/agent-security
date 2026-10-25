@@ -16,7 +16,7 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-type localLogLine struct {
+type LocalLogLine struct {
 	TS               string          `json:"ts"`
 	Tool             string          `json:"tool"`
 	Decision         string          `json:"decision"`
@@ -34,7 +34,7 @@ type localLogLine struct {
 	At int64 `json:"-"`
 }
 
-func tailLines(file string, maxBytes int64) []string {
+func TailLines(file string, maxBytes int64) []string {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil
@@ -56,28 +56,29 @@ func tailLines(file string, maxBytes int64) []string {
 	if err != nil {
 		return nil
 	}
+	split := strings.Split(string(buf), "\n")
 	var lines []string
-	for _, l := range strings.Split(string(buf), "\n") {
+	for _, l := range split {
 		if l != "" {
 			lines = append(lines, l)
 		}
 	}
-	if start > 0 && len(lines) > 0 {
+	if start > 0 && len(split) > 0 && split[0] != "" {
 		lines = lines[1:]
 	}
 	return lines
 }
 
-const defaultTailBytes = 131_072
+const DefaultTailBytes = 131_072
 
-func parseLocalLines(lines []string) []localLogLine {
-	out := make([]localLogLine, 0, len(lines))
+func ParseLocalLines(lines []string) []LocalLogLine {
+	out := make([]LocalLogLine, 0, len(lines))
 	for _, line := range lines {
-		var j localLogLine
+		var j LocalLogLine
 		if json.Unmarshal([]byte(line), &j) != nil {
 			continue
 		}
-		at, ok := parseMillis(j.TS)
+		at, ok := ParseMillis(j.TS)
 		if !ok {
 			continue
 		}
@@ -93,7 +94,7 @@ var (
 	dlpName   = regexp.MustCompile(`(?i)contain(s)? (a |an )?(.+?)(\.|$)`)
 )
 
-func reasonSignals(reason string) (dlp []string, burst bool) {
+func ReasonSignals(reason string) (dlp []string, burst bool) {
 	if dlpReason.MatchString(reason) {
 		name := "DLP"
 		if m := dlpName.FindStringSubmatch(reason); m != nil {
@@ -106,7 +107,7 @@ func reasonSignals(reason string) (dlp []string, burst bool) {
 	return dlp, rlReason.MatchString(reason)
 }
 
-func deleteLocalEntry(at int64, tool, session string) int {
+func DeleteLocalEntry(at int64, tool, session string) int {
 	file := config.LocalLogFile()
 	b, size, ok := readLogWithSize(file)
 	if !ok {
@@ -122,9 +123,9 @@ func deleteLocalEntry(at int64, tool, session string) int {
 			kept = append(kept, line)
 			continue
 		}
-		var j localLogLine
+		var j LocalLogLine
 		if json.Unmarshal([]byte(line), &j) == nil {
-			lineAt, ok := parseMillis(j.TS)
+			lineAt, ok := ParseMillis(j.TS)
 			name := j.Tool
 			if name == "" {
 				name = "?"
@@ -149,7 +150,7 @@ func deleteLocalEntry(at int64, tool, session string) int {
 	return removed
 }
 
-func clearLocalLog() int {
+func ClearLocalLog() int {
 	file := config.LocalLogFile()
 	b, size, ok := readLogWithSize(file)
 	if !ok {

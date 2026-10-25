@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
 
-# Installs SolonGate from this checkout. Builds the binaries for this host then runs the new binary to register the guard.
+# Installs SolonGate from this checkout.
 set -eu
 
 AUTO=0
@@ -28,7 +28,6 @@ USAGE
 	esac
 done
 
-# Shows colors only when connected to a real terminal.
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
 	B='\033[1m'; DIM='\033[2m'
 	RED='\033[38;2;220;80;80m'; GREEN='\033[38;2;80;200;120m'; OFF='\033[0m'
@@ -36,7 +35,6 @@ else
 	B=''; DIM=''; RED=''; GREEN=''; OFF=''
 fi
 
-# Output goes to stderr so it stays unbuffered and the spinner can update mid-command.
 TYPE_DELAY=0.002
 [ -t 2 ] || TYPE_DELAY=''
 sleep "$TYPE_DELAY" 2>/dev/null || TYPE_DELAY=''
@@ -58,7 +56,6 @@ say() { printf '         %b' "$DIM" >&2; type_out "$1"; printf '%b\n' "$OFF" >&2
 mark_ok() { printf '%b[  OK  ]%b ' "$GREEN" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
 mark_no() { printf '%b[FAILED]%b ' "$RED" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
 
-# Write build output to a file.
 RUNLOG=$(mktemp 2>/dev/null || echo /tmp/solongate-install.log)
 
 trap 'rm -f "$RUNLOG"' EXIT
@@ -141,7 +138,6 @@ esac
 tag="$os-$cpu"
 bin="$repo/packages/hooks/platforms/$tag/solongate"
 
-# Look for Go the same way packages/hooks/scripts/build-platforms.sh does.
 go_bin=go
 for p in "$HOME/go/bin/go" /usr/local/go/bin/go /usr/lib/go/bin/go /opt/homebrew/bin/go /usr/local/bin/go; do
 	[ -x "$p" ] && { go_bin=$p; break; }
@@ -180,7 +176,6 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
 		"Run ./scripts/install.sh yourself, in your own terminal."
 fi
 
-# Runs the fresh binary by its own path
 if "$bin" repair; then
 	mark_ok "SolonGate is installed. Your agents ask it before they act."
 else

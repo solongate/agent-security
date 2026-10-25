@@ -1,19 +1,13 @@
-# Every pull request gets a review from a maintainer.
-#
-# The paths listed separately below are the decision path: the code that decides
-# whether a tool call runs. They are not owned by someone different, they are
-# called out so that a change to them is never reviewed as an ordinary one. See
-# CONTRIBUTING.md for what that review asks.
+# everything:
+*                      @codeyevsky @qarademir
 
-*                           @codeyevsky @qarademir
-
-# The guard, the policy engine, and the shapes both implementations agree about.
+# packages:
 /packages/guard/      @codeyevsky @qarademir
 /packages/policy/     @codeyevsky @qarademir
 /packages/shared/     @codeyevsky @qarademir
 /packages/hooks/      @codeyevsky @qarademir
 
 
-# Release and CI machinery.
+# Release and CI machinery:
 /.github/workflows/   @codeyevsky
 /install.sh           @codeyevsky

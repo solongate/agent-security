@@ -25,9 +25,9 @@ func (m *setupModel) View() string {
 	var body []string
 	push := func(s string) { body = append(body, s) }
 
-	push(sgb("Welcome to SolonGate.", theme.AccentBright).render())
-	push(sg("Your agent asks this machine before it acts. Three things to set", theme.Dim).render())
-	push(sg("up, and the last one needs the agent itself.", theme.Dim).render())
+	push(Sgb("Welcome to SolonGate.", Theme.AccentBright).Render())
+	push(Sg("Your agent asks this machine before it acts. Three things to set", Theme.Dim).Render())
+	push(Sg("up, and the last one needs the agent itself.", Theme.Dim).Render())
 	push("")
 	body = append(body, m.rail(w)...)
 	push("")
@@ -73,7 +73,7 @@ func centreBlock(lines []string, cols, rows int) string {
 		}
 		out = append(out, pad+l)
 	}
-	return clampBlock(strings.Join(out, "\n"), cols, rows)
+	return ClampBlock(strings.Join(out, "\n"), cols, rows)
 }
 
 func (m *setupModel) rail(w int) []string {
@@ -84,92 +84,92 @@ func (m *setupModel) rail(w int) []string {
 	}
 	out := make([]string, 0, len(names))
 	for i, name := range names {
-		var mark seg
+		var mark Seg
 		switch {
 		case setupStep(i) < m.step:
-			mark = sg("✓", theme.OK)
+			mark = Sg("✓", Theme.OK)
 		case setupStep(i) == m.step:
-			mark = sg(spinFrames[m.frame%len(spinFrames)], theme.Warn)
+			mark = Sg(SpinFrames[m.frame%len(SpinFrames)], Theme.Warn)
 		default:
-			mark = sg("·", theme.Dim)
+			mark = Sg("·", Theme.Dim)
 		}
-		fg := theme.Dim
+		fg := Theme.Dim
 		if setupStep(i) <= m.step {
-			fg = theme.White
+			fg = Theme.White
 		}
-		out = append(out, renderRow(w, mark, plain("  "), sg(name, fg)))
+		out = append(out, RenderRow(w, mark, Plain("  "), Sg(name, fg)))
 	}
 	return out
 }
 
 func (m *setupModel) viewGuard(w int) []string {
 	var out []string
-	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
+	push := func(segs ...Seg) { out = append(out, RenderRow(w, segs...)) }
 
 	if m.guardReady {
-		push(sgb("Step 1 of 3 · the guard is in place", theme.AccentBright))
-		push(plain(""))
-		push(sg("Registered with your agent. "+m.guardDetail, theme.OK))
+		push(Sgb("Step 1 of 3 · the guard is in place", Theme.AccentBright))
+		push(Plain(""))
+		push(Sg("Registered with your agent. "+m.guardDetail, Theme.OK))
 		return out
 	}
-	push(sgb("Step 1 of 3 · nothing is guarding this machine yet", theme.Bad))
-	push(plain(""))
-	push(sg("No client has the guard registered, so no tool call is being", theme.Dim))
-	push(sg("checked by anything.", theme.Dim))
-	push(plain(""))
-	push(sg("Run the installer from the checkout, in your own terminal. This", theme.Dim))
-	push(sg("screen notices on its own when it is done:", theme.Dim))
-	push(plain(""))
-	push(sg("    ./scripts/install.sh", theme.AccentBright))
+	push(Sgb("Step 1 of 3 · nothing is guarding this machine yet", Theme.Bad))
+	push(Plain(""))
+	push(Sg("No client has the guard registered, so no tool call is being", Theme.Dim))
+	push(Sg("checked by anything.", Theme.Dim))
+	push(Plain(""))
+	push(Sg("Run the installer from the checkout, in your own terminal. This", Theme.Dim))
+	push(Sg("screen notices on its own when it is done:", Theme.Dim))
+	push(Plain(""))
+	push(Sg("    ./scripts/install.sh", Theme.AccentBright))
 	if m.guardDetail != "" {
-		push(plain(""))
-		push(sg("what this screen can see: "+m.guardDetail, theme.Dim))
+		push(Plain(""))
+		push(Sg("what this screen can see: "+m.guardDetail, Theme.Dim))
 	}
 	return out
 }
 
 func (m *setupModel) viewPolicy(w int) []string {
 	var out []string
-	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
+	push := func(segs ...Seg) { out = append(out, RenderRow(w, segs...)) }
 
-	push(sgb("Step 2 of 3 · choose what this machine refuses", theme.AccentBright))
-	push(plain(""))
-	push(sg("There is no policy yet, so every tool call your agent makes is", theme.Dim))
-	push(sg("allowed. It is recorded, and it is not refused. Pick a starting", theme.Dim))
-	push(sg("point below with ↑↓ and press enter. You can change it later.", theme.Dim))
-	push(plain(""))
+	push(Sgb("Step 2 of 3 · choose what this machine refuses", Theme.AccentBright))
+	push(Plain(""))
+	push(Sg("There is no policy yet, so every tool call your agent makes is", Theme.Dim))
+	push(Sg("allowed. It is recorded, and it is not refused. Pick a starting", Theme.Dim))
+	push(Sg("point below with ↑↓ and press enter. You can change it later.", Theme.Dim))
+	push(Plain(""))
 
 	postures := setupPostures()
 	for i, p := range postures {
-		marker, fg := "  ", theme.White
+		marker, fg := "  ", Theme.White
 		if i == m.choice {
-			marker, fg = "▸ ", theme.AccentBright
+			marker, fg = "▸ ", Theme.AccentBright
 		}
-		push(sg(marker, theme.AccentBright), sgb(p.title, fg))
+		push(Sg(marker, Theme.AccentBright), Sgb(p.title, fg))
 		if i == m.choice {
 			for _, line := range p.blurb {
-				push(sg("    "+line, theme.Dim))
+				push(Sg("    "+line, Theme.Dim))
 			}
 		}
 	}
 
 	if m.askingPath {
-		push(plain(""))
-		out = append(out, sgb("the path: ", theme.Warn).render()+m.input.View())
-		push(sg("enter writes it · esc goes back", theme.Dim))
+		push(Plain(""))
+		out = append(out, Sgb("the path: ", Theme.Warn).Render()+m.input.View())
+		push(Sg("enter writes it · esc goes back", Theme.Dim))
 	}
 	if m.writing {
-		push(plain(""))
-		push(sg(spinFrames[m.frame%len(spinFrames)]+" writing "+config.PolicyFilePath(), theme.Warn))
+		push(Plain(""))
+		push(Sg(SpinFrames[m.frame%len(SpinFrames)]+" writing "+config.PolicyFilePath(), Theme.Warn))
 	}
 	if m.writeErr != "" {
-		push(plain(""))
-		push(sg("✗ "+m.writeErr, theme.Bad))
+		push(Plain(""))
+		push(Sg("✗ "+m.writeErr, Theme.Bad))
 	}
 	return out
 }
 
-func listenBar(width, frame int) seg {
+func listenBar(width, frame int) Seg {
 	if width < 8 {
 		width = 8
 	}
@@ -189,36 +189,36 @@ func listenBar(width, frame int) seg {
 			runes[i] = ' '
 		}
 	}
-	return sg(string(runes), theme.AccentBright)
+	return Sg(string(runes), Theme.AccentBright)
 }
 
 func (m *setupModel) viewWaiting(w int) []string {
 	var out []string
-	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
+	push := func(segs ...Seg) { out = append(out, RenderRow(w, segs...)) }
 
 	if m.wrote != "" {
-		push(sg("✓ wrote "+m.wrote+" to "+config.PolicyFilePath(), theme.OK))
-		push(plain(""))
+		push(Sg("✓ wrote "+m.wrote+" to "+config.PolicyFilePath(), Theme.OK))
+		push(Plain(""))
 	}
-	push(sgb("Step 3 of 3 · make your agent do something", theme.AccentBright))
-	push(plain(""))
-	push(sg("Everything above is a claim about what happens when your agent", theme.Dim))
-	push(sg("acts, and none of it is proven on this machine until one has.", theme.Dim))
-	push(sg("So this screen waits. Leave it open.", theme.Dim))
-	push(plain(""))
-	push(sg("  1. ", theme.Dim), sg("open a second terminal and start your agent", theme.White))
-	push(sg("       claude", theme.AccentBright),
-		sg("    or codex, opencode, antigravity", theme.Dim))
-	push(plain(""))
-	push(sg("  2. ", theme.Dim), sg("type this to it, word for word:", theme.White))
-	push(plain(""))
-	push(sg("       "+setupPrompt, theme.AccentBright))
-	push(plain(""))
-	push(sg("The agent will run it as a tool call, SolonGate will judge that", theme.Dim))
-	push(sg("call, and this screen will say so within a second.", theme.Dim))
-	push(plain(""))
+	push(Sgb("Step 3 of 3 · make your agent do something", Theme.AccentBright))
+	push(Plain(""))
+	push(Sg("Everything above is a claim about what happens when your agent", Theme.Dim))
+	push(Sg("acts, and none of it is proven on this machine until one has.", Theme.Dim))
+	push(Sg("So this screen waits. Leave it open.", Theme.Dim))
+	push(Plain(""))
+	push(Sg("  1. ", Theme.Dim), Sg("open a second terminal and start your agent", Theme.White))
+	push(Sg("       claude", Theme.AccentBright),
+		Sg("    or codex, opencode, antigravity", Theme.Dim))
+	push(Plain(""))
+	push(Sg("  2. ", Theme.Dim), Sg("type this to it, word for word:", Theme.White))
+	push(Plain(""))
+	push(Sg("       "+setupPrompt, Theme.AccentBright))
+	push(Plain(""))
+	push(Sg("The agent will run it as a tool call, SolonGate will judge that", Theme.Dim))
+	push(Sg("call, and this screen will say so within a second.", Theme.Dim))
+	push(Plain(""))
 	push(listenBar(min(w, 34), m.frame))
-	push(sg("waiting · "+elapsed(m.started), theme.Dim))
+	push(Sg("waiting · "+elapsed(m.started), Theme.Dim))
 	return out
 }
 
@@ -239,10 +239,10 @@ func pad2(n int) string {
 
 func (m *setupModel) viewDone(w int) []string {
 	var out []string
-	push := func(segs ...seg) { out = append(out, renderRow(w, segs...)) }
+	push := func(segs ...Seg) { out = append(out, RenderRow(w, segs...)) }
 	c := m.call
 	if c == nil {
-		push(sg("done", theme.OK))
+		push(Sg("done", Theme.OK))
 		return out
 	}
 
@@ -258,11 +258,11 @@ func (m *setupModel) viewDone(w int) []string {
 		}
 	}
 
-	push(sgb("✓ The guard judged a real tool call.", theme.OK))
-	push(plain(""))
+	push(Sgb("✓ The guard judged a real tool call.", Theme.OK))
+	push(Plain(""))
 
 	kv := func(k, v string) {
-		step(func() { push(sg("  "+padEnd(k, 10), theme.Dim), sg(v, theme.White)) })
+		step(func() { push(Sg("  "+PadEnd(k, 10), Theme.Dim), Sg(v, Theme.White)) })
 	}
 	kv("tool", orSetupDash(c.Tool))
 	kv("client", orSetupDash(c.Client))
@@ -271,14 +271,14 @@ func (m *setupModel) viewDone(w int) []string {
 	kv("took", strconv.FormatFloat(c.Ms, 'f', 1, 64)+" ms")
 
 	if shown > 5 {
-		push(plain(""))
-		push(sg("That is the whole product: a decision, on this machine, before", theme.Dim))
-		push(sg("the call ran. Nothing left it.", theme.Dim))
+		push(Plain(""))
+		push(Sg("That is the whole product: a decision, on this machine, before", Theme.Dim))
+		push(Sg("the call ran. Nothing left it.", Theme.Dim))
 	}
 	if shown > 6 {
-		push(plain(""))
-		push(sg("A policy rule matches STRINGS, which is worth knowing before", theme.Dim))
-		push(sg("you rely on one. `solongate doctor` says what is in force.", theme.Dim))
+		push(Plain(""))
+		push(Sg("A policy rule matches STRINGS, which is worth knowing before", Theme.Dim))
+		push(Sg("you rely on one. `solongate doctor` says what is in force.", Theme.Dim))
 	}
 	return out
 }
@@ -314,7 +314,7 @@ func orSetupDash(s string) string {
 
 func (m *setupModel) footer() string {
 	seg2 := func(k, meaning string) string {
-		return sg(k, theme.AccentBright).render() + sg(" "+meaning, theme.Dim).render()
+		return Sg(k, Theme.AccentBright).Render() + Sg(" "+meaning, Theme.Dim).Render()
 	}
 	switch m.step {
 	case stepPolicy:
@@ -327,18 +327,4 @@ func (m *setupModel) footer() string {
 	default:
 		return seg2("q", "leave  (the first run starts here again next time)")
 	}
-}
-
-func (s seg) render() string {
-	st := lipgloss.NewStyle()
-	if s.fg != nil {
-		st = st.Foreground(s.fg)
-	}
-	if s.bg != nil {
-		st = st.Background(s.bg)
-	}
-	if s.bold {
-		st = st.Bold(true)
-	}
-	return st.Render(s.text)
 }

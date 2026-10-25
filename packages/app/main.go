@@ -16,6 +16,8 @@ import (
 	"github.com/solongate/agent-security/packages/core/term"
 	"github.com/solongate/agent-security/packages/sandbox"
 	"github.com/solongate/agent-security/packages/tui"
+	_ "github.com/solongate/agent-security/packages/tui/audit"
+	_ "github.com/solongate/agent-security/packages/tui/live"
 	"github.com/solongate/agent-security/packages/tui/panels"
 )
 

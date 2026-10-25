@@ -13,6 +13,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/solongate/agent-security/packages/guard/auditcmd"
+	"github.com/solongate/agent-security/packages/guard/dlp"
+	"github.com/solongate/agent-security/packages/guard/guardcore"
+	"github.com/solongate/agent-security/packages/guard/ratelimit"
+	"github.com/solongate/agent-security/packages/guard/shield"
+	"github.com/solongate/agent-security/packages/guard/tamper"
+	"github.com/solongate/agent-security/packages/guard/tokens"
 	"github.com/solongate/agent-security/packages/policy"
 	"github.com/solongate/agent-security/packages/shared"
 )
@@ -46,11 +53,11 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "tokens":
-			os.Exit(runTokens(os.Args[2:]))
+			os.Exit(tokens.Run(os.Args[2:]))
 		case "audit":
-			os.Exit(runAudit(os.Args[2:]))
+			os.Exit(auditcmd.Run(os.Args[2:], func(agentID string) bool { return clientFor(agentID).RedactsOutput }))
 		case "shield":
-			os.Exit(runShield(os.Args[2:]))
+			os.Exit(shield.Run(os.Args[2:]))
 		}
 	}
 
@@ -74,7 +81,7 @@ func main() {
 	nc := normalizeToolCall(activeClient, agentType, input)
 	c := nc.call
 
-	local, localErr := loadLocalPolicyFile(c.Cwd)
+	local, localErr := guardcore.LoadLocalPolicyFile(c.Cwd)
 
 	var sec *shared.Security
 	hasSecurity := false
@@ -91,17 +98,17 @@ func main() {
 		selfProtect = *local.SelfProtect
 	}
 	if selfProtect {
-		if reason := tamperCheck(c.Tool, c.Args, c.Cwd); reason != "" {
+		if reason := tamper.Check(c.Tool, c.Args, c.Cwd); reason != "" {
 			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
 	}
 
-	if reason := sandboxRequired(sec); reason != "" {
+	if reason := tamper.SandboxRequired(sec); reason != "" {
 		record(sec, hasSecurity, c, agentType, agentName, reason, started)
 		deny(reason)
 	}
-	if reason := userProtectedCheck(c.Tool, c.Args, sec); reason != "" {
+	if reason := tamper.UserProtectedCheck(c.Tool, c.Args, sec); reason != "" {
 		record(sec, hasSecurity, c, agentType, agentName, reason, started)
 		deny(reason)
 	}
@@ -109,7 +116,7 @@ func main() {
 	var pendingPatch map[string]interface{}
 
 	if sec != nil {
-		if reason := egressSecretCheck(c.Args, sec, c.Cwd); reason != "" {
+		if reason := dlp.EgressSecretCheck(c.Args, sec, c.Cwd); reason != "" {
 			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
@@ -138,7 +145,7 @@ func main() {
 	}
 
 	if sec != nil && sec.RateLimitObserve != nil && !activeClient.ReportsAfter {
-		if reason := rateLimitCheck(agentID, sec.RateLimitObserve); reason != "" {
+		if reason := ratelimit.Check(agentID, sec.RateLimitObserve); reason != "" {
 			recordObserved(sec, hasSecurity, c, agentType, agentName,
 				strings.Replace(reason, "Blocked by SolonGate (rate limit). Edit ~/.solongate/policy.json to review or adjust it.",
 					"Allowed: the rate limit is in detect mode.", 1),
@@ -147,7 +154,7 @@ func main() {
 	}
 
 	if sec != nil && sec.RateLimit != nil {
-		if reason := rateLimitCheck(agentID, sec.RateLimit); reason != "" {
+		if reason := ratelimit.Check(agentID, sec.RateLimit); reason != "" {
 			record(sec, hasSecurity, c, agentType, agentName, reason, started)
 			deny(reason)
 		}
@@ -194,7 +201,7 @@ func main() {
 			dlpCfg = sec.DLPRedact
 		}
 		if dlpCfg != nil && (blocking || !activeClient.RedactsOutput) {
-			if plan := dlpRedactReadPlan(c.Tool, c.Args, dlpCfg, c.Cwd); plan != nil {
+			if plan := dlp.RedactReadPlan(c.Tool, c.Args, dlpCfg, c.Cwd); plan != nil {
 
 				if plan.Block || blocking {
 					reason := "Security layer (DLP): reading a file that contains a secret is blocked. Blocked by SolonGate."

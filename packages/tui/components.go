@@ -10,7 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-func hhmmss(atMs int64) string {
+func Hhmmss(atMs int64) string {
 	if atMs <= 0 {
 		return "--:--:--"
 	}
@@ -24,7 +24,7 @@ func ymd(atMs int64) string {
 	return time.UnixMilli(atMs).Format("2006-01-02")
 }
 
-func paneTitle(label, extra string, width int) string {
+func PaneTitle(label, extra string, width int) string {
 	tail := " "
 	if extra != "" {
 		tail = " " + extra + " "
@@ -34,10 +34,10 @@ func paneTitle(label, extra string, width int) string {
 	if width > used {
 		fill = width - used
 	}
-	return renderRow(width,
-		sg("─ ", theme.Dim),
-		sgb("▎"+label, theme.AccentBright),
-		sg(tail+strings.Repeat("─", fill), theme.Dim),
+	return RenderRow(width,
+		Sg("─ ", Theme.Dim),
+		Sgb("▎"+label, Theme.AccentBright),
+		Sg(tail+strings.Repeat("─", fill), Theme.Dim),
 	)
 }
 
@@ -54,109 +54,109 @@ type StreamRow struct {
 	Rule       string
 }
 
-func streamLine(e StreamRow, selected, date bool, width int) string {
-	cursor, cursorColor := " ", theme.Dim
+func StreamLine(e StreamRow, selected, date bool, width int) string {
+	cursor, cursorColor := " ", Theme.Dim
 	if selected {
-		cursor, cursorColor = "▸", theme.AccentBright
+		cursor, cursorColor = "▸", Theme.AccentBright
 	}
-	stamp := "[" + hhmmss(e.At) + " "
+	stamp := "[" + Hhmmss(e.At) + " "
 	if date {
-		stamp = "[" + ymd(e.At) + " " + hhmmss(e.At) + " "
+		stamp = "[" + ymd(e.At) + " " + Hhmmss(e.At) + " "
 	}
 
-	evalText, evalColor := ", ", theme.Dim
+	evalText, evalColor := ", ", Theme.Dim
 	if e.EvalMs != nil {
-		evalText = num(*e.EvalMs) + "ms"
+		evalText = Num(*e.EvalMs) + "ms"
 		if *e.EvalMs > 500 {
-			evalColor = theme.Warn
+			evalColor = Theme.Warn
 		}
 	}
 	agent := e.Agent
 	if agent == "" {
 		agent = "-"
 	}
-	dlpColor := theme.Dim
+	dlpColor := Theme.Dim
 	dlpText := "dlp:no"
 	if e.DLP {
-		dlpColor, dlpText = theme.Bad, "dlp:yes"
+		dlpColor, dlpText = Theme.Bad, "dlp:yes"
 	}
-	burstColor := theme.Dim
+	burstColor := Theme.Dim
 	burstText := "rl:no"
 	if e.Burst {
-		burstColor, burstText = theme.Warn, "rl:yes"
+		burstColor, burstText = Theme.Warn, "rl:yes"
 	}
 
-	segs := []seg{
-		sg(cursor, cursorColor),
-		sg(stamp, theme.Dim),
-		sg("] ", theme.Dim),
-		seg{text: padEnd(e.Decision, 6), fg: decisionColor(e.Decision), bold: e.Decision != "ALLOW"},
-		sg(padEnd(truncate(e.Tool, 12), 13), theme.Accent),
-		sg(padEnd(e.Permission, 5), theme.Dim),
-		sg(padEnd(evalText, 7), evalColor),
-		sg(padEnd(truncate(agent, 11), 12), theme.Dim),
-		seg{text: padEnd(dlpText, 8), fg: dlpColor, bold: e.DLP},
-		seg{text: padEnd(burstText, 7), fg: burstColor, bold: e.Burst},
+	segs := []Seg{
+		Sg(cursor, cursorColor),
+		Sg(stamp, Theme.Dim),
+		Sg("] ", Theme.Dim),
+		Seg{Text: PadEnd(e.Decision, 6), Fg: DecisionColor(e.Decision), Bold: e.Decision != "ALLOW"},
+		Sg(PadEnd(Truncate(e.Tool, 12), 13), Theme.Accent),
+		Sg(PadEnd(e.Permission, 5), Theme.Dim),
+		Sg(PadEnd(evalText, 7), evalColor),
+		Sg(PadEnd(Truncate(agent, 11), 12), Theme.Dim),
+		Seg{Text: PadEnd(dlpText, 8), Fg: dlpColor, Bold: e.DLP},
+		Seg{Text: PadEnd(burstText, 7), Fg: burstColor, Bold: e.Burst},
 	}
 	if e.Rule != "" && e.Decision != "ALLOW" {
-		segs = append(segs, sg(truncate(e.Rule, 14)+" ", theme.Bad))
+		segs = append(segs, Sg(Truncate(e.Rule, 14)+" ", Theme.Bad))
 	}
-	segs = append(segs, sg(e.Detail, theme.Dim))
+	segs = append(segs, Sg(e.Detail, Theme.Dim))
 	if selected {
-		segs = onBG(lipgloss.Color(hexSelectBG), segs)
+		segs = onBG(lipgloss.Color(HexSelectBG), segs)
 	}
-	return renderRow(width, segs...)
+	return RenderRow(width, segs...)
 }
 
-func dataView(loading bool, err error, empty bool, emptyText string, width int, body []string) []string {
+func DataView(loading bool, err error, empty bool, emptyText string, width int, body []string) []string {
 	if err != nil {
-		return []string{renderRow(width, sg("✗ "+err.Error(), theme.Bad))}
+		return []string{RenderRow(width, Sg("✗ "+err.Error(), Theme.Bad))}
 	}
 	if loading {
-		return []string{renderRow(width, sg("⟳ loading…", theme.Warn))}
+		return []string{RenderRow(width, Sg("⟳ loading…", Theme.Warn))}
 	}
 	if empty {
 		if emptyText == "" {
 			emptyText = "No data."
 		}
-		return []string{renderRow(width, sg(emptyText, theme.Dim))}
+		return []string{RenderRow(width, Sg(emptyText, Theme.Dim))}
 	}
 	return body
 }
 
 func keyHints(hints [][2]string, width int) string {
-	segs := make([]seg, 0, len(hints)*3)
+	segs := make([]Seg, 0, len(hints)*3)
 	for i, h := range hints {
-		segs = append(segs, sg(h[0], theme.Accent), sg(" "+h[1], theme.Dim))
+		segs = append(segs, Sg(h[0], Theme.Accent), Sg(" "+h[1], Theme.Dim))
 		if i < len(hints)-1 {
-			segs = append(segs, sg("   ", theme.Dim))
+			segs = append(segs, Sg("   ", Theme.Dim))
 		}
 	}
-	return renderRow(width, segs...)
+	return RenderRow(width, segs...)
 }
 
-type helpGroup struct {
-	title string
-	keys  [][2]string
+type HelpGroup struct {
+	Title string
+	Keys  [][2]string
 }
 
-func helpBlock(groups []helpGroup, keyWidth, width int) []string {
+func HelpBlock(groups []HelpGroup, keyWidth, width int) []string {
 	var out []string
 	for _, g := range groups {
-		out = append(out, renderRow(width, sgb(g.title, theme.Accent)))
-		for _, k := range g.keys {
+		out = append(out, RenderRow(width, Sgb(g.Title, Theme.Accent)))
+		for _, k := range g.Keys {
 			out = append(out,
-				renderRow(width,
-					sg(padEnd("  "+k[0], keyWidth), theme.AccentBright),
-					sg(k[1], theme.Dim)))
+				RenderRow(width,
+					Sg(PadEnd("  "+k[0], keyWidth), Theme.AccentBright),
+					Sg(k[1], Theme.Dim)))
 		}
 		out = append(out, "")
 	}
 	return out
 }
 
-func whyBlock(decision, reason, rule string, dlp []string, burst bool, width int) []string {
-	if strings.TrimSpace(reason) == "" && len(dlp) == 0 && !burst {
+func WhyBlock(decision, reason, rule string, dlp []string, burst bool, width int) []string {
+	if strings.TrimSpace(reason) == "" && len(dlp) == 0 && !burst && rule == "" {
 		return nil
 	}
 
@@ -177,7 +177,7 @@ func whyBlock(decision, reason, rule string, dlp []string, burst bool, width int
 		key = "flagged"
 	}
 
-	label := func(k, v string) []string { return wrapLines(padEnd(k, 10)+v, width) }
+	label := func(k, v string) []string { return WrapLines(PadEnd(k, 10)+v, width) }
 
 	var out []string
 	if what != "" {
@@ -192,12 +192,12 @@ func whyBlock(decision, reason, rule string, dlp []string, burst bool, width int
 	return append(out, "")
 }
 
-func whyColor(decision string, burst bool, dlp []string) lipgloss.TerminalColor {
+func WhyColor(decision string, burst bool, dlp []string) lipgloss.TerminalColor {
 	if strings.ToUpper(strings.TrimSpace(decision)) == "ALLOW" {
 		if burst || len(dlp) > 0 {
-			return theme.Warn
+			return Theme.Warn
 		}
-		return theme.Dim
+		return Theme.Dim
 	}
-	return theme.Bad
+	return Theme.Bad
 }

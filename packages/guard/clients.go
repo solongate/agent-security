@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/solongate/agent-security/packages/guard/guardcore"
 	"github.com/solongate/agent-security/packages/policy"
 	"github.com/solongate/agent-security/packages/shared"
 )
@@ -92,52 +93,6 @@ func clientFor(agentType string) *Client {
 	return clients["generic"]
 }
 
-func rawFields(b json.RawMessage) map[string]json.RawMessage {
-	m := map[string]json.RawMessage{}
-	if len(b) == 0 {
-		return m
-	}
-	if err := json.Unmarshal(b, &m); err != nil {
-		return map[string]json.RawMessage{}
-	}
-	return m
-}
-
-func jsOrRaw(f map[string]json.RawMessage, keys ...string) json.RawMessage {
-	for _, k := range keys {
-		v, ok := f[k]
-		if !ok || len(v) == 0 {
-			continue
-		}
-		var probe interface{}
-		if json.Unmarshal(v, &probe) != nil {
-			continue
-		}
-		if policy.JSTruthy(probe) {
-			return v
-		}
-	}
-	return nil
-}
-
-func jsOrString(f map[string]json.RawMessage, keys ...string) string {
-	for _, k := range keys {
-		v, ok := f[k]
-		if !ok || len(v) == 0 {
-			continue
-		}
-		var probe interface{}
-		if json.Unmarshal(v, &probe) != nil {
-			continue
-		}
-		if !policy.JSTruthy(probe) {
-			continue
-		}
-		return policy.JSToString(probe)
-	}
-	return ""
-}
-
 func isJSONish(b json.RawMessage) bool {
 	for _, c := range b {
 		switch c {
@@ -173,15 +128,15 @@ func dropArgKeys(args map[string]interface{}, order []string, drop ...string) (m
 }
 
 func parseFlatPayload(raw []byte) parsedPayload {
-	f := rawFields(raw)
-	args, order := decodeObject(jsOrRaw(f, "tool_input", "toolInput", "params"))
+	f := guardcore.RawFields(raw)
+	args, order := decodeObject(guardcore.JsOrRaw(f, "tool_input", "toolInput", "params"))
 	p := parsedPayload{
-		Tool:      jsOrString(f, "tool_name", "toolName"),
+		Tool:      guardcore.JsOrString(f, "tool_name", "toolName"),
 		Args:      neutralizeArgs(args, order),
-		Cwd:       jsOrString(f, "cwd"),
-		SessionID: jsOrString(f, "session_id", "sessionId", "conversation_id"),
+		Cwd:       guardcore.JsOrString(f, "cwd"),
+		SessionID: guardcore.JsOrString(f, "session_id", "sessionId", "conversation_id"),
 	}
-	p.Response, _ = decodeObject(jsOrRaw(f, "tool_response", "toolResponse"))
+	p.Response, _ = decodeObject(guardcore.JsOrRaw(f, "tool_response", "toolResponse"))
 	if s, ok := p.Args["command"].(string); ok {
 		p.Command = s
 	}
@@ -241,12 +196,12 @@ func emitHookSpecific(d decision) int {
 }
 
 func parseAntigravity(raw []byte) parsedPayload {
-	f := rawFields(raw)
-	tc := rawFields(f["toolCall"])
+	f := guardcore.RawFields(raw)
+	tc := guardcore.RawFields(f["toolCall"])
 	a, order := decodeObject(tc["args"])
 
 	args := neutralizeArgs(dropArgKeys(a, order, "cwd"))
-	cwd := jsOrString(f, "cwd")
+	cwd := guardcore.JsOrString(f, "cwd")
 	if cwd == "" {
 		if s, ok := a["Cwd"].(string); ok && s != "" {
 			cwd = s
@@ -257,17 +212,17 @@ func parseAntigravity(raw []byte) parsedPayload {
 		}
 	}
 
-	tool := jsOrString(f, "tool_name")
+	tool := guardcore.JsOrString(f, "tool_name")
 	if tool == "" {
-		tool = jsOrString(tc, "name")
+		tool = guardcore.JsOrString(tc, "name")
 	}
 	p := parsedPayload{
 		Tool:      tool,
 		Args:      args,
 		Cwd:       cwd,
-		SessionID: jsOrString(f, "session_id", "conversationId"),
+		SessionID: guardcore.JsOrString(f, "session_id", "conversationId"),
 	}
-	p.Response, _ = decodeObject(jsOrRaw(f, "tool_response", "toolResponse"))
+	p.Response, _ = decodeObject(guardcore.JsOrRaw(f, "tool_response", "toolResponse"))
 	if s, ok := args["command"].(string); ok {
 		p.Command = s
 	}
@@ -275,7 +230,7 @@ func parseAntigravity(raw []byte) parsedPayload {
 }
 
 func parseGeneric(raw []byte) parsedPayload {
-	if isJSONish(rawFields(raw)["toolCall"]) {
+	if isJSONish(guardcore.RawFields(raw)["toolCall"]) {
 		return parseAntigravity(raw)
 	}
 	return parseFlatPayload(raw)
@@ -448,7 +403,7 @@ func normalizeToolCall(cl *Client, agentType string, raw []byte) neutralCall {
 			Cwd:       cwd,
 			SessionID: parsed.SessionID,
 
-			CallID: jsOrString(rawFields(raw), "tool_use_id", "toolUseId", "tool_call_id"),
+			CallID: guardcore.JsOrString(guardcore.RawFields(raw), "tool_use_id", "toolUseId", "tool_call_id"),
 		},
 		Client:     agentType,
 		Permission: shared.GuessPermission(parsed.Tool),

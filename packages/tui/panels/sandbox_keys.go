@@ -82,12 +82,14 @@ func (p *Sandbox) submit() tea.Cmd {
 		return p.create(v)
 	}
 	net := true
+	label := ""
 	for _, b := range p.boxes {
 		if b.ID == id {
 			net = b.Network
+			label = b.Label
 		}
 	}
-	return p.save(id, v, "", net)
+	return p.save(id, v, label, net)
 }
 
 func (p *Sandbox) create(dir string) tea.Cmd {

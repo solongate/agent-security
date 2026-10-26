@@ -130,6 +130,34 @@ func TestAskForRootDeclines(t *testing.T) {
 // test process has neither root nor CAP_LINUX_IMMUTABLE.
 func withDecline(t *testing.T) { withStdin(t, "n\n") }
 
+// writeProtectableFile creates a plain file in a fresh temp dir, restoring
+// its permissions after the test so os.RemoveAll can clean it up even if a
+// lock command changed its mode bits.
+func writeProtectableFile(t *testing.T) string {
+	t.Helper()
+	target := filepath.Join(t.TempDir(), "secret.env")
+	if err := os.WriteFile(target, []byte("X=1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(target, 0o644) })
+	return target
+}
+
+// newProtectedTarget writes a protectable file and protects it via
+// protectAdd (declining the elevation prompt), for tests that need an
+// already-protected path to exercise remove/list/sandbox-state behavior.
+func newProtectedTarget(t *testing.T, ctx context.Context, c *client.Client) string {
+	t.Helper()
+	target := writeProtectableFile(t)
+	withDecline(t)
+	captureOutput(t, func() {
+		if code, err := protectAdd(ctx, c, target); code != 0 || err != nil {
+			t.Fatalf("protectAdd() = (%d, %v), want (0, nil)", code, err)
+		}
+	})
+	return target
+}
+
 func TestProtectAdd(t *testing.T) {
 	t.Run("empty path", func(t *testing.T) {
 		newHome(t)
@@ -164,11 +192,7 @@ func TestProtectAdd(t *testing.T) {
 		newHome(t)
 		c := client.New()
 		ctx := context.Background()
-		target := filepath.Join(t.TempDir(), "secret.env")
-		if err := os.WriteFile(target, []byte("X=1"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(target, 0o644) })
+		target := writeProtectableFile(t)
 
 		withDecline(t)
 		out := captureOutput(t, func() {
@@ -205,50 +229,35 @@ func TestProtectAdd(t *testing.T) {
 }
 
 func TestProtectRemove(t *testing.T) {
-	t.Run("empty path", func(t *testing.T) {
-		newHome(t)
-		c := client.New()
-		out := captureOutput(t, func() {
-			code, err := protectRemove(context.Background(), c, "  ")
-			if code != 1 || err != nil {
-				t.Errorf("protectRemove(blank) = (%d, %v), want (1, nil)", code, err)
+	invalid := []struct {
+		name       string
+		path       string
+		wantSubstr string
+	}{
+		{"empty path", "  ", "solongate policy protect"},
+		{"not currently protected", "/never/added", "is not protected"},
+	}
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			newHome(t)
+			c := client.New()
+			out := captureOutput(t, func() {
+				code, err := protectRemove(context.Background(), c, tc.path)
+				if code != 1 || err != nil {
+					t.Errorf("protectRemove(%q) = (%d, %v), want (1, nil)", tc.path, code, err)
+				}
+			})
+			if !strings.Contains(out, tc.wantSubstr) {
+				t.Errorf("unexpected output:\n%s", out)
 			}
 		})
-		if !strings.Contains(out, "solongate policy protect") {
-			t.Errorf("unexpected output:\n%s", out)
-		}
-	})
-
-	t.Run("not currently protected", func(t *testing.T) {
-		newHome(t)
-		c := client.New()
-		out := captureOutput(t, func() {
-			code, err := protectRemove(context.Background(), c, "/never/added")
-			if code != 1 || err != nil {
-				t.Errorf("protectRemove(unprotected) = (%d, %v), want (1, nil)", code, err)
-			}
-		})
-		if !strings.Contains(out, "is not protected") {
-			t.Errorf("unexpected output:\n%s", out)
-		}
-	})
+	}
 
 	t.Run("protect then remove round trip", func(t *testing.T) {
 		newHome(t)
 		c := client.New()
 		ctx := context.Background()
-		target := filepath.Join(t.TempDir(), "secret.env")
-		if err := os.WriteFile(target, []byte("X=1"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(target, 0o644) })
-
-		withDecline(t)
-		captureOutput(t, func() {
-			if code, err := protectAdd(ctx, c, target); code != 0 || err != nil {
-				t.Fatalf("protectAdd() = (%d, %v), want (0, nil)", code, err)
-			}
-		})
+		target := newProtectedTarget(t, ctx, c)
 
 		// The chmod-only fallback lock (no root/CAP_LINUX_IMMUTABLE here)
 		// isn't Immutable, so protectRemove's root-elevation branch is
@@ -297,18 +306,7 @@ func TestProtectList(t *testing.T) {
 		newHome(t)
 		c := client.New()
 		ctx := context.Background()
-		target := filepath.Join(t.TempDir(), "secret.env")
-		if err := os.WriteFile(target, []byte("X=1"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(target, 0o644) })
-
-		withDecline(t)
-		captureOutput(t, func() {
-			if code, err := protectAdd(ctx, c, target); code != 0 || err != nil {
-				t.Fatalf("protectAdd() = (%d, %v), want (0, nil)", code, err)
-			}
-		})
+		target := newProtectedTarget(t, ctx, c)
 
 		out := captureOutput(t, func() {
 			code, err := protectList(ctx, c)
@@ -331,18 +329,7 @@ func TestProtectList(t *testing.T) {
 		newHome(t)
 		c := client.New()
 		ctx := context.Background()
-		target := filepath.Join(t.TempDir(), "secret.env")
-		if err := os.WriteFile(target, []byte("X=1"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(target, 0o644) })
-
-		withDecline(t)
-		captureOutput(t, func() {
-			if code, err := protectAdd(ctx, c, target); code != 0 || err != nil {
-				t.Fatalf("protectAdd() = (%d, %v), want (0, nil)", code, err)
-			}
-		})
+		_ = newProtectedTarget(t, ctx, c)
 		if err := c.Settings.SetRequireSandbox(ctx, true); err != nil {
 			t.Fatal(err)
 		}
@@ -363,120 +350,91 @@ func TestProtectList(t *testing.T) {
 }
 
 func TestProtectRequireSandbox(t *testing.T) {
-	t.Run("on declined leaves it off", func(t *testing.T) {
-		newHome(t)
-		c := client.New()
-		ctx := context.Background()
-		withStdin(t, "n\n")
-		out := captureOutput(t, func() {
-			code, err := protectRequireSandbox(ctx, c, "on")
-			if code != 0 || err != nil {
-				t.Errorf("protectRequireSandbox(on, declined) = (%d, %v), want (0, nil)", code, err)
+	cases := []struct {
+		name       string
+		setup      func(t *testing.T, ctx context.Context, c *client.Client)
+		arg        string
+		wantCode   int
+		wantSubstr string
+		checkOn    bool
+		wantOn     bool
+	}{
+		{
+			name:       "on declined leaves it off",
+			setup:      func(t *testing.T, ctx context.Context, c *client.Client) { withStdin(t, "n\n") },
+			arg:        "on",
+			wantSubstr: "Left off",
+			checkOn:    true,
+			wantOn:     false,
+		},
+		{
+			name:       "on confirmed turns it on",
+			setup:      func(t *testing.T, ctx context.Context, c *client.Client) { withStdin(t, "y\n") },
+			arg:        "true",
+			wantSubstr: "✓ on",
+			checkOn:    true,
+			wantOn:     true,
+		},
+		{
+			name: "off never prompts",
+			setup: func(t *testing.T, ctx context.Context, c *client.Client) {
+				if err := c.Settings.SetRequireSandbox(ctx, true); err != nil {
+					t.Fatal(err)
+				}
+			},
+			arg:        "no",
+			wantSubstr: "✓ off",
+			checkOn:    true,
+			wantOn:     false,
+		},
+		{
+			name:       "empty arg reports current state (off)",
+			arg:        "",
+			wantSubstr: "calls from any agent are judged normally",
+		},
+		{
+			name: "empty arg reports current state (on)",
+			setup: func(t *testing.T, ctx context.Context, c *client.Client) {
+				if err := c.Settings.SetRequireSandbox(ctx, true); err != nil {
+					t.Fatal(err)
+				}
+			},
+			arg:        "",
+			wantSubstr: "a call from outside `solongate run` is refused",
+		},
+		{
+			name:       "unrecognized arg",
+			arg:        "bogus",
+			wantCode:   1,
+			wantSubstr: "solongate policy protect",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			newHome(t)
+			c := client.New()
+			ctx := context.Background()
+			if tc.setup != nil {
+				tc.setup(t, ctx, c)
+			}
+			out := captureOutput(t, func() {
+				code, err := protectRequireSandbox(ctx, c, tc.arg)
+				if code != tc.wantCode || err != nil {
+					t.Errorf("protectRequireSandbox(%q) = (%d, %v), want (%d, nil)", tc.arg, code, err, tc.wantCode)
+				}
+			})
+			if !strings.Contains(out, tc.wantSubstr) {
+				t.Errorf("unexpected output:\n%s", out)
+			}
+			if tc.checkOn {
+				on, err := c.Settings.RequireSandbox(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if on != tc.wantOn {
+					t.Errorf("RequireSandbox() = %v, want %v", on, tc.wantOn)
+				}
 			}
 		})
-		if !strings.Contains(out, "Left off") {
-			t.Errorf("unexpected output:\n%s", out)
-		}
-		on, err := c.Settings.RequireSandbox(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if on {
-			t.Errorf("RequireSandbox() = true, want false after declining")
-		}
-	})
-
-	t.Run("on confirmed turns it on", func(t *testing.T) {
-		newHome(t)
-		c := client.New()
-		ctx := context.Background()
-		withStdin(t, "y\n")
-		out := captureOutput(t, func() {
-			code, err := protectRequireSandbox(ctx, c, "true")
-			if code != 0 || err != nil {
-				t.Errorf("protectRequireSandbox(true, confirmed) = (%d, %v), want (0, nil)", code, err)
-			}
-		})
-		if !strings.Contains(out, "✓ on") {
-			t.Errorf("unexpected output:\n%s", out)
-		}
-		on, err := c.Settings.RequireSandbox(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !on {
-			t.Errorf("RequireSandbox() = false, want true after confirming")
-		}
-	})
-
-	t.Run("off never prompts", func(t *testing.T) {
-		newHome(t)
-		c := client.New()
-		ctx := context.Background()
-		if err := c.Settings.SetRequireSandbox(ctx, true); err != nil {
-			t.Fatal(err)
-		}
-		out := captureOutput(t, func() {
-			code, err := protectRequireSandbox(ctx, c, "no")
-			if code != 0 || err != nil {
-				t.Errorf("protectRequireSandbox(no) = (%d, %v), want (0, nil)", code, err)
-			}
-		})
-		if !strings.Contains(out, "✓ off") {
-			t.Errorf("unexpected output:\n%s", out)
-		}
-		on, err := c.Settings.RequireSandbox(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if on {
-			t.Errorf("RequireSandbox() = true, want false after turning it off")
-		}
-	})
-
-	t.Run("empty arg reports current state (off)", func(t *testing.T) {
-		newHome(t)
-		c := client.New()
-		out := captureOutput(t, func() {
-			code, err := protectRequireSandbox(context.Background(), c, "")
-			if code != 0 || err != nil {
-				t.Errorf("protectRequireSandbox('') = (%d, %v), want (0, nil)", code, err)
-			}
-		})
-		if !strings.Contains(out, "calls from any agent are judged normally") {
-			t.Errorf("unexpected output:\n%s", out)
-		}
-	})
-
-	t.Run("empty arg reports current state (on)", func(t *testing.T) {
-		newHome(t)
-		c := client.New()
-		ctx := context.Background()
-		if err := c.Settings.SetRequireSandbox(ctx, true); err != nil {
-			t.Fatal(err)
-		}
-		out := captureOutput(t, func() {
-			code, err := protectRequireSandbox(ctx, c, "")
-			if code != 0 || err != nil {
-				t.Errorf("protectRequireSandbox('') = (%d, %v), want (0, nil)", code, err)
-			}
-		})
-		if !strings.Contains(out, "a call from outside `solongate run` is refused") {
-			t.Errorf("unexpected output:\n%s", out)
-		}
-	})
-
-	t.Run("unrecognized arg", func(t *testing.T) {
-		newHome(t)
-		c := client.New()
-		out := captureOutput(t, func() {
-			code, err := protectRequireSandbox(context.Background(), c, "bogus")
-			if code != 1 || err != nil {
-				t.Errorf("protectRequireSandbox(bogus) = (%d, %v), want (1, nil)", code, err)
-			}
-		})
-		if !strings.Contains(out, "solongate policy protect") {
-			t.Errorf("unexpected output:\n%s", out)
-		}
-	})
+	}
 }

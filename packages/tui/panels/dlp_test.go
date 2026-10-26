@@ -64,6 +64,21 @@ func TestDLPSelClampedClampsToLastEntry(t *testing.T) {
 	}
 }
 
+func TestDLPSelClampedClampsNegativeSel(t *testing.T) {
+	// Issue #150: navigation on an empty list can arm a negative selection;
+	// a negative index must never reach the entries() slice.
+	p := NewDLP(tui.Deps{})
+	p.available = []string{"a", "b", "c"}
+	p.sel = -1
+	if got := p.selClamped(); got != 0 {
+		t.Errorf("selClamped() = %d, want 0 (first index)", got)
+	}
+	cur, ok := p.current()
+	if !ok || cur.name != "a" {
+		t.Errorf("current() = %+v, ok=%v, want entry a", cur, ok)
+	}
+}
+
 func TestDLPWantsLeft(t *testing.T) {
 	p := NewDLP(tui.Deps{})
 	p.available = []string{"a", "b", "c", "d", "e"}

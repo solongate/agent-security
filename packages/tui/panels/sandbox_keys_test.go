@@ -174,6 +174,31 @@ func TestSandboxKeyMNoCurrentEntryIsNoOp(t *testing.T) {
 	}
 }
 
+// TestSandboxKeyMDisarmsPendingDelete guards against a regression where the
+// network toggle left a pending delete confirmation armed across keypresses:
+// a 'd' pressed after an unrelated 'm' would fire the deletion at once
+// instead of asking for confirmation again.
+func TestSandboxKeyMDisarmsPendingDelete(t *testing.T) {
+	p := NewSandbox(tui.Deps{})
+	p.boxes = []shared.Sandbox{{ID: "001"}}
+	p.sel = 0
+	p.confirm = "001"
+
+	if cmd := p.key(sbKeyMsg("m")); cmd == nil {
+		t.Fatal("'m' on a current box should return a command")
+	}
+	if p.confirm != "" {
+		t.Errorf("'m' should disarm a pending delete confirmation, got confirm = %q", p.confirm)
+	}
+
+	if cmd := p.key(sbKeyMsg("d")); cmd != nil {
+		t.Error("the 'd' after 'm' should only re-arm confirmation, not return a delete command")
+	}
+	if p.confirm != "001" {
+		t.Errorf("the 'd' after 'm' should re-arm confirmation, got confirm = %q", p.confirm)
+	}
+}
+
 func TestSandboxKeyDRequiresConfirmation(t *testing.T) {
 	p := NewSandbox(tui.Deps{})
 	p.boxes = []shared.Sandbox{{ID: "001"}}

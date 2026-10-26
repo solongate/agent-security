@@ -201,20 +201,12 @@ func TestDriftDefaultsDaysWhenNotPositive(t *testing.T) {
 	}
 }
 
-func TestSecurityInsights(t *testing.T) {
-	newHome(t)
-	writeLogLines(t,
-		`{"ts":"2026-01-01T12:00:00Z","tool":"Bash","decision":"ALLOW","agent_name":"agent-x"}`,
-		`{"ts":"2026-01-01T12:00:10Z","tool":"Bash","decision":"ALLOW","agent_name":"agent-x"}`,
-		`{"ts":"2026-01-01T12:00:20Z","tool":"Bash","decision":"DENY","agent_name":"agent-x","reason":"rate limit exceeded","rate_limit_burst":true}`,
-		`{"ts":"2026-01-02T09:00:00Z","tool":"WebFetch","decision":"DENY","agent_name":"agent-y","dlp":["AWS access key"],"reason":"dlp pattern matched"}`,
-		`{"ts":"2026-01-03T09:00:00Z","tool":"Read","decision":"ALLOW","agent_name":"agent-y"}`,
-	)
-
+func securityInsightsWithRateLimit(t *testing.T, perMinute int) map[string]any {
+	t.Helper()
 	c := New()
 	layers := SecurityLayers{}
 	layers.RateLimit.Mode = LayerBlock
-	layers.RateLimit.PerMinute = 2
+	layers.RateLimit.PerMinute = perMinute
 	if _, err := c.Settings.SetSecurityLayers(context.Background(), layers); err != nil {
 		t.Fatalf("SetSecurityLayers: %v", err)
 	}
@@ -227,6 +219,20 @@ func TestSecurityInsights(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	return out
+}
+
+func TestSecurityInsights(t *testing.T) {
+	newHome(t)
+	writeLogLines(t,
+		`{"ts":"2026-01-01T12:00:00Z","tool":"Bash","decision":"ALLOW","agent_name":"agent-x"}`,
+		`{"ts":"2026-01-01T12:00:10Z","tool":"Bash","decision":"ALLOW","agent_name":"agent-x"}`,
+		`{"ts":"2026-01-01T12:00:20Z","tool":"Bash","decision":"DENY","agent_name":"agent-x","reason":"rate limit exceeded","rate_limit_burst":true}`,
+		`{"ts":"2026-01-02T09:00:00Z","tool":"WebFetch","decision":"DENY","agent_name":"agent-y","dlp":["AWS access key"],"reason":"dlp pattern matched"}`,
+		`{"ts":"2026-01-03T09:00:00Z","tool":"Read","decision":"ALLOW","agent_name":"agent-y"}`,
+	)
+
+	out := securityInsightsWithRateLimit(t, 2)
 
 	if out["scanned"].(float64) != 5 {
 		t.Errorf("scanned = %v, want 5", out["scanned"])
@@ -288,22 +294,7 @@ func TestSecurityInsightsAgentNameWithSpaces(t *testing.T) {
 		`{"ts":"2026-01-01T12:00:20Z","tool":"Bash","decision":"DENY","agent_name":"Claude Code","reason":"rate limit exceeded","rate_limit_burst":true}`,
 	)
 
-	c := New()
-	layers := SecurityLayers{}
-	layers.RateLimit.Mode = LayerBlock
-	layers.RateLimit.PerMinute = 2
-	if _, err := c.Settings.SetSecurityLayers(context.Background(), layers); err != nil {
-		t.Fatalf("SetSecurityLayers: %v", err)
-	}
-
-	raw, err := c.Stats.SecurityInsights(context.Background(), 100000)
-	if err != nil {
-		t.Fatalf("SecurityInsights: %v", err)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(raw, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	out := securityInsightsWithRateLimit(t, 2)
 	anomalies := out["anomalies"].([]any)
 	if len(anomalies) != 1 {
 		t.Fatalf("got %d anomalies, want 1", len(anomalies))

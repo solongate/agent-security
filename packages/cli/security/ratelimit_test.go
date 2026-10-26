@@ -44,6 +44,106 @@ func TestModeColor(t *testing.T) {
 	}
 }
 
+func TestParseRateLimitMode(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want client.LayerMode
+		ok   bool
+	}{
+		{"off", client.LayerOff, true},
+		{"detect", client.LayerDetect, true},
+		{"block", client.LayerBlock, true},
+		{"redact", "", false},
+		{"nonsense", "", false},
+		{"BLOCK", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.raw, func(t *testing.T) {
+			got, ok := parseRateLimitMode(tc.raw)
+			if ok != tc.ok || got != tc.want {
+				t.Errorf("parseRateLimitMode(%q) = (%q, %v), want (%q, %v)", tc.raw, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
+func TestRunRateLimitSetRejectsUnknownMode(t *testing.T) {
+	ctx := context.Background()
+	c := client.New()
+	before, err := c.Settings.GetSecurityLayers(ctx)
+	if err != nil {
+		t.Fatalf("GetSecurityLayers() before: %v", err)
+	}
+
+	var code int
+	var runErr error
+	out := captureOutput(t, func() {
+		code, runErr = RunRateLimit(ctx, c, cliutil.Parse([]string{"set", "--mode", "nonsense"}))
+	})
+	if runErr != nil || code != 1 {
+		t.Fatalf("RunRateLimit(set --mode nonsense) = (%d, %v), want (1, nil): %s", code, runErr, out)
+	}
+	if !strings.Contains(out, "off|detect|block") {
+		t.Errorf("usage error does not list the valid modes: %s", out)
+	}
+
+	after, err := c.Settings.GetSecurityLayers(ctx)
+	if err != nil {
+		t.Fatalf("GetSecurityLayers() after: %v", err)
+	}
+	if after.Layers.RateLimit.Mode != before.Layers.RateLimit.Mode {
+		t.Errorf("mode was stored as %q, want it left at %q", after.Layers.RateLimit.Mode, before.Layers.RateLimit.Mode)
+	}
+}
+
+func TestRunRateLimitSetRejectsNonPositiveLimits(t *testing.T) {
+	for _, flag := range []string{"minute", "hour", "day"} {
+		for _, value := range []string{"0", "-1"} {
+			t.Run(flag+"="+value, func(t *testing.T) {
+				ctx := context.Background()
+				c := client.New()
+
+				var code int
+				var runErr error
+				out := captureOutput(t, func() {
+					code, runErr = RunRateLimit(ctx, c, cliutil.Parse([]string{"set", "--" + flag, value}))
+				})
+				if runErr != nil || code != 1 {
+					t.Fatalf("RunRateLimit(set --%s %s) = (%d, %v), want (1, nil): %s", flag, value, code, runErr, out)
+				}
+				if !strings.Contains(out, "positive") {
+					t.Errorf("usage error does not say the limit must be positive: %s", out)
+				}
+			})
+		}
+	}
+}
+
+func TestRunRateLimitSetAppliesValidValues(t *testing.T) {
+	ctx := context.Background()
+	c := client.New()
+
+	var code int
+	var runErr error
+	out := captureOutput(t, func() {
+		code, runErr = RunRateLimit(ctx, c, cliutil.Parse([]string{"set", "--mode", "block", "--minute", "30"}))
+	})
+	if runErr != nil || code != 0 {
+		t.Fatalf("RunRateLimit(set --mode block --minute 30) = (%d, %v), want (0, nil): %s", code, runErr, out)
+	}
+
+	after, err := c.Settings.GetSecurityLayers(ctx)
+	if err != nil {
+		t.Fatalf("GetSecurityLayers() after: %v", err)
+	}
+	if after.Layers.RateLimit.Mode != client.LayerBlock {
+		t.Errorf("mode = %q, want %q", after.Layers.RateLimit.Mode, client.LayerBlock)
+	}
+	if after.Layers.RateLimit.PerMinute != 30 {
+		t.Errorf("per-minute limit = %d, want 30", after.Layers.RateLimit.PerMinute)
+	}
+}
+
 func TestIsoMillis(t *testing.T) {
 	tests := []struct {
 		ms   int64

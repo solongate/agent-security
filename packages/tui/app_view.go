@@ -13,10 +13,10 @@ import (
 
 func (p *notPortedPanel) View(ctx PanelContext) string {
 	return strings.Join([]string{
-		renderRow(ctx.Cols, sgb(strings.ToUpper(p.label), theme.AccentBright)),
+		RenderRow(ctx.Cols, Sgb(strings.ToUpper(p.label), Theme.AccentBright)),
 		"",
-		renderRow(ctx.Cols, sg("This section did not register a panel.", theme.Warn)),
-		renderRow(ctx.Cols, sg("That is a bug in this build, not something you can work around.", theme.Dim)),
+		RenderRow(ctx.Cols, Sg("This section did not register a panel.", Theme.Warn)),
+		RenderRow(ctx.Cols, Sg("That is a bug in this build, not something you can work around.", Theme.Dim)),
 	}, "\n")
 }
 
@@ -25,13 +25,13 @@ func (a *App) View() string {
 		return ""
 	}
 	if a.help {
-		return clampBlock(a.helpView(), a.cols, a.rows-1)
+		return ClampBlock(a.helpView(), a.cols, a.rows-1)
 	}
 
 	if a.isTakeover() && a.focus == focusPanel {
-		return clampBlock(a.panel.View(a.ctx()), a.cols, a.rows-1)
+		return ClampBlock(a.panel.View(a.ctx()), a.cols, a.rows-1)
 	}
-	return clampBlock(a.boxedView(), a.cols, a.rows-1)
+	return ClampBlock(a.boxedView(), a.cols, a.rows-1)
 }
 
 func (a *App) boxedView() string {
@@ -54,33 +54,33 @@ func (a *App) boxedView() string {
 
 func (a *App) bannerLines(width int) []string {
 	if a.cols < 82 {
-		return []string{renderRow(width,
-			sgb("SolonGate", theme.AccentBright),
-			sg(", security control center", theme.Dim))}
+		return []string{RenderRow(width,
+			Sgb("SolonGate", Theme.AccentBright),
+			Sg(", security control center", Theme.Dim))}
 	}
 	out := make([]string, 0, len(term.BannerFull)+1)
 	for _, l := range term.BannerFull {
-		out = append(out, renderRow(width, sgb(l, theme.White)))
+		out = append(out, RenderRow(width, Sgb(l, Theme.White)))
 	}
-	out = append(out, renderRow(width,
-		sg(" security control center · manage policies, rate limits, DLP & more", theme.Dim)))
+	out = append(out, RenderRow(width,
+		Sg(" security control center · manage policies, rate limits, DLP & more", Theme.Dim)))
 	return out
 }
 
 func (a *App) policyLine(width int) string {
-	segs := []seg{sg("policy: ", theme.Dim), sgb(a.policyLabel, theme.AccentBright)}
-	segs = append(segs, sg("  · this machine, nothing leaves it", theme.Dim))
+	segs := []Seg{Sg("policy: ", Theme.Dim), Sgb(a.policyLabel, Theme.AccentBright)}
+	segs = append(segs, Sg("  · this machine, nothing leaves it", Theme.Dim))
 	switch a.update.Kind {
 	case "updating":
-		segs = append(segs, sg("  ↑ updating to v"+a.update.Version+"…", theme.Warn))
+		segs = append(segs, Sg("  ↑ updating to v"+a.update.Version+"…", Theme.Warn))
 	case "updated":
-		segs = append(segs, sgb("  ↑ v"+a.update.Version+" installed · restart (q, then solongate) to apply", theme.OK))
+		segs = append(segs, Sgb("  ↑ v"+a.update.Version+" installed · restart (q, then solongate) to apply", Theme.OK))
 	case "available":
-		segs = append(segs, sg("  ↑ v"+a.update.Version+" out · Settings → UPDATES", theme.Warn))
+		segs = append(segs, Sg("  ↑ v"+a.update.Version+" out · Settings → UPDATES", Theme.Warn))
 	case "needs-admin":
-		segs = append(segs, sg("  ↑ v"+a.update.Version+" needs admin rights · Settings → UPDATES", theme.Warn))
+		segs = append(segs, Sg("  ↑ v"+a.update.Version+" needs admin rights · Settings → UPDATES", Theme.Warn))
 	}
-	return renderRow(width, segs...)
+	return RenderRow(width, segs...)
 }
 
 func (a *App) navAndPanel(width int) []string {
@@ -89,9 +89,9 @@ func (a *App) navAndPanel(width int) []string {
 	navColor := lipgloss.TerminalColor(lipgloss.Color("8"))
 	panelColor := navColor
 	if a.focus == focusNav {
-		navColor = theme.Accent
+		navColor = Theme.Accent
 	} else {
-		panelColor = theme.Accent
+		panelColor = Theme.Accent
 	}
 
 	navLines := make([]string, 0, sectionCount)
@@ -99,19 +99,19 @@ func (a *App) navAndPanel(width int) []string {
 		isCur := i == a.effectiveSection()
 		prefix, color := "  ", lipgloss.TerminalColor(nil)
 		if isCur {
-			prefix, color = "▸ ", theme.AccentBright
+			prefix, color = "▸ ", Theme.AccentBright
 		}
-		navLines = append(navLines, renderRow(12, seg{text: prefix + label, fg: color, bold: isCur}))
+		navLines = append(navLines, RenderRow(12, Seg{Text: prefix + label, Fg: color, Bold: isCur}))
 	}
 
 	body := ""
 	if a.panel != nil {
-		body = clampBlock(a.panelBody(), contentCols, contentRows)
+		body = ClampBlock(a.panelBody(), contentCols, contentRows)
 	}
 
 	nav := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(navColor).
-		Padding(0, 1).Width(14).Height(maxInt(sectionCount, contentRows)).
+		Padding(0, 1).Width(14).Height(MaxInt(sectionCount, contentRows)).
 		Render(strings.Join(navLines, "\n"))
 	panel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(panelColor).
@@ -139,7 +139,7 @@ func (a *App) hintsLine(width int) string {
 	}
 }
 
-var shellHelp = []helpGroup{
+var shellHelp = []HelpGroup{
 	{"Global", [][2]string{
 		{"↑↓", "move between sections"},
 		{"→ / enter", "open a section"},
@@ -206,16 +206,16 @@ func (a *App) helpView() string {
 	if width < 20 {
 		width = 20
 	}
-	lines := []string{"", renderRow(width, sgb("SolonGate, keyboard shortcuts", theme.AccentBright)), ""}
-	lines = append(lines, helpBlock(shellHelp, 16, width)...)
-	lines = append(lines, renderRow(width, sg("press any key to close", theme.Dim)))
+	lines := []string{"", RenderRow(width, Sgb("SolonGate, keyboard shortcuts", Theme.AccentBright)), ""}
+	lines = append(lines, HelpBlock(shellHelp, 16, width)...)
+	lines = append(lines, RenderRow(width, Sg("press any key to close", Theme.Dim)))
 	for i, l := range lines {
 		lines[i] = "  " + l
 	}
 	return strings.Join(lines, "\n")
 }
 
-func clampBlock(s string, cols, rows int) string {
+func ClampBlock(s string, cols, rows int) string {
 	if rows < 1 {
 		rows = 1
 	}

@@ -56,9 +56,11 @@ type localLogsBlock struct {
 type guardSecurity struct {
 	RateLimit        *rateLimitNumbers `json:"rateLimit,omitempty"`
 	RateLimitObserve *rateLimitNumbers `json:"rateLimitObserve,omitempty"`
+	RateLimitOff     *rateLimitNumbers `json:"rateLimitOff,omitempty"`
 	DLPBlock         *dlpRules         `json:"dlpBlock,omitempty"`
 	DLPRedact        *dlpRules         `json:"dlpRedact,omitempty"`
 	DLPObserve       *dlpRules         `json:"dlpObserve,omitempty"`
+	DLPOff           *dlpRules         `json:"dlpOff,omitempty"`
 	LocalLogs        *localLogsBlock   `json:"localLogs,omitempty"`
 
 	ProtectedPaths []string         `json:"protectedPaths,omitempty"`
@@ -67,8 +69,8 @@ type guardSecurity struct {
 }
 
 func (g *guardSecurity) empty() bool {
-	return g == nil || (g.RateLimit == nil && g.RateLimitObserve == nil &&
-		g.DLPBlock == nil && g.DLPRedact == nil && g.DLPObserve == nil && g.LocalLogs == nil &&
+	return g == nil || (g.RateLimit == nil && g.RateLimitObserve == nil && g.RateLimitOff == nil &&
+		g.DLPBlock == nil && g.DLPRedact == nil && g.DLPObserve == nil && g.DLPOff == nil && g.LocalLogs == nil &&
 		len(g.ProtectedPaths) == 0 && !g.RequireSandbox && len(g.Sandboxes) == 0)
 }
 
@@ -153,7 +155,26 @@ func writeStore(s stored) error {
 	mirrorRulesIntoDefaultVariant(s.Policy)
 	doc := map[string]any{}
 	if s.envelope {
-		doc["policy"] = s.Policy
+		if s.Policy != nil {
+			// Signing must happen over the same shape VerifyDocument will
+			// reconstruct on read: a JSON round trip through a generic
+			// map/slice tree, whose object keys encoding/json re-sorts
+			// alphabetically. Signing the raw *PolicySet directly would sign
+			// its Go struct-declaration field order instead, and every
+			// freshly written policy would then fail its own signature
+			// check on the very next read.
+			raw, err := json.Marshal(s.Policy)
+			if err != nil {
+				return err
+			}
+			var p any
+			if err := json.Unmarshal(raw, &p); err != nil {
+				return err
+			}
+			doc["policy"] = p
+		} else {
+			doc["policy"] = nil
+		}
 	} else if s.Policy != nil {
 
 		raw, err := json.Marshal(s.Policy)
@@ -167,7 +188,18 @@ func writeStore(s stored) error {
 		delete(doc, "selfProtect")
 	}
 	if !s.Security.empty() {
-		doc["security"] = s.Security
+		// Same reasoning as the s.Policy normalization above: doc["security"]
+		// must be the generic form VerifyDocument will reconstruct, not the
+		// raw *guardSecurity struct's own field order.
+		raw, err := json.Marshal(s.Security)
+		if err != nil {
+			return err
+		}
+		var sec any
+		if err := json.Unmarshal(raw, &sec); err != nil {
+			return err
+		}
+		doc["security"] = sec
 	}
 	if s.SelfProtect != nil {
 		doc["selfProtect"] = *s.SelfProtect
@@ -213,6 +245,9 @@ func toLayers(sec *guardSecurity) SecurityLayers {
 	if nums == nil {
 		nums = sec.RateLimitObserve
 	}
+	if nums == nil {
+		nums = sec.RateLimitOff
+	}
 	switch {
 	case sec.RateLimit != nil:
 		l.RateLimit.Mode = LayerBlock
@@ -229,6 +264,9 @@ func toLayers(sec *guardSecurity) SecurityLayers {
 	}
 	if rules == nil {
 		rules = sec.DLPObserve
+	}
+	if rules == nil {
+		rules = sec.DLPOff
 	}
 	switch {
 	case sec.DLPBlock != nil:
@@ -262,6 +300,8 @@ func fromLayers(l SecurityLayers, keep *guardSecurity) *guardSecurity {
 		out.RateLimit = nums
 	case LayerDetect:
 		out.RateLimitObserve = nums
+	case LayerOff:
+		out.RateLimitOff = nums
 	}
 
 	patterns := l.DLP.Patterns
@@ -281,6 +321,8 @@ func fromLayers(l SecurityLayers, keep *guardSecurity) *guardSecurity {
 		out.DLPRedact = rules
 	case LayerDetect:
 		out.DLPObserve = rules
+	case LayerOff:
+		out.DLPOff = rules
 	}
 	return out
 }

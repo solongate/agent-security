@@ -6,13 +6,17 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
-	"time"
 
+	"github.com/solongate/agent-security/packages/cli/cliutil"
+	"github.com/solongate/agent-security/packages/cli/confine"
+	"github.com/solongate/agent-security/packages/cli/maintenance"
+	"github.com/solongate/agent-security/packages/cli/observability"
+	"github.com/solongate/agent-security/packages/cli/policy"
+	"github.com/solongate/agent-security/packages/cli/security"
 	"github.com/solongate/agent-security/packages/core/client"
 )
 
@@ -23,33 +27,40 @@ var Names = []string{
 
 var LocalNames = []string{}
 
-type handler func(ctx context.Context, c *client.Client, p parsedArgs) (int, error)
+var (
+	RunAgent     = confine.RunAgent
+	SandboxAgent = confine.SandboxAgent
+	RunRepair    = maintenance.RunRepair
+	RunUpdate    = maintenance.RunUpdate
+)
+
+type handler func(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int, error)
 
 func handlers() map[string]handler {
 	return map[string]handler{
-		"policy":    runPolicy,
-		"ratelimit": runRateLimit,
-		"dlp":       runDLP,
-		"stats":     runStats,
-		"audit":     runAudit,
-		"doctor":    runDoctor,
-		"trace":     runTrace,
-		"watch":     runWatch,
-		"range":     runRange,
+		"policy":    policy.Run,
+		"ratelimit": security.RunRateLimit,
+		"dlp":       security.RunDLP,
+		"stats":     observability.RunStats,
+		"audit":     observability.RunAudit,
+		"doctor":    maintenance.RunDoctor,
+		"trace":     observability.RunTrace,
+		"watch":     observability.RunWatch,
+		"range":     maintenance.RunRange,
 	}
 }
 
 func Run(name string, argv []string) int {
 	h, ok := handlers()[name]
 	if !ok {
-		errln("  Unknown command: " + name)
+		cliutil.Errln("  Unknown command: " + name)
 		return 1
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	code, err := h(ctx, client.New(), parse(argv))
+	code, err := h(ctx, client.New(), cliutil.Parse(argv))
 
 	if ctx.Err() != nil {
 		return 130
@@ -75,22 +86,11 @@ func report(e error) int {
 		if ae.Status != 0 {
 			msg += " (" + strconv.Itoa(ae.Status) + ")"
 		}
-		errln(red("  ✗ ") + msg)
+		cliutil.Errln(cliutil.Red("  ✗ ") + msg)
 		return 1
 	}
-	errln(red("  ✗ ") + e.Error())
+	cliutil.Errln(cliutil.Red("  ✗ ") + e.Error())
 	return 1
 }
 
-func usageErr(msg string) (int, error) {
-	errln("  " + msg)
-	return 1, nil
-}
-
-func okf(format string, a ...any) {
-	errln(green("  ✓ " + fmt.Sprintf(format, a...)))
-}
-
 func esc(s string) string { return url.PathEscape(s) }
-
-var nowMillis = func() int64 { return time.Now().UnixMilli() }

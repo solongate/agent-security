@@ -6,6 +6,7 @@ package main
 import (
 	"time"
 
+	"github.com/solongate/agent-security/packages/guard/guardcore"
 	"github.com/solongate/agent-security/packages/shared"
 )
 
@@ -58,5 +59,5 @@ func recordDecision(sec *shared.Security, hasSecurity bool, c call, agentType, a
 		local[k] = v
 	}
 
-	writeLocalLog(sec, local)
+	guardcore.WriteLocalLog(sec, local)
 }

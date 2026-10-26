@@ -9,14 +9,14 @@ import (
 )
 
 // releasePublicKeyB64 is the public half of the one-time release-signing
-// keypair generated for .github/workflows/release.yml. The matching private
+// keypair generated for .github/workflows/release.yaml. The matching private
 // key lives only in the RELEASE_SIGNING_KEY repository secret; it is never
 // committed. Embedding the public key here means it ships inside every built
 // solongate binary with no runtime fetch and nothing a compromised remote can
 // substitute.
 const releasePublicKeyB64 = "00sq66KTpvmaRJl9ZT8bWabsuAPEdD+dgq43IwkxuUQ="
 
-// ReleasePublicKey verifies the TAG_SIG asset release.yml attaches to each
+// ReleasePublicKey verifies the TAG_SIG asset release.yaml attaches to each
 // tagged release. solongate update refuses to move to a tag whose signature
 // does not verify against this key.
 var ReleasePublicKey = mustDecodeReleaseKey(releasePublicKeyB64)

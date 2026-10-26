@@ -280,10 +280,11 @@ func (s StatsClient) SecurityInsights(ctx context.Context, days int) (json.RawMe
 			if kv.Count < limit {
 				continue
 			}
-			parts := strings.SplitN(kv.Key, " ", 2)
-			row := map[string]any{"agent": parts[0], "count": kv.Count, "limit": limit}
-			if len(parts) > 1 {
-				row["minute"] = parts[1]
+			row := map[string]any{"agent": kv.Key, "count": kv.Count, "limit": limit}
+			// RFC3339 timestamps contain no spaces, but agent names can.
+			if i := strings.LastIndex(kv.Key, " "); i >= 0 {
+				row["agent"] = kv.Key[:i]
+				row["minute"] = kv.Key[i+1:]
 			}
 			anomalies = append(anomalies, row)
 		}

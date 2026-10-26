@@ -65,6 +65,10 @@ func BoxLaunch(p BoxPlan, env []string) (Report, error) {
 		rep.Err = errors.New("workspace must be an absolute path, got " + p.Workspace)
 		return rep, rep.Err
 	}
+	if err := checkWorkspaceRoot(ws); err != nil {
+		rep.Err = err
+		return rep, rep.Err
+	}
 	if st, err := os.Stat(ws); err != nil || !st.IsDir() {
 		rep.Err = errors.New("workspace " + ws + " is not a readable directory")
 		return rep, rep.Err

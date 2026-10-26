@@ -238,14 +238,10 @@ func workspaceRules(p Plan) ([]landlock.Rule, error) {
 	if !filepath.IsAbs(ws) {
 		return nil, errors.New("workspace must be an absolute path, got " + p.Workspace)
 	}
-	if ws == "/" {
-		return nil, errors.New(`refusing to use "/" as a workspace: that confines nothing`)
+	if err := checkWorkspaceRoot(ws); err != nil {
+		return nil, err
 	}
 
-	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == ws {
-		return nil, errors.New("refusing to use the home directory as a workspace: " +
-			"it contains ~/.ssh and every other project, which is what this mode exists to keep out")
-	}
 	st, err := os.Stat(ws)
 	if err != nil {
 		return nil, errors.New("workspace " + ws + " cannot be read: " + err.Error())

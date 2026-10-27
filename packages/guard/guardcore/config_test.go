@@ -247,21 +247,25 @@ func TestLoadLocalPolicyFileOwnTakesPrecedenceOverProjectLocal(t *testing.T) {
 	}
 }
 
-func TestLoadLocalPolicyFileSkipsACorruptOwnFileAndFallsBackToProjectLocal(t *testing.T) {
+func TestLoadLocalPolicyFileCorruptOwnFileIsRejectedNotSkipped(t *testing.T) {
 	sgHome(t)
 	cwd := t.TempDir()
 
+	// A home policy that cannot be parsed is a broken trust anchor, not an
+	// absent one. Skipping it used to fall through to the project-local policy,
+	// which carries no Security fields at all - so corrupting the file quietly
+	// downgraded the guard instead of stopping it.
 	writeOwnPolicy(t, []byte(`{not valid json at all`))
 	writeProjectPolicy(t, cwd, marshal(t, map[string]interface{}{
 		"id": "proj-pol", "name": "Project", "mode": "advisory",
 	}))
 
 	env, err := LoadLocalPolicyFile(cwd)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if !errors.Is(err, ErrPolicyTampered) {
+		t.Fatalf("got err=%v, want ErrPolicyTampered for a corrupt own policy", err)
 	}
-	if env == nil || env.Policy == nil || env.Policy.ID != "proj-pol" {
-		t.Fatalf("expected to fall back to the project-local policy, got %+v", env)
+	if env != nil {
+		t.Errorf("expected no cache for a corrupt own policy, got %+v", env)
 	}
 }
 
@@ -278,5 +282,75 @@ func TestLoadLocalPolicyFileResolvesCwdFromGetwdWhenEmpty(t *testing.T) {
 	}
 	if env == nil || env.Policy == nil || env.Policy.ID != "home-pol" {
 		t.Fatalf("expected the own policy to load with an empty cwd, got %+v", env)
+	}
+}
+func TestLoadLocalPolicyFileOwnMalformedSignatureIsRejected(t *testing.T) {
+	sgHome(t)
+	cwd := t.TempDir()
+
+	// A signature field that is present but cannot even be decoded: the loader
+	// used to skip the check on any verification error and trust the file.
+	doc := map[string]interface{}{
+		"policy": map[string]interface{}{"id": "home-pol", "name": "Home", "mode": "advisory"},
+		"_sig":   "%not-base64%",
+	}
+	writeOwnPolicy(t, marshal(t, doc))
+
+	env, err := LoadLocalPolicyFile(cwd)
+	if !errors.Is(err, ErrPolicyTampered) {
+		t.Fatalf("got err=%v, want ErrPolicyTampered for an undecodable signature", err)
+	}
+	if env != nil {
+		t.Errorf("expected no cache for an undecodable signature, got %+v", env)
+	}
+}
+
+func TestLoadLocalPolicyFileOwnUnsignedAfterTheMachineHasASigningKeyIsRejected(t *testing.T) {
+	sgHome(t)
+	cwd := t.TempDir()
+
+	// Once this machine has a signing key, its own policy.json is always written
+	// signed, so a missing signature means the signature was stripped.
+	if _, err := pcrypto.LoadOrCreateKeyPair(filepath.Join(shared.SGDir(), "crypto")); err != nil {
+		t.Fatal(err)
+	}
+	doc := map[string]interface{}{
+		"policy": map[string]interface{}{"id": "home-pol", "name": "Home", "mode": "advisory"},
+	}
+	writeOwnPolicy(t, marshal(t, doc))
+
+	env, err := LoadLocalPolicyFile(cwd)
+	if !errors.Is(err, ErrPolicyTampered) {
+		t.Fatalf("got err=%v, want ErrPolicyTampered for a stripped signature", err)
+	}
+	if env != nil {
+		t.Errorf("expected no cache for a stripped signature, got %+v", env)
+	}
+}
+
+func TestLoadLocalPolicyFileDoesNotCreateASigningKey(t *testing.T) {
+	sgHome(t)
+	cwd := t.TempDir()
+
+	// Pre-signature installs and the parity fixtures write an unsigned
+	// policy.json. Loading it must not create a key pair: if it did, the next run
+	// would see a keyed machine and reject the very same file.
+	doc := map[string]interface{}{
+		"policy":   map[string]interface{}{"id": "home-pol", "name": "Home", "mode": "advisory"},
+		"security": map[string]interface{}{"protectedPaths": []string{"/tmp/keep"}},
+	}
+	writeOwnPolicy(t, marshal(t, doc))
+
+	for i := 0; i < 2; i++ {
+		env, err := LoadLocalPolicyFile(cwd)
+		if err != nil {
+			t.Fatalf("load %d: got err=%v, want the unsigned policy to load", i+1, err)
+		}
+		if env == nil || env.Policy == nil || env.Policy.ID != "home-pol" {
+			t.Fatalf("load %d: got %+v, want the home policy", i+1, env)
+		}
+		if pcrypto.HasKeyPair(filepath.Join(shared.SGDir(), "crypto")) {
+			t.Fatalf("load %d: loading a policy created a signing key", i+1)
+		}
 	}
 }

@@ -177,3 +177,15 @@ func TestFingerprintIsStableAndDistinct(t *testing.T) {
 		t.Fatal("fingerprint should differ between distinct keys")
 	}
 }
+func TestHasKeyPair(t *testing.T) {
+	dir := t.TempDir()
+	if HasKeyPair(dir) {
+		t.Error("HasKeyPair = true on an empty directory, want false")
+	}
+	if _, err := LoadOrCreateKeyPair(dir); err != nil {
+		t.Fatal(err)
+	}
+	if !HasKeyPair(dir) {
+		t.Error("HasKeyPair = false after LoadOrCreateKeyPair created the pair, want true")
+	}
+}

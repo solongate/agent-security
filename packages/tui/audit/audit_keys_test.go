@@ -588,3 +588,23 @@ func TestDoExportAllExportsEveryMatchingRowPastTheClientPageLimit(t *testing.T) 
 		t.Fatalf("got %d exported lines, want %d (a silent 1000-row cap truncates the export)", got, entries)
 	}
 }
+
+func TestDoDeleteAllWithoutFilterAlsoClearsUnparseableLines(t *testing.T) {
+	p := newTestAudit(t)
+	writeLogLines(t,
+		`{"ts":"2026-01-01T00:00:00Z","tool":"Bash","decision":"ALLOW"}`,
+		`{corrupted line`,
+	)
+
+	res := p.doDelete("all", logRow{})().(auditNoteResult)
+	if !strings.Contains(res.note.text, "whole log") {
+		t.Errorf("note = %q, want the unfiltered message", res.note.text)
+	}
+	b, err := os.ReadFile(config.LocalLogFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(b)) != "" {
+		t.Errorf("log = %q, want the whole file emptied, corrupted lines included", string(b))
+	}
+}

@@ -200,9 +200,15 @@ func (p *Audit) doDelete(kind string, cur logRow) tea.Cmd {
 		}
 
 		n := 0
-		if kind == "one" {
+		switch {
+		case kind == "one":
 			n = tui.DeleteLocalEntry(cur.at, cur.tool, cur.session)
-		} else {
+		case !filtered:
+			// No filter is active, so "delete all" still means the whole local
+			// file — including lines that no longer parse. Keep that exact
+			// behaviour; filtering only narrows what the user asked to delete.
+			n = tui.ClearLocalLog()
+		default:
 			// Delete exactly what the view shows: the same query that produced the
 			// rows is the filter, so a user who narrowed the log cannot lose
 			// entries that were filtered out of sight.

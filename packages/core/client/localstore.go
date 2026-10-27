@@ -435,6 +435,21 @@ func readLog() []logLine {
 	return out
 }
 
+// AuditEntryFromLocalLine decodes one raw line of the local audit log into the
+// same entry shape List returns. Callers that rewrite the log file themselves
+// use it with AuditQuery.Matches so deleting "everything in the current view"
+// applies exactly the filter the view used, instead of a second copy of it.
+func AuditEntryFromLocalLine(raw []byte) (AuditEntry, bool) {
+	var l logLine
+	if json.Unmarshal(raw, &l) != nil {
+		return AuditEntry{}, false
+	}
+	if t, err := time.Parse(time.RFC3339Nano, l.TS); err == nil {
+		l.at = t.UnixMilli()
+	}
+	return toAuditEntry(l), true
+}
+
 func toAuditEntry(l logLine) AuditEntry {
 	decision := l.Decision
 	if decision == "" {

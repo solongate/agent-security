@@ -289,3 +289,13 @@ func TestAuditWhitelistWithUnknownEntryErrors(t *testing.T) {
 		t.Error("expected an error for an entry id that does not exist")
 	}
 }
+func TestAuditQueryMatchesIgnoresTheResultWindow(t *testing.T) {
+	q := AuditQuery{Tool: "bash", Limit: 1, Offset: 900}
+	entry := AuditEntry{ToolName: "Bash", Decision: "ALLOW", CreatedAt: "2026-01-01T00:00:00Z"}
+	if !q.Matches(entry) {
+		t.Error("Matches = false, want true: Limit and Offset window the result, they do not filter it")
+	}
+	if (AuditQuery{Tool: "bash"}).Matches(AuditEntry{ToolName: "Write"}) {
+		t.Error("Matches = true for a tool outside the filter, want false")
+	}
+}

@@ -22,6 +22,10 @@ func nextToken() int { tokens++; return tokens }
 const (
 	auditPage      = 500
 	auditKeyColumn = 19
+	// exportPageSize is the largest page Audit.List honours. Exports walk pages
+	// of this size instead of trusting one oversized request, which used to cut
+	// the file off at the same number of rows.
+	exportPageSize = client.MaxAuditPage
 )
 
 var (
@@ -193,6 +197,13 @@ func (p *Audit) query() client.AuditQuery {
 		Limit:     auditPage,
 		Offset:    p.page * auditPage,
 	}
+}
+
+// filterActive reports whether the view shows only a subset of the log, i.e.
+// whether "delete all" is meant to stop at the visible entries.
+func (p *Audit) filterActive() bool {
+	return p.tool != "" || p.agent != "" || p.search != "" ||
+		auditDecisions[p.di] != "" || auditSignals[p.gi] != ""
 }
 
 func (p *Audit) pages(total int) int {

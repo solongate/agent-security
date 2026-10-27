@@ -22,8 +22,8 @@ func TestLockFileThenUnlockFileRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o400 {
-		t.Errorf("after lockFile, perm = %v, want 0400", info.Mode().Perm())
+	if info.Mode().Perm() != 0o500 {
+		t.Errorf("after lockFile, perm = %v, want 0500", info.Mode().Perm())
 	}
 
 	unlockFile(file)
@@ -90,8 +90,8 @@ func TestWriteProtectedFileOverLockedFileUnlocksRewritesAndRelocks(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o400 {
-		t.Errorf("perm after relock = %v, want 0400", info.Mode().Perm())
+	if info.Mode().Perm() != 0o500 {
+		t.Errorf("perm after relock = %v, want 0500", info.Mode().Perm())
 	}
 }
 

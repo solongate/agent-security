@@ -196,7 +196,9 @@ func (p *DLP) entries() []dlpEntry {
 }
 
 func (p *DLP) selClamped() int {
-	return min(p.sel, max(0, len(p.entries())-1))
+	// "down" on an empty list can arm a negative selection; clamp both ends
+	// so a stale negative value never indexes entries() out of range.
+	return max(0, min(p.sel, len(p.entries())-1))
 }
 
 func (p *DLP) current() (dlpEntry, bool) {

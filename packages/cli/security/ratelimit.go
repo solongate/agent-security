@@ -6,6 +6,7 @@ package security
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/solongate/agent-security/packages/cli/cliutil"
@@ -18,6 +19,27 @@ func ratelimitUsage() string {
 		cliutil.Line("ratelimit set --minute N [--hour N] [--day N] [--mode off|detect|block]"),
 		cliutil.Row("ratelimit history", "recent limit changes"),
 	})
+}
+
+// rateLimitModes are the modes request throttling understands. `redact` belongs
+// to the DLP layer, so it is not accepted here.
+var rateLimitModes = []client.LayerMode{client.LayerOff, client.LayerDetect, client.LayerBlock}
+
+func parseRateLimitMode(raw string) (client.LayerMode, bool) {
+	for _, m := range rateLimitModes {
+		if string(m) == raw {
+			return m, true
+		}
+	}
+	return "", false
+}
+
+func rateLimitModeNames() string {
+	names := make([]string, 0, len(rateLimitModes))
+	for _, m := range rateLimitModes {
+		names = append(names, string(m))
+	}
+	return strings.Join(names, "|")
 }
 
 func modeColor(m client.LayerMode) string {
@@ -115,13 +137,38 @@ func RunRateLimit(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (
 			return cliutil.UsageErr("Usage: ratelimit set --minute N [--hour N] [--day N] [--mode off|detect|block]")
 		}
 
+		// Reject bad input before the round trip: a typo'd mode or a non-positive
+		// limit is a usage error, and the server should never see it (#135).
+		for _, limit := range []struct {
+			flag  string
+			value int
+			set   bool
+		}{
+			{"minute", minute, hasMinute},
+			{"hour", hour, hasHour},
+			{"day", day, hasDay},
+		} {
+			if limit.set && limit.value <= 0 {
+				return cliutil.UsageErr("ratelimit set --" + limit.flag +
+					": the limit must be a positive number, got " + strconv.Itoa(limit.value))
+			}
+		}
+		nextMode := client.LayerMode("")
+		if mode != "" {
+			parsed, ok := parseRateLimitMode(mode)
+			if !ok {
+				return cliutil.UsageErr(`ratelimit set --mode: unknown mode "` + mode + `", use ` + rateLimitModeNames())
+			}
+			nextMode = parsed
+		}
+
 		cur, err := c.Settings.GetSecurityLayers(ctx)
 		if err != nil {
 			return 1, err
 		}
 		next := cur.Layers
 		if mode != "" {
-			next.RateLimit.Mode = client.LayerMode(mode)
+			next.RateLimit.Mode = nextMode
 		}
 		if hasMinute {
 			next.RateLimit.PerMinute = minute

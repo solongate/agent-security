@@ -103,6 +103,24 @@ func TestDLPKeyNavigation(t *testing.T) {
 	}
 }
 
+func TestDLPDownOnEmptyListNeverPanics(t *testing.T) {
+	// Issue #150: "down" on an empty list arms a negative selection. Once the
+	// list grows again (server refresh or a new custom pattern), the next
+	// keypress must fall back to the first entry instead of panicking.
+	p := NewDLP(tui.Deps{})
+	p.adoptServer(client.SecurityLayers{})
+	p.key(dlpKeyMsg("down"))
+	if got := p.selClamped(); got != 0 {
+		t.Errorf("selClamped() after down on an empty list = %d, want 0", got)
+	}
+	p.available = []string{"ssn"}
+	p.key(dlpKeyMsg(" "))
+	cur, ok := p.current()
+	if !ok || cur.name != "ssn" {
+		t.Errorf("current() = %+v, ok=%v, want entry ssn", cur, ok)
+	}
+}
+
 func TestDLPKeySelectAllAndUnselectAll(t *testing.T) {
 	p := newDLPWithDraft(t)
 	p.key(dlpKeyMsg("A"))

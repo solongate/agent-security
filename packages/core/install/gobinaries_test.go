@@ -172,6 +172,9 @@ func TestCopyFromSkipsAlreadyIdenticalBinary(t *testing.T) {
 	}
 
 	to := filepath.Join(BinDir(), name)
+	if err := os.Remove(to); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Link(from, to); err != nil {
 		t.Skipf("hard links unsupported here: %v", err)
 	}
@@ -185,6 +188,9 @@ func TestCopyFromSkipsAlreadyIdenticalBinary(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("copyFrom() with a same-inode destination should still report %q as placed, got %v", name, placed)
+	}
+	if !sameFile(from, to) {
+		t.Error("copyFrom() replaced a same-inode destination instead of skipping the copy")
 	}
 }
 

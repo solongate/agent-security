@@ -41,7 +41,9 @@ func (p *Sandbox) key(k tea.KeyMsg) tea.Cmd {
 			p.beginEdit(b.ID, b.Dir)
 		}
 	case "m":
-
+		// An unrelated action: any pending delete must go back to asking
+		// for confirmation, the way the navigation keys do.
+		p.confirm = ""
 		if b, ok := p.cur(); ok {
 			return p.save(b.ID, b.Dir, b.Label, !b.Network)
 		}

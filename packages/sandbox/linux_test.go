@@ -297,3 +297,31 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+func TestWorkspaceRulesRejectsBroadRoots(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory in this environment: %v", err)
+	}
+	for _, ws := range []string{"/", home} {
+		if _, err := workspaceRules(Plan{Workspace: ws}); err == nil {
+			t.Errorf("workspaceRules accepted %q as a workspace root", ws)
+		}
+	}
+}
+
+func TestWorkspaceRulesRejectsSymlinkAliases(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory in this environment: %v", err)
+	}
+	for _, target := range []string{"/", home} {
+		link := filepath.Join(t.TempDir(), "alias")
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("cannot create symlink: %v", err)
+		}
+		if _, err := workspaceRules(Plan{Workspace: link}); err == nil {
+			t.Errorf("workspaceRules accepted the symlink %q -> %q", link, target)
+		}
+	}
+}

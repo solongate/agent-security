@@ -201,20 +201,12 @@ func TestDriftDefaultsDaysWhenNotPositive(t *testing.T) {
 	}
 }
 
-func TestSecurityInsights(t *testing.T) {
-	newHome(t)
-	writeLogLines(t,
-		`{"ts":"2026-01-01T12:00:00Z","tool":"Bash","decision":"ALLOW","agent_name":"agent-x"}`,
-		`{"ts":"2026-01-01T12:00:10Z","tool":"Bash","decision":"ALLOW","agent_name":"agent-x"}`,
-		`{"ts":"2026-01-01T12:00:20Z","tool":"Bash","decision":"DENY","agent_name":"agent-x","reason":"rate limit exceeded","rate_limit_burst":true}`,
-		`{"ts":"2026-01-02T09:00:00Z","tool":"WebFetch","decision":"DENY","agent_name":"agent-y","dlp":["AWS access key"],"reason":"dlp pattern matched"}`,
-		`{"ts":"2026-01-03T09:00:00Z","tool":"Read","decision":"ALLOW","agent_name":"agent-y"}`,
-	)
-
+func securityInsightsWithRateLimit(t *testing.T, perMinute int) map[string]any {
+	t.Helper()
 	c := New()
 	layers := SecurityLayers{}
 	layers.RateLimit.Mode = LayerBlock
-	layers.RateLimit.PerMinute = 2
+	layers.RateLimit.PerMinute = perMinute
 	if _, err := c.Settings.SetSecurityLayers(context.Background(), layers); err != nil {
 		t.Fatalf("SetSecurityLayers: %v", err)
 	}
@@ -227,6 +219,20 @@ func TestSecurityInsights(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
+	return out
+}
+
+func TestSecurityInsights(t *testing.T) {
+	newHome(t)
+	writeLogLines(t,
+		`{"ts":"2026-01-01T12:00:00Z","tool":"Bash","decision":"ALLOW","agent_name":"agent-x"}`,
+		`{"ts":"2026-01-01T12:00:10Z","tool":"Bash","decision":"ALLOW","agent_name":"agent-x"}`,
+		`{"ts":"2026-01-01T12:00:20Z","tool":"Bash","decision":"DENY","agent_name":"agent-x","reason":"rate limit exceeded","rate_limit_burst":true}`,
+		`{"ts":"2026-01-02T09:00:00Z","tool":"WebFetch","decision":"DENY","agent_name":"agent-y","dlp":["AWS access key"],"reason":"dlp pattern matched"}`,
+		`{"ts":"2026-01-03T09:00:00Z","tool":"Read","decision":"ALLOW","agent_name":"agent-y"}`,
+	)
+
+	out := securityInsightsWithRateLimit(t, 2)
 
 	if out["scanned"].(float64) != 5 {
 		t.Errorf("scanned = %v, want 5", out["scanned"])
@@ -242,6 +248,9 @@ func TestSecurityInsights(t *testing.T) {
 	anomaly := anomalies[0].(map[string]any)
 	if anomaly["agent"] != "agent-x" || anomaly["count"].(float64) != 3 {
 		t.Errorf("anomaly = %+v, want agent-x with count 3", anomaly)
+	}
+	if anomaly["minute"] != "2026-01-01T12:00:00Z" {
+		t.Errorf("minute = %v, want 2026-01-01T12:00:00Z", anomaly["minute"])
 	}
 
 	callsPerDay := out["callsPerDay"].([]any)
@@ -274,6 +283,34 @@ func TestSecurityInsights(t *testing.T) {
 	top := topAgents[0].(map[string]any)
 	if top["agent"] != "agent-x" || top["count"].(float64) != 3 {
 		t.Errorf("top agent = %+v, want agent-x with count 3", top)
+	}
+}
+
+func TestSecurityInsightsAgentNameWithSpaces(t *testing.T) {
+	newHome(t)
+	writeLogLines(t,
+		`{"ts":"2026-01-01T12:00:00Z","tool":"Bash","decision":"ALLOW","agent_name":"Claude Code"}`,
+		`{"ts":"2026-01-01T12:00:10Z","tool":"Bash","decision":"ALLOW","agent_name":"Claude Code"}`,
+		`{"ts":"2026-01-01T12:00:20Z","tool":"Bash","decision":"DENY","agent_name":"Claude Code","reason":"rate limit exceeded","rate_limit_burst":true}`,
+	)
+
+	out := securityInsightsWithRateLimit(t, 2)
+	anomalies := out["anomalies"].([]any)
+	if len(anomalies) != 1 {
+		t.Fatalf("got %d anomalies, want 1", len(anomalies))
+	}
+	anomaly := anomalies[0].(map[string]any)
+	if anomaly["agent"] != "Claude Code" {
+		t.Errorf("agent = %v, want Claude Code", anomaly["agent"])
+	}
+	if anomaly["minute"] != "2026-01-01T12:00:00Z" {
+		t.Errorf("minute = %v, want 2026-01-01T12:00:00Z", anomaly["minute"])
+	}
+	if anomaly["count"].(float64) != 3 {
+		t.Errorf("count = %v, want 3", anomaly["count"])
+	}
+	if anomaly["limit"].(float64) != 2 {
+		t.Errorf("limit = %v, want 2", anomaly["limit"])
 	}
 }
 

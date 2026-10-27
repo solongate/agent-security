@@ -16,6 +16,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/tui"
 )
@@ -192,24 +193,42 @@ func (p *Audit) editField(k tea.KeyMsg) tea.Cmd {
 
 func (p *Audit) doDelete(kind string, cur logRow) tea.Cmd {
 	p.note = &auditNote{text: "deleting…", level: "ok"}
-	gen := p.gen
+	gen, q, filtered := p.gen, p.query(), p.filterActive()
 	return func() tea.Msg {
 		fail := func(err error) tea.Msg {
 			return auditNoteResult{gen: gen, note: auditNote{text: "✗ " + err.Error(), level: "bad"}}
 		}
 
 		n := 0
-		if kind == "one" {
+		switch {
+		case kind == "one":
 			n = tui.DeleteLocalEntry(cur.at, cur.tool, cur.session)
-		} else {
+		case !filtered:
+			// No filter is active, so "delete all" still means the whole local
+			// file — including lines that no longer parse. Keep that exact
+			// behaviour; filtering only narrows what the user asked to delete.
 			n = tui.ClearLocalLog()
+		default:
+			// Delete exactly what the view shows: the same query that produced the
+			// rows is the filter, so a user who narrowed the log cannot lose
+			// entries that were filtered out of sight.
+			n = tui.DeleteLocalLogMatching(func(raw []byte) bool {
+				e, ok := client.AuditEntryFromLocalLine(raw)
+				return ok && q.Matches(e)
+			})
 		}
 		if n == 0 {
-			return fail(errors.New("entry not found in the local file"))
+			if kind == "one" {
+				return fail(errors.New("entry not found in the local file"))
+			}
+			return fail(errors.New("no entry in the local file matched the current view"))
 		}
 		text := "✓ entry deleted"
 		if kind != "one" {
-			text = "✓ the whole log on this machine was deleted"
+			text = "✓ deleted " + strconv.Itoa(n) + " entries matching the active filter"
+			if !filtered {
+				text = "✓ the whole log on this machine was deleted"
+			}
 		}
 		return auditNoteResult{gen: gen, note: auditNote{text: text, level: "ok"},
 			reload: true, toTop: true}
@@ -226,18 +245,31 @@ func (p *Audit) doExport(kind string, pageRows []logRow) tea.Cmd {
 				note: auditNote{text: "✗ export failed: " + err.Error(), level: "bad"}}
 		}
 		rows := pageRows
+		truncatedAt := 0
 		if kind == "all" {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 			defer cancel()
-			q.Limit, q.Offset = 10_000, 0
-			list, err := client.Audit.List(ctx, q)
-			if err != nil {
-				return fail(err)
-			}
-			rows = make([]logRow, 0, len(list.Entries))
-			for _, e := range list.Entries {
-				rows = append(rows, cloudRow(e))
+			// client.Audit.List clamps Limit to 1000, so one request per export
+			// silently cut every export above 1000 rows. Walk the pages instead
+			// and only stop when the matching set is complete.
+			rows = rows[:0]
+			for offset := 0; ; offset += exportPageSize {
+				q.Limit, q.Offset = exportPageSize, offset
+				list, err := client.Audit.List(ctx, q)
+				if err != nil {
+					return fail(err)
+				}
+				for _, e := range list.Entries {
+					rows = append(rows, cloudRow(e))
+				}
+				if len(rows) >= list.Total {
+					break
+				}
+				if len(list.Entries) < exportPageSize || ctx.Err() != nil {
+					truncatedAt = list.Total
+					break
+				}
 			}
 			sort.SliceStable(rows, func(i, j int) bool { return rows[i].at > rows[j].at })
 		}
@@ -262,7 +294,13 @@ func (p *Audit) doExport(kind string, pageRows []logRow) tea.Cmd {
 		}
 
 		_ = os.Chmod(file, 0o600)
-		return auditNoteResult{gen: gen, note: auditNote{
-			text: "✓ exported " + strconv.Itoa(len(rows)) + " rows → " + file, level: "ok"}}
+		text := "✓ exported " + strconv.Itoa(len(rows)) + " rows → " + file
+		level := "ok"
+		if truncatedAt > len(rows) {
+			text = "⚠ exported " + strconv.Itoa(len(rows)) + " of " + strconv.Itoa(truncatedAt) +
+				" matching rows (timed out) → " + file
+			level = "bad"
+		}
+		return auditNoteResult{gen: gen, note: auditNote{text: text, level: level}}
 	}
 }

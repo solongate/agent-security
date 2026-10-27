@@ -5,6 +5,7 @@ package audit
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -528,5 +529,82 @@ func TestDoExportAllQueriesAndSortsNewestFirst(t *testing.T) {
 	_ = json.Unmarshal([]byte(lines[0]), &first)
 	if first.Tool != "Newer" {
 		t.Errorf("first exported row = %q, want the newest entry first", first.Tool)
+	}
+}
+func TestDoDeleteAllOnlyDeletesEntriesMatchingTheActiveFilter(t *testing.T) {
+	p := newTestAudit(t)
+	writeLogLines(t,
+		`{"ts":"2026-01-01T00:00:00Z","tool":"Bash","decision":"ALLOW","session_id":"s1"}`,
+		`{"ts":"2026-01-01T00:01:00Z","tool":"Write","decision":"DENY","session_id":"s2"}`,
+		`{"ts":"2026-01-01T00:02:00Z","tool":"Bash","decision":"DENY","session_id":"s3"}`,
+	)
+	p.tool = "bash" // the view filters case-insensitively, and so must the delete
+
+	res := p.doDelete("all", logRow{})().(auditNoteResult)
+	if !res.reload || !res.toTop {
+		t.Errorf("result = %+v, want reload and toTop set on success", res)
+	}
+	if !strings.HasPrefix(res.note.text, "✓") {
+		t.Errorf("note = %q, want a success mark", res.note.text)
+	}
+	if !strings.Contains(res.note.text, "2") {
+		t.Errorf("note = %q, want it to report the 2 deleted entries", res.note.text)
+	}
+
+	b, err := os.ReadFile(config.LocalLogFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"tool":"Bash"`) {
+		t.Errorf("log = %q, want every filtered Bash entry deleted", string(b))
+	}
+	if !strings.Contains(string(b), `"tool":"Write"`) {
+		t.Errorf("log = %q, want the entry outside the filter kept", string(b))
+	}
+}
+
+func TestDoExportAllExportsEveryMatchingRowPastTheClientPageLimit(t *testing.T) {
+	p := newTestAudit(t)
+	const entries = 1105 // above client.Audit.List's 1000-row page cap
+	lines := make([]string, 0, entries)
+	for i := 0; i < entries; i++ {
+		lines = append(lines, fmt.Sprintf(`{"ts":%q,"tool":"Bash","decision":"ALLOW","session_id":"s%d"}`,
+			time.Unix(int64(1700000000+i), 0).UTC().Format(time.RFC3339), i))
+	}
+	writeLogLines(t, lines...)
+
+	res := p.doExport("all", nil)().(auditNoteResult)
+	if !strings.Contains(res.note.text, strconv.Itoa(entries)) {
+		t.Errorf("note = %q, want it to report all %d rows", res.note.text, entries)
+	}
+
+	file := filepath.Join(config.Dir(), "audit-export.jsonl")
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("export file not written: %v", err)
+	}
+	got := len(strings.Split(strings.TrimRight(string(b), "\n"), "\n"))
+	if got != entries {
+		t.Fatalf("got %d exported lines, want %d (a silent 1000-row cap truncates the export)", got, entries)
+	}
+}
+
+func TestDoDeleteAllWithoutFilterAlsoClearsUnparseableLines(t *testing.T) {
+	p := newTestAudit(t)
+	writeLogLines(t,
+		`{"ts":"2026-01-01T00:00:00Z","tool":"Bash","decision":"ALLOW"}`,
+		`{corrupted line`,
+	)
+
+	res := p.doDelete("all", logRow{})().(auditNoteResult)
+	if !strings.Contains(res.note.text, "whole log") {
+		t.Errorf("note = %q, want the unfiltered message", res.note.text)
+	}
+	b, err := os.ReadFile(config.LocalLogFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(b)) != "" {
+		t.Errorf("log = %q, want the whole file emptied, corrupted lines included", string(b))
 	}
 }

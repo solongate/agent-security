@@ -119,7 +119,6 @@ var liveHelp = []tui.HelpGroup{
 		{"b", "block the selected ALLOW (adds DENY rule)"},
 		{"d / x / r", "filter: denies / dlp hits / rate-limit bursts"},
 		{"/", "live search (tool, agent, command…) · enter done"},
-		{"s", "session picker"},
 		{"l", "layers detail (rate limit · dlp · guard)"},
 		{"e", "export visible rows → ~/.solongate/live-export.jsonl"},
 		{"space", "copy mode: freeze screen for mouse selection"},

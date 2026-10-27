@@ -22,7 +22,12 @@ func lockFile(file string) {
 		run("chflags", "uchg", file)
 	default:
 		run("chattr", "+i", file)
-		_ = os.Chmod(file, 0o400)
+		// 0o500, not 0o400: protectedTargets() includes the guard binary, and
+		// chattr commonly fails without CAP_LINUX_IMMUTABLE (containers,
+		// rootless), so this chmod is the fallback that actually runs. Keeping
+		// the execute bit matches the windows ACL above (grants RX) and the
+		// directory mode in protectpaths.go's LockPath.
+		_ = os.Chmod(file, 0o500)
 	}
 }
 

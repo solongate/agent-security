@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -521,22 +522,79 @@ func TestExportMkdirFailureSetsErrorFlash(t *testing.T) {
 	}
 }
 
-func TestLiveHelpAdvertisedKeysHaveHandlers(t *testing.T) {
-	// Single-token Stream help keys must be backed by Live.onKey, or by the
-	// app shell for esc/q. Composite navigation labels ("↑↓ / PgUp PgDn") and
-	// the meta "any key" entry are covered by their own tests.
-	handled := map[string]struct{}{
-		"w": {}, "b": {}, "d": {}, "x": {}, "r": {},
-		"/": {}, "l": {}, "e": {},
-		"enter": {}, "space": {},
-		"esc": {}, "q": {}, // App.onKey (packages/tui/app_keys.go)
-		"?": {},
-		"←": {},
+func liveHelpKeyMsg(token string) (tea.KeyMsg, bool) {
+	switch token {
+	case "space":
+		return tea.KeyMsg{Type: tea.KeySpace}, true
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}, true
+	case "←":
+		return tea.KeyMsg{Type: tea.KeyLeft}, true
+	default:
+		if len([]rune(token)) != 1 {
+			return tea.KeyMsg{}, false
+		}
+		return runeKey(token), true
 	}
+}
+
+func liveSnap(p *Live) string {
+	action := ""
+	if p.action != nil {
+		action = p.action.level + "|" + p.action.text
+	}
+	inspect := ""
+	if p.inspect != nil {
+		inspect = p.inspect.ID
+	}
+	return strings.Join([]string{
+		"mode=" + p.mode,
+		"signal=" + p.signal,
+		"sel=" + strconv.Itoa(p.sel),
+		"help=" + strconv.FormatBool(p.help),
+		"frozen=" + strconv.FormatBool(p.frozen),
+		"searchEdit=" + strconv.FormatBool(p.editingSearch),
+		"inspect=" + inspect,
+		"layersScroll=" + strconv.Itoa(p.layersScroll),
+		"action=" + action,
+	}, ";")
+}
+
+func preparedLiveForHelpKey(t *testing.T, token string) *Live {
+	t.Helper()
+	p := newTestLiveForKeys()
+	switch token {
+	case "w":
+		p.merged = []streamItem{{ID: "d1", Decision: "DENY", Tool: "Bash"}}
+	case "b":
+		p.merged = []streamItem{{ID: "a1", Decision: "ALLOW", Tool: "Read"}}
+	case "enter", "e":
+		p.merged = []streamItem{{ID: "row", Decision: "ALLOW", Tool: "Read"}}
+		if token == "e" {
+			t.Setenv("HOME", t.TempDir())
+		}
+	case "←":
+		p.mode = "inspect"
+		p.inspect = &streamItem{ID: "row", Decision: "ALLOW", Tool: "Read"}
+		p.inspectScroll = 3
+	default:
+		p.merged = []streamItem{{ID: "row", Decision: "ALLOW", Tool: "Read"}}
+	}
+	return p
+}
+
+func TestLiveHelpAdvertisedKeysHaveHandlers(t *testing.T) {
+	// Every discrete help token must change Live state through onKey.
+	// Composite navigation labels and the meta "any key" line are covered
+	// elsewhere. esc/q are handled by App.onKey, not Live.onKey.
 	skipLabel := map[string]struct{}{
 		"↑↓ / PgUp PgDn": {},
 		"any key":        {},
+		"esc":            {},
+		"q":              {},
 	}
+	ctx := tui.PanelContext{Now: time.UnixMilli(1000), Rows: 20, Cols: 80}
+	unknown := runeKey("=")
 
 	for _, g := range liveHelp {
 		for _, pair := range g.Keys {
@@ -544,18 +602,43 @@ func TestLiveHelpAdvertisedKeysHaveHandlers(t *testing.T) {
 			if _, ok := skipLabel[label]; ok {
 				continue
 			}
-			if _, ok := handled[label]; ok {
-				continue
+			tokens := []string{label}
+			if strings.Contains(label, " / ") {
+				tokens = nil
+				for _, part := range strings.Split(label, "/") {
+					part = strings.TrimSpace(part)
+					if part != "" {
+						tokens = append(tokens, part)
+					}
+				}
 			}
-			for _, tok := range strings.Split(label, "/") {
-				tok = strings.TrimSpace(tok)
-				if tok == "" {
-					continue
-				}
-				if _, ok := handled[tok]; ok {
-					continue
-				}
-				t.Errorf("liveHelp advertises %q (%q) with no handler", tok, desc)
+			for _, tok := range tokens {
+				tok, desc := tok, desc
+				t.Run(tok, func(t *testing.T) {
+					msg, ok := liveHelpKeyMsg(tok)
+					if !ok {
+						t.Fatalf("help token %q (%q) has no KeyMsg mapping", tok, desc)
+					}
+
+					pKey := preparedLiveForHelpKey(t, tok)
+					before := liveSnap(pKey)
+					pKey.onKey(msg, ctx)
+					afterKey := liveSnap(pKey)
+
+					pUnk := preparedLiveForHelpKey(t, tok)
+					pUnk.onKey(unknown, ctx)
+					afterUnk := liveSnap(pUnk)
+
+					if afterUnk != before {
+						t.Fatalf("baseline unknown key %q changed state: before=%s after=%s", "=", before, afterUnk)
+					}
+					if afterKey == before {
+						t.Errorf("liveHelp advertises %q (%q) but onKey left Live state unchanged (same as unknown key)", tok, desc)
+					}
+					if afterKey == afterUnk {
+						t.Errorf("liveHelp advertises %q (%q) but onKey matched the unknown-key baseline", tok, desc)
+					}
+				})
 			}
 		}
 	}

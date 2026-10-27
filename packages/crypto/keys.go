@@ -38,6 +38,20 @@ func GenerateKeyPair() (KeyPair, error) {
 	return KeyPair{Public: pub, Private: priv}, nil
 }
 
+// HasKeyPair reports whether this machine already has a signing key pair in
+// dir. Callers use it to tell a first run without a signing identity (where an
+// unsigned document can only be legacy) from a machine that has signed before
+// (where an unsigned document has had its signature stripped).
+func HasKeyPair(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, privateKeyFile)); err != nil {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(dir, publicKeyFile)); err != nil {
+		return false
+	}
+	return true
+}
+
 // LoadOrCreateKeyPair reads the machine signing key from dir, generating and
 // persisting a new one on first use. The private key is written with 0600
 // permissions; the public key with 0644 so it can be read for verification

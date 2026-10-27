@@ -63,6 +63,8 @@ func writeShimBlock(file, block string) error {
 	var content string
 	if b, err := os.ReadFile(file); err == nil {
 		content = string(b)
+	} else if os.IsNotExist(err) && block == "" {
+		return nil
 	}
 	content = shimBlockRe.ReplaceAllString(content, "")
 	if block != "" {

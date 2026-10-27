@@ -92,6 +92,32 @@ func TestWriteShimBlockRemovesBlockWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestWriteShimBlockRemovalDoesNotCreateMissingFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "profile.ps1")
+
+	if err := writeShimBlock(file, ""); err != nil {
+		t.Fatalf("writeShimBlock(empty) error: %v", err)
+	}
+	if _, err := os.Lstat(file); !os.IsNotExist(err) {
+		t.Errorf("profile should remain absent, got Lstat error: %v", err)
+	}
+}
+
+func TestWriteShimBlockRemovalDoesNotCreateMissingDirectories(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing")
+	parent := filepath.Join(dir, "PowerShell")
+	file := filepath.Join(parent, "profile.ps1")
+
+	if err := writeShimBlock(file, ""); err != nil {
+		t.Fatalf("writeShimBlock(empty) error: %v", err)
+	}
+	for _, path := range []string{file, parent, dir} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Errorf("%q should remain absent, got Lstat error: %v", path, err)
+		}
+	}
+}
+
 func TestShimTargetsOnlyReturnsExistingFiles(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shimTargets() takes a PowerShell-specific path on windows")

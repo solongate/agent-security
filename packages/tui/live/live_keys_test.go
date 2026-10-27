@@ -520,3 +520,43 @@ func TestExportMkdirFailureSetsErrorFlash(t *testing.T) {
 		t.Errorf("action.text = %q, want it to start with the export-failed prefix", p.action.text)
 	}
 }
+
+func TestLiveHelpAdvertisedKeysHaveHandlers(t *testing.T) {
+	// Single-token Stream help keys must be backed by Live.onKey, or by the
+	// app shell for esc/q. Composite navigation labels ("↑↓ / PgUp PgDn") and
+	// the meta "any key" entry are covered by their own tests.
+	handled := map[string]struct{}{
+		"w": {}, "b": {}, "d": {}, "x": {}, "r": {},
+		"/": {}, "l": {}, "e": {},
+		"enter": {}, "space": {},
+		"esc": {}, "q": {}, // App.onKey (packages/tui/app_keys.go)
+		"?": {},
+		"←": {},
+	}
+	skipLabel := map[string]struct{}{
+		"↑↓ / PgUp PgDn": {},
+		"any key":        {},
+	}
+
+	for _, g := range liveHelp {
+		for _, pair := range g.Keys {
+			label, desc := pair[0], pair[1]
+			if _, ok := skipLabel[label]; ok {
+				continue
+			}
+			if _, ok := handled[label]; ok {
+				continue
+			}
+			for _, tok := range strings.Split(label, "/") {
+				tok = strings.TrimSpace(tok)
+				if tok == "" {
+					continue
+				}
+				if _, ok := handled[tok]; ok {
+					continue
+				}
+				t.Errorf("liveHelp advertises %q (%q) with no handler", tok, desc)
+			}
+		}
+	}
+}

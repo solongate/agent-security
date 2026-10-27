@@ -360,3 +360,51 @@ func TestLockAuditLogTimesOutOnAHeldLock(t *testing.T) {
 		t.Error("lockAuditLog() against a live, held lock returned ok=true, want false")
 	}
 }
+func TestDeleteLocalLogMatchingRemovesOnlyAcceptedLines(t *testing.T) {
+	file := localLogHome(t)
+	writeLogLines(t, file, []string{
+		`{"ts":"2024-01-01T00:00:00Z","tool":"bash"}`,
+		`{"ts":"2024-01-01T00:00:01Z","tool":"edit"}`,
+		`{not json at all`,
+	})
+
+	n := DeleteLocalLogMatching(func(raw []byte) bool {
+		return strings.Contains(string(raw), `"tool":"bash"`)
+	})
+	if n != 1 {
+		t.Errorf("DeleteLocalLogMatching() = %d, want 1", n)
+	}
+
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"tool":"bash"`) {
+		t.Errorf("file = %q, want the accepted line deleted", string(b))
+	}
+	if !strings.Contains(string(b), `"tool":"edit"`) {
+		t.Errorf("file = %q, want the rejected line kept", string(b))
+	}
+	if !strings.Contains(string(b), "{not json at all") {
+		t.Errorf("file = %q, want a line that does not parse kept", string(b))
+	}
+}
+
+func TestDeleteLocalLogMatchingNilPredicateDeletesNothing(t *testing.T) {
+	file := localLogHome(t)
+	writeLogLines(t, file, []string{
+		`{"ts":"2024-01-01T00:00:00Z","tool":"bash"}`,
+		`{"ts":"2024-01-01T00:00:01Z","tool":"edit"}`,
+	})
+
+	if n := DeleteLocalLogMatching(nil); n != 0 {
+		t.Errorf("DeleteLocalLogMatching(nil) = %d, want 0", n)
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(b), "\n") != 2 {
+		t.Errorf("file = %q, want both lines untouched", string(b))
+	}
+}

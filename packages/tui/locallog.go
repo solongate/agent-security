@@ -150,6 +150,47 @@ func DeleteLocalEntry(at int64, tool, session string) int {
 	return removed
 }
 
+// DeleteLocalLogMatching removes every local audit-log entry whose raw line the
+// predicate accepts and reports how many lines it removed. The audit view passes
+// the same filter it displays, so "delete all" cannot remove entries the user
+// filtered out of the current view. A nil predicate deletes nothing: the caller
+// must state what it is willing to destroy. Lines that do not parse are kept, so
+// malformed rows survive instead of being dropped silently.
+func DeleteLocalLogMatching(match func(raw []byte) bool) int {
+	if match == nil {
+		return 0
+	}
+	file := config.LocalLogFile()
+	b, size, ok := readLogWithSize(file)
+	if !ok {
+		return 0
+	}
+	removed := 0
+	var kept []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var j LocalLogLine
+		if json.Unmarshal([]byte(line), &j) == nil && match([]byte(line)) {
+			removed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if removed == 0 {
+		return 0
+	}
+	body := ""
+	if len(kept) > 0 {
+		body = strings.Join(kept, "\n") + "\n"
+	}
+	if !rewriteLog(file, size, []byte(body)) {
+		return 0
+	}
+	return removed
+}
+
 func ClearLocalLog() int {
 	file := config.LocalLogFile()
 	b, size, ok := readLogWithSize(file)

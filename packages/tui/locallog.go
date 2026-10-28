@@ -67,14 +67,19 @@ func TailLines(file string, maxBytes int64) []string {
 		return nil
 	}
 	split := strings.Split(string(buf), "\n")
+	// split[0] only corresponds to a leading fragment when it is non-empty.
+	// If it's empty, file[start] was itself the newline that ends the
+	// previous (out-of-window) line, so split[1:] already starts clean and
+	// nothing needs dropping.
+	dropFragment := firstIsFragment && len(split) > 0 && split[0] != ""
 	var lines []string
-	for _, l := range split {
+	for i, l := range split {
+		if i == 0 && dropFragment {
+			continue
+		}
 		if l != "" {
 			lines = append(lines, l)
 		}
-	}
-	if firstIsFragment && len(lines) > 0 {
-		lines = lines[1:]
 	}
 	return lines
 }

@@ -109,6 +109,27 @@ func (p *Live) rebuildMerged(now int64) {
 	merged := append(make([]streamItem, 0, len(p.local)), p.local...)
 	sort.SliceStable(merged, func(i, j int) bool { return merged[i].At < merged[j].At })
 	p.merged = merged
+
+	// p.notified is a dedup set, but nothing evicted from it: on a long-lived
+	// Live panel it grew one entry per event ID forever. Events arrive sorted
+	// oldest-first here, so drop the oldest keys past a generous bound — an ID
+	// older than that can never merge again (merged only holds the newest
+	// window).
+	for id := range p.notified {
+		seen := false
+		for _, e := range merged {
+			if e.ID == id {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			delete(p.notified, id)
+		}
+	}
+	if len(p.notified) > 400 {
+		p.notified = map[string]bool{}
+	}
 }
 
 var toastRank = map[string]int{"DLP hit": 0, "Call denied": 1, "Rate-limit burst": 2}

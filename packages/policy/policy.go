@@ -372,7 +372,15 @@ func pathPatternsOf(c *PathConstraintSet) []string {
 
 type ruleHit struct{ kind, value, pattern string }
 
-func ruleMatches(rule PolicyRule, args map[string]interface{}, isExec bool) *ruleHit {
+func ruleMatches(rule PolicyRule, args map[string]interface{}, isExec bool, toolName string) *ruleHit {
+	// ToolPattern scopes the rule to a tool, with the same glob semantics the
+	// Rego path generates (generateToolPatternCondition): * at either end is a
+	// wildcard, otherwise an exact tool name. Empty or "*" matches all tools.
+	// Without this gate the fallback path fired rules for tools they were
+	// never scoped to — an ALLOW rule for Read could authorize Bash (#208).
+	if rule.ToolPattern != "" && rule.ToolPattern != "*" && !MatchGlob(toolName, rule.ToolPattern) {
+		return nil
+	}
 	if pats := patternsOf(rule.FilenameConstraints); pats != nil {
 		for _, fn := range ExtractFilenames(args) {
 			for _, pat := range pats {
@@ -427,7 +435,7 @@ func FallbackEvaluate(rules []PolicyRule, mode string, args map[string]interface
 	}
 	sortRulesByPriority(denyRules)
 	for _, rule := range denyRules {
-		if m := ruleMatches(rule, args, isExec); m != nil {
+		if m := ruleMatches(rule, args, isExec, toolName); m != nil {
 			return "Blocked by policy: " + m.kind + ` "` + m.value + `" matches "` + m.pattern + `"`
 		}
 	}
@@ -450,7 +458,7 @@ func FallbackEvaluate(rules []PolicyRule, mode string, args map[string]interface
 		return "Blocked by policy: strict whitelist mode is on and no ALLOW rule applies to " + name
 	}
 	for _, rule := range allowRules {
-		if ruleMatches(rule, args, isExec) != nil {
+		if ruleMatches(rule, args, isExec, toolName) != nil {
 			return ""
 		}
 	}

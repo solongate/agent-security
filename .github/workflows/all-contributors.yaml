@@ -1,0 +1,83 @@
+# yaml for acknowledging a contributor on command, no third-party app installed
+name: all-contributors
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  add:
+    name: add contributor
+    runs-on: ubuntu-latest
+    if: >
+      contains(github.event.comment.body, '@all-contributors') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: parse the command
+        id: parse
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const allowed = new Set(['a11y','audio','blog','bug','business','code','content','data','design','doc','eventOrganizing','example','financial','fundingFinding','ideas','infra','maintenance','mentoring','platform','plugin','projectManagement','question','research','review','security','talk','test','translation','tutorial','tool','userTesting','video']);
+            const m = context.payload.comment.body.match(/@all-contributors\s+please\s+add\s+@([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,38}))\s+for\s+([a-zA-Z, ]+)/i);
+            if (!m) {
+              core.setFailed('expected: @all-contributors please add @user for type1, type2');
+              return;
+            }
+            const types = [...new Set(m[2].split(',').map(s => s.trim()).filter(Boolean))];
+            const bad = types.filter(t => !allowed.has(t));
+            if (bad.length) {
+              core.setFailed(`unknown contribution type(s): ${bad.join(', ')}`);
+              return;
+            }
+            if (!types.length) {
+              core.setFailed('no contribution type given');
+              return;
+            }
+            core.setOutput('username', m[1]);
+            core.setOutput('types', types.join(','));
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+
+      - name: add the contributor and regenerate the table
+        run: |
+          npx --yes all-contributors-cli@7.0.0 add "${{ steps.parse.outputs.username }}" "${{ steps.parse.outputs.types }}"
+          npx --yes all-contributors-cli@7.0.0 generate
+
+      - name: strip trailing newline, this repo's files carry none
+        run: |
+          for f in README.md .all-contributorsrc; do
+            printf '%s' "$(cat "$f")" > "$f.tmp" && mv "$f.tmp" "$f"
+          done
+
+      - name: open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          USERNAME: ${{ steps.parse.outputs.username }}
+          TYPES: ${{ steps.parse.outputs.types }}
+          REQUESTER: ${{ github.event.comment.user.login }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="all-contributors/add-$USERNAME"
+          git checkout -b "$branch"
+          git add README.md .all-contributorsrc
+          git commit -s -m "docs: add @$USERNAME as a contributor ($TYPES)"
+          git push origin "$branch" --force
+          gh pr create --title "docs: add @$USERNAME as a contributor ($TYPES)" \
+            --body "Requested by @$REQUESTER in $COMMENT_URL." \
+            --base main --head "$branch"

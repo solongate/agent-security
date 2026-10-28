@@ -133,7 +133,8 @@ solongate range long             tagged releases only, reliable (the default)
 
 ## Contributors ✨
 
-Thanks goes to these wonderful people:
+Thanks to these wonderful people. Without their help, this project would not
+have made it this far.
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->

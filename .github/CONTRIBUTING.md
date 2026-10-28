@@ -2,6 +2,11 @@
 
 Thanks for being here. Read this once before your first pull request please.
 
+Go 1.26. There is one implementation of the guard, in Go. The one JavaScript
+file in the tree, `packages/hooks/opencode-plugin.mjs`, is a thin protocol
+shim with no policy logic of its own: it spawns the Go binary and translates
+OpenCode's plugin API to SolonGate's hook protocol, nothing more.
+
 ## Setting up
 
 ```bash
@@ -54,6 +59,15 @@ For macOS:
 ```
 
 For Windows, none of these run. Only the unit tests above do.
+
+Two things check the decision path, and neither is a test suite. Ten
+end-to-end cases drive the real guard binary through protected paths,
+require-sandbox, agent scoping, and the `.last-deny` flag, asserting the exit
+code the guard must produce; twenty-five more drive it through every layer
+that refuses something. That means DLP in all four modes and on file content,
+the rate limit, tamper protection, the four policy constraint kinds, whitelist
+mode. Alongside them, Go's own unit tests cover the decisions a pure function
+can answer.
 
 These scripts don't cover everything, so also try your change by hand against
 a real agent, and say in the pull request which client you used and whether

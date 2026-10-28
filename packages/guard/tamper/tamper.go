@@ -17,6 +17,7 @@ var GuardToolsExec = map[string]bool{
 	"bash": true, "powershell": true, "shell": true, "exec": true, "run": true,
 	"eval": true, "cmd": true,
 	"sh": true, "zsh": true, "dash": true, "terminal": true,
+	"monitor": true, "worktree": true, "enterworktree": true, "exitworktree": true,
 }
 
 const (

@@ -127,8 +127,22 @@ func (p *Live) rebuildMerged(now int64) {
 			delete(p.notified, id)
 		}
 	}
+	// Defensive cap: the eviction above already keeps p.notified within the
+	// merged window, so this is normally a no-op. If it ever does trip, trim
+	// to the newest 400 IDs like every other bound in this file, rather than
+	// wiping the set and re-toasting everything still in that window.
 	if len(p.notified) > 400 {
-		p.notified = map[string]bool{}
+		start := 0
+		if len(merged) > 400 {
+			start = len(merged) - 400
+		}
+		kept := make(map[string]bool, 400)
+		for _, e := range merged[start:] {
+			if p.notified[e.ID] {
+				kept[e.ID] = true
+			}
+		}
+		p.notified = kept
 	}
 }
 

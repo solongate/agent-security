@@ -52,6 +52,16 @@ func TailLines(file string, maxBytes int64) []string {
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		return nil
 	}
+	// Read one byte before start to know whether the window opens exactly
+	// after a newline: then the first chunk is a complete line, not a
+	// fragment, and it must not be dropped (issue #206).
+	var firstIsFragment bool
+	if start > 0 {
+		probe := make([]byte, 1)
+		if _, err := f.ReadAt(probe, start-1); err == nil && probe[0] != '\n' {
+			firstIsFragment = true
+		}
+	}
 	buf, err := io.ReadAll(f)
 	if err != nil {
 		return nil
@@ -63,7 +73,7 @@ func TailLines(file string, maxBytes int64) []string {
 			lines = append(lines, l)
 		}
 	}
-	if start > 0 && len(split) > 0 && split[0] != "" {
+	if firstIsFragment && len(lines) > 0 {
 		lines = lines[1:]
 	}
 	return lines

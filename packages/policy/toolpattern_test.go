@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 the SolonGate contributors
+
 package policy
 
 import (
@@ -68,5 +71,26 @@ func TestToolPatternGlobSemantics(t *testing.T) {
 	}
 	if got := FallbackEvaluate(rules, "denylist", args, "WriteFiles"); got != "" {
 		t.Errorf("*Write glob should not match WriteFiles: %q", got)
+	}
+}
+
+// PR #209 made the fallback path honor ToolPattern via MatchGlob, which folds
+// case. The Rego path (generateToolPatternCondition) compares input.tool_name
+// case-sensitively, so a mixed-case pattern must not match a differently-cased
+// tool name in the fallback path either, or the two evaluators disagree.
+func TestToolPatternIsCaseSensitive(t *testing.T) {
+	rules := []PolicyRule{{
+		ID:                 "exact-bash",
+		Effect:             "DENY",
+		ToolPattern:        "bash",
+		CommandConstraints: listPtr("rm*"),
+	}}
+	args := map[string]interface{}{"command": "rm -rf /"}
+
+	if got := FallbackEvaluate(rules, "denylist", args, "Bash"); got != "" {
+		t.Errorf("ToolPattern %q should not match differently-cased tool name %q: %q", "bash", "Bash", got)
+	}
+	if got := FallbackEvaluate(rules, "denylist", args, "bash"); got == "" {
+		t.Error("ToolPattern \"bash\" should match exact tool name \"bash\"")
 	}
 }

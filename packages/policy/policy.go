@@ -210,6 +210,26 @@ func opaReason(reason, fallback string) string {
 	return "[SolonGate OPA] " + reason
 }
 
+// matchToolPattern mirrors generateToolPatternCondition's case-sensitive
+// semantics: a single leading and/or trailing "*" is a wildcard, anything
+// else must match input.tool_name exactly. Tool names are case-sensitive
+// identifiers (Bash, Read, Edit), unlike the filename/url/command patterns
+// MatchGlob is used for, so this does not fold case.
+func matchToolPattern(toolName, pattern string) bool {
+	startsWithStar := strings.HasPrefix(pattern, "*")
+	endsWithStar := strings.HasSuffix(pattern, "*")
+
+	switch {
+	case startsWithStar && endsWithStar:
+		return strings.Contains(toolName, pattern[1:len(pattern)-1])
+	case endsWithStar:
+		return strings.HasPrefix(toolName, pattern[:len(pattern)-1])
+	case startsWithStar:
+		return strings.HasSuffix(toolName, pattern[1:])
+	}
+	return toolName == pattern
+}
+
 func MatchGlob(str, pattern string) bool {
 	if pattern == "*" {
 		return true
@@ -378,7 +398,7 @@ func ruleMatches(rule PolicyRule, args map[string]interface{}, isExec bool, tool
 	// wildcard, otherwise an exact tool name. Empty or "*" matches all tools.
 	// Without this gate the fallback path fired rules for tools they were
 	// never scoped to — an ALLOW rule for Read could authorize Bash (#208).
-	if rule.ToolPattern != "" && rule.ToolPattern != "*" && !MatchGlob(toolName, rule.ToolPattern) {
+	if rule.ToolPattern != "" && rule.ToolPattern != "*" && !matchToolPattern(toolName, rule.ToolPattern) {
 		return nil
 	}
 	if pats := patternsOf(rule.FilenameConstraints); pats != nil {

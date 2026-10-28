@@ -265,7 +265,7 @@ func printHelp() {
 	cmd("policy protect require-sandbox on|off", "refuse calls from agents not started by `solongate run`")
 	cmd("run -- <agent>", "start an agent inside OS-level confinement")
 	cmd("run --explain", "what this machine's confinement can and cannot do")
-	cmd("sandbox -- <agent>", "start an agent in a closed box: the project, and nothing else")
+	cmd("sandbox <id> <agent>", "start an agent in a closed box: the project, and nothing else")
 	cmd("sandbox --explain [id]", "everything that is inside the box")
 
 	head("Rate limits")

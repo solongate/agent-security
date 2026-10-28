@@ -1,0 +1,107 @@
+{
+  "projectName": "agent-security",
+  "projectOwner": "solongate",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "commitConvention": "none",
+  "contributorsPerLine": 7,
+  "contributorsSortAlphabetically": false,
+  "skipCi": true,
+  "contributors": [
+    {
+      "login": "codeyevsky",
+      "name": "codeyevsky",
+      "avatar_url": "https://avatars.githubusercontent.com/u/175152758?v=4",
+      "profile": "https://github.com/codeyevsky",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "qarademir",
+      "name": "Emirhan Demir",
+      "avatar_url": "https://avatars.githubusercontent.com/u/261046371?v=4",
+      "profile": "https://github.com/qarademir",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "tnalbant",
+      "name": "tnalbant",
+      "avatar_url": "https://avatars.githubusercontent.com/u/182372382?v=4",
+      "profile": "https://github.com/tnalbant",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "sahilkhedkar",
+      "name": "Sahil",
+      "avatar_url": "https://avatars.githubusercontent.com/u/178520446?v=4",
+      "profile": "https://github.com/sahilkhedkar",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "LetMeSleep8h",
+      "name": "Sleep8h",
+      "avatar_url": "https://avatars.githubusercontent.com/u/183817470?v=4",
+      "profile": "https://github.com/LetMeSleep8h",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Nelmad",
+      "name": "Nikita Dereglazov",
+      "avatar_url": "https://avatars.githubusercontent.com/u/17722412?v=4",
+      "profile": "https://github.com/Nelmad",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Oscar-Williams",
+      "name": "Oscar",
+      "avatar_url": "https://avatars.githubusercontent.com/u/319719771?v=4",
+      "profile": "https://github.com/Oscar-Williams",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "tianxingjian2406",
+      "name": "Liu XingJian",
+      "avatar_url": "https://avatars.githubusercontent.com/u/247943876?v=4",
+      "profile": "https://github.com/tianxingjian2406",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "webgo-oss",
+      "name": "Hamza",
+      "avatar_url": "https://avatars.githubusercontent.com/u/210721517?v=4",
+      "profile": "https://github.com/webgo-oss",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "bfs2021",
+      "name": "zgy",
+      "avatar_url": "https://avatars.githubusercontent.com/u/101915083?v=4",
+      "profile": "https://github.com/bfs2021",
+      "contributions": [
+        "code"
+      ]
+    }
+  ]
+}

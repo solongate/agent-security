@@ -40,11 +40,6 @@
   </tr>
 </table>
 
-<p align="center">
-  <a href=".github/CONTRIBUTING.md"><b>Contributing</b></a> ·
-  <a href=".github/SECURITY.md"><b>Security</b></a>
-</p>
-
 ---
 
 **SolonGate Agent Security** is SolonGate's open source, local first security
@@ -98,29 +93,25 @@ and the agent says so rather than quietly working around it.
 ## The CLI
 
 ```
-solongate              the TUI: policies, audit, settings
-solongate policy       list, create and edit the policy
-solongate dlp          secret detection
-solongate ratelimit    the rate limit
-
-solongate policy protect <path>   lock a path, and say what the lock is worth
-solongate policy protect list     what is actually holding each path, read from disk
-
-solongate sandbox list            the boxes this machine has, and their ids
-solongate sandbox 001 claude      start the agent inside box 001
-solongate sandbox --explain 001   everything that is in that box
-
-solongate run claude              start an agent with protected paths out of reach
-
-solongate audit        browse the audit trail
-solongate watch        live tail tool calls
-solongate trace        what the guard saw in this directory
-solongate doctor       health check
-solongate repair       restore the guard, hooks and settings
-solongate update       pull the newest version and reinstall
-solongate range        how far an update is allowed to move
-solongate range short  every commit on the branch
-solongate range long   tagged releases only, reliable (the default)
+solongate                        the TUI: policies, audit, settings
+solongate policy                 list, create and edit the policy
+solongate dlp                    secret detection
+solongate ratelimit              the rate limit
+solongate policy protect <path>  lock a path, and say what the lock is worth
+solongate policy protect list    what is actually holding each path, read from disk
+solongate sandbox list           the boxes this machine has, and their ids
+solongate sandbox 001 claude     start the agent inside box 001
+solongate sandbox --explain 001  everything that is in that box
+solongate run claude             start an agent with protected paths out of reach
+solongate audit                  browse the audit trail
+solongate watch                  live tail tool calls
+solongate trace                  what the guard saw in this directory
+solongate doctor                 health check
+solongate repair                 restore the guard, hooks and settings
+solongate update                 pull the newest version and reinstall
+solongate range                  how far an update is allowed to move
+solongate range short            every commit on the branch
+solongate range long             tagged releases only, reliable (the default)
 ```
 
 ## Supported agents
@@ -140,29 +131,31 @@ solongate range long   tagged releases only, reliable (the default)
   </tr>
 </table>
 
-## Contributing
+## Contributors ✨
 
-Go 1.26.
+Thanks goes to these wonderful people:
 
-There is one implementation of the guard, in Go. The one JavaScript file left
-in the tree, `packages/hooks/opencode-plugin.mjs`, is a thin protocol shim
-with no policy logic of its own: it spawns the Go binary and translates
-OpenCode's plugin API to SolonGate's hook protocol, nothing more.
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tr>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/codeyevsky"><img src="https://avatars.githubusercontent.com/u/175152758?v=4" width="100px;" alt="codeyevsky"/><br /><sub><b>codeyevsky</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=codeyevsky" title="Code">💻</a></td>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/qarademir"><img src="https://avatars.githubusercontent.com/u/261046371?v=4" width="100px;" alt="Emirhan Demir"/><br /><sub><b>Emirhan Demir</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=qarademir" title="Code">💻</a></td>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/tnalbant"><img src="https://avatars.githubusercontent.com/u/182372382?v=4" width="100px;" alt="tnalbant"/><br /><sub><b>tnalbant</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=tnalbant" title="Code">💻</a></td>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/sahilkhedkar"><img src="https://avatars.githubusercontent.com/u/178520446?v=4" width="100px;" alt="Sahil"/><br /><sub><b>Sahil</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=sahilkhedkar" title="Code">💻</a></td>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/LetMeSleep8h"><img src="https://avatars.githubusercontent.com/u/183817470?v=4" width="100px;" alt="Sleep8h"/><br /><sub><b>Sleep8h</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=LetMeSleep8h" title="Code">💻</a></td>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/Nelmad"><img src="https://avatars.githubusercontent.com/u/17722412?v=4" width="100px;" alt="Nikita Dereglazov"/><br /><sub><b>Nikita Dereglazov</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Nelmad" title="Code">💻</a></td>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/Oscar-Williams"><img src="https://avatars.githubusercontent.com/u/319719771?v=4" width="100px;" alt="Oscar"/><br /><sub><b>Oscar</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Oscar-Williams" title="Code">💻</a></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/tianxingjian2406"><img src="https://avatars.githubusercontent.com/u/247943876?v=4" width="100px;" alt="Liu XingJian"/><br /><sub><b>Liu XingJian</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=tianxingjian2406" title="Code">💻</a></td>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/webgo-oss"><img src="https://avatars.githubusercontent.com/u/210721517?v=4" width="100px;" alt="Hamza"/><br /><sub><b>Hamza</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=webgo-oss" title="Code">💻</a></td>
+    <td align="center" valign="top" width="14%"><a href="https://github.com/bfs2021"><img src="https://avatars.githubusercontent.com/u/101915083?v=4" width="100px;" alt="zgy"/><br /><sub><b>zgy</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=bfs2021" title="Code">💻</a></td>
+  </tr>
+</table>
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+<!-- ALL-CONTRIBUTORS-LIST:END -->
 
-Two things check the decision path, and neither is a test suite. Ten
-end-to-end cases drive the real guard binary through protected paths,
-require-sandbox, agent scoping, and the `.last-deny` flag, asserting the exit
-code the guard must produce; twenty-five more drive it through every layer
-that refuses something. That means DLP in all four modes and on file content,
-the rate limit, tamper protection, the four policy constraint kinds, whitelist
-mode.
-Alongside them, Go's own unit tests cover the decisions a pure function can
-answer. What is left is what you ran it against by hand, and that is most of
-it. [CONTRIBUTING.md](.github/CONTRIBUTING.md) is the rest.
-
-Reporting a vulnerability: [SECURITY.md](.github/SECURITY.md), privately, never a public
-issue. [CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md) applies everywhere.
-
-## Licence
-
-Apache License 2.0. See [LICENSE](LICENSE).
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome.

@@ -5,8 +5,10 @@ package client
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -301,6 +303,45 @@ func TestReadLogWithNoFileReturnsNil(t *testing.T) {
 	newHome(t)
 	if rows := readLog(); rows != nil {
 		t.Errorf("expected nil rows with no log file, got %v", rows)
+	}
+}
+
+// Issue #224: when the 16MB cut lands right after a newline it already
+// starts a complete entry, and skipping on to the next newline dropped it.
+func TestReadLogKeepsTheFirstEntryWhenTheCutIsOnALineBoundary(t *testing.T) {
+	newHome(t)
+	const width = 128 // divides maxLogBytes, so the cut lands on a line start
+	const before = 2
+	n := maxLogBytes/width + before
+
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		line := fmt.Sprintf(`{"ts":"2026-01-01T00:00:00Z","tool":"T%07d","decision":"ALLOW"}`, i)
+		line += strings.Repeat(" ", width-1-len(line))
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	if b.Len() != n*width {
+		t.Fatalf("test setup: %d bytes, want %d", b.Len(), n*width)
+	}
+	file := localLogFile()
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := readLog()
+	if want := maxLogBytes / width; len(rows) != want {
+		t.Fatalf("got %d rows, want %d (every entry inside the 16MB window)", len(rows), want)
+	}
+	oldest := rows[len(rows)-1]
+	if want := fmt.Sprintf("T%07d", before); oldest.Tool != want {
+		t.Errorf("oldest kept row is %q, want %q", oldest.Tool, want)
+	}
+	if want := fmt.Sprint(before + 1); oldest.id != want {
+		t.Errorf("oldest kept row's id = %q, want %q (its 1-based line number)", oldest.id, want)
 	}
 }
 

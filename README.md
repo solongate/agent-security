@@ -58,6 +58,10 @@ file, and the guard makes no network calls. No account, no telemetry.
 
 ## Install and use
 
+Requires `git` to clone this repo. Go 1.26+ is needed too; `install.sh`
+downloads the official go.dev build for you if it is not already there,
+regardless of OS.
+
 ```bash
 git clone https://github.com/solongate/agent-security.git
 cd agent-security

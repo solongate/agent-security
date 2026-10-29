@@ -93,7 +93,7 @@ func GuessPermission(tool string) string {
 	switch {
 	case n == "apply_patch" || n == "applypatch":
 		return "WRITE"
-	case has("exec", "shell", "run", "eval") || n == "bash":
+	case has("exec", "shell", "run", "eval", "monitor", "worktree", "terminal") || n == "bash" || n == "sh" || n == "zsh":
 		return "EXECUTE"
 	case has("fetch", "http", "request", "curl", "network", "download", "upload") || n == "websearch":
 		return "NETWORK"

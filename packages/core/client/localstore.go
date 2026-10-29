@@ -104,7 +104,8 @@ func readStore() (stored, error) {
 	}
 	if signed && !valid {
 		return stored{}, fmt.Errorf("%s failed signature verification: refusing to trust a policy file "+
-			"that may have been modified outside SolonGate", PolicyPath())
+			"that may have been modified outside SolonGate. "+
+			"Fix: run `solongate policy create <name>` to make a new signed policy, do not hand edit or restore it from a backup", PolicyPath())
 	}
 
 	var probe struct {

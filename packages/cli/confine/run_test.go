@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -183,25 +184,38 @@ func TestExplainSandboxReturnsZero(t *testing.T) {
 	}
 }
 
-func TestIndexOf(t *testing.T) {
+func TestAgentArgv(t *testing.T) {
 	cases := []struct {
 		name string
-		ss   []string
-		want string
-		idx  int
+		argv []string
+		want []string
 	}{
-		{"found first", []string{"a", "b", "c"}, "a", 0},
-		{"found middle", []string{"a", "b", "c"}, "b", 1},
-		{"found last", []string{"a", "b", "c"}, "c", 2},
-		{"not found", []string{"a", "b", "c"}, "z", -1},
-		{"empty slice", nil, "a", -1},
+		{"no separator", []string{"claude"}, []string{"claude"}},
+		{"leading separator is dropped", []string{"--", "claude", "--resume"}, []string{"claude", "--resume"}},
+		{"agent's own separator is passed through", []string{"mytool", "arg1", "--", "arg2", "arg3"}, []string{"mytool", "arg1", "--", "arg2", "arg3"}},
+		{"leading separator before an agent separator", []string{"--", "git", "log", "--", "path"}, []string{"git", "log", "--", "path"}},
+		{"separator only", []string{"--"}, []string{}},
+		{"empty", []string{}, []string{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := indexOf(tc.ss, tc.want); got != tc.idx {
-				t.Errorf("indexOf(%v, %q) = %d, want %d", tc.ss, tc.want, got, tc.idx)
+			if got := agentArgv(tc.argv); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("agentArgv(%v) = %v, want %v", tc.argv, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRunAgentSeparatorOnlyShowsUsage(t *testing.T) {
+	var code int
+	out := captureStderr(t, func() {
+		code = RunAgent([]string{"--"})
+	})
+	if code != 1 {
+		t.Errorf("RunAgent([\"--\"]) = %d, want 1", code)
+	}
+	if !strings.Contains(out, "solongate run") {
+		t.Errorf("RunAgent([\"--\"]) output=%q, want usage mentioning solongate run", out)
 	}
 }
 

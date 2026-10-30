@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/solongate/agent-security/packages/policy"
@@ -124,6 +123,12 @@ func EgressSecretCheck(args map[string]interface{}, sec *shared.Security, cwd st
 	return ""
 }
 
+type redactSpan struct {
+	text     string
+	redacted bool
+	label    string
+}
+
 func RedactText(text string, cfg *shared.DLPConfig) string {
 	if cfg == nil || text == "" {
 		return text
@@ -133,23 +138,47 @@ func RedactText(text string, cfg *shared.DLPConfig) string {
 		enabled[n] = true
 	}
 
-	var labels []string
-	stash := func(label string) string {
-		labels = append(labels, label)
-		return "\x00" + strconv.Itoa(len(labels)-1) + "\x00"
-	}
+	spans := []redactSpan{{text: text}}
 
-	out := text
+	applyPattern := func(name string, re *regexp.Regexp) {
+		var next []redactSpan
+		for _, s := range spans {
+			if s.redacted || s.text == "" {
+				next = append(next, s)
+				continue
+			}
+
+			locs := re.FindAllStringIndex(s.text, -1)
+			if len(locs) == 0 {
+				next = append(next, s)
+				continue
+			}
+
+			last := 0
+			for _, loc := range locs {
+				start, end := loc[0], loc[1]
+				if start > last {
+					next = append(next, redactSpan{text: s.text[last:start]})
+				}
+				next = append(next, redactSpan{
+					redacted: true,
+					label:    "[REDACTED:" + name + "]",
+				})
+				last = end
+			}
+			if last < len(s.text) {
+				next = append(next, redactSpan{text: s.text[last:]})
+			}
+		}
+		spans = next
+	}
 
 	for i := 0; i < shared.DLPPatternCount(); i++ {
 		name, re := shared.DLPPatternAt(i)
 		if !enabled[name] {
 			continue
 		}
-
-		out = re.ReplaceAllStringFunc(out, func(string) string {
-			return stash("[REDACTED:" + name + "]")
-		})
+		applyPattern(name, re)
 	}
 	for _, c := range cfg.Custom {
 		re, err := shared.GlobToRegexp(c.Re)
@@ -160,18 +189,18 @@ func RedactText(text string, cfg *shared.DLPConfig) string {
 		if name == "" {
 			name = "custom"
 		}
-		out = re.ReplaceAllStringFunc(out, func(string) string {
-			return stash("[REDACTED:" + name + "]")
-		})
+		applyPattern(name, re)
 	}
 
-	return dlpStashRe.ReplaceAllStringFunc(out, func(m string) string {
-		i, err := strconv.Atoi(strings.Trim(m, "\x00"))
-		if err != nil || i < 0 || i >= len(labels) {
-			return ""
+	var b strings.Builder
+	for _, s := range spans {
+		if s.redacted {
+			b.WriteString(s.label)
+		} else {
+			b.WriteString(dlpStashRe.ReplaceAllString(s.text, ""))
 		}
-		return labels[i]
-	})
+	}
+	return b.String()
 }
 
 var dlpStashRe = regexp.MustCompile("\x00\\d+\x00")

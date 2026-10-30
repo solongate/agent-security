@@ -159,6 +159,7 @@ have made it this far.
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/webgo-oss"><img src="https://avatars.githubusercontent.com/u/210721517?v=4&size=100" width="100px" height="100px" alt="Hamza"/><br /><sub><b>Hamza</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=webgo-oss" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/bfs2021"><img src="https://avatars.githubusercontent.com/u/101915083?v=4&size=100" width="100px" height="100px" alt="zgy"/><br /><sub><b>zgy</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=bfs2021" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/NopeCharon"><img src="https://avatars.githubusercontent.com/u/115794254?v=4&size=100" width="100px" height="100px" alt="Asish"/><br /><sub><b>Asish</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=NopeCharon" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/slopgobblercobbler"><img src="https://avatars.githubusercontent.com/u/336610228?v=4&size=100" width="100px" height="100px" alt="Stephen Cork"/><br /><sub><b>Stephen Cork</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=slopgobblercobbler" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

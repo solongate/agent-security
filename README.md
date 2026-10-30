@@ -144,23 +144,28 @@ have made it this far.
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
 <table>
-  <tr>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/codeyevsky"><img src="https://avatars.githubusercontent.com/u/175152758?v=4" width="100px;" alt="codeyevsky"/><br /><sub><b>codeyevsky</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=codeyevsky" title="Code">💻</a></td>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/qarademir"><img src="https://avatars.githubusercontent.com/u/261046371?v=4" width="100px;" alt="Emirhan Demir"/><br /><sub><b>Emirhan Demir</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=qarademir" title="Code">💻</a></td>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/tnalbant"><img src="https://avatars.githubusercontent.com/u/182372382?v=4" width="100px;" alt="tnalbant"/><br /><sub><b>tnalbant</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=tnalbant" title="Code">💻</a></td>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/sahilkhedkar"><img src="https://avatars.githubusercontent.com/u/178520446?v=4" width="100px;" alt="Sahil"/><br /><sub><b>Sahil</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=sahilkhedkar" title="Code">💻</a></td>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/LetMeSleep8h"><img src="https://avatars.githubusercontent.com/u/183817470?v=4" width="100px;" alt="Sleep8h"/><br /><sub><b>Sleep8h</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=LetMeSleep8h" title="Code">💻</a></td>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/Nelmad"><img src="https://avatars.githubusercontent.com/u/17722412?v=4" width="100px;" alt="Nikita Dereglazov"/><br /><sub><b>Nikita Dereglazov</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Nelmad" title="Code">💻</a></td>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/Oscar-Williams"><img src="https://avatars.githubusercontent.com/u/319719771?v=4" width="100px;" alt="Oscar"/><br /><sub><b>Oscar</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Oscar-Williams" title="Code">💻</a></td>
-  </tr>
-  <tr>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/tianxingjian2406"><img src="https://avatars.githubusercontent.com/u/247943876?v=4" width="100px;" alt="Liu XingJian"/><br /><sub><b>Liu XingJian</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=tianxingjian2406" title="Code">💻</a></td>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/webgo-oss"><img src="https://avatars.githubusercontent.com/u/210721517?v=4" width="100px;" alt="Hamza"/><br /><sub><b>Hamza</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=webgo-oss" title="Code">💻</a></td>
-    <td align="center" valign="top" width="14%"><a href="https://github.com/bfs2021"><img src="https://avatars.githubusercontent.com/u/101915083?v=4" width="100px;" alt="zgy"/><br /><sub><b>zgy</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=bfs2021" title="Code">💻</a></td>
-  </tr>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/codeyevsky"><img src="https://avatars.githubusercontent.com/u/175152758?v=4&size=100" width="100px" height="100px" alt="codeyevsky"/><br /><sub><b>codeyevsky</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=codeyevsky" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/qarademir"><img src="https://avatars.githubusercontent.com/u/261046371?v=4&size=100" width="100px" height="100px" alt="Emirhan Demir"/><br /><sub><b>Emirhan Demir</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=qarademir" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/tnalbant"><img src="https://avatars.githubusercontent.com/u/182372382?v=4&size=100" width="100px" height="100px" alt="tnalbant"/><br /><sub><b>tnalbant</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=tnalbant" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/sahilkhedkar"><img src="https://avatars.githubusercontent.com/u/178520446?v=4&size=100" width="100px" height="100px" alt="Sahil"/><br /><sub><b>Sahil</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=sahilkhedkar" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/LetMeSleep8h"><img src="https://avatars.githubusercontent.com/u/183817470?v=4&size=100" width="100px" height="100px" alt="Sleep8h"/><br /><sub><b>Sleep8h</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=LetMeSleep8h" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Nelmad"><img src="https://avatars.githubusercontent.com/u/17722412?v=4&size=100" width="100px" height="100px" alt="Nikita Dereglazov"/><br /><sub><b>Nikita Dereglazov</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Nelmad" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Oscar-Williams"><img src="https://avatars.githubusercontent.com/u/319719771?v=4&size=100" width="100px" height="100px" alt="Oscar"/><br /><sub><b>Oscar</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Oscar-Williams" title="Code">💻</a></td>
+    </tr>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/tianxingjian2406"><img src="https://avatars.githubusercontent.com/u/247943876?v=4&size=100" width="100px" height="100px" alt="Liu XingJian"/><br /><sub><b>Liu XingJian</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=tianxingjian2406" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/webgo-oss"><img src="https://avatars.githubusercontent.com/u/210721517?v=4&size=100" width="100px" height="100px" alt="Hamza"/><br /><sub><b>Hamza</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=webgo-oss" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/bfs2021"><img src="https://avatars.githubusercontent.com/u/101915083?v=4&size=100" width="100px" height="100px" alt="zgy"/><br /><sub><b>zgy</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=bfs2021" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/NopeCharon"><img src="https://avatars.githubusercontent.com/u/115794254?v=4&size=100" width="100px" height="100px" alt="Asish"/><br /><sub><b>Asish</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=NopeCharon" title="Code">💻</a></td>
+    </tr>
+  </tbody>
 </table>
+
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->
+
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome.

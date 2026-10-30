@@ -55,7 +55,10 @@ var tamperProtectedAbs = []string{
 	tamperHome + tamperSG + "/hooks",
 	tamperHome + tamperSG + "/policy.json",
 	tamperHome + tamperSG + "/.policy-cache.json",
-	tamperHome + tamperSG + "/crypto/machine.pub",
+	// The whole key directory, not just machine.pub: machine.key is the
+	// private key that signs policy.json, and an agent holding it can sign a
+	// forged policy that VerifyDocument accepts.
+	tamperHome + tamperSG + "/crypto",
 
 	tamperHome + tamperSG + "/cloud-guard.json",
 
@@ -74,7 +77,7 @@ var tamperProtectedGlobs = []string{
 	"**" + tamperSG + "/policy.json",
 	"**" + tamperSG + "/.policy-cache.json",
 	"**" + tamperSG + "/.policy-cache-*.json",
-	"**" + tamperSG + "/crypto/machine.pub",
+	"**" + tamperSG + "/crypto/**",
 	"**" + tamperSG + "/cloud-guard.json",
 
 	"**" + tamperSG + "/.ratelimit-*",
@@ -104,6 +107,8 @@ var tamperBasenames = []string{
 
 	"accounts.json",
 	"solongate.db", "solongate.exe",
+
+	"machine.key", "machine.pub",
 }
 
 var tamperPathFields = map[string]bool{
@@ -124,6 +129,7 @@ var (
 	reTamperSGHooks    = regexp.MustCompile(`/\.solongate/hooks(/|$)`)
 
 	reTamperSGBin    = regexp.MustCompile(`/\.solongate/bin(/|$)`)
+	reTamperSGCrypto = regexp.MustCompile(`/\.solongate/crypto(/|$)`)
 	reTamperCXHooks  = regexp.MustCompile(`/\.codex/(hooks\.json|config\.toml)$`)
 	reTamperAGYHooks = regexp.MustCompile(`/\.gemini/config/hooks\.json$`)
 	reTamperOCPlugin = regexp.MustCompile(`/\.config/opencode/plugins/solongate\b`)
@@ -131,6 +137,7 @@ var (
 	reTamperCmdCCSettings = regexp.MustCompile(`\.claude[\\/]+settings(\.local)?\.json`)
 	reTamperCmdSGHooks    = regexp.MustCompile(`\.solongate[\\/]+hooks`)
 	reTamperCmdSGBin      = regexp.MustCompile(`\.solongate[\\/]+bin`)
+	reTamperCmdSGCrypto   = regexp.MustCompile(`\.solongate[\\/]+crypto`)
 	reTamperCmdCXHooks    = regexp.MustCompile(`\.codex[\\/]+(hooks\.json|config\.toml)`)
 	reTamperCmdAGYHooks   = regexp.MustCompile(`\.gemini[\\/]+config[\\/]+hooks\.json`)
 	reTamperCmdOCPlugin   = regexp.MustCompile(`opencode[\\/]+plugins[\\/]+solongate`)
@@ -173,6 +180,9 @@ func isProtectedPath(p string) string {
 	if reTamperSGBin.MatchString(np) {
 		return "solongate-bin"
 	}
+	if reTamperSGCrypto.MatchString(np) {
+		return "solongate-crypto"
+	}
 	if reTamperCXHooks.MatchString(np) {
 		return "codex-hooks"
 	}
@@ -212,6 +222,9 @@ func commandTargetsProtected(cmd string) string {
 	}
 	if reTamperCmdSGBin.MatchString(c) {
 		return "solongate-bin"
+	}
+	if reTamperCmdSGCrypto.MatchString(c) {
+		return "solongate-crypto"
 	}
 	if reTamperCmdCXHooks.MatchString(c) {
 		return "codex-hooks"

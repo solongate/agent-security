@@ -52,13 +52,13 @@ func TestProtectedReason(t *testing.T) {
 
 func TestUserProtectedCheckWithNoProtectedPaths(t *testing.T) {
 	args := map[string]interface{}{"file_path": "/anything"}
-	if got := UserProtectedCheck("Read", args, nil); got != "" {
+	if got := UserProtectedCheck("Read", args, nil, ""); got != "" {
 		t.Errorf("a nil security gave %q, want empty", got)
 	}
-	if got := UserProtectedCheck("Read", args, &shared.Security{}); got != "" {
+	if got := UserProtectedCheck("Read", args, &shared.Security{}, ""); got != "" {
 		t.Errorf("no protected paths at all gave %q, want empty", got)
 	}
-	if got := UserProtectedCheck("Read", args, &shared.Security{ProtectedPaths: []string{"", "   "}}); got != "" {
+	if got := UserProtectedCheck("Read", args, &shared.Security{ProtectedPaths: []string{"", "   "}}, ""); got != "" {
 		t.Errorf("only blank protected paths gave %q, want empty", got)
 	}
 }
@@ -68,7 +68,7 @@ func TestUserProtectedCheckBlocksAnExactTargetPath(t *testing.T) {
 	protected := filepath.Join(dir, "secret.env")
 	sec := &shared.Security{ProtectedPaths: []string{protected}}
 
-	got := UserProtectedCheck("Read", map[string]interface{}{"file_path": protected}, sec)
+	got := UserProtectedCheck("Read", map[string]interface{}{"file_path": protected}, sec, "")
 	if got == "" {
 		t.Fatal("reading a protected path was allowed")
 	}
@@ -82,7 +82,7 @@ func TestUserProtectedCheckBlocksAPathNestedUnderAProtectedDirectory(t *testing.
 	sec := &shared.Security{ProtectedPaths: []string{dir}}
 
 	nested := filepath.Join(dir, "sub", "file.txt")
-	got := UserProtectedCheck("Write", map[string]interface{}{"file_path": nested}, sec)
+	got := UserProtectedCheck("Write", map[string]interface{}{"file_path": nested}, sec, "")
 	if got == "" {
 		t.Fatal("writing under a protected directory was allowed")
 	}
@@ -96,7 +96,7 @@ func TestUserProtectedCheckLetsUnrelatedPathsThrough(t *testing.T) {
 	sec := &shared.Security{ProtectedPaths: []string{filepath.Join(dir, "protected")}}
 
 	other := filepath.Join(dir, "other", "file.txt")
-	if got := UserProtectedCheck("Read", map[string]interface{}{"file_path": other}, sec); got != "" {
+	if got := UserProtectedCheck("Read", map[string]interface{}{"file_path": other}, sec, ""); got != "" {
 		t.Errorf("an unrelated path was refused: %q", got)
 	}
 }
@@ -108,7 +108,7 @@ func TestUserProtectedCheckCatchesPathsOutsideItsOwnKnownFields(t *testing.T) {
 	protected := filepath.Join(dir, "secret.env")
 	sec := &shared.Security{ProtectedPaths: []string{protected}}
 
-	got := UserProtectedCheck("SomeCustomTool", map[string]interface{}{"target": protected}, sec)
+	got := UserProtectedCheck("SomeCustomTool", map[string]interface{}{"target": protected}, sec, "")
 	if got == "" {
 		t.Fatal("a protected path reached only through the generic path extractor was allowed")
 	}
@@ -120,7 +120,7 @@ func TestUserProtectedCheckCatchesProtectedPathsInShellCommands(t *testing.T) {
 	sec := &shared.Security{ProtectedPaths: []string{protected}}
 
 	cmd := "rm -rf " + protected
-	got := UserProtectedCheck("Bash", map[string]interface{}{"command": cmd}, sec)
+	got := UserProtectedCheck("Bash", map[string]interface{}{"command": cmd}, sec, "")
 	if got == "" {
 		t.Fatalf("a shell command removing a protected path was allowed: %s", cmd)
 	}
@@ -132,7 +132,7 @@ func TestUserProtectedCheckExecCommandSubstringBranch(t *testing.T) {
 	// only matches through the exec-command substring sweep.
 	sec := &shared.Security{ProtectedPaths: []string{"secrets.env"}}
 
-	got := UserProtectedCheck("Bash", map[string]interface{}{"command": "cat secrets.env"}, sec)
+	got := UserProtectedCheck("Bash", map[string]interface{}{"command": "cat secrets.env"}, sec, "")
 	if got == "" {
 		t.Fatal("an exec command naming a protected basename was allowed")
 	}
@@ -141,8 +141,64 @@ func TestUserProtectedCheckExecCommandSubstringBranch(t *testing.T) {
 	}
 
 	// A non-exec tool must not trigger the command sweep at all.
-	if got := UserProtectedCheck("SomeCustomTool", map[string]interface{}{"command": "cat secrets.env"}, sec); got != "" {
+	if got := UserProtectedCheck("SomeCustomTool", map[string]interface{}{"command": "cat secrets.env"}, sec, ""); got != "" {
 		t.Errorf("a non-exec tool triggered the command sweep: %q", got)
+	}
+}
+
+// Issue #187: protect stores absolute paths, and an agent naming the same
+// file relative to its working directory used to get straight past them.
+func TestUserProtectedCheckResolvesRelativePathsAgainstCwd(t *testing.T) {
+	project := t.TempDir()
+	protected := filepath.Join(project, "secrets.env")
+	sec := &shared.Security{ProtectedPaths: []string{protected, filepath.Join(project, "vault")}}
+
+	refused := []struct {
+		name, tool, cwd string
+		args            map[string]interface{}
+	}{
+		{"a bare relative file", "Read", project, map[string]interface{}{"file_path": "secrets.env"}},
+		{"a dot-relative file", "Write", project, map[string]interface{}{"file_path": "./secrets.env"}},
+		{"a file under a protected directory", "Edit", project, map[string]interface{}{"file_path": "vault/key.pem"}},
+		{"a path climbing out of a subdirectory", "Read", filepath.Join(project, "src"), map[string]interface{}{"file_path": "../secrets.env"}},
+		{"a field only the generic extractor knows", "SomeCustomTool", project, map[string]interface{}{"target": "./secrets.env"}},
+		{"a relative path in a shell command", "Bash", project, map[string]interface{}{"command": "cat ./secrets.env"}},
+		{"a relative directory in a shell command", "Bash", project, map[string]interface{}{"command": "rm -rf vault/"}},
+	}
+	for _, c := range refused {
+		t.Run(c.name, func(t *testing.T) {
+			if got := UserProtectedCheck(c.tool, c.args, sec, c.cwd); got == "" {
+				t.Errorf("%s %v from %s was allowed", c.tool, c.args, c.cwd)
+			}
+		})
+	}
+
+	allowed := []struct {
+		name, cwd string
+		args      map[string]interface{}
+	}{
+		{"an unrelated relative file", project, map[string]interface{}{"file_path": "main.go"}},
+		{"the same name somewhere else", t.TempDir(), map[string]interface{}{"file_path": "secrets.env"}},
+		{"a sibling sharing a prefix", project, map[string]interface{}{"file_path": "vault2/key.pem"}},
+		{"no cwd to resolve against", "", map[string]interface{}{"file_path": "secrets.env"}},
+	}
+	for _, c := range allowed {
+		t.Run(c.name, func(t *testing.T) {
+			if got := UserProtectedCheck("Read", c.args, sec, c.cwd); got != "" {
+				t.Errorf("Read %v from %q was refused: %q", c.args, c.cwd, got)
+			}
+		})
+	}
+}
+
+func TestUserProtectedCheckNamesTheRelativePathItWasGiven(t *testing.T) {
+	project := t.TempDir()
+	protected := filepath.Join(project, "secrets.env")
+	sec := &shared.Security{ProtectedPaths: []string{protected}}
+
+	got := UserProtectedCheck("Read", map[string]interface{}{"file_path": "secrets.env"}, sec, project)
+	if !strings.Contains(got, `"secrets.env"`) || !strings.Contains(got, NormPath(protected)) {
+		t.Errorf("the refusal should name both what the agent asked for and what it hit: %q", got)
 	}
 }
 

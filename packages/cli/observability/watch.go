@@ -238,16 +238,29 @@ func tailLines(file string, maxBytes int64) []string {
 	if err != nil {
 		return nil
 	}
+	split := strings.Split(string(b), "\n")
+	// Only a window that opens mid-line starts with a fragment. Opening
+	// exactly after a newline, the first chunk is a complete log entry and
+	// must be kept, or watch skips it (issue #222). The fragment has to go
+	// before empties are filtered: when start sits on the newline itself,
+	// split[0] is the empty fragment, and dropping the first non-empty line
+	// instead would skip a real entry.
+	if start > 0 && !precededByNewline(f, start) {
+		split = split[1:]
+	}
 	var lines []string
-	for _, l := range strings.Split(string(b), "\n") {
+	for _, l := range split {
 		if l != "" {
 			lines = append(lines, l)
 		}
 	}
-	if start > 0 && len(lines) > 0 {
-		lines = lines[1:]
-	}
 	return lines
+}
+
+func precededByNewline(f *os.File, off int64) bool {
+	b := make([]byte, 1)
+	_, err := f.ReadAt(b, off-1)
+	return err == nil && b[0] == '\n'
 }
 
 func detailOf(arguments json.RawMessage, reason string) string {

@@ -135,6 +135,25 @@ func TestTailLines(t *testing.T) {
 		}
 	})
 
+	// Issue #222: "line1\nline2\nline3\n" is 18 bytes, so a window of 6
+	// opens right after line2's newline, a window of 7 opens on that newline,
+	// and a window of 8 opens inside line2. Only the last one has a fragment.
+	t.Run("keeps a complete first line when the window opens on a line boundary", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "log.jsonl")
+		if err := os.WriteFile(file, []byte("line1\nline2\nline3\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, maxBytes := range []int64{6, 7, 8} {
+			got := tailLines(file, maxBytes)
+			if len(got) != 1 || got[0] != "line3" {
+				t.Errorf("tailLines(file, %d) = %q, want [line3]", maxBytes, got)
+			}
+		}
+		if got := tailLines(file, 12); len(got) != 2 || got[0] != "line2" || got[1] != "line3" {
+			t.Errorf("tailLines(file, 12) = %q, want [line2 line3]", got)
+		}
+	})
+
 	t.Run("large file returns only the tail and drops the leading partial line", func(t *testing.T) {
 		dir := t.TempDir()
 		file := filepath.Join(dir, "log.jsonl")

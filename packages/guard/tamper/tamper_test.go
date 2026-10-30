@@ -23,6 +23,9 @@ func TestTamperCheckBlocksItsOwnFiles(t *testing.T) {
 		{"the hooks directory", "Write", filepath.Join(home, ".solongate", "hooks", "anything")},
 		{"the credentials file", "Read", filepath.Join(home, ".solongate", "accou"+"nts.json")},
 		{"a client hook registration", "Edit", filepath.Join(home, ".claude", "setti"+"ngs.json")},
+		{"the policy signing key", "Read", filepath.Join(home, ".solongate", "crypto", "machine"+".key")},
+		{"the policy verification key", "Write", filepath.Join(home, ".solongate", "crypto", "machine"+".pub")},
+		{"the key directory", "Read", filepath.Join(home, ".solongate", "crypto")},
 	}
 	for _, c := range cases {
 		if Check(c.tool, map[string]interface{}{"file_path": c.path}) == "" {
@@ -84,6 +87,35 @@ func TestTamperCheckSweepsExecCommands(t *testing.T) {
 		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
 			t.Errorf("an exec command reaching the policy file was allowed: %s", cmd)
 		}
+	}
+}
+
+// Issue #216: machine.key signs policy.json, so reading it out lets an agent
+// sign a forged policy that passes verification.
+func TestTamperCheckBlocksTheSigningKeys(t *testing.T) {
+	keyDir := "/home/u/.solon" + "gate/crypto"
+	paths := []string{keyDir, keyDir + "/machine" + ".key", keyDir + "/machine" + ".pub"}
+	for _, p := range paths {
+		if Check("Read", map[string]interface{}{"file_path": p}) == "" {
+			t.Errorf("Check allowed reading %s", p)
+		}
+	}
+
+	cmds := []string{
+		"cat ~/.solon" + "gate/crypto/machine" + ".key",
+		"cp /tmp/forged ~/.solon" + "gate/crypto/machine" + ".pub",
+		"rm -rf ~/.solon" + "gate/crypto",
+		"tar czf /tmp/k.tgz ~/.solon" + "gate/crypto",
+		"cat ~/.solon" + "gate/*/machine" + ".key",
+	}
+	for _, cmd := range cmds {
+		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("an exec command reaching the signing keys was allowed: %s", cmd)
+		}
+	}
+
+	if got := Check("Read", map[string]interface{}{"file_path": "/home/u/projects/x/crypto/keys.go"}); got != "" {
+		t.Errorf("a project's own crypto directory was refused: %q", got)
 	}
 }
 

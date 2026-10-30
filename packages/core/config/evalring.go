@@ -65,24 +65,34 @@ func tailRingLines(file string) []string {
 		return nil
 	}
 	const maxBytes = 8192
-	if start := info.Size() - maxBytes; start > 0 {
-		if _, err := f.Seek(start, io.SeekStart); err != nil {
-			return nil
-		}
+	start := max(int64(0), info.Size()-maxBytes)
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return nil
 	}
 	buf, err := io.ReadAll(f)
 	if err != nil {
 		return nil
 	}
+	split := strings.Split(string(buf), "\n")
+	// Only a window that opens mid-line starts with a fragment. Opening
+	// exactly after a newline, the first chunk is a complete ring entry and
+	// must be kept (issue #225). The fragment has to go before blank lines
+	// are filtered, or a window starting on the newline itself would drop
+	// the first real entry in place of the empty fragment.
+	if start > 0 && !precededByNewline(f, start) {
+		split = split[1:]
+	}
 	var out []string
-	for _, l := range strings.Split(string(buf), "\n") {
+	for _, l := range split {
 		if strings.TrimSpace(l) != "" {
 			out = append(out, l)
 		}
 	}
-
-	if info.Size() > maxBytes && len(out) > 0 {
-		out = out[1:]
-	}
 	return out
+}
+
+func precededByNewline(f *os.File, off int64) bool {
+	b := make([]byte, 1)
+	_, err := f.ReadAt(b, off-1)
+	return err == nil && b[0] == '\n'
 }

@@ -4,6 +4,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,5 +119,44 @@ func TestTailRingLinesDropsPartialFirstLineWhenTruncated(t *testing.T) {
 	}
 	if info.Size() <= 8192 {
 		t.Fatalf("test fixture too small to exercise truncation: %d bytes", info.Size())
+	}
+}
+
+// Issue #225: the window used to drop its first line unconditionally, so a
+// window opening exactly after a newline, or on one, lost a complete entry.
+func TestTailRingLinesKeepsACompleteFirstLineOnABoundary(t *testing.T) {
+	entry := func(i int) string { return fmt.Sprintf(`{"ts":%08d}`, i) }
+	var b strings.Builder
+	for i := 0; i < 1000; i++ {
+		b.WriteString(entry(i)) // 16 bytes with the newline, a divisor of 8192
+		b.WriteByte('\n')
+	}
+	entries := b.String()
+
+	cases := []struct {
+		name, last string
+		wantFirst  string
+		wantLen    int
+	}{
+		// 16000 bytes: the window opens on the first byte of entry 488.
+		{"right after a newline", "", entry(488), 512},
+		// A 15-byte final line moves the window onto entry 488's newline,
+		// so entry 489 is the first complete line.
+		{"on a newline", `{"ts":9999999}` + "\n", entry(489), 512},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "ring.jsonl")
+			if err := os.WriteFile(file, []byte(entries+c.last), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got := tailRingLines(file)
+			if len(got) != c.wantLen {
+				t.Fatalf("tailRingLines() returned %d lines, want %d", len(got), c.wantLen)
+			}
+			if got[0] != c.wantFirst {
+				t.Errorf("first line = %q, want %q", got[0], c.wantFirst)
+			}
+		})
 	}
 }

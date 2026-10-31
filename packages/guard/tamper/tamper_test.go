@@ -389,3 +389,79 @@ func TestTamperCheckExtractsBatchPaths(t *testing.T) {
 		t.Error("Check allowed batch_write with protected paths array")
 	}
 }
+
+// --- #111: the three coverage gaps the issue names ---
+
+func TestTamperCheckWalksEveryArgumentShape(t *testing.T) {
+	// Gap 1: a protected path hid behind a field name Check() did not know, or
+	// deeper than the single level it walked. Every string the call carries is a
+	// candidate, whatever its key and however deep it sits.
+	ours := policyFile()
+	cases := []struct {
+		name string
+		args map[string]interface{}
+	}{
+		{"an unlisted field name", map[string]interface{}{"blob": ours}},
+		{"two map levels down", map[string]interface{}{
+			"params": map[string]interface{}{
+				"inner": map[string]interface{}{"whatever": ours},
+			},
+		}},
+		{"an array of maps under an unlisted key", map[string]interface{}{
+			"items": []interface{}{
+				map[string]interface{}{"payload": map[string]interface{}{"value": ours}},
+			},
+		}},
+		{"a nested array under an unlisted key", map[string]interface{}{
+			"items": []interface{}{[]interface{}{ours}},
+		}},
+	}
+	for _, c := range cases {
+		if Check("custom_tool", c.args) == "" {
+			t.Errorf("%s: Check allowed a protected path in an argument shape it does not scan", c.name)
+		}
+	}
+}
+
+func TestTamperCheckBlocksPushdSplitEvasion(t *testing.T) {
+	// Gap 2: pushd changes directory exactly like cd, so the split-file evasion
+	// that cd already trips must trip it too.
+	cmds := []string{
+		"pushd ~/.claude && rm setti" + "ngs.json",
+		"pushd ~/.solon" + "gate && rm -rf hooks/",
+		"pushd ~/.codex && cat hooks.json",
+	}
+	for _, cmd := range cmds {
+		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("Check allowed pushd-split evasion: %s", cmd)
+		}
+	}
+}
+
+func TestTamperCheckMatchesInstallDirWithoutATrailingSeparator(t *testing.T) {
+	// Gap 3a: the install-directory regex required a separator after the
+	// directory name, so the same path without one slipped past.
+	cmds := []string{
+		"rm -rf /opt/solon" + "gate/data",
+		"cat /opt/solon" + "gate/setup.sh",
+	}
+	for _, cmd := range cmds {
+		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("Check allowed a command referencing the install directory without a trailing separator: %s", cmd)
+		}
+	}
+}
+
+func TestTamperCheckBlocksChangingIntoTheBareInstallDirectory(t *testing.T) {
+	// Gap 3b: "cd <install-dir> && ..." names the directory itself, with no
+	// subdirectory and no trailing separator for the regex to anchor on.
+	cmds := []string{
+		"cd /opt/solon" + "gate && rm -rf data",
+		"pushd /opt/solon" + "gate && rm -rf data",
+	}
+	for _, cmd := range cmds {
+		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("Check allowed changing into the bare install directory: %s", cmd)
+		}
+	}
+}

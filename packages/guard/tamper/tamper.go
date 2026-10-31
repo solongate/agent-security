@@ -109,17 +109,8 @@ var tamperBasenames = []string{
 	"solongate.db", "solongate.exe",
 
 	"machine.key", "machine.pub",
-}
 
-var tamperPathFields = map[string]bool{
-	"file_path": true, "path": true, "target_file": true, "notebook_path": true,
-	"dest": true, "destination": true, "source": true, "src": true,
-	"from": true, "to": true,
-	"directory": true, "dir": true, "folder": true,
-
-	"targetfile": true, "absolutepath": true, "filepath": true,
-	"directorypath": true, "searchpath": true, "file": true,
-	"paths": true, "files": true,
+	"setup.sh",
 }
 
 const tamperJSSpace = `[\t\n\v\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]`
@@ -141,11 +132,15 @@ var (
 	reTamperCmdCXHooks    = regexp.MustCompile(`\.codex[\\/]+(hooks\.json|config\.toml)`)
 	reTamperCmdAGYHooks   = regexp.MustCompile(`\.gemini[\\/]+config[\\/]+hooks\.json`)
 	reTamperCmdOCPlugin   = regexp.MustCompile(`opencode[\\/]+plugins[\\/]+solongate`)
-	reTamperInstallDirs   = regexp.MustCompile(`[\\/]solongate[\\/]+(compose|data|images|helm)[\\/]`)
+	reTamperInstallDirs   = regexp.MustCompile(`[\\/]solongate[\\/]+(compose|data|images|helm)\b`)
+
+	// reTamperInstallChdir detects a change INTO the install directory itself,
+	// with no subdirectory for reTamperInstallDirs to anchor on.
+	reTamperInstallChdir = regexp.MustCompile(`(?i)\b(?:cd|pushd)\s+[^;&|]*[\\/]solongate(?:$|[\s;&|])`)
 
 	// reTamperCdSplit detects commands that change into a protected directory
 	// before operating on filenames (e.g. "cd ~/.claude && rm settings.json").
-	reTamperCdSplit = regexp.MustCompile(`(?i)\bcd\s+[^;&|]*(\.claude|\.solongate|\.codex|\.gemini/config|\.config/opencode)\b`)
+	reTamperCdSplit = regexp.MustCompile(`(?i)\b(?:cd|pushd)\s+[^;&|]*(\.claude|\.solongate|\.codex|\.gemini/config|\.config/opencode)\b`)
 )
 
 func NormPath(p string) string {
@@ -239,6 +234,9 @@ func commandTargetsProtected(cmd string) string {
 	if reTamperInstallDirs.MatchString(c) {
 		return "solongate-install"
 	}
+	if reTamperInstallChdir.MatchString(c) {
+		return "solongate-install"
+	}
 
 	// Detect cd-based evasion: "cd ~/.claude && rm settings.json" splits the
 	// directory from the filename across shell operators, evading the joined
@@ -251,62 +249,33 @@ func commandTargetsProtected(cmd string) string {
 	return ""
 }
 
+// ExtractTargetPaths returns every string a tool call carries, at any depth:
+// strings, string arrays, mixed arrays and nested maps alike. A fixed list of
+// path-like field names let a protected path hide behind a key the guard did
+// not know, or below the one level it walked, so the caller inspects values
+// instead of guessing at keys. Check() still filters with isProtectedPath, so
+// an ordinary argument word never becomes a refusal on its own.
 func ExtractTargetPaths(args map[string]interface{}) []string {
 	out := []string{}
-	if args == nil {
-		return out
-	}
-	for _, k := range policy.SortedKeys(args) {
-		v := args[k]
-		if tamperPathFields[strings.ToLower(k)] {
-			if s, ok := v.(string); ok {
-				out = append(out, s)
-			}
-		}
-
-		if arr, ok := v.([]interface{}); ok {
-			for _, item := range arr {
-				// Handle string items in arrays (e.g. paths: ["~/.solongate/policy.json"]).
-				if s, ok := item.(string); ok {
-					if tamperPathFields[strings.ToLower(k)] {
-						out = append(out, s)
-					}
-					continue
-				}
-				obj, ok := item.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				for _, k2 := range policy.SortedKeys(obj) {
-					if !tamperPathFields[strings.ToLower(k2)] {
-						continue
-					}
-					if s, ok := obj[k2].(string); ok {
-						out = append(out, s)
-					}
-				}
-			}
-		}
-		if arr, ok := v.([]string); ok {
-			if tamperPathFields[strings.ToLower(k)] {
-				out = append(out, arr...)
-			}
-		}
-
-		// Traverse nested maps to find path fields one level deeper
-		// (e.g. {"params": {"file_path": "/..."}} ).
-		if nested, ok := v.(map[string]interface{}); ok {
-			for _, k2 := range policy.SortedKeys(nested) {
-				if !tamperPathFields[strings.ToLower(k2)] {
-					continue
-				}
-				if s, ok := nested[k2].(string); ok {
-					out = append(out, s)
-				}
-			}
-		}
-	}
+	collectStrings(args, &out)
 	return out
+}
+
+func collectStrings(v interface{}, out *[]string) {
+	switch t := v.(type) {
+	case string:
+		*out = append(*out, t)
+	case []string:
+		*out = append(*out, t...)
+	case []interface{}:
+		for _, item := range t {
+			collectStrings(item, out)
+		}
+	case map[string]interface{}:
+		for _, k := range policy.SortedKeys(t) {
+			collectStrings(t[k], out)
+		}
+	}
 }
 
 func Check(toolName string, args map[string]interface{}, cwd ...string) string {

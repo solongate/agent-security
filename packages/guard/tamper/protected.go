@@ -4,6 +4,7 @@
 package tamper
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -63,10 +64,33 @@ func underProtectedFrom(raw, cwd string, norm []string) string {
 		return hit
 	}
 	raw = strings.TrimSpace(raw)
+	// The shell expands "~/.ssh/id_rsa" or "$HOME/.ssh/id_rsa" to a protected
+	// absolute path that never appears in the command text, so without this
+	// a home-relative spelling walks straight past protect.
+	if home := expandHome(raw); home != "" {
+		return underProtected(home, norm)
+	}
 	if cwd == "" || raw == "" || filepath.IsAbs(raw) {
 		return ""
 	}
 	return underProtected(filepath.Join(cwd, raw), norm)
+}
+
+// expandHome returns raw with a leading ~, $HOME or ${HOME} replaced by the
+// home directory, or "" when raw does not start with one.
+func expandHome(raw string) string {
+	for _, prefix := range []string{"~", "${HOME}", "$HOME"} {
+		rest, ok := strings.CutPrefix(raw, prefix)
+		if !ok || (rest != "" && rest[0] != '/' && rest[0] != '\\') {
+			continue
+		}
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return ""
+		}
+		return home + rest
+	}
+	return ""
 }
 
 func underProtected(raw string, norm []string) string {

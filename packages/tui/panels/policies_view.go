@@ -4,6 +4,7 @@
 package panels
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -59,7 +60,7 @@ func (p *Policies) viewListBody() string {
 			cursor, st = "▸ ", stAccentB
 		}
 		l.put(cursor+pad(truncate(pol.Name, 26), 27), st)
-		l.put(pad(string(pol.Mode), 10)+" "+itoa(len(pol.Rules.Items)+pol.Rules.Unreadable)+" rules", stDim)
+		l.put(pad(string(pol.Mode), 10)+" "+strconv.Itoa(len(pol.Rules.Items)+pol.Rules.Unreadable)+" rules", stDim)
 		if pol.ID == p.activeID && p.activeID != "" {
 			l.put("  ● ACTIVE", stOKB)
 		}
@@ -138,12 +139,12 @@ func (p *Policies) layerSummary(layer int) (string, lipgloss.Style) {
 				off++
 			}
 		}
-		text := itoa(n) + " rules"
+		text := strconv.Itoa(n) + " rules"
 		if n == 1 {
 			text = "1 rule"
 		}
 		if off > 0 {
-			text += " · " + itoa(off) + " off"
+			text += " · " + strconv.Itoa(off) + " off"
 		}
 		if n == 0 {
 			return "no rules yet", stDim
@@ -154,7 +155,7 @@ func (p *Policies) layerSummary(layer int) (string, lipgloss.Style) {
 		if d.Mode == client.LayerOff || d.Mode == "" {
 			return "off · nothing scanned", stDim
 		}
-		text := string(d.Mode) + " · " + itoa(len(d.Patterns)+len(d.Custom)) + " detectors"
+		text := string(d.Mode) + " · " + strconv.Itoa(len(d.Patterns)+len(d.Custom)) + " detectors"
 		return text, modeStyle(string(d.Mode))
 	default:
 		rl := p.sec.RateLimit
@@ -224,7 +225,7 @@ func (p *Policies) viewPolicyBody() string {
 
 	if p.unreadable > 0 {
 
-		out = append(out, stBad.Render("⚠ "+itoa(p.unreadable)+" rule(s) here cannot be read by this version, edit ~/.solongate/policy.json directly"))
+		out = append(out, stBad.Render("⚠ "+strconv.Itoa(p.unreadable)+" rule(s) here cannot be read by this version, edit ~/.solongate/policy.json directly"))
 	}
 	if p.status != "" {
 		out = append(out, statusLine(p.status))
@@ -299,7 +300,7 @@ func (p *Policies) viewRulesBody() string {
 			effStyle = stDim
 		}
 		l.put(fit(r.Effect, 7)+"  ", effStyle)
-		l.put(fit(itoa(r.Priority), 4)+"  ", stDim)
+		l.put(fit(strconv.Itoa(r.Priority), 4)+"  ", stDim)
 		descStyle := stPlain
 		if !r.Enabled {
 			descStyle = stDim
@@ -323,10 +324,10 @@ func (p *Policies) viewRulesBody() string {
 		modeStyleSel = stWarn
 	}
 	t.put(string(p.mode), modeStyleSel)
-	t.put("  "+itoa(len(p.rules))+" rules", stDim)
+	t.put("  "+strconv.Itoa(len(p.rules))+" rules", stDim)
 	if p.unreadable > 0 {
 
-		t.put("  ⚠ "+itoa(p.unreadable)+" unreadable", stBad)
+		t.put("  ⚠ "+strconv.Itoa(p.unreadable)+" unreadable", stBad)
 	}
 	p.dirtyTag(t)
 	out = append(out, t.String())
@@ -469,7 +470,7 @@ func (p *Policies) viewRuleBody() string {
 				if len(items) > 1 {
 					plural = "s"
 				}
-				l.put("   ("+itoa(len(items))+" value"+plural+" · enter: edit)", stDim)
+				l.put("   ("+strconv.Itoa(len(items))+" value"+plural+" · enter: edit)", stDim)
 			}
 		case active && p.editing && f.kind == "text":
 			l.put(p.input.View(), stPlain)
@@ -506,7 +507,7 @@ func (p *Policies) fieldValue(r client.PolicyRule, kind string) string {
 	case "perms":
 		return permDisplay(r)
 	case "priority":
-		return itoa(r.Priority)
+		return strconv.Itoa(r.Priority)
 	case "text":
 		return r.Description
 	case "match":

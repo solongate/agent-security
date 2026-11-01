@@ -5,7 +5,6 @@ package sandbox
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -56,12 +55,8 @@ func seatbeltWorkspaceProfile(p Plan) (string, error) {
 	if !filepath.IsAbs(ws) {
 		return "", errors.New("workspace must be an absolute path, got " + p.Workspace)
 	}
-	if ws == "/" {
-		return "", errors.New(`refusing to use "/" as a workspace: that confines nothing`)
-	}
-	if home, err := os.UserHomeDir(); err == nil && filepath.Clean(home) == ws {
-		return "", errors.New("refusing to use the home directory as a workspace: " +
-			"it contains ~/.ssh and every other project, which is what this mode exists to keep out")
+	if err := checkWorkspaceRoot(ws); err != nil {
+		return "", err
 	}
 
 	var b strings.Builder

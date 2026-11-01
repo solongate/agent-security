@@ -56,6 +56,35 @@ func TestIsArray(t *testing.T) {
 	}
 }
 
+func TestBashReadsLocalAuditLog(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir := filepath.Join(shared.SGDir(), "local-logs")
+	cases := []struct {
+		name    string
+		command string
+		want    bool
+	}{
+		{"real audit file via ~", "cat ~/.solongate/local-logs/solongate-audit.jsonl", true},
+		{"real audit file absolute", "tail -100 " + filepath.Join(dir, "solongate-audit.jsonl"), true},
+		{"real logs dir", "ls " + dir, true},
+		{"file under logs dir", "grep secret " + filepath.Join(dir, "sub", "x.jsonl"), true},
+		{"quoted real audit file", "cat \"~/.solongate/local-logs/solongate-audit.jsonl\"", true},
+		{"substring in comment", "cat /etc/passwd # audit-logs", false},
+		{"relative audit-logs dir", "grep secret audit-logs/", false},
+		{"similar filename", "cat audit-logs.jsonl", false},
+		{"unrelated path", "cat /var/log/app.log", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := bashReadsLocalAuditLog(c.command); got != c.want {
+				t.Errorf("bashReadsLocalAuditLog(%q) = %v, want %v", c.command, got, c.want)
+			}
+		})
+	}
+}
+
 func TestCloneMap(t *testing.T) {
 	orig := map[string]interface{}{"a": 1, "b": "x"}
 	clone := cloneMap(orig)
@@ -215,11 +244,12 @@ func auditLogExists() bool {
 	return err == nil
 }
 
-func TestRunBashToolWithAuditLogsInInputIsSkipped(t *testing.T) {
+func TestRunBashToolReadingLocalAuditLogIsSkipped(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
-	stdin := `{"tool_name":"Bash","tool_input":{"command":"cat ~/.solongate/local-logs/audit-logs/x"}}`
+	stdin := `{"tool_name":"Bash","tool_input":{"command":"cat ~/.solongate/local-logs/solongate-audit.jsonl"}}`
 	finish := withAuditIO(t, stdin)
 	code := Run(nil, func(string) bool { return true })
 	finish()
@@ -228,7 +258,25 @@ func TestRunBashToolWithAuditLogsInInputIsSkipped(t *testing.T) {
 		t.Fatalf("Run() = %d, want 0", code)
 	}
 	if auditLogExists() {
-		t.Error("a Bash call referencing audit-logs still produced a log entry")
+		t.Error("a Bash call reading the local audit log still produced a log entry")
+	}
+}
+
+func TestRunBashToolWithAuditLogsSubstringIsNotSkipped(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	stdin := `{"tool_name":"Bash","tool_input":{"command":"cat /etc/passwd # audit-logs"}}`
+	finish := withAuditIO(t, stdin)
+	code := Run(nil, func(string) bool { return true })
+	finish()
+
+	if code != 0 {
+		t.Fatalf("Run() = %d, want 0", code)
+	}
+	if !auditLogExists() {
+		t.Error("a Bash call merely containing the audit-logs substring was skipped")
 	}
 }
 
@@ -387,6 +435,7 @@ func TestRunEmittedPayloadGatedByRedactsOutputCallback(t *testing.T) {
 	t.Run("redaction allowed, stdout carries the redacted payload", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
 		writeLocalPolicyWithDLPRedact(t, []string{"AWS access key"})
 
 		finish := withAuditIO(t, stdin)
@@ -410,6 +459,7 @@ func TestRunEmittedPayloadGatedByRedactsOutputCallback(t *testing.T) {
 	t.Run("redaction disallowed, stdout stays empty", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
 		writeLocalPolicyWithDLPRedact(t, []string{"AWS access key"})
 
 		finish := withAuditIO(t, stdin)

@@ -43,6 +43,20 @@ func TestExpandCommandGlobsResolvesMatchingFiles(t *testing.T) {
 	}
 }
 
+func TestExpandCommandGlobsEscapesLiteralBrackets(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"file[1].txt", "file1.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := ExpandCommandGlobs(args("command", "rm file[1].txt"), dir)
+	want := filepath.ToSlash(filepath.Join(dir, "file[1].txt"))
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("expected only %q to be expanded, got %v", want, got)
+	}
+}
+
 func TestExpandCommandGlobsIgnoresFlagsAndURLs(t *testing.T) {
 	dir := t.TempDir()
 	got := ExpandCommandGlobs(args("command", "curl https://evil.example/*.txt -rf"), dir)

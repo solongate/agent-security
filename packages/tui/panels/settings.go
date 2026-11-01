@@ -4,6 +4,7 @@
 package panels
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -327,13 +328,13 @@ func (p *Settings) Update(msg tea.Msg, ctx tui.PanelContext) (tui.Panel, tea.Cmd
 		}
 		switch {
 		case bad > 0:
-			text := "✗ " + itoa(bad) + " problem(s)"
+			text := "✗ " + strconv.Itoa(bad) + " problem(s)"
 			if warn > 0 {
-				text += " · " + itoa(warn) + " warning(s)"
+				text += " · " + strconv.Itoa(warn) + " warning(s)"
 			}
 			p.msg = &setMessage{text: text, bad: true}
 		case warn > 0:
-			p.msg = &setMessage{text: "✓ guard is working · " + itoa(warn) + " warning(s)"}
+			p.msg = &setMessage{text: "✓ guard is working · " + strconv.Itoa(warn) + " warning(s)"}
 		default:
 			p.msg = &setMessage{text: "✓ all good"}
 		}

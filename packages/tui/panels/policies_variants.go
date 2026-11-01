@@ -4,6 +4,7 @@
 package panels
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +47,7 @@ func (p *Policies) switchVariant(d int) {
 
 func (p *Policies) addVariant() {
 	if len(p.variants) >= polMaxVariants {
-		p.status = "✗ " + itoa(polMaxVariants) + " variants is the limit, a tab strip past that is a list"
+		p.status = "✗ " + strconv.Itoa(polMaxVariants) + " variants is the limit, a tab strip past that is a list"
 		return
 	}
 	p.fold()
@@ -98,7 +99,7 @@ func polDefaultFirst(list []client.PolicyVariant, defaultID string) []client.Pol
 }
 
 func polVariantID(i int) string {
-	return "variant-" + itoa(int(time.Now().UnixMilli())) + "-" + itoa(i+1)
+	return "variant-" + strconv.Itoa(int(time.Now().UnixMilli())) + "-" + strconv.Itoa(i+1)
 }
 
 func polVariantName(existing []variantDraft) string {
@@ -110,12 +111,12 @@ func polVariantName(existing []variantDraft) string {
 		taken[strings.ToLower(strings.TrimSpace(v.name))] = true
 	}
 	for n := len(existing) + 1; n < len(existing)+polMaxVariants+2; n++ {
-		name := "Variant " + itoa(n)
+		name := "Variant " + strconv.Itoa(n)
 		if !taken[strings.ToLower(name)] {
 			return name
 		}
 	}
-	return "Variant " + itoa(len(existing)+1)
+	return "Variant " + strconv.Itoa(len(existing)+1)
 }
 
 const polMaxVariants = 8

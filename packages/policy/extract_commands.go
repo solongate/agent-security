@@ -28,7 +28,7 @@ var (
 )
 
 var commandFields = map[string]bool{
-	"command": true, "cmd": true, "function": true, "script": true, "shell": true,
+	"command": true, "cmd": true, "function": true, "script": true, "shell": true, "code": true,
 }
 
 func NormalizeShellCommand(cmd string) string {

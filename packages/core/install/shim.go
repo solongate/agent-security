@@ -28,17 +28,20 @@ func InstallClaudeShim(p Paths) bool {
 
 	sg := filepath.ToSlash(filepath.Join(BinDir(), "solongate"))
 	block := `claude() {
-  if [ -x "` + sg + `" ]; then
+  if [ -x "` + sg + `" ] && [ -x "` + gobin + `" ]; then
     "` + sg + `" run -- "` + gobin + `" shield -- "` + real + `" "$@"
-  else
+  elif [ -x "` + gobin + `" ]; then
     "` + gobin + `" shield -- "` + real + `" "$@"
+  else
+    "` + real + `" "$@"
   fi
 }`
 	if runtime.GOOS == "windows" {
 
 		block = `function claude {
-  if (Test-Path "` + sg + `.exe") { & "` + sg + `.exe" run -- "` + gobin + `" shield -- "` + real + `" @args }
-  else { & "` + gobin + `" shield -- "` + real + `" @args }
+  if ((Test-Path "` + sg + `.exe") -and (Test-Path "` + gobin + `.exe")) { & "` + sg + `.exe" run -- "` + gobin + `" shield -- "` + real + `" @args }
+  elseif (Test-Path "` + gobin + `.exe") { & "` + gobin + `" shield -- "` + real + `" @args }
+  else { & "` + real + `" @args }
 }`
 	}
 	block = shimBegin + "\n" + block + "\n" + shimEnd

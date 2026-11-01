@@ -4,8 +4,12 @@
 package crypto
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"testing"
 )
 
@@ -187,5 +191,168 @@ func TestHasKeyPair(t *testing.T) {
 	}
 	if !HasKeyPair(dir) {
 		t.Error("HasKeyPair = false after LoadOrCreateKeyPair created the pair, want true")
+	}
+}
+
+func TestLoadOrCreateKeyPairRestoresMissingPublicKey(t *testing.T) {
+	dir := t.TempDir()
+	first, err := LoadOrCreateKeyPair(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, publicKeyFile)); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := LoadOrCreateKeyPair(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(second.Private, first.Private) || !bytes.Equal(second.Public, first.Public) {
+		t.Fatal("a missing machine.pub replaced the surviving machine.key with a new identity")
+	}
+	onDisk, err := os.ReadFile(filepath.Join(dir, privateKeyFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(onDisk, first.Private) {
+		t.Fatal("machine.key on disk was overwritten")
+	}
+	pub, err := os.ReadFile(filepath.Join(dir, publicKeyFile))
+	if err != nil {
+		t.Fatalf("machine.pub was not rewritten: %v", err)
+	}
+	if !bytes.Equal(pub, first.Public) {
+		t.Fatal("the rewritten machine.pub is not the public half of machine.key")
+	}
+}
+
+func TestLoadOrCreateKeyPairRejectsMismatchedPair(t *testing.T) {
+	dir := t.TempDir()
+	mine, err := LoadOrCreateKeyPair(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubPath := filepath.Join(dir, publicKeyFile)
+	if err := os.WriteFile(pubPath, other.Public, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadOrCreateKeyPair(dir); err == nil {
+		t.Fatal("a machine.pub from another key pair was accepted")
+	}
+	onDisk, err := os.ReadFile(filepath.Join(dir, privateKeyFile))
+	if err != nil || !bytes.Equal(onDisk, mine.Private) {
+		t.Fatal("rejecting the pair still touched machine.key")
+	}
+	if pub, err := os.ReadFile(pubPath); err != nil || !bytes.Equal(pub, other.Public) {
+		t.Fatal("rejecting the pair rewrote machine.pub, hiding what was found")
+	}
+}
+
+func TestLoadOrCreateKeyPairRejectsInconsistentPrivateKey(t *testing.T) {
+	dir := t.TempDir()
+	kp, err := LoadOrCreateKeyPair(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The right length, but the public half it carries is not the one its seed derives.
+	spliced := append(append([]byte{}, kp.Private.Seed()...), other.Public...)
+	if err := os.WriteFile(filepath.Join(dir, privateKeyFile), spliced, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrCreateKeyPair(dir); err == nil {
+		t.Fatal("a machine.key whose halves do not belong together was accepted")
+	}
+}
+
+func TestLoadOrCreateKeyPairReplacesOrphanedPublicKey(t *testing.T) {
+	dir := t.TempDir()
+	first, err := LoadOrCreateKeyPair(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, privateKeyFile)); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := LoadOrCreateKeyPair(dir)
+	if err != nil {
+		t.Fatalf("a machine.pub with no private key left blocked creating a new pair: %v", err)
+	}
+	if bytes.Equal(second.Public, first.Public) {
+		t.Fatal("a new key pair was expected once the private key was gone")
+	}
+	if _, err := LoadOrCreateKeyPair(dir); err != nil {
+		t.Fatalf("the new pair does not load back: %v", err)
+	}
+}
+
+func TestLoadOrCreateKeyPairConcurrentFirstRunsAgree(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "crypto")
+	const runs = 16
+	got := make([]KeyPair, runs)
+	errs := make([]error, runs)
+	var wg sync.WaitGroup
+	for i := range runs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got[i], errs[i] = LoadOrCreateKeyPair(dir)
+		}()
+	}
+	wg.Wait()
+
+	for i := range runs {
+		if errs[i] != nil {
+			t.Fatalf("run %d: %v", i, errs[i])
+		}
+		if !bytes.Equal(got[i].Private, got[0].Private) {
+			t.Fatal("concurrent first runs came back with different key pairs")
+		}
+	}
+	loaded, err := LoadOrCreateKeyPair(dir)
+	if err != nil {
+		t.Fatalf("the pair left on disk does not load: %v", err)
+	}
+	if !bytes.Equal(loaded.Private, got[0].Private) {
+		t.Fatal("the key on disk is not the one every run was handed")
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != privateKeyFile && e.Name() != publicKeyFile {
+			t.Errorf("left behind %s", e.Name())
+		}
+	}
+}
+
+func TestLoadOrCreateKeyPairFileModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not have Unix permission bits")
+	}
+	dir := t.TempDir()
+	if _, err := LoadOrCreateKeyPair(dir); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]os.FileMode{privateKeyFile: 0o600, publicKeyFile: 0o644} {
+		st, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := st.Mode().Perm(); got != want {
+			t.Errorf("%s has mode %v, want %v", name, got, want)
+		}
 	}
 }

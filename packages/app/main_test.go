@@ -4,8 +4,11 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -37,5 +40,32 @@ func TestPrintHelpDocumentsRealSandboxSyntax(t *testing.T) {
 	}
 	if !strings.Contains(out, "sandbox <id> <agent>") {
 		t.Error("help text should document \"sandbox <id> <agent>\"")
+	}
+}
+
+// The human-only gate has no exemption. SOLONGATE_INTERNAL=1 once skipped it
+// for a daemon that no longer exists; with that gone, the variable was only a
+// way for an agent to walk past the gate by exporting it (issue #173).
+func TestAssertHumanTerminalIgnoresInternalEnv(t *testing.T) {
+	if os.Getenv("SG_TEST_GATE_CHILD") == "1" {
+		assertHumanTerminal(false)
+		os.Exit(0)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAssertHumanTerminalIgnoresInternalEnv$")
+	cmd.Env = append(os.Environ(), "SG_TEST_GATE_CHILD=1", "SOLONGATE_INTERNAL=1")
+	// Pipes on every stream, so the child has no terminal, like an agent's subprocess.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdin = strings.NewReader("")
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("a non-interactive caller with SOLONGATE_INTERNAL=1 got past the gate (err=%v)", err)
+	}
+	if !strings.Contains(stderr.String(), "SolonGate is human-only") {
+		t.Errorf("refused without saying why; stderr:\n%s", stderr.String())
 	}
 }

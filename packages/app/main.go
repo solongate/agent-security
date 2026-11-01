@@ -118,7 +118,7 @@ func isInteractive(allowNonTTYStdout bool) bool {
 }
 
 func assertHumanTerminal(allowNonTTYStdout bool) {
-	if os.Getenv("SOLONGATE_INTERNAL") == "1" || isInteractive(allowNonTTYStdout) {
+	if isInteractive(allowNonTTYStdout) {
 		return
 	}
 	w := func(s string) { fmt.Fprintln(os.Stderr, s) }

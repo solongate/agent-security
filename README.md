@@ -161,6 +161,7 @@ have made it this far.
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/NopeCharon"><img src="https://avatars.githubusercontent.com/u/115794254?v=4&size=100" width="100px" height="100px" alt="Asish"/><br /><sub><b>Asish</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=NopeCharon" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/slopgobblercobbler"><img src="https://avatars.githubusercontent.com/u/336610228?v=4&size=100" width="100px" height="100px" alt="Stephen Cork"/><br /><sub><b>Stephen Cork</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=slopgobblercobbler" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/agarwalU001"><img src="https://avatars.githubusercontent.com/u/65491686?v=4&size=100" width="100px" height="100px" alt="Utkarsh Agarwal"/><br /><sub><b>Utkarsh Agarwal</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=agarwalU001" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/orshih6"><img src="https://avatars.githubusercontent.com/u/34618353?v=4&size=100" width="100px" height="100px" alt="Бат-Орших"/><br /><sub><b>Бат-Орших</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=orshih6" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

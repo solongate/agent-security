@@ -33,10 +33,7 @@ func RunAgent(argv []string) int {
 		return explainSandbox()
 	}
 
-	rest := argv
-	if i := indexOf(argv, "--"); i >= 0 {
-		rest = argv[i+1:]
-	}
+	rest := agentArgv(argv)
 	if len(rest) == 0 {
 		cliutil.Errln(runUsage())
 		return 1
@@ -167,13 +164,15 @@ func explainSandbox() int {
 	return 0
 }
 
-func indexOf(ss []string, want string) int {
-	for i, s := range ss {
-		if s == want {
-			return i
-		}
+// agentArgv returns the command and arguments handed to the agent. Only a
+// leading `--` separates confine's own arguments from the agent command; a
+// `--` further along belongs to the agent's own command line, where tools use
+// it to end their option parsing, so it is passed through untouched.
+func agentArgv(argv []string) []string {
+	if len(argv) > 0 && argv[0] == "--" {
+		return argv[1:]
 	}
-	return -1
+	return argv
 }
 
 func exitCodeOf(err error) (int, bool) {

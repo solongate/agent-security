@@ -6,6 +6,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -161,6 +162,44 @@ func TestSeatbeltWorkspaceProfileRefusesWhatConfinesNothing(t *testing.T) {
 	}
 	if _, err := seatbeltWorkspaceProfile(Plan{Workspace: home + "/"}); err == nil {
 		t.Error("the home directory with a trailing slash slipped past the check")
+	}
+}
+
+// The workspace is granted as a subpath, and sandbox-exec follows a symlink to its
+// target, so a link aliasing "/" or $HOME must be refused like the real thing
+// (issue #199).
+func TestSeatbeltWorkspaceProfileRefusesSymlinkAliases(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating a symlink needs a privilege the Windows CI runner does not have")
+	}
+	dir := t.TempDir()
+
+	rootAlias := filepath.Join(dir, "root-alias")
+	if err := os.Symlink("/", rootAlias); err != nil {
+		t.Skipf("cannot create symlink: %v", err)
+	}
+	_, err := seatbeltWorkspaceProfile(Plan{Workspace: rootAlias})
+	if err == nil {
+		t.Fatalf("symlink %q -> / was accepted as a workspace", rootAlias)
+	}
+	if !strings.Contains(err.Error(), "confines nothing") {
+		t.Errorf("unexpected error for a symlinked root workspace: %v", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no home directory on this machine")
+	}
+	homeAlias := filepath.Join(dir, "home-alias")
+	if err := os.Symlink(home, homeAlias); err != nil {
+		t.Skipf("cannot create symlink: %v", err)
+	}
+	_, err = seatbeltWorkspaceProfile(Plan{Workspace: homeAlias})
+	if err == nil {
+		t.Fatalf("symlink %q -> home directory was accepted as a workspace", homeAlias)
+	}
+	if !strings.Contains(err.Error(), "home directory") {
+		t.Errorf("unexpected error for a symlinked home workspace: %v", err)
 	}
 }
 

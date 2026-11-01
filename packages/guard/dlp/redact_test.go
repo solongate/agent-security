@@ -282,3 +282,46 @@ func TestDlpRedactTextLeavesAForgedPlaceholderEmpty(t *testing.T) {
 		t.Errorf("got %q, want %q", out, "before  after")
 	}
 }
+
+func TestDlpRedactTextStashPlaceholderCollision(t *testing.T) {
+	cfg := &shared.DLPConfig{
+		Custom: []shared.DLPCustom{
+			{Name: "first", Re: "*AAA*"},
+			{Name: "second", Re: "*0*"},
+		},
+	}
+	out := RedactText("xx AAA yy", cfg)
+	if strings.Contains(out, "second") {
+		t.Fatalf("placeholder collided with second pattern: %q", out)
+	}
+	if !strings.Contains(out, "[REDACTED:first]") {
+		t.Fatalf("expected [REDACTED:first], got: %q", out)
+	}
+	if out != "xx [REDACTED:first] yy" {
+		t.Fatalf("got %q, want %q", out, "xx [REDACTED:first] yy")
+	}
+}
+
+func TestDlpRedactTextHighScaleSequentialPatterns(t *testing.T) {
+	custom := []shared.DLPCustom{
+		{Name: "token_0", Re: "*SECRET_TOKEN*"},
+	}
+	// Add 30 patterns that match digits like *1*, *2*, ... *9*, *0*
+	for i := 0; i < 30; i++ {
+		custom = append(custom, shared.DLPCustom{
+			Name: "digit_rule",
+			Re:   "*[0-9]*",
+		})
+	}
+	cfg := &shared.DLPConfig{Custom: custom}
+	out := RedactText("key: SECRET_TOKEN suffix", cfg)
+	if !strings.Contains(out, "[REDACTED:token_0]") {
+		t.Fatalf("expected [REDACTED:token_0] to be preserved, got: %q", out)
+	}
+	if strings.Contains(out, "digit_rule") {
+		t.Fatalf("digit rules should not have matched redacted token marker: %q", out)
+	}
+	if out != "key: [REDACTED:token_0] suffix" {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}

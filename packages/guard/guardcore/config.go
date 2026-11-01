@@ -41,7 +41,10 @@ func securityInsidePolicy(doc []byte) (*shared.Security, bool) {
 // signature-checked: LoadLocalPolicyFile already strips their Security/
 // SelfProtect fields below, so they carry no trust to forge.
 var ErrPolicyTampered = errors.New("policy.json failed signature verification: " +
-	"it was modified outside SolonGate; refusing to trust it")
+	"it was modified outside SolonGate; refusing to trust it. " +
+	"Fix: run `solongate policy create <name>` to make a new signed policy, " +
+	"then `solongate policy allow/deny` to rebuild its rules. " +
+	"Do not hand edit, cp, or restore policy.json from a backup, those stay unsigned")
 
 // verifyHomePolicy fails closed: the only outcomes that let the home policy be
 // applied are a signature that verifies against this machine's key, or an

@@ -23,6 +23,9 @@ func TestTamperCheckBlocksItsOwnFiles(t *testing.T) {
 		{"the hooks directory", "Write", filepath.Join(home, ".solongate", "hooks", "anything")},
 		{"the credentials file", "Read", filepath.Join(home, ".solongate", "accou"+"nts.json")},
 		{"a client hook registration", "Edit", filepath.Join(home, ".claude", "setti"+"ngs.json")},
+		{"the policy signing key", "Read", filepath.Join(home, ".solongate", "crypto", "machine"+".key")},
+		{"the policy verification key", "Write", filepath.Join(home, ".solongate", "crypto", "machine"+".pub")},
+		{"the key directory", "Read", filepath.Join(home, ".solongate", "crypto")},
 	}
 	for _, c := range cases {
 		if Check(c.tool, map[string]interface{}{"file_path": c.path}) == "" {
@@ -84,6 +87,35 @@ func TestTamperCheckSweepsExecCommands(t *testing.T) {
 		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
 			t.Errorf("an exec command reaching the policy file was allowed: %s", cmd)
 		}
+	}
+}
+
+// Issue #216: machine.key signs policy.json, so reading it out lets an agent
+// sign a forged policy that passes verification.
+func TestTamperCheckBlocksTheSigningKeys(t *testing.T) {
+	keyDir := "/home/u/.solon" + "gate/crypto"
+	paths := []string{keyDir, keyDir + "/machine" + ".key", keyDir + "/machine" + ".pub"}
+	for _, p := range paths {
+		if Check("Read", map[string]interface{}{"file_path": p}) == "" {
+			t.Errorf("Check allowed reading %s", p)
+		}
+	}
+
+	cmds := []string{
+		"cat ~/.solon" + "gate/crypto/machine" + ".key",
+		"cp /tmp/forged ~/.solon" + "gate/crypto/machine" + ".pub",
+		"rm -rf ~/.solon" + "gate/crypto",
+		"tar czf /tmp/k.tgz ~/.solon" + "gate/crypto",
+		"cat ~/.solon" + "gate/*/machine" + ".key",
+	}
+	for _, cmd := range cmds {
+		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("an exec command reaching the signing keys was allowed: %s", cmd)
+		}
+	}
+
+	if got := Check("Read", map[string]interface{}{"file_path": "/home/u/projects/x/crypto/keys.go"}); got != "" {
+		t.Errorf("a project's own crypto directory was refused: %q", got)
 	}
 }
 
@@ -355,5 +387,81 @@ func TestTamperCheckExtractsBatchPaths(t *testing.T) {
 	}
 	if Check("batch_write", args) == "" {
 		t.Error("Check allowed batch_write with protected paths array")
+	}
+}
+
+// --- #111: the three coverage gaps the issue names ---
+
+func TestTamperCheckWalksEveryArgumentShape(t *testing.T) {
+	// Gap 1: a protected path hid behind a field name Check() did not know, or
+	// deeper than the single level it walked. Every string the call carries is a
+	// candidate, whatever its key and however deep it sits.
+	ours := policyFile()
+	cases := []struct {
+		name string
+		args map[string]interface{}
+	}{
+		{"an unlisted field name", map[string]interface{}{"blob": ours}},
+		{"two map levels down", map[string]interface{}{
+			"params": map[string]interface{}{
+				"inner": map[string]interface{}{"whatever": ours},
+			},
+		}},
+		{"an array of maps under an unlisted key", map[string]interface{}{
+			"items": []interface{}{
+				map[string]interface{}{"payload": map[string]interface{}{"value": ours}},
+			},
+		}},
+		{"a nested array under an unlisted key", map[string]interface{}{
+			"items": []interface{}{[]interface{}{ours}},
+		}},
+	}
+	for _, c := range cases {
+		if Check("custom_tool", c.args) == "" {
+			t.Errorf("%s: Check allowed a protected path in an argument shape it does not scan", c.name)
+		}
+	}
+}
+
+func TestTamperCheckBlocksPushdSplitEvasion(t *testing.T) {
+	// Gap 2: pushd changes directory exactly like cd, so the split-file evasion
+	// that cd already trips must trip it too.
+	cmds := []string{
+		"pushd ~/.claude && rm setti" + "ngs.json",
+		"pushd ~/.solon" + "gate && rm -rf hooks/",
+		"pushd ~/.codex && cat hooks.json",
+	}
+	for _, cmd := range cmds {
+		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("Check allowed pushd-split evasion: %s", cmd)
+		}
+	}
+}
+
+func TestTamperCheckMatchesInstallDirWithoutATrailingSeparator(t *testing.T) {
+	// Gap 3a: the install-directory regex required a separator after the
+	// directory name, so the same path without one slipped past.
+	cmds := []string{
+		"rm -rf /opt/solon" + "gate/data",
+		"cat /opt/solon" + "gate/setup.sh",
+	}
+	for _, cmd := range cmds {
+		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("Check allowed a command referencing the install directory without a trailing separator: %s", cmd)
+		}
+	}
+}
+
+func TestTamperCheckBlocksChangingIntoTheBareInstallDirectory(t *testing.T) {
+	// Gap 3b: "cd <install-dir> && ..." names the directory itself, with no
+	// subdirectory and no trailing separator for the regex to anchor on.
+	cmds := []string{
+		"cd /opt/solon" + "gate && rm -rf data",
+		"pushd /opt/solon" + "gate && rm -rf data",
+	}
+	for _, cmd := range cmds {
+		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
+			t.Errorf("Check allowed changing into the bare install directory: %s", cmd)
+		}
 	}
 }

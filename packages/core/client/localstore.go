@@ -104,7 +104,8 @@ func readStore() (stored, error) {
 	}
 	if signed && !valid {
 		return stored{}, fmt.Errorf("%s failed signature verification: refusing to trust a policy file "+
-			"that may have been modified outside SolonGate", PolicyPath())
+			"that may have been modified outside SolonGate. "+
+			"Fix: run `solongate policy create <name>` to make a new signed policy, do not hand edit or restore it from a backup", PolicyPath())
 	}
 
 	var probe struct {
@@ -406,8 +407,13 @@ func readLog() []logLine {
 	dropped := 0
 	if len(b) > maxLogBytes {
 		cut := len(b) - maxLogBytes
-		if nl := strings.IndexByte(string(b[cut:]), '\n'); nl >= 0 {
-			cut += nl + 1
+		// Skip ahead to the next line only when the cut splits one. A cut
+		// right after a newline already starts a complete entry, and skipping
+		// would drop it from every view built on readLog (issue #224).
+		if b[cut-1] != '\n' {
+			if nl := strings.IndexByte(string(b[cut:]), '\n'); nl >= 0 {
+				cut += nl + 1
+			}
 		}
 		dropped = strings.Count(string(b[:cut]), "\n")
 		b = b[cut:]

@@ -155,6 +155,43 @@ func TestTailLinesDropsTheLeadingPartialLineOnTruncation(t *testing.T) {
 	}
 }
 
+// Issue #214: a cut that lands exactly after a newline leaves a complete
+// first line, and it used to be dropped as if it were a fragment.
+func TestTailLinesKeepsTheFirstLineOnAnExactBoundary(t *testing.T) {
+	const width = 64 // divides tokensTailBytes, so from lands on a line start
+	const before = 1000
+	numLines := tokensTailBytes/width + before
+
+	var b strings.Builder
+	for i := 0; i < numLines; i++ {
+		line := fmt.Sprintf("line-%07d-%s", i, strings.Repeat("x", width-14))
+		if len(line) != width-1 {
+			t.Fatalf("test setup: line %d has length %d, want %d", i, len(line), width-1)
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	content := b.String()
+	from := int64(len(content)) - tokensTailBytes
+	if from <= 0 || from%width != 0 {
+		t.Fatalf("test setup: from = %d, want a positive multiple of %d", from, width)
+	}
+
+	path := filepath.Join(t.TempDir(), "boundary.jsonl")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := tailLines(path)
+	if want := tokensTailBytes/width + 1; len(got) != want {
+		t.Fatalf("tailLines() returned %d lines, want %d (every line in the window plus the trailing empty one)", len(got), want)
+	}
+	wantFirst := fmt.Sprintf("line-%07d-%s", before, strings.Repeat("x", width-14))
+	if got[0] != wantFirst {
+		t.Errorf("first returned line = %q, want %q (a complete line at the boundary must be kept)", got[0], wantFirst)
+	}
+}
+
 func TestStrField(t *testing.T) {
 	m := map[string]interface{}{"a": "", "b": "value", "c": 5}
 	if got := strField(m, "a", "b"); got != "value" {

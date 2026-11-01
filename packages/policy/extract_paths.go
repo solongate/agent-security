@@ -90,7 +90,7 @@ func ReadReferencedFiles(args map[string]interface{}, cwd string) []refFile {
 	var out []refFile
 	var cands []string
 	seen := map[string]bool{}
-	for _, f := range []string{"command", "cmd", "script", "shell", "code"} {
+	for f := range commandFields {
 		v, ok := args[f].(string)
 		if !ok {
 			continue

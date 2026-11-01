@@ -8,6 +8,7 @@ path = [
   "**/*.yml",
   "**/*.yaml",
   "**/*.json",
+  ".all-contributorsrc",
   "**/*.toml",
   "**/*.mod",
   "**/*.sum",

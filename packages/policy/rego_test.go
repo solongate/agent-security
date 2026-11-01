@@ -105,6 +105,7 @@ func TestIsExecTool(t *testing.T) {
 		"mcp__shell__exec",
 		"powershell", "cmd",
 		"eval",
+		"Monitor", "EnterWorktree", "ExitWorktree",
 	}
 	for _, tool := range exec {
 		if !IsExecTool(tool) {

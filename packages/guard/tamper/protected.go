@@ -4,6 +4,7 @@
 package tamper
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -11,7 +12,11 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-func UserProtectedCheck(toolName string, args map[string]interface{}, sec *shared.Security) string {
+// UserProtectedCheck refuses a tool call that names a path the user protected
+// with `solongate policy protect`. Those are stored absolute, while agents
+// mostly name files relative to the project they run in, so a relative path
+// is also checked resolved against cwd.
+func UserProtectedCheck(toolName string, args map[string]interface{}, sec *shared.Security, cwd string) string {
 	if sec == nil || len(sec.ProtectedPaths) == 0 {
 		return ""
 	}
@@ -26,14 +31,14 @@ func UserProtectedCheck(toolName string, args map[string]interface{}, sec *share
 	}
 
 	for _, raw := range ExtractTargetPaths(args) {
-		if hit := underProtected(raw, norm); hit != "" {
+		if hit := underProtectedFrom(raw, cwd, norm); hit != "" {
 			return protectedReason(raw, hit)
 		}
 	}
 
 	isExec := policy.IsExecTool(toolName) || GuardToolsExec[strings.ToLower(toolName)]
 	for _, raw := range policy.ExtractPaths(args, isExec) {
-		if hit := underProtected(raw, norm); hit != "" {
+		if hit := underProtectedFrom(raw, cwd, norm); hit != "" {
 			return protectedReason(raw, hit)
 		}
 	}
@@ -47,6 +52,43 @@ func UserProtectedCheck(toolName string, args map[string]interface{}, sec *share
 				}
 			}
 		}
+	}
+	return ""
+}
+
+// underProtectedFrom checks raw as written and, when it is relative and cwd
+// is known, as resolved against cwd. The unresolved check stays because a
+// protected path may itself have been written relative.
+func underProtectedFrom(raw, cwd string, norm []string) string {
+	if hit := underProtected(raw, norm); hit != "" {
+		return hit
+	}
+	raw = strings.TrimSpace(raw)
+	// The shell expands "~/.ssh/id_rsa" or "$HOME/.ssh/id_rsa" to a protected
+	// absolute path that never appears in the command text, so without this
+	// a home-relative spelling walks straight past protect.
+	if home := expandHome(raw); home != "" {
+		return underProtected(home, norm)
+	}
+	if cwd == "" || raw == "" || filepath.IsAbs(raw) {
+		return ""
+	}
+	return underProtected(filepath.Join(cwd, raw), norm)
+}
+
+// expandHome returns raw with a leading ~, $HOME or ${HOME} replaced by the
+// home directory, or "" when raw does not start with one.
+func expandHome(raw string) string {
+	for _, prefix := range []string{"~", "${HOME}", "$HOME"} {
+		rest, ok := strings.CutPrefix(raw, prefix)
+		if !ok || (rest != "" && rest[0] != '/' && rest[0] != '\\') {
+			continue
+		}
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return ""
+		}
+		return home + rest
 	}
 	return ""
 }

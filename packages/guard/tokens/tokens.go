@@ -82,10 +82,19 @@ func tailLines(path string) []string {
 		}
 	}
 	lines := strings.Split(string(buf), "\n")
-	if from > 0 && len(lines) > 0 {
+	// The first chunk is a fragment of a line cut by the seek only when the
+	// byte before from is not a newline. On an exact boundary it is a whole
+	// turn, and dropping it would undercount that turn's tokens (issue #214).
+	if from > 0 && len(lines) > 0 && !precededByNewline(f, from) {
 		lines = lines[1:]
 	}
 	return lines
+}
+
+func precededByNewline(f *os.File, off int64) bool {
+	b := make([]byte, 1)
+	_, err := f.ReadAt(b, off-1)
+	return err == nil && b[0] == '\n'
 }
 
 func strField(m map[string]interface{}, keys ...string) string {

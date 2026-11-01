@@ -5,6 +5,7 @@ package panels
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/solongate/agent-security/packages/core/client"
@@ -241,22 +242,22 @@ func ruleSummary(r client.PolicyRule) string {
 	var bits []string
 	if c := r.CommandConstraints; c != nil {
 		if n := len(c.Allowed) + len(c.Denied); n > 0 {
-			bits = append(bits, "cmd:"+itoa(n))
+			bits = append(bits, "cmd:"+strconv.Itoa(n))
 		}
 	}
 	if c := r.PathConstraints; c != nil {
 		if n := len(c.Allowed) + len(c.Denied); n > 0 {
-			bits = append(bits, "path:"+itoa(n))
+			bits = append(bits, "path:"+strconv.Itoa(n))
 		}
 	}
 	if c := r.FilenameConstraints; c != nil {
 		if n := len(c.Allowed) + len(c.Denied); n > 0 {
-			bits = append(bits, "file:"+itoa(n))
+			bits = append(bits, "file:"+strconv.Itoa(n))
 		}
 	}
 	if c := r.URLConstraints; c != nil {
 		if n := len(c.Allowed) + len(c.Denied); n > 0 {
-			bits = append(bits, "url:"+itoa(n))
+			bits = append(bits, "url:"+strconv.Itoa(n))
 		}
 	}
 	return strings.Join(bits, " ")

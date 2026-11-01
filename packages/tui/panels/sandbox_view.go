@@ -4,6 +4,7 @@
 package panels
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/solongate/agent-security/packages/tui"
@@ -27,7 +28,7 @@ func (p *Sandbox) Hint() []string {
 		return []string{"▶ SANDBOX: CLOSED BOXES", "", "box " + p.boxes[0].ID, "",
 			truncate(p.boxes[0].Dir, 44), "", "press → to manage"}
 	}
-	return []string{"▶ SANDBOX: CLOSED BOXES", "", itoa(len(p.boxes)) + " boxes", "", "press → to manage"}
+	return []string{"▶ SANDBOX: CLOSED BOXES", "", strconv.Itoa(len(p.boxes)) + " boxes", "", "press → to manage"}
 }
 
 func (p *Sandbox) View(ctx tui.PanelContext) string {

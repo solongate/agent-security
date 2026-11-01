@@ -191,6 +191,54 @@ func TestUserProtectedCheckResolvesRelativePathsAgainstCwd(t *testing.T) {
 	}
 }
 
+// The shell expands ~ and $HOME before the command runs, so a protected file
+// named home-relative never appears as its absolute path in the command text.
+func TestUserProtectedCheckExpandsHomeReferences(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	sec := &shared.Security{ProtectedPaths: []string{filepath.Join(home, ".ssh", "id_rsa"), filepath.Join(home, "vault")}}
+	cwd := filepath.Join(home, "project")
+
+	refused := []struct {
+		name, tool string
+		args       map[string]interface{}
+	}{
+		{"a tilde path in a shell command", "Bash", map[string]interface{}{"command": "cat ~/.ssh/id_rsa"}},
+		{"a $HOME path in a shell command", "Bash", map[string]interface{}{"command": "cat $HOME/.ssh/id_rsa"}},
+		{"a ${HOME} path in a shell command", "Bash", map[string]interface{}{"command": "cat ${HOME}/.ssh/id_rsa"}},
+		{"a quoted $HOME path", "Bash", map[string]interface{}{"command": `cat "$HOME/.ssh/id_rsa"`}},
+		{"a redirection into a tilde path", "Bash", map[string]interface{}{"command": "echo x >~/vault/key"}},
+		{"a tilde directory", "Bash", map[string]interface{}{"command": "rm -rf ~/vault"}},
+		{"a tilde path in a file field", "Read", map[string]interface{}{"file_path": "~/.ssh/id_rsa"}},
+	}
+	for _, c := range refused {
+		t.Run(c.name, func(t *testing.T) {
+			if got := UserProtectedCheck(c.tool, c.args, sec, cwd); got == "" {
+				t.Errorf("%s %v was allowed", c.tool, c.args)
+			}
+		})
+	}
+
+	allowed := []struct {
+		name string
+		args map[string]interface{}
+	}{
+		{"an unrelated tilde path", map[string]interface{}{"command": "cat ~/.ssh/id_rsa.pub"}},
+		{"a sibling sharing a prefix", map[string]interface{}{"command": "ls ~/vault2"}},
+		{"another user's home", map[string]interface{}{"command": "cat ~bob/.ssh/id_rsa"}},
+		{"a variable that only starts with HOME", map[string]interface{}{"command": "cat $HOMEDIR/.ssh/id_rsa"}},
+		{"the same name relative to cwd", map[string]interface{}{"command": "cat .ssh/id_rsa"}},
+	}
+	for _, c := range allowed {
+		t.Run(c.name, func(t *testing.T) {
+			if got := UserProtectedCheck("Bash", c.args, sec, cwd); got != "" {
+				t.Errorf("Bash %v was refused: %q", c.args, got)
+			}
+		})
+	}
+}
+
 func TestUserProtectedCheckNamesTheRelativePathItWasGiven(t *testing.T) {
 	project := t.TempDir()
 	protected := filepath.Join(project, "secrets.env")

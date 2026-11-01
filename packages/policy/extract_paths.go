@@ -20,7 +20,7 @@ var (
 	GlobChars = regexp.MustCompile(`[*?\[]`)
 
 	GlobStarRun = shared.GlobStarRun
-	GlobEscape  = regexp.MustCompile(`[.+^${}()|\\]`)
+	GlobEscape  = regexp.MustCompile(`[.+^${}()|\[\]\\]`)
 
 	reInterpreter = regexp.MustCompile(`(?i)^(?:bash|sh|zsh|ksh|dash|ash|python3?|node|deno|bun|ruby|perl|php|pwsh|powershell|source|\.)$`)
 )
@@ -90,7 +90,7 @@ func ReadReferencedFiles(args map[string]interface{}, cwd string) []refFile {
 	var out []refFile
 	var cands []string
 	seen := map[string]bool{}
-	for _, f := range []string{"command", "cmd", "script", "shell", "code"} {
+	for f := range commandFields {
 		v, ok := args[f].(string)
 		if !ok {
 			continue

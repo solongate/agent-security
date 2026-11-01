@@ -108,7 +108,7 @@ func main() {
 		record(sec, hasSecurity, c, agentType, agentName, reason, started)
 		deny(reason)
 	}
-	if reason := tamper.UserProtectedCheck(c.Tool, c.Args, sec); reason != "" {
+	if reason := tamper.UserProtectedCheck(c.Tool, c.Args, sec, c.Cwd); reason != "" {
 		record(sec, hasSecurity, c, agentType, agentName, reason, started)
 		deny(reason)
 	}

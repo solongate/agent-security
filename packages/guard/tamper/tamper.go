@@ -17,6 +17,7 @@ var GuardToolsExec = map[string]bool{
 	"bash": true, "powershell": true, "shell": true, "exec": true, "run": true,
 	"eval": true, "cmd": true,
 	"sh": true, "zsh": true, "dash": true, "terminal": true,
+	"monitor": true, "worktree": true, "enterworktree": true, "exitworktree": true,
 }
 
 const (
@@ -54,7 +55,10 @@ var tamperProtectedAbs = []string{
 	tamperHome + tamperSG + "/hooks",
 	tamperHome + tamperSG + "/policy.json",
 	tamperHome + tamperSG + "/.policy-cache.json",
-	tamperHome + tamperSG + "/crypto/machine.pub",
+	// The whole key directory, not just machine.pub: machine.key is the
+	// private key that signs policy.json, and an agent holding it can sign a
+	// forged policy that VerifyDocument accepts.
+	tamperHome + tamperSG + "/crypto",
 
 	tamperHome + tamperSG + "/cloud-guard.json",
 
@@ -73,7 +77,7 @@ var tamperProtectedGlobs = []string{
 	"**" + tamperSG + "/policy.json",
 	"**" + tamperSG + "/.policy-cache.json",
 	"**" + tamperSG + "/.policy-cache-*.json",
-	"**" + tamperSG + "/crypto/machine.pub",
+	"**" + tamperSG + "/crypto/**",
 	"**" + tamperSG + "/cloud-guard.json",
 
 	"**" + tamperSG + "/.ratelimit-*",
@@ -103,17 +107,10 @@ var tamperBasenames = []string{
 
 	"accounts.json",
 	"solongate.db", "solongate.exe",
-}
 
-var tamperPathFields = map[string]bool{
-	"file_path": true, "path": true, "target_file": true, "notebook_path": true,
-	"dest": true, "destination": true, "source": true, "src": true,
-	"from": true, "to": true,
-	"directory": true, "dir": true, "folder": true,
+	"machine.key", "machine.pub",
 
-	"targetfile": true, "absolutepath": true, "filepath": true,
-	"directorypath": true, "searchpath": true, "file": true,
-	"paths": true, "files": true,
+	"setup.sh",
 }
 
 const tamperJSSpace = `[\t\n\v\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]`
@@ -123,6 +120,7 @@ var (
 	reTamperSGHooks    = regexp.MustCompile(`/\.solongate/hooks(/|$)`)
 
 	reTamperSGBin    = regexp.MustCompile(`/\.solongate/bin(/|$)`)
+	reTamperSGCrypto = regexp.MustCompile(`/\.solongate/crypto(/|$)`)
 	reTamperCXHooks  = regexp.MustCompile(`/\.codex/(hooks\.json|config\.toml)$`)
 	reTamperAGYHooks = regexp.MustCompile(`/\.gemini/config/hooks\.json$`)
 	reTamperOCPlugin = regexp.MustCompile(`/\.config/opencode/plugins/solongate\b`)
@@ -130,14 +128,19 @@ var (
 	reTamperCmdCCSettings = regexp.MustCompile(`\.claude[\\/]+settings(\.local)?\.json`)
 	reTamperCmdSGHooks    = regexp.MustCompile(`\.solongate[\\/]+hooks`)
 	reTamperCmdSGBin      = regexp.MustCompile(`\.solongate[\\/]+bin`)
+	reTamperCmdSGCrypto   = regexp.MustCompile(`\.solongate[\\/]+crypto`)
 	reTamperCmdCXHooks    = regexp.MustCompile(`\.codex[\\/]+(hooks\.json|config\.toml)`)
 	reTamperCmdAGYHooks   = regexp.MustCompile(`\.gemini[\\/]+config[\\/]+hooks\.json`)
 	reTamperCmdOCPlugin   = regexp.MustCompile(`opencode[\\/]+plugins[\\/]+solongate`)
-	reTamperInstallDirs   = regexp.MustCompile(`[\\/]solongate[\\/]+(compose|data|images|helm)[\\/]`)
+	reTamperInstallDirs   = regexp.MustCompile(`[\\/]solongate[\\/]+(compose|data|images|helm)\b`)
+
+	// reTamperInstallChdir detects a change INTO the install directory itself,
+	// with no subdirectory for reTamperInstallDirs to anchor on.
+	reTamperInstallChdir = regexp.MustCompile(`(?i)\b(?:cd|pushd)\s+[^;&|]*[\\/]solongate(?:$|[\s;&|])`)
 
 	// reTamperCdSplit detects commands that change into a protected directory
 	// before operating on filenames (e.g. "cd ~/.claude && rm settings.json").
-	reTamperCdSplit = regexp.MustCompile(`(?i)\bcd\s+[^;&|]*(\.claude|\.solongate|\.codex|\.gemini/config|\.config/opencode)\b`)
+	reTamperCdSplit = regexp.MustCompile(`(?i)\b(?:cd|pushd)\s+[^;&|]*(\.claude|\.solongate|\.codex|\.gemini/config|\.config/opencode)\b`)
 )
 
 func NormPath(p string) string {
@@ -171,6 +174,9 @@ func isProtectedPath(p string) string {
 	}
 	if reTamperSGBin.MatchString(np) {
 		return "solongate-bin"
+	}
+	if reTamperSGCrypto.MatchString(np) {
+		return "solongate-crypto"
 	}
 	if reTamperCXHooks.MatchString(np) {
 		return "codex-hooks"
@@ -212,6 +218,9 @@ func commandTargetsProtected(cmd string) string {
 	if reTamperCmdSGBin.MatchString(c) {
 		return "solongate-bin"
 	}
+	if reTamperCmdSGCrypto.MatchString(c) {
+		return "solongate-crypto"
+	}
 	if reTamperCmdCXHooks.MatchString(c) {
 		return "codex-hooks"
 	}
@@ -223,6 +232,9 @@ func commandTargetsProtected(cmd string) string {
 	}
 
 	if reTamperInstallDirs.MatchString(c) {
+		return "solongate-install"
+	}
+	if reTamperInstallChdir.MatchString(c) {
 		return "solongate-install"
 	}
 
@@ -237,62 +249,33 @@ func commandTargetsProtected(cmd string) string {
 	return ""
 }
 
+// ExtractTargetPaths returns every string a tool call carries, at any depth:
+// strings, string arrays, mixed arrays and nested maps alike. A fixed list of
+// path-like field names let a protected path hide behind a key the guard did
+// not know, or below the one level it walked, so the caller inspects values
+// instead of guessing at keys. Check() still filters with isProtectedPath, so
+// an ordinary argument word never becomes a refusal on its own.
 func ExtractTargetPaths(args map[string]interface{}) []string {
 	out := []string{}
-	if args == nil {
-		return out
-	}
-	for _, k := range policy.SortedKeys(args) {
-		v := args[k]
-		if tamperPathFields[strings.ToLower(k)] {
-			if s, ok := v.(string); ok {
-				out = append(out, s)
-			}
-		}
-
-		if arr, ok := v.([]interface{}); ok {
-			for _, item := range arr {
-				// Handle string items in arrays (e.g. paths: ["~/.solongate/policy.json"]).
-				if s, ok := item.(string); ok {
-					if tamperPathFields[strings.ToLower(k)] {
-						out = append(out, s)
-					}
-					continue
-				}
-				obj, ok := item.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				for _, k2 := range policy.SortedKeys(obj) {
-					if !tamperPathFields[strings.ToLower(k2)] {
-						continue
-					}
-					if s, ok := obj[k2].(string); ok {
-						out = append(out, s)
-					}
-				}
-			}
-		}
-		if arr, ok := v.([]string); ok {
-			if tamperPathFields[strings.ToLower(k)] {
-				out = append(out, arr...)
-			}
-		}
-
-		// Traverse nested maps to find path fields one level deeper
-		// (e.g. {"params": {"file_path": "/..."}} ).
-		if nested, ok := v.(map[string]interface{}); ok {
-			for _, k2 := range policy.SortedKeys(nested) {
-				if !tamperPathFields[strings.ToLower(k2)] {
-					continue
-				}
-				if s, ok := nested[k2].(string); ok {
-					out = append(out, s)
-				}
-			}
-		}
-	}
+	collectStrings(args, &out)
 	return out
+}
+
+func collectStrings(v interface{}, out *[]string) {
+	switch t := v.(type) {
+	case string:
+		*out = append(*out, t)
+	case []string:
+		*out = append(*out, t...)
+	case []interface{}:
+		for _, item := range t {
+			collectStrings(item, out)
+		}
+	case map[string]interface{}:
+		for _, k := range policy.SortedKeys(t) {
+			collectStrings(t[k], out)
+		}
+	}
 }
 
 func Check(toolName string, args map[string]interface{}, cwd ...string) string {

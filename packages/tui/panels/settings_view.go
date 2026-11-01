@@ -4,6 +4,8 @@
 package panels
 
 import (
+	"strconv"
+
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/solongate/agent-security/packages/core/config"
@@ -237,14 +239,14 @@ func (p *Settings) rowLine(r setRow, isCur bool) string {
 		installed := "unknown"
 		st := stWarn
 		if p.guard.Installed != nil {
-			installed = "v" + itoa(*p.guard.Installed)
+			installed = "v" + strconv.Itoa(*p.guard.Installed)
 			if p.guard.UpToDate {
 				st = stOK
 			}
 		}
 		l.put(installed, st)
-		l.put("  latest v"+itoa(p.guard.Latest)+" · "+itoa(p.guard.DeviceCount)+" device(s), "+
-			itoa(p.guard.OutdatedCount)+" outdated (cloud)", stDim)
+		l.put("  latest v"+strconv.Itoa(p.guard.Latest)+" · "+strconv.Itoa(p.guard.DeviceCount)+" device(s), "+
+			strconv.Itoa(p.guard.OutdatedCount)+" outdated (cloud)", stDim)
 		l.put(" · enter installs · d removes", stDim)
 
 	case "self":

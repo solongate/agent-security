@@ -13,8 +13,8 @@ for arg in "$@"; do
 		cat <<'USAGE'
 Install SolonGate from this checkout.
 
-  ./scripts/install.sh         walk through it, pausing between steps
-  ./scripts/install.sh --yes   assume yes; there is nothing to prompt for today
+  ./scripts/install.sh         walk through it, pausing to confirm installing Go if missing
+  ./scripts/install.sh --yes   assume yes to every prompt, including installing Go
 
 Afterwards "solongate" is a command. Open a new terminal before testing it:
 hooks load when a session starts, so sessions already open are not guarded.
@@ -153,9 +153,42 @@ if [ "$go_bin" = go ]; then
 fi
 
 if ! "$go_bin" version >/dev/null 2>&1; then
-	die "no Go toolchain was found." \
-		"The guard and the CLI are Go programs. Install Go 1.26 or newer, or set" \
-		"GO_BIN to the binary if it is somewhere this did not look."
+	goarch=$cpu
+	[ "$cpu" = x64 ] && goarch=amd64
+
+	if [ "$AUTO" -eq 0 ]; then
+		printf '         %bno Go toolchain found. Download the official build from go.dev to ~/.local/go? [y/N] %b' "$DIM" "$OFF" >&2
+		read -r go_reply </dev/tty
+		case $go_reply in
+		y | Y | yes) ;;
+		*) die "Go is required." "Install it yourself from https://go.dev/dl/, or re-run with --yes to let this script fetch it." ;;
+		esac
+	fi
+
+	fetch() { curl -fsSL "$1" -o "$2" 2>/dev/null || wget -qO "$2" "$1" 2>/dev/null; }
+
+	gover=$(curl -fsSL 'https://go.dev/VERSION?m=text' 2>/dev/null | head -1)
+	[ -n "$gover" ] || gover=$(wget -qO- 'https://go.dev/VERSION?m=text' 2>/dev/null | head -1)
+	[ -n "$gover" ] || die "could not reach go.dev to find the current Go version." \
+		"Check your network, or install Go yourself from https://go.dev/dl/."
+
+	goarchive="$gover.$os-$goarch.tar.gz"
+	gotmp=$(mktemp -d)
+
+	run "Downloading $goarchive" "Downloaded $goarchive." \
+		fetch "https://go.dev/dl/$goarchive" "$gotmp/go.tar.gz"
+	[ -s "$gotmp/go.tar.gz" ] || die "the download of $goarchive produced an empty file." \
+		"go.dev may not ship that os/arch; check https://go.dev/dl/ and install Go yourself."
+
+	rm -rf "$HOME/.local/go"
+	mkdir -p "$HOME/.local"
+	run "Installing Go to ~/.local/go" "Installed Go." \
+		tar -C "$HOME/.local" -xzf "$gotmp/go.tar.gz"
+	rm -rf "$gotmp"
+
+	go_bin="$HOME/.local/go/bin/go"
+	"$go_bin" version >/dev/null 2>&1 || die "Go was extracted but $go_bin does not run." \
+		"Install Go yourself from https://go.dev/dl/."
 fi
 
 mark_ok "Toolchain: $("$go_bin" version | cut -d' ' -f3 | sed 's/^go/go /')."

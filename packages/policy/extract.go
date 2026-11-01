@@ -13,7 +13,7 @@ var (
 	HTTPPrefix = regexp.MustCompile(`(?i)^https?://`)
 	reFileExt  = regexp.MustCompile(`\.\w+$`)
 
-	reExecTool = regexp.MustCompile(`bash|shell|exec|powershell|cmd|run|eval|^sh$|zsh|dash|terminal`)
+	reExecTool = regexp.MustCompile(`bash|shell|exec|powershell|cmd|run|eval|^sh$|zsh|dash|terminal|monitor|worktree`)
 )
 
 var knownExtensionless = map[string]bool{

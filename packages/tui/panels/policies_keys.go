@@ -5,6 +5,7 @@ package panels
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -200,7 +201,7 @@ func (p *Policies) rulesKey(s string) tea.Cmd {
 	case "n":
 
 		nr := client.PolicyRule{
-			ID:                 "rule-" + itoa(int(time.Now().UnixMilli())),
+			ID:                 "rule-" + strconv.Itoa(int(time.Now().UnixMilli())),
 			Effect:             "DENY",
 			Priority:           100,
 			ToolPattern:        "*",
@@ -413,7 +414,7 @@ func (p *Policies) creatingKey(k tea.KeyMsg) tea.Cmd {
 	p.status = "Creating…"
 
 	p.busyCreate = true
-	body := client.PolicySet{ID: "policy-" + itoa(int(time.Now().UnixMilli())), Name: name, Mode: client.ModeDenylist}
+	body := client.PolicySet{ID: "policy-" + strconv.Itoa(int(time.Now().UnixMilli())), Name: name, Mode: client.ModeDenylist}
 	t := p.tag()
 	return func() tea.Msg {
 		if _, err := p.deps.Client.Policies.Create(bg(), body); err != nil {
@@ -459,12 +460,12 @@ func (p *Policies) saveBody() (client.PolicySet, bool) {
 		}
 
 		if v.unreadable > 0 {
-			p.status = "✗ " + itoa(v.unreadable) + " rule(s)" + where + " cannot be read by this version, saving would delete them; edit ~/.solongate/policy.json directly"
+			p.status = "✗ " + strconv.Itoa(v.unreadable) + " rule(s)" + where + " cannot be read by this version, saving would delete them; edit ~/.solongate/policy.json directly"
 			return client.PolicySet{}, false
 		}
 		for i, d := range v.rules {
 			if isBlanketRule(d.rule) {
-				p.status = "✗ rule " + itoa(i+1) + where + " matches EVERYTHING, pick a Constraint + Match value, or narrow Permissions"
+				p.status = "✗ rule " + strconv.Itoa(i+1) + where + " matches EVERYTHING, pick a Constraint + Match value, or narrow Permissions"
 				return client.PolicySet{}, false
 			}
 		}

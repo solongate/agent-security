@@ -5,10 +5,14 @@ package panels
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
+
+	"github.com/solongate/agent-security/packages/core/client"
 )
 
 func writeTUIConfig(t *testing.T, accent string) {
@@ -256,7 +260,11 @@ func TestOrDash(t *testing.T) {
 	}
 }
 
-func TestItoa(t *testing.T) {
+func TestPolicyPriorityDisplay(t *testing.T) {
+	minInt, maxInt := "-9223372036854775808", "9223372036854775807"
+	if strconv.IntSize == 32 {
+		minInt, maxInt = "-2147483648", "2147483647"
+	}
 	cases := []struct {
 		n    int
 		want string
@@ -269,10 +277,12 @@ func TestItoa(t *testing.T) {
 		{-1, "-1"},
 		{-42, "-42"},
 		{1234567890, "1234567890"},
+		{math.MinInt, minInt},
+		{math.MaxInt, maxInt},
 	}
 	for _, tc := range cases {
-		if got := itoa(tc.n); got != tc.want {
-			t.Errorf("itoa(%d)=%q, want %q", tc.n, got, tc.want)
+		if got := (&Policies{}).fieldValue(client.PolicyRule{Priority: tc.n}, "priority"); got != tc.want {
+			t.Errorf("priority %d displayed as %q, want %q", tc.n, got, tc.want)
 		}
 	}
 }

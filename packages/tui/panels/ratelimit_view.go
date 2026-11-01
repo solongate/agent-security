@@ -78,7 +78,7 @@ func (p *RateLimit) View(ctx tui.PanelContext) string {
 				l.put(pad("load now", 13), stDim)
 				l.put(strings.Repeat("█", max(0, filled)), barStyle)
 				l.put(strings.Repeat("░", max(0, 18-filled)), stDim)
-				l.put("  "+itoa(now)+"/"+itoa(lim)+" this minute ("+itoa(pctv)+"%)", stDim)
+				l.put("  "+strconv.Itoa(now)+"/"+strconv.Itoa(lim)+" this minute ("+strconv.Itoa(pctv)+"%)", stDim)
 				out = append(out, l.String())
 			}
 			out = append(out, stAccentB.Render("Busiest 7d")+stDim.Render("   most calls in one window vs your limit"))
@@ -86,17 +86,17 @@ func (p *RateLimit) View(ctx tui.PanelContext) string {
 			out = append(out, busiestRow("hour", p.insights.Peaks.Hour, rl.PerHour))
 			out = append(out, busiestRow("day", p.insights.Peaks.Day, rl.PerDay))
 			out = append(out, stDim.Render(pad("activity", 11)+
-				"   last 24h · "+itoa(last24h)+" calls · busiest hour "+itoa(p.insights.Peaks.Hour)+"/hr"))
+				"   last 24h · "+strconv.Itoa(last24h)+" calls · busiest hour "+strconv.Itoa(p.insights.Peaks.Hour)+"/hr"))
 		}
 
 		head := "Recent bursts 7d"
 		if len(anomalies) > 0 {
-			head += " (" + itoa(len(anomalies)) + ")"
+			head += " (" + strconv.Itoa(len(anomalies)) + ")"
 		}
 		hl := newLine(false)
 		hl.put(head, stAccentB)
 		if maxOff > 0 {
-			hl.put("  "+itoa(off+1)+"-"+itoa(min(off+budget, len(anomalies)))+"/"+itoa(len(anomalies)), stWarn)
+			hl.put("  "+strconv.Itoa(off+1)+"-"+strconv.Itoa(min(off+budget, len(anomalies)))+"/"+strconv.Itoa(len(anomalies)), stWarn)
 		}
 		hl.put("   over the per-minute limit · Bypassed = detect (not blocked)", stDim)
 		out = append(out, hl.String())
@@ -133,7 +133,7 @@ func (p *RateLimit) View(ctx tui.PanelContext) string {
 				l := newLine(false)
 				l.put(fit(cursor+whenLabel(a.Minute), 15)+"  ", whenStyle)
 				l.put(fit(res, 9)+"  ", resStyle)
-				l.put(fit(itoa(a.Count)+"/"+itoa(a.Limit), 7)+"  ", stWarn)
+				l.put(fit(strconv.Itoa(a.Count)+"/"+strconv.Itoa(a.Limit), 7)+"  ", stWarn)
 				l.put(fit(truncate(a.Agent, agentW), agentW)+"  ", agentStyle)
 				out = append(out, l.String())
 			}
@@ -146,7 +146,7 @@ func (p *RateLimit) View(ctx tui.PanelContext) string {
 		f := newLine(false)
 		f.put("limit now  ", stDim)
 		if lim > 0 {
-			f.put(itoa(lim)+"/min", stPlain)
+			f.put(strconv.Itoa(lim)+"/min", stPlain)
 		} else {
 			f.put("no per-minute limit", stPlain)
 		}
@@ -190,11 +190,11 @@ func busiestRow(label string, peak, limit int) string {
 	if limit > 0 {
 		switch {
 		case peak > limit:
-			ctx = "over " + itoa(limit)
+			ctx = "over " + strconv.Itoa(limit)
 		case peak == limit:
-			ctx = "at limit " + itoa(limit)
+			ctx = "at limit " + strconv.Itoa(limit)
 		default:
-			ctx = "limit " + itoa(limit)
+			ctx = "limit " + strconv.Itoa(limit)
 		}
 	}
 	hot := limit > 0 && peak > limit
@@ -206,7 +206,7 @@ func busiestRow(label string, peak, limit int) string {
 		peakStyle = stBadB
 		ctxStyle = stBad
 	}
-	l.put(padLeft(itoa(peak), 4)+" calls", peakStyle)
+	l.put(padLeft(strconv.Itoa(peak), 4)+" calls", peakStyle)
 	l.put("  · "+ctx, ctxStyle)
 	return l.String()
 }
@@ -215,7 +215,7 @@ func offOr(n int) string {
 	if n == 0 {
 		return "off"
 	}
-	return itoa(n)
+	return strconv.Itoa(n)
 }
 
 func parseWhen(s string) time.Time {

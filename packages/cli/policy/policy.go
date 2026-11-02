@@ -189,12 +189,27 @@ func Run(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int, erro
 			return cliutil.UsageErr("Usage: policy " + sub + " <id> [--command|--path|--filename|--url <val>]")
 		}
 
+		// A rule built here matches on one selector. Keeping only the last of
+		// several, or reading a flag with no value as if it were absent, would
+		// save a different rule from the one asked for (for a bare selector, a
+		// blanket one) and report it as done.
+		for _, k := range []string{"command", "path", "filename", "url", "permission"} {
+			if _, ok := p.FlagStrOK(k); !ok && p.FlagBool(k) {
+				return cliutil.UsageErr("policy " + sub + ": --" + k + " needs a value")
+			}
+		}
 		spec := client.RuleSpec{ToolPattern: "*", Kind: "tool", Effect: effect}
+		var given []string
 		for _, k := range []string{"command", "path", "filename", "url"} {
 			if v, ok := p.FlagStrOK(k); ok {
+				given = append(given, "--"+k)
 				spec.Kind = k
 				spec.Value = v
 			}
+		}
+		if len(given) > 1 {
+			return cliutil.UsageErr("policy " + sub + ": pass only one of --command, --path, --filename or --url (got " +
+				strings.Join(given, ", ") + "). Add one rule for each.")
 		}
 
 		if raw, ok := p.FlagStrOK("permission"); ok {

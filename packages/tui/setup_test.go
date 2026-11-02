@@ -170,7 +170,7 @@ func TestSetupAdvanceFromFirstCall(t *testing.T) {
 	t.Run("a call arrived finishes setup", func(t *testing.T) {
 		m := newSetup(Deps{})
 		m.step = stepFirstCall
-		rec := &setupCall{Tool: "bash"}
+		rec := &setupCall{Tool: "bash", Cmds: 1, Ts: time.Now().Add(time.Second).UnixMilli()}
 		before := time.Now()
 		m.Update(setupProbeMsg{call: rec})
 		if m.step != stepFinished {
@@ -186,6 +186,15 @@ func TestSetupAdvanceFromFirstCall(t *testing.T) {
 		m.Update(setupProbeMsg{call: nil})
 		if m.step != stepFirstCall {
 			t.Errorf("step = %v, want stepFirstCall", m.step)
+		}
+	})
+	t.Run("unrelated guard activity on the machine does not count", func(t *testing.T) {
+		m := newSetup(Deps{})
+		m.step = stepFirstCall
+		rec := &setupCall{Tool: "bash", Cmds: 4, Paths: 1, Ts: time.Now().Add(time.Second).UnixMilli()}
+		m.Update(setupProbeMsg{call: rec})
+		if m.step != stepFirstCall {
+			t.Errorf("step = %v, want stepFirstCall (unmatched call shape must not advance)", m.step)
 		}
 	})
 }

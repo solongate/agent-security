@@ -80,6 +80,26 @@ func ProjectFlagDir() string {
 	return filepath.Join(SGDir(), "projects", ProjectKey(abs))
 }
 
+// destructiveWords are short verbs that must match as whole words. As
+// substrings they would also catch "form", "perm" and "confirm".
+var destructiveWords = []string{"rm", "rmdir", "unlink", "kill", "chmod", "chown", "reboot", "shutdown"}
+
+// hasWord reports whether any of words appears in name as a whole token,
+// where tokens are split on anything that is not a letter.
+func hasWord(name string, words ...string) bool {
+	tokens := strings.FieldsFunc(name, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z')
+	})
+	for _, tok := range tokens {
+		for _, w := range words {
+			if tok == w {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GuessPermission classifies a tool by the verbs in its name. Unknown names
 // fall through to READ, so every verb that can destroy data or reach the
 // network has to be listed above. Otherwise a READ-only policy would allow
@@ -104,7 +124,7 @@ func GuessPermission(tool string) string {
 
 	case has("write", "create", "delete", "update", "set", "edit", "remove", "insert",
 		"replace", "patch", "modify", "append", "overwrite", "rename", "move", "mkdir", "touch",
-		"drop", "truncate", "destroy", "purge", "deploy"):
+		"drop", "truncate", "destroy", "purge", "deploy") || hasWord(n, destructiveWords...):
 		return "WRITE"
 	default:
 		return "READ"

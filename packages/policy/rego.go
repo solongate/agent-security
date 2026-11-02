@@ -39,12 +39,12 @@ type PolicyRule struct {
 	Enabled             *bool                  `json:"enabled"`
 }
 
-func (r PolicyRule) enabledForRego() bool {
+// enabled is the one answer to "does this rule apply?", for both evaluators. A rule with no `enabled`
+// field is off: the Rego compiler has always read it that way, and the pure Go fallback read it the
+// opposite way, so the same rule set could allow in one evaluator and deny in the other depending only
+// on whether OPA happened to be installed (#261). Turning a rule on now takes an explicit `"enabled": true`.
+func (r PolicyRule) enabled() bool {
 	return r.Enabled != nil && *r.Enabled
-}
-
-func (r PolicyRule) enabledForFallback() bool {
-	return r.Enabled == nil || *r.Enabled
 }
 
 func EscapeRegoString(s string) string {
@@ -179,7 +179,7 @@ func ConvertRulesToRego(rules []PolicyRule) string {
 
 	emittedHead := false
 	for _, rule := range sorted {
-		if !rule.enabledForRego() {
+		if !rule.enabled() {
 			continue
 		}
 		conds := generateConditions(rule)

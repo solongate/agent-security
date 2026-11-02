@@ -214,3 +214,49 @@ func TestBuildPolicyInputNeverReturnsNilSlices(t *testing.T) {
 		t.Errorf("BuildPolicyInput must return empty slices, not nil, for safe JSON/Rego input: %+v", in)
 	}
 }
+
+// A rule with no `enabled` field means "off" in both evaluators. The Rego compiler has always skipped
+// such a rule, while the pure Go fallback applied it, so the identical rule set could allow or deny
+// depending only on whether OPA was installed (#261).
+func TestBothEvaluatorsAgreeOnWhetherARuleIsEnabled(t *testing.T) {
+	yes, no := true, false
+	cases := []struct {
+		name    string
+		enabled *bool
+		live    bool
+	}{
+		{"no enabled field", nil, false},
+		{"explicitly enabled", &yes, true},
+		{"explicitly disabled", &no, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rule := PolicyRule{
+				ID: "probe", Effect: "DENY", ToolPattern: "*", Enabled: tc.enabled,
+				CommandConstraints: &ListConstraints{Denied: []string{"rm -rf *"}},
+			}
+			inRego := strings.Contains(ConvertRulesToRego([]PolicyRule{rule}), `"probe"`)
+			blocked := FallbackEvaluate([]PolicyRule{rule}, "denylist", args("command", "rm -rf /tmp/x"), "Bash") != ""
+
+			if inRego != blocked {
+				t.Fatalf("the two evaluators disagree: compiled into Rego=%v, blocked by the fallback=%v", inRego, blocked)
+			}
+			if blocked != tc.live {
+				t.Fatalf("rule is live=%v, want %v", blocked, tc.live)
+			}
+		})
+	}
+}
+
+// The fallback's own regression: it used to treat a missing `enabled` as enabled, so a DENY rule that
+// OPA never compiled still blocked commands on machines without OPA.
+func TestFallbackEvaluateSkipsARuleWithoutAnEnabledField(t *testing.T) {
+	rules := []PolicyRule{
+		{ID: "no-field", Effect: "DENY", ToolPattern: "*",
+			CommandConstraints: &ListConstraints{Denied: []string{"rm -rf *"}}},
+	}
+
+	if got := FallbackEvaluate(rules, "denylist", args("command", "rm -rf /tmp/x"), "Bash"); got != "" {
+		t.Errorf("a rule with no enabled field blocked in the fallback, got %q", got)
+	}
+}

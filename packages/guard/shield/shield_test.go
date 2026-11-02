@@ -235,6 +235,57 @@ func TestShieldLoadDLPConfigReturnsNilWhenOnlyObserveIsConfigured(t *testing.T) 
 	}
 }
 
+func TestShieldLoadDLPConfigKeepsCustomOnlyRedact(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	shieldWritePolicyFile(t, home, &shared.Security{
+		DLPRedact: &shared.DLPConfig{Custom: []shared.DLPCustom{{Name: "ticket", Re: "TICKET-*"}}},
+	})
+	cfg := shieldLoadDLPConfig()
+	if cfg == nil || len(cfg.Custom) != 1 || cfg.Custom[0].Name != "ticket" || len(cfg.Patterns) != 0 {
+		t.Fatalf("a DLPRedact with only custom patterns should be used as written, got %+v", cfg)
+	}
+	out := string(shieldRedactBody([]byte(`{"messages":[{"role":"user","content":"see TICKET-4242"}]}`), cfg))
+	if strings.Contains(out, "TICKET-4242") {
+		t.Errorf("the custom pattern was not applied to the outbound body: %s", out)
+	}
+}
+
+func TestShieldLoadDLPConfigKeepsCustomOnlyBlock(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	shieldWritePolicyFile(t, home, &shared.Security{
+		DLPBlock: &shared.DLPConfig{Custom: []shared.DLPCustom{{Name: "ticket", Re: "TICKET-*"}}},
+	})
+	cfg := shieldLoadDLPConfig()
+	if cfg == nil || len(cfg.Custom) != 1 || len(cfg.Patterns) != 0 {
+		t.Errorf("a DLPBlock with only custom patterns should be used as written, got %+v", cfg)
+	}
+}
+
+func TestShieldLoadDLPConfigReturnsNilWhenOnlyCustomObserveIsConfigured(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	shieldWritePolicyFile(t, home, &shared.Security{
+		DLPObserve: &shared.DLPConfig{Custom: []shared.DLPCustom{{Name: "ticket", Re: "TICKET-*"}}},
+	})
+	if cfg := shieldLoadDLPConfig(); cfg != nil {
+		t.Errorf("an observe-only policy with only custom patterns must not redact outbound traffic, got %+v", cfg)
+	}
+}
+
+func TestShieldLoadDLPConfigKeepsAnExplicitlyEmptyRedact(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	shieldWritePolicyFile(t, home, &shared.Security{
+		DLPRedact: &shared.DLPConfig{Patterns: []string{}},
+	})
+	cfg := shieldLoadDLPConfig()
+	if cfg == nil || len(cfg.Patterns) != 0 || len(cfg.Custom) != 0 {
+		t.Errorf("an explicit empty pattern list should still be used as written, got %+v", cfg)
+	}
+}
+
 func TestShieldLoadDLPConfigFallsBackToDefaultsWithEmptySecurity(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

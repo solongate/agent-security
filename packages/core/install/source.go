@@ -82,7 +82,18 @@ func stageOpencodePlugin(p Paths, guardBin string) (staged, error) {
 	return staged{plugin: bakeGuardBinPath(plugin, guardBin)}, nil
 }
 
+// jsStringEscaper makes guardBin safe to splice into the single-quoted JS
+// string literal in opencode-plugin.mjs. A bare quote or line break in the
+// install path would end the literal early, OpenCode would refuse to load
+// the plugin, and enforcement for OpenCode would silently stop (#207).
+var jsStringEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	`'`, `\'`,
+	"\n", `\n`,
+	"\r", `\r`,
+)
+
 func bakeGuardBinPath(src []byte, guardBin string) []byte {
-	escaped := strings.ReplaceAll(guardBin, `\`, `\\`)
+	escaped := jsStringEscaper.Replace(guardBin)
 	return []byte(strings.Replace(string(src), "__SOLONGATE_GUARD_BIN__", escaped, 1))
 }

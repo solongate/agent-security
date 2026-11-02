@@ -9,8 +9,15 @@ import { join } from 'node:path';
 const GUARD_TIMEOUT_MS = 8000;
 
 const GUARD_BAKED = '__SOLONGATE_GUARD_BIN__';
+// The installed binary carries .exe on Windows (goBinaryNames in
+// packages/core/install). Without it the fallback spawn hits ENOENT and the
+// plugin fails open on every call (#191).
+const GUARD_FALLBACK = join(
+  homedir(), '.solongate', 'bin',
+  process.platform === 'win32' ? 'solongate-guard.exe' : 'solongate-guard',
+);
 const GUARD_BIN = GUARD_BAKED.startsWith('__SOLONGATE') || !existsSync(GUARD_BAKED)
-  ? join(homedir(), '.solongate', 'bin', 'solongate-guard')
+  ? GUARD_FALLBACK
   : GUARD_BAKED;
 
 // Talks to the guard binary directly: spawn it with the same argv shape the

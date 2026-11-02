@@ -54,6 +54,33 @@ func TestBakeGuardBinPathEscapesBackslashes(t *testing.T) {
 	}
 }
 
+func TestBakeGuardBinPathEscapesSingleQuotes(t *testing.T) {
+	src := []byte(`const GUARD_BAKED = '__SOLONGATE_GUARD_BIN__';`)
+	got := string(bakeGuardBinPath(src, `/Users/o'brien/.solongate/bin/solongate-guard`))
+	want := `const GUARD_BAKED = '/Users/o\'brien/.solongate/bin/solongate-guard';`
+	if got != want {
+		t.Errorf("bakeGuardBinPath() = %q, want %q", got, want)
+	}
+}
+
+func TestBakeGuardBinPathEscapesQuoteAfterBackslash(t *testing.T) {
+	src := []byte(`'__SOLONGATE_GUARD_BIN__'`)
+	got := string(bakeGuardBinPath(src, `C:\Users\o'brien\solongate-guard.exe`))
+	want := `'C:\\Users\\o\'brien\\solongate-guard.exe'`
+	if got != want {
+		t.Errorf("bakeGuardBinPath() = %q, want %q", got, want)
+	}
+}
+
+func TestBakeGuardBinPathEscapesLineBreaks(t *testing.T) {
+	src := []byte(`'__SOLONGATE_GUARD_BIN__'`)
+	got := string(bakeGuardBinPath(src, "/tmp/a\nb\rc/solongate-guard"))
+	want := `'/tmp/a\nb\rc/solongate-guard'`
+	if got != want {
+		t.Errorf("bakeGuardBinPath() = %q, want %q", got, want)
+	}
+}
+
 func TestBakeGuardBinPathOnlyReplacesFirstOccurrence(t *testing.T) {
 	src := []byte(`__SOLONGATE_GUARD_BIN__ __SOLONGATE_GUARD_BIN__`)
 	got := string(bakeGuardBinPath(src, "x"))

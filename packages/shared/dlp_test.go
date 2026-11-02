@@ -187,3 +187,17 @@ func TestGlobToRegexp(t *testing.T) {
 		}
 	}
 }
+
+func TestGlobToRegexpRejectsEmpty(t *testing.T) {
+	for _, glob := range []string{"", "   ", "	"} {
+		re, err := GlobToRegexp(glob)
+		if err == nil || re != nil {
+			t.Fatalf("GlobToRegexp(%q) = (%v, %v), want error", glob, re, err)
+		}
+	}
+	// Empty custom Re must not match-everything via DLPScan (#276).
+	cfg := &DLPConfig{Custom: []DLPCustom{{Name: "bad", Re: ""}}}
+	if hit := DLPScan("any text at all", cfg); hit != "" {
+		t.Fatalf("DLPScan with empty custom Re hit %q, want no hit", hit)
+	}
+}

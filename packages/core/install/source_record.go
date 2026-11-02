@@ -38,7 +38,22 @@ func CheckoutRoot() (string, bool) {
 	if !ok {
 		return "", false
 	}
+	return walkUpForCheckout(dir)
+}
 
+// NearbyCheckoutRoot looks for a checkout starting from the current working
+// directory, independent of where this binary was installed from. It lets a
+// caller tell "you're standing in a checkout that just hasn't been installed
+// from yet" apart from "there's no checkout anywhere nearby".
+func NearbyCheckoutRoot() (string, bool) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	return walkUpForCheckout(dir)
+}
+
+func walkUpForCheckout(dir string) (string, bool) {
 	for i := 0; i < 6; i++ {
 		if isCheckout(dir) {
 			abs, err := filepath.Abs(dir)
@@ -57,5 +72,5 @@ func CheckoutRoot() (string, bool) {
 }
 
 func isCheckout(dir string) bool {
-	return Exists(filepath.Join(dir, "scripts", "shell", "install.sh")) && Exists(filepath.Join(dir, ".git"))
+	return Exists(filepath.Join(dir, "scripts", "install.sh")) && Exists(filepath.Join(dir, ".git"))
 }

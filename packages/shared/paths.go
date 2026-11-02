@@ -80,6 +80,10 @@ func ProjectFlagDir() string {
 	return filepath.Join(SGDir(), "projects", ProjectKey(abs))
 }
 
+// GuessPermission classifies a tool by the verbs in its name. Unknown names
+// fall through to READ, so every verb that can destroy data or reach the
+// network has to be listed above. Otherwise a READ-only policy would allow
+// it: drop_table, purge_cache and send_email all have to map to WRITE or NETWORK.
 func GuessPermission(tool string) string {
 	n := strings.ToLower(tool)
 	has := func(subs ...string) bool {
@@ -95,11 +99,12 @@ func GuessPermission(tool string) string {
 		return "WRITE"
 	case has("exec", "shell", "run", "eval", "monitor", "worktree", "terminal") || n == "bash" || n == "sh" || n == "zsh":
 		return "EXECUTE"
-	case has("fetch", "http", "request", "curl", "network", "download", "upload") || n == "websearch":
+	case has("fetch", "http", "request", "curl", "network", "download", "upload", "send", "publish", "submit") || n == "websearch":
 		return "NETWORK"
 
 	case has("write", "create", "delete", "update", "set", "edit", "remove", "insert",
-		"replace", "patch", "modify", "append", "overwrite", "rename", "move", "mkdir", "touch"):
+		"replace", "patch", "modify", "append", "overwrite", "rename", "move", "mkdir", "touch",
+		"drop", "truncate", "destroy", "purge", "deploy"):
 		return "WRITE"
 	default:
 		return "READ"

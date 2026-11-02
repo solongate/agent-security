@@ -4,6 +4,7 @@
 package shared
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,8 +71,10 @@ func VerifiedInSandbox(protectedPaths []string) (confined, conclusive bool) {
 			if os.IsNotExist(err) {
 				continue
 			}
-
-			return true, true
+			if errors.Is(err, os.ErrPermission) {
+				return true, true
+			}
+			return false, false
 		}
 		return false, false
 	}

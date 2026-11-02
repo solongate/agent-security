@@ -6,6 +6,7 @@ package observability
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	"github.com/solongate/agent-security/packages/cli/cliutil"
 	"github.com/solongate/agent-security/packages/core/client"
@@ -34,9 +35,15 @@ func RunAudit(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int,
 		if id == "" {
 			return cliutil.UsageErr("Usage: audit " + sub + " <logId> [--scope exact|tool]")
 		}
-		scope := p.FlagStr("scope")
-		if scope == "" {
+		// RuleSpecFor reads any scope other than "exact" as the tool-wide one,
+		// so a typo here would quietly save the broadest rule there is.
+		scope := strings.ToLower(p.FlagStr("scope"))
+		switch scope {
+		case "":
 			scope = "exact"
+		case "exact", "tool":
+		default:
+			return cliutil.UsageErr(`audit ` + sub + ` --scope: unknown scope "` + p.FlagStr("scope") + `", use exact|tool`)
 		}
 		var (
 			res  client.RuleMutation
@@ -66,14 +73,34 @@ func RunAudit(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int,
 		return 0, nil
 	}
 
+	if sub != "" {
+		return cliutil.UnknownSub("audit", sub, auditUsage())
+	}
+
+	// AuditQuery compares the decision with the log's upper-case ALLOW/DENY
+	// and the signal with the lower-case dlp/ratelimit, exactly. Any other
+	// value would quietly match nothing (a decision) or everything (a signal).
+	filter := strings.ToUpper(p.FlagStr("filter"))
+	switch filter {
+	case "", "ALLOW", "DENY", "DENIED":
+	default:
+		return cliutil.UsageErr(`audit --filter: unknown decision "` + p.FlagStr("filter") + `", use ALLOW|DENY`)
+	}
+	signal := strings.ToLower(p.FlagStr("signal"))
+	switch signal {
+	case "", "dlp", "ratelimit":
+	default:
+		return cliutil.UsageErr(`audit --signal: unknown signal "` + p.FlagStr("signal") + `", use dlp|ratelimit`)
+	}
+
 	limit, ok := p.FlagNumOK("limit")
 	if !ok {
 		limit = 30
 	}
 	res, err := c.Audit.List(ctx, client.AuditQuery{
-		Filter:    p.FlagStr("filter"),
+		Filter:    filter,
 		Tool:      p.FlagStr("tool"),
-		Signal:    p.FlagStr("signal"),
+		Signal:    signal,
 		Search:    p.FlagStr("search"),
 		AgentName: p.FlagStr("agent-name"),
 		Limit:     limit,

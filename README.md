@@ -165,6 +165,11 @@ have made it this far.
     </tr>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/imshah-id"><img src="https://avatars.githubusercontent.com/u/121153200?v=4&size=100" width="100px" height="100px" alt="Shahid Shamim Shah"/><br /><sub><b>Shahid Shamim Shah</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=imshah-id" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/SatriaBagusNurhadianto"><img src="https://avatars.githubusercontent.com/u/237350863?v=4&size=100" width="100px" height="100px" alt="Chavaaa"/><br /><sub><b>Chavaaa</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=SatriaBagusNurhadianto" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/O1sumitkumar"><img src="https://avatars.githubusercontent.com/u/109774891?v=4&size=100" width="100px" height="100px" alt="Sumeet Jha"/><br /><sub><b>Sumeet Jha</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=O1sumitkumar" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/dannyward630"><img src="https://avatars.githubusercontent.com/u/71604164?v=4&size=100" width="100px" height="100px" alt="Danny Ward"/><br /><sub><b>Danny Ward</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=dannyward630" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/ShahadatTest"><img src="https://avatars.githubusercontent.com/u/179203101?v=4&size=100" width="100px" height="100px" alt="ShahadatTest"/><br /><sub><b>ShahadatTest</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=ShahadatTest" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/sammist2"><img src="https://avatars.githubusercontent.com/u/235929898?v=4&size=100" width="100px" height="100px" alt="samuel akinade"/><br /><sub><b>samuel akinade</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=sammist2" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

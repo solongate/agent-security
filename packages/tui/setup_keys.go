@@ -5,7 +5,9 @@ package tui
 
 import (
 	"strings"
+	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -38,6 +40,14 @@ func (m *setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "q":
 		m.abandoned = true
 		return m, tea.Quit
+
+	case "c":
+		if m.step == stepFirstCall {
+			if clipboard.WriteAll(setupPrompt) == nil {
+				m.copiedAt = time.Now()
+			}
+		}
+		return m, nil
 
 	case "up", "k":
 		if m.step == stepPolicy && m.choice > 0 {

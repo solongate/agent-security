@@ -163,13 +163,22 @@ func shieldLoadDLPConfig() *shared.DLPConfig {
 	if d == nil {
 		d = sec.DLPBlock
 	}
-	if d == nil || d.Patterns == nil {
-		if sec.DLPObserve != nil && sec.DLPObserve.Patterns != nil {
+	if !shieldDLPConfigured(d) {
+		if shieldDLPConfigured(sec.DLPObserve) {
 			return nil
 		}
 		return defaults()
 	}
 	return d
+}
+
+// shieldDLPConfigured reports whether a DLP block names anything to match.
+// Custom patterns count as much as built-in names: a block that only lists
+// custom patterns must not be swapped for the defaults (or, in observe mode,
+// turn into redaction with the defaults). An explicit empty pattern list is
+// still a choice and is kept as written.
+func shieldDLPConfigured(c *shared.DLPConfig) bool {
+	return c != nil && (c.Patterns != nil || len(c.Custom) > 0)
 }
 
 func shieldRedactBody(body []byte, cfg *shared.DLPConfig) []byte {

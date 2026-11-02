@@ -22,7 +22,7 @@ import (
 
 var Names = []string{
 	"policy", "ratelimit", "dlp", "stats", "audit",
-	"doctor", "trace", "watch",
+	"doctor", "trace", "watch", "range",
 }
 
 var LocalNames = []string{}

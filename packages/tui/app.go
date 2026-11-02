@@ -16,6 +16,7 @@ import (
 
 	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/config"
+	"github.com/solongate/agent-security/packages/core/term"
 )
 
 type Deps struct {
@@ -134,6 +135,38 @@ type App struct {
 
 	panel    Panel
 	panelIdx int
+
+	splashDone   bool
+	splashChars  int
+	splashFullAt time.Time
+	splashWiping bool
+	wipeLine     int
+}
+
+const (
+	splashCharDelay = 2 * time.Millisecond
+	splashHold      = 400 * time.Millisecond
+	splashWipeDelay = 20 * time.Millisecond
+	splashTagline   = "MAKE AI SECURE AGAIN"
+)
+
+type splashTickMsg struct{}
+
+func splashTick() tea.Cmd {
+	return tea.Tick(splashCharDelay, func(time.Time) tea.Msg { return splashTickMsg{} })
+}
+
+func splashWipeTick() tea.Cmd {
+	return tea.Tick(splashWipeDelay, func(time.Time) tea.Msg { return splashTickMsg{} })
+}
+
+func splashTotalChars() int {
+	n := 0
+	for _, line := range term.BannerFull {
+		n += len([]rune(line))
+	}
+	n += len([]rune(splashTagline))
+	return n
 }
 
 func New(deps Deps) *App {
@@ -149,7 +182,7 @@ func New(deps Deps) *App {
 
 func (a *App) Init() tea.Cmd {
 
-	return tea.Batch(a.mount(), a.readPolicyLabel())
+	return tea.Batch(a.mount(), a.readPolicyLabel(), splashTick())
 }
 
 type policyLabelMsg struct{ text string }
@@ -232,7 +265,35 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.toPanel(msg)
 
 	case tea.KeyMsg:
+		if !a.splashDone {
+			return a, nil
+		}
 		return a.onKey(m)
+
+	case splashTickMsg:
+		total := splashTotalChars()
+		switch {
+		case a.splashDone:
+			return a, nil
+		case a.splashWiping:
+			a.wipeLine++
+			if a.wipeLine >= a.rows-1 {
+				a.splashDone = true
+				return a, nil
+			}
+			return a, splashWipeTick()
+		case a.splashChars < total:
+			a.splashChars++
+			return a, splashTick()
+		case a.splashFullAt.IsZero():
+			a.splashFullAt = time.Now()
+			return a, splashTick()
+		case time.Since(a.splashFullAt) >= splashHold:
+			a.splashWiping = true
+			return a, splashWipeTick()
+		default:
+			return a, splashTick()
+		}
 
 	case SectionRequestMsg:
 		for i, label := range sectionLabels {

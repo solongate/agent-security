@@ -28,10 +28,99 @@ func (a *App) View() string {
 		return ClampBlock(a.helpView(), a.cols, a.rows-1)
 	}
 
-	if a.isTakeover() && a.focus == focusPanel {
-		return ClampBlock(a.panel.View(a.ctx()), a.cols, a.rows-1)
+	if !a.splashDone {
+		return ClampBlock(a.splashOverlayView(), a.cols, a.rows-1)
 	}
-	return ClampBlock(a.boxedView(), a.cols, a.rows-1)
+
+	return ClampBlock(a.contentView(), a.cols, a.rows-1)
+}
+
+func (a *App) contentView() string {
+	if a.isTakeover() && a.focus == focusPanel {
+		return a.panel.View(a.ctx())
+	}
+	return a.boxedView()
+}
+
+func (a *App) splashOverlayView() string {
+	splash := splashView(a.cols, a.rows, a.splashChars)
+	if !a.splashWiping {
+		return splash
+	}
+	return wipeOverlay(a.contentView(), splash, a.cols, a.rows-1, a.wipeLine)
+}
+
+func splashView(cols, rows, chars int) string {
+	remaining := chars
+	banner := lipgloss.NewStyle().Bold(true).Foreground(Theme.White)
+	tagline := lipgloss.NewStyle().Foreground(Theme.Dim).Italic(true)
+
+	lines := make([]string, 0, len(term.BannerFull)+2)
+	for _, l := range term.BannerFull {
+		revealed, left := splashReveal(l, remaining)
+		remaining = left
+		lines = append(lines, banner.Render(revealed))
+	}
+	lines = append(lines, "")
+	revealed, _ := splashReveal(splashTagline, remaining)
+	lines = append(lines, tagline.Render(revealed))
+
+	block := strings.Join(lines, "\n")
+	return lipgloss.Place(cols, rows-1, lipgloss.Center, lipgloss.Center, block)
+}
+
+func splashReveal(s string, budget int) (revealed string, remaining int) {
+	runes := []rune(s)
+	n := budget
+	if n > len(runes) {
+		n = len(runes)
+	}
+	if n < 0 {
+		n = 0
+	}
+	out := make([]rune, len(runes))
+	copy(out, runes[:n])
+	for i := n; i < len(runes); i++ {
+		out[i] = ' '
+	}
+	return string(out), budget - n
+}
+
+// wipeOverlay composes the first `line` rows of `top` over the remaining rows
+// of `bottom`, so the caller can progressively overwrite one view onto
+// another instead of cutting between them.
+func wipeOverlay(top, bottom string, cols, rows, line int) string {
+	if rows < 1 {
+		rows = 1
+	}
+	if line > rows {
+		line = rows
+	}
+	if line < 0 {
+		line = 0
+	}
+	topLines := padLines(top, rows)
+	bottomLines := padLines(bottom, rows)
+	out := make([]string, rows)
+	for i := 0; i < rows; i++ {
+		if i < line {
+			out[i] = topLines[i]
+		} else {
+			out[i] = bottomLines[i]
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func padLines(s string, rows int) []string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > rows {
+		lines = lines[:rows]
+	}
+	for len(lines) < rows {
+		lines = append(lines, "")
+	}
+	return lines
 }
 
 func (a *App) boxedView() string {

@@ -139,10 +139,34 @@ func allowRules(deny, immutable []string) ([]landlock.Rule, []string, []string, 
 	var rules []landlock.Rule
 	var walked []string
 	var narrow []string
+
+	// Sort onPath entries by specificity (shallowest first) so that a
+	// wide (frozen) grant can never be applied to a directory whose
+	// ancestor is narrow: otherwise a frozen denied child would be granted
+	// whole and leak through a non-frozen parent's narrow listing.
+	dirs := make([]string, 0, len(onPath))
+	for d := range onPath {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	wide := map[string]bool{}
+	for _, dir := range dirs {
+		if !frozenBelow(dir, denied, frozen) {
+			wide[dir] = false
+			continue
+		}
+		if dir == "/" {
+			wide[dir] = true
+			continue
+		}
+		parent := filepath.Dir(dir)
+		wide[dir] = wide[parent]
+	}
+
 	for dir := range onPath {
 		walked = append(walked, dir)
 
-		if frozenBelow(dir, denied, frozen) {
+		if wide[dir] {
 			rules = append(rules, landlock.RWDirs(dir).WithRefer().WithIoctlDev().IgnoreIfMissing())
 			continue
 		}

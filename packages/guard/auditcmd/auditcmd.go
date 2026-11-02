@@ -55,8 +55,10 @@ func Run(args []string, redactsOutput func(agentID string) bool) (code int) {
 	var toolInputMap map[string]interface{}
 	_ = json.Unmarshal(toolInputRaw, &toolInputMap)
 
-	if toolName == "Bash" && strings.Contains(string(toolInputRaw), "audit-logs") {
-		return 0
+	if toolName == "Bash" {
+		if command, _ := toolInputMap["command"].(string); command != "" && bashReadsLocalAuditLog(command) {
+			return 0
+		}
 	}
 
 	callID := guardcore.JsOrString(fields, "tool_use_id", "toolUseId", "tool_call_id")
@@ -357,6 +359,23 @@ func isString(v interface{}) bool {
 func isArray(v interface{}) bool {
 	_, ok := v.([]interface{})
 	return ok
+}
+
+func bashReadsLocalAuditLog(command string) bool {
+	dir := filepath.Join(shared.SGDir(), "local-logs")
+	file := filepath.Join(dir, "solongate-audit.jsonl")
+	home, _ := os.UserHomeDir()
+	for _, tok := range strings.Fields(command) {
+		tok = strings.Trim(tok, "\"'`")
+		if home != "" && strings.HasPrefix(tok, "~") {
+			tok = filepath.Join(home, strings.TrimPrefix(tok, "~"))
+		}
+		clean := filepath.Clean(tok)
+		if clean == dir || clean == file || strings.HasPrefix(clean, dir+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneMap(m map[string]interface{}) map[string]interface{} {

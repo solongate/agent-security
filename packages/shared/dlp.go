@@ -5,6 +5,7 @@ package shared
 
 import (
 	"encoding/base64"
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -148,6 +149,10 @@ func DLPScan(text string, cfg *DLPConfig) string {
 }
 
 func GlobToRegexp(glob string) (*regexp.Regexp, error) {
+	if strings.TrimSpace(glob) == "" {
+		// Empty globs would compile to "(?i)" and match every string (#276).
+		return nil, fmt.Errorf("empty DLP custom pattern")
+	}
 	var b strings.Builder
 	b.WriteString("(?i)")
 	for _, r := range GlobStarRun.ReplaceAllString(glob, "*") {

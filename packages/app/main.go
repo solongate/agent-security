@@ -24,13 +24,13 @@ import (
 var buildVersion = "dev"
 
 var cliSubcommands = map[string]bool{
-	"repair": true,
+	"repair": true, "update": true,
 	"policy": true, "ratelimit": true, "dlp": true, "stats": true, "audit": true,
 	"doctor": true, "trace": true, "watch": true, "range": true,
 	"tui": true,
 }
 
-var runExplainArgs = map[string]bool{"--explain": true, "explain": true}
+var explainArgs = map[string]bool{"--explain": true, "explain": true}
 
 var cliInfoArgs = map[string]bool{
 	"help": true, "--help": true, "-h": true,
@@ -76,7 +76,7 @@ func run(args []string) int {
 	if isHumanCLI && len(args) > 0 {
 		assertHumanTerminal(hasJSON)
 	}
-	if sub == "run" && len(args) > 1 && runExplainArgs[args[1]] {
+	if explainRequested(args) {
 		assertHumanTerminal(false)
 	}
 
@@ -99,6 +99,27 @@ func run(args []string) int {
 	fmt.Printf("\n  Unknown command: %s\n", sub)
 	fmt.Print("  Run `solongate --help` to see every command, or `solongate` for the TUI.\n\n")
 	return 1
+}
+
+// run and sandbox stay open to scripts so an agent can be launched from one,
+// but their explain forms map out what the confinement leaves reachable, and
+// that is reconnaissance an agent must not be able to run. sandbox drops one
+// leading "--" before it looks for explain, so the gate has to as well.
+func explainRequested(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	rest := args[1:]
+	switch args[0] {
+	case "run":
+	case "sandbox":
+		if len(rest) > 0 && rest[0] == "--" {
+			rest = rest[1:]
+		}
+	default:
+		return false
+	}
+	return len(rest) > 0 && explainArgs[rest[0]]
 }
 
 func hasFlag(args []string, flag string) bool {

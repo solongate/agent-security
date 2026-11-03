@@ -36,7 +36,10 @@ solongate
 ./scripts/sg-unit-check.sh
 ```
 
-That runs the unit tests for `shared`, `sandbox`, `guard`, `policy` and `core`.
+That runs the unit tests for `shared`, `sandbox`, `guard`, `policy` and `core`,
+plus the `node:test` suite for the OpenCode plugin
+(`packages/hooks/opencode-plugin.test.mjs`, needs Node 20 or later, no
+dependencies).
 `cli`, `tui` and `app` have none. They just print to the screen and run
 commands, so there's nothing to unit-test in them.
 

@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
 
-# Checks gofmt, go vet and go test across every Go module in this repository.
+# Checks gofmt, go vet and go test across every Go module in this repository,
+# then runs the node:test suite for packages/hooks/opencode-plugin.mjs.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -23,3 +24,6 @@ for m in guard policy shared sandbox core cli tui app; do
     go test -count=1 ./...
   )
 done
+
+echo "== packages/hooks =="
+node --test packages/hooks/opencode-plugin.test.mjs

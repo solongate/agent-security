@@ -449,7 +449,7 @@ func FallbackEvaluate(rules []PolicyRule, mode string, args map[string]interface
 
 	var denyRules []PolicyRule
 	for _, r := range rules {
-		if r.enabledForFallback() && r.Effect == "DENY" && permissionApplies(r, toolName) {
+		if r.enabled() && r.Effect == "DENY" && permissionApplies(r, toolName) {
 			denyRules = append(denyRules, r)
 		}
 	}
@@ -466,7 +466,7 @@ func FallbackEvaluate(rules []PolicyRule, mode string, args map[string]interface
 
 	var allowRules []PolicyRule
 	for _, r := range rules {
-		if r.enabledForFallback() && r.Effect == "ALLOW" && permissionApplies(r, toolName) {
+		if r.enabled() && r.Effect == "ALLOW" && permissionApplies(r, toolName) {
 			allowRules = append(allowRules, r)
 		}
 	}

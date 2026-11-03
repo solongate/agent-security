@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// The rule these tests build is explicitly on: an absent `enabled` field now means off in both
+// evaluators (#261), so relying on it here would test the default, not the tool pattern.
+func boolPtr(v bool) *bool { return &v }
+
 func listPtr(items ...string) *ListConstraints {
 	return &ListConstraints{Denied: items}
 }
@@ -22,6 +26,7 @@ func TestFallbackEvaluateRespectsToolPatternOnDeny(t *testing.T) {
 	rules := []PolicyRule{{
 		ID:                 "no-rm-via-bash",
 		Effect:             "DENY",
+		Enabled:            boolPtr(true),
 		ToolPattern:        "Bash",
 		CommandConstraints: listPtr("rm -rf*"),
 	}}
@@ -41,6 +46,7 @@ func TestFallbackEvaluateRespectsToolPatternOnAllow(t *testing.T) {
 	rules := []PolicyRule{{
 		ID:              "read-only-allow",
 		Effect:          "ALLOW",
+		Enabled:         boolPtr(true),
 		ToolPattern:     "Read",
 		PathConstraints: pathSet("/tmp/*"),
 	}}
@@ -61,6 +67,7 @@ func TestToolPatternGlobSemantics(t *testing.T) {
 	rules := []PolicyRule{{
 		ID:                 "suffix-wildcard",
 		Effect:             "DENY",
+		Enabled:            boolPtr(true),
 		ToolPattern:        "*Write",
 		CommandConstraints: listPtr("rm*"),
 	}}
@@ -82,6 +89,7 @@ func TestToolPatternIsCaseSensitive(t *testing.T) {
 	rules := []PolicyRule{{
 		ID:                 "exact-bash",
 		Effect:             "DENY",
+		Enabled:            boolPtr(true),
 		ToolPattern:        "bash",
 		CommandConstraints: listPtr("rm*"),
 	}}

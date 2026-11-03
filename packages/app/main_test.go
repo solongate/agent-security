@@ -31,8 +31,9 @@ func captureStdout(t *testing.T, f func()) string {
 	return string(out)
 }
 
-// printHelp's sandbox line must match confine.parseSandboxArgs's real
-// contract (an id before the agent), not the "run"-style "-- <agent>" form.
+// printHelp's run and sandbox lines must match the real CLI contracts:
+// run takes <command> [args...] (a leading "--" is optional, never required);
+// sandbox takes an id before the agent, not a "-- <agent>" form.
 func TestPrintHelpDocumentsRealSandboxSyntax(t *testing.T) {
 	out := captureStdout(t, printHelp)
 	if strings.Contains(out, "sandbox -- <agent>") {
@@ -40,6 +41,12 @@ func TestPrintHelpDocumentsRealSandboxSyntax(t *testing.T) {
 	}
 	if !strings.Contains(out, "sandbox <id> <agent>") {
 		t.Error("help text should document \"sandbox <id> <agent>\"")
+	}
+	if strings.Contains(out, "run -- <agent>") {
+		t.Error("help text still documents \"run -- <agent>\", which run does not require")
+	}
+	if !strings.Contains(out, "run <command> [args...]") {
+		t.Error("help text should document \"run <command> [args...]\"")
 	}
 }
 

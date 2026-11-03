@@ -21,10 +21,10 @@ func TestSourceRecordPath(t *testing.T) {
 
 func makeCheckout(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(dir, "scripts", "shell"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "scripts", "shell", "install.sh"), []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "scripts", "install.sh"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
@@ -38,10 +38,10 @@ func TestIsCheckout(t *testing.T) {
 		t.Error("isCheckout() = true for an empty directory")
 	}
 
-	if err := os.MkdirAll(filepath.Join(dir, "scripts", "shell"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "scripts", "shell", "install.sh"), []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "scripts", "install.sh"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if isCheckout(dir) {

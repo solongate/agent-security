@@ -234,3 +234,95 @@ func TestRunAuditDefaultListingWithEntries(t *testing.T) {
 		}
 	}
 }
+
+// The log stores ALLOW/DENY upper case and the signals are dlp/ratelimit. A
+// decision typed in any other case used to match nothing, printing "0
+// matching entries" over a log that had them, and a signal matched every
+// entry (issue #177).
+func TestRunAuditFilterAndSignalIgnoreCase(t *testing.T) {
+	newHome(t)
+	seedAuditLog(t,
+		`{"ts":"2026-01-01T00:00:00Z","tool":"Bash","decision":"ALLOW"}`,
+		`{"ts":"2026-01-01T01:00:00Z","tool":"WebFetch","decision":"DENY","reason":"dlp pattern matched","dlp":["AWS access key"]}`,
+		`{"ts":"2026-01-01T02:00:00Z","tool":"Write","decision":"DENY","reason":"rate limit exceeded"}`,
+	)
+	c := client.New()
+
+	for _, tc := range []struct {
+		args []string
+		want int
+	}{
+		{[]string{"--filter", "deny"}, 2},
+		{[]string{"--filter", "Allow"}, 1},
+		{[]string{"--filter", "denied"}, 2},
+		{[]string{"--signal", "DLP"}, 1},
+		{[]string{"--signal", "RateLimit"}, 1},
+		{[]string{"--filter", "deny", "--signal", "Dlp"}, 1},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			var code int
+			var err error
+			out := captureFD(t, 1, func() {
+				code, err = RunAudit(context.Background(), c, cliutil.Parse(append(tc.args, "--json")))
+			})
+			if err != nil || code != 0 {
+				t.Fatalf("RunAudit(%v) = (%d, %v), want (0, nil)", tc.args, code, err)
+			}
+			var res client.AuditList
+			if err := json.Unmarshal([]byte(out), &res); err != nil {
+				t.Fatalf("output is not JSON: %v\n%s", err, out)
+			}
+			if res.Total != tc.want {
+				t.Errorf("total = %d, want %d", res.Total, tc.want)
+			}
+		})
+	}
+}
+
+// A value audit doesn't know has to be refused. An unknown --scope is the
+// dangerous one: RuleSpecFor reads anything but "exact" as tool-wide, so
+// `--scope exac` saved a rule for every call to the tool (issues #178, #139).
+// An unknown subcommand used to fall through to the listing.
+func TestRunAuditRejectsUnknownValues(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"whitelist", "1", "--scope", "exac"}, `audit whitelist --scope: unknown scope "exac", use exact|tool`},
+		{[]string{"block", "1", "--scope", "tools"}, `audit block --scope: unknown scope "tools", use exact|tool`},
+		{[]string{"--filter", "denyy"}, `audit --filter: unknown decision "denyy", use ALLOW|DENY`},
+		{[]string{"--signal", "secrets"}, `audit --signal: unknown signal "secrets", use dlp|ratelimit`},
+		{[]string{"whitelistt", "1"}, "Unknown audit subcommand: "},
+		{[]string{"list"}, "Unknown audit subcommand: "},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			newHome(t)
+			c := client.New()
+			var code int
+			var err error
+			out := captureFD(t, 2, func() {
+				code, err = RunAudit(context.Background(), c, cliutil.Parse(tc.args))
+			})
+			if code != 1 || err != nil {
+				t.Fatalf("RunAudit(%v) = (%d, %v), want (1, nil)", tc.args, code, err)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("output does not say %q:\n%s", tc.want, out)
+			}
+		})
+	}
+}
+
+// Known scopes still reach the lookup whatever their case.
+func TestRunAuditScopeIgnoresCase(t *testing.T) {
+	for _, scope := range []string{"EXACT", "Tool"} {
+		t.Run(scope, func(t *testing.T) {
+			newHome(t)
+			c := client.New()
+			_, err := RunAudit(context.Background(), c, cliutil.Parse([]string{"whitelist", "1", "--scope", scope}))
+			if err == nil || !strings.Contains(err.Error(), "no entry") {
+				t.Errorf("err = %v, want the lookup's missing-entry error", err)
+			}
+		})
+	}
+}

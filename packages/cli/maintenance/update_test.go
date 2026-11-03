@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -166,6 +167,8 @@ func TestContainsPath(t *testing.T) {
 }
 
 func TestNoSourceToUpdateFrom(t *testing.T) {
+	t.Chdir(t.TempDir())
+
 	var code int
 	out := captureStderrFD(t, func() {
 		code = noSourceToUpdateFrom()
@@ -175,6 +178,34 @@ func TestNoSourceToUpdateFrom(t *testing.T) {
 	}
 	if !strings.Contains(out, "git clone") {
 		t.Errorf("noSourceToUpdateFrom() output should mention git clone, got: %s", out)
+	}
+}
+
+func TestNoSourceToUpdateFromNearbyCheckout(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scripts", "install.sh"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	var code int
+	out := captureStderrFD(t, func() {
+		code = noSourceToUpdateFrom()
+	})
+	if code != 1 {
+		t.Errorf("noSourceToUpdateFrom() = %d, want 1", code)
+	}
+	if strings.Contains(out, "git clone") {
+		t.Errorf("noSourceToUpdateFrom() should not suggest cloning from inside an uninstalled checkout, got: %s", out)
+	}
+	if !strings.Contains(out, "./scripts/install.sh") {
+		t.Errorf("noSourceToUpdateFrom() should point at install.sh in the checkout, got: %s", out)
 	}
 }
 

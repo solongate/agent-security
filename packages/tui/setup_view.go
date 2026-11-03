@@ -14,6 +14,21 @@ import (
 )
 
 func (m *setupModel) View() string {
+	if !m.splashDone {
+		return ClampBlock(m.splashOverlayView(), m.cols, m.rows-1)
+	}
+	return m.contentView()
+}
+
+func (m *setupModel) splashOverlayView() string {
+	splash := splashView(m.cols, m.rows, m.splashChars)
+	if !m.splashWiping {
+		return splash
+	}
+	return wipeOverlay(m.contentView(), splash, m.cols, m.rows-1, m.wipeLine)
+}
+
+func (m *setupModel) contentView() string {
 	w := m.cols - 8
 	if w < 44 {
 		w = 44
@@ -169,29 +184,6 @@ func (m *setupModel) viewPolicy(w int) []string {
 	return out
 }
 
-func listenBar(width, frame int) Seg {
-	if width < 8 {
-		width = 8
-	}
-	span := width - 1
-	pos := frame % (2 * span)
-	if pos > span {
-		pos = 2*span - pos
-	}
-	runes := make([]rune, width)
-	for i := range runes {
-		switch {
-		case i == pos:
-			runes[i] = '●'
-		case i == pos-1 || i == pos+1:
-			runes[i] = '·'
-		default:
-			runes[i] = ' '
-		}
-	}
-	return Sg(string(runes), Theme.AccentBright)
-}
-
 func (m *setupModel) viewWaiting(w int) []string {
 	var out []string
 	push := func(segs ...Seg) { out = append(out, RenderRow(w, segs...)) }
@@ -213,12 +205,16 @@ func (m *setupModel) viewWaiting(w int) []string {
 	push(Sg("  2. ", Theme.Dim), Sg("type this to it, word for word:", Theme.White))
 	push(Plain(""))
 	push(Sg("       "+setupPrompt, Theme.AccentBright))
+	if !m.copiedAt.IsZero() && time.Since(m.copiedAt) < 2*time.Second {
+		push(Sg("       ✓ copied to clipboard", Theme.OK))
+	} else {
+		push(Sg("       c copies it", Theme.Dim))
+	}
 	push(Plain(""))
 	push(Sg("The agent will run it as a tool call, SolonGate will judge that", Theme.Dim))
 	push(Sg("call, and this screen will say so within a second.", Theme.Dim))
 	push(Plain(""))
-	push(listenBar(min(w, 34), m.frame))
-	push(Sg("waiting · "+elapsed(m.started), Theme.Dim))
+	push(Sg(SpinFrames[m.frame%len(SpinFrames)]+"  waiting · "+elapsed(m.started), Theme.Warn))
 	return out
 }
 
@@ -267,42 +263,18 @@ func (m *setupModel) viewDone(w int) []string {
 	kv("tool", orSetupDash(c.Tool))
 	kv("client", orSetupDash(c.Client))
 	kv("where", orSetupDash(c.Cwd))
-	kv("asked for", setupSaw(c))
-	kv("took", strconv.FormatFloat(c.Ms, 'f', 1, 64)+" ms")
 
-	if shown > 5 {
+	if shown > 3 {
 		push(Plain(""))
 		push(Sg("That is the whole product: a decision, on this machine, before", Theme.Dim))
 		push(Sg("the call ran. Nothing left it.", Theme.Dim))
 	}
-	if shown > 6 {
+	if shown > 4 {
 		push(Plain(""))
 		push(Sg("A policy rule matches STRINGS, which is worth knowing before", Theme.Dim))
 		push(Sg("you rely on one. `solongate doctor` says what is in force.", Theme.Dim))
 	}
 	return out
-}
-
-func setupSaw(c *setupCall) string {
-	var parts []string
-	add := func(n int, one, many string) {
-		switch {
-		case n == 1:
-			parts = append(parts, "1 "+one)
-		case n > 1:
-			parts = append(parts, strconv.Itoa(n)+" "+many)
-		}
-	}
-	add(c.Paths, "path", "paths")
-	add(c.Cmds, "command", "commands")
-	add(c.URLs, "url", "urls")
-	if len(parts) == 0 {
-		return "no paths, commands or urls"
-	}
-	if c.Perm != "" {
-		return strings.Join(parts, ", ") + "  (" + strings.ToLower(c.Perm) + ")"
-	}
-	return strings.Join(parts, ", ")
 }
 
 func orSetupDash(s string) string {
@@ -322,6 +294,8 @@ func (m *setupModel) footer() string {
 			return seg2("enter", "write  ") + seg2("esc", "back")
 		}
 		return seg2("↑↓", "choose  ") + seg2("enter", "write it  ") + seg2("q", "leave")
+	case stepFirstCall:
+		return seg2("c", "copy the command  ") + seg2("q", "leave  (the first run starts here again next time)")
 	case stepFinished:
 		return seg2("enter", "open the TUI")
 	default:

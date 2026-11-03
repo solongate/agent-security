@@ -141,6 +141,13 @@ type setupModel struct {
 	call *setupCall
 
 	abandoned bool
+	copiedAt  time.Time
+
+	splashDone   bool
+	splashChars  int
+	splashFullAt time.Time
+	splashWiping bool
+	wipeLine     int
 }
 
 type setupCall = config.EvalRecord
@@ -167,7 +174,7 @@ func newSetup(deps Deps) *setupModel {
 }
 
 func (m *setupModel) Init() tea.Cmd {
-	return tea.Batch(setupTick(), setupFrame(), m.probe())
+	return tea.Batch(setupTick(), setupFrame(), m.probe(), splashTick())
 }
 
 func setupTick() tea.Cmd {
@@ -243,7 +250,35 @@ func (m *setupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.probe()
 
 	case tea.KeyMsg:
+		if !m.splashDone {
+			return m, nil
+		}
 		return m.onKey(msg)
+
+	case splashTickMsg:
+		total := splashTotalChars()
+		switch {
+		case m.splashDone:
+			return m, nil
+		case m.splashWiping:
+			m.wipeLine++
+			if m.wipeLine >= m.rows-1 {
+				m.splashDone = true
+				return m, nil
+			}
+			return m, splashWipeTick()
+		case m.splashChars < total:
+			m.splashChars++
+			return m, splashTick()
+		case m.splashFullAt.IsZero():
+			m.splashFullAt = time.Now()
+			return m, splashTick()
+		case time.Since(m.splashFullAt) >= splashHold:
+			m.splashWiping = true
+			return m, splashWipeTick()
+		default:
+			return m, splashTick()
+		}
 	}
 	return m, nil
 }
@@ -263,7 +298,7 @@ func (m *setupModel) advance() {
 			m.step = stepFirstCall
 		}
 	case stepFirstCall:
-		if m.call != nil {
+		if m.call != nil && m.call.At().After(m.started) && matchesSetupPrompt(m.call) {
 			m.step = stepFinished
 			m.arrived = time.Now()
 		}
@@ -286,6 +321,14 @@ func (m *setupModel) write(path string) tea.Cmd {
 		}
 		return setupWroteMsg{name: set.Name}
 	}
+}
+
+// matchesSetupPrompt reports whether c has the shape of the single bare
+// command this screen tells the user to run (setupPrompt): one command
+// statement, no paths, no urls. Other guard activity on the same machine
+// (another agent, another repo) must not be mistaken for it.
+func matchesSetupPrompt(c *setupCall) bool {
+	return c.Cmds == 1 && c.Paths == 0 && c.URLs == 0
 }
 
 func needsSetup(cfg config.TUIConfig) bool { return strings.TrimSpace(cfg.SetupDoneAt) == "" }

@@ -96,7 +96,9 @@ fi
 
 echo
 echo "the closed box is not available here, and says so:"
-out=$("$APP" sandbox --explain 2>&1 | head -3)
+# Asks to launch into a box rather than for --explain: explain is human-only,
+# and this script has no terminal, so it would only hear that refusal.
+out=$("$APP" sandbox 001 /usr/bin/true 2>&1 | head -3)
 if printf '%s' "$out" | grep -qi 'not implemented\|mount namespace\|No closed box'; then
   printf '  OK      refuses with a reason\n'; pass=$((pass+1))
 else

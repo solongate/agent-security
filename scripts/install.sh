@@ -31,8 +31,11 @@ done
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
 	B='\033[1m'; DIM='\033[2m'
 	RED='\033[38;2;220;80;80m'; GREEN='\033[38;2;80;200;120m'; OFF='\033[0m'
+	BLUE1='\033[38;2;20;50;160m'; BLUE2='\033[38;2;40;80;190m'; BLUE3='\033[38;2;60;110;215m'
+	BLUE4='\033[38;2;90;140;230m'; BLUE5='\033[38;2;130;170;240m'; BLUE6='\033[38;2;170;200;250m'
 else
 	B=''; DIM=''; RED=''; GREEN=''; OFF=''
+	BLUE1=''; BLUE2=''; BLUE3=''; BLUE4=''; BLUE5=''; BLUE6=''
 fi
 
 TYPE_DELAY=0.002
@@ -55,6 +58,49 @@ type_out() {
 say() { printf '         %b' "$DIM" >&2; type_out "$1"; printf '%b\n' "$OFF" >&2; }
 mark_ok() { printf '%b[  OK  ]%b ' "$GREEN" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
 mark_no() { printf '%b[FAILED]%b ' "$RED" "$OFF" >&2; type_out "$1"; printf '\n' >&2; }
+
+center_pad() {
+	_len=$(printf '%s' "$1" | wc -m)
+	_cols=$(tput cols 2>/dev/null || echo 80)
+	_pad=$(((_cols - _len) / 2))
+	[ "$_pad" -gt 0 ] || _pad=0
+	_i=0
+	while [ "$_i" -lt "$_pad" ]; do printf ' ' >&2; _i=$((_i + 1)); done
+}
+
+splash() {
+	BANNER1=' ███████╗ ██████╗ ██╗      ██████╗ ███╗   ██╗ ██████╗  █████╗ ████████╗███████╗'
+	BANNER2=' ██╔════╝██╔═══██╗██║     ██╔═══██╗████╗  ██║██╔════╝ ██╔══██╗╚══██╔══╝██╔════╝'
+	BANNER3=' ███████╗██║   ██║██║     ██║   ██║██╔██╗ ██║██║  ███╗███████║   ██║   █████╗  '
+	BANNER4=' ╚════██║██║   ██║██║     ██║   ██║██║╚██╗██║██║   ██║██╔══██║   ██║   ██╔══╝  '
+	BANNER5=' ███████║╚██████╔╝███████╗╚██████╔╝██║ ╚████║╚██████╔╝██║  ██║   ██║   ███████╗'
+	BANNER6=' ╚══════╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝'
+
+	printf '\n' >&2
+	_n=1
+	for _line in "$BANNER1" "$BANNER2" "$BANNER3" "$BANNER4" "$BANNER5" "$BANNER6"; do
+		case $_n in
+		1) _col=$BLUE1 ;;
+		2) _col=$BLUE2 ;;
+		3) _col=$BLUE3 ;;
+		4) _col=$BLUE4 ;;
+		5) _col=$BLUE5 ;;
+		*) _col=$BLUE6 ;;
+		esac
+		center_pad "$_line"
+		printf '%b' "${B}${_col}" >&2
+		type_out "$_line"
+		printf '%b\n' "$OFF" >&2
+		_n=$((_n + 1))
+	done
+	printf '\n' >&2
+
+	_tag='MAKE AI SECURE AGAIN'
+	center_pad "$_tag"
+	printf '%b' "$DIM" >&2
+	type_out "$_tag"
+	printf '%b\n\n' "$OFF" >&2
+}
 
 RUNLOG=$(mktemp 2>/dev/null || echo /tmp/solongate-install.log)
 
@@ -110,6 +156,8 @@ die() {
 	for line in "$@"; do printf '       %s\n' "$line" >&2; done
 	exit 1
 }
+
+splash
 
 cd "$(dirname "$0")/.."
 repo=$(pwd)

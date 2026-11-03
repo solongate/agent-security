@@ -628,6 +628,78 @@ func TestRunPolicyLifecycle(t *testing.T) {
 	})
 }
 
+// allow/deny build a rule on a single selector, so a second selector, or a
+// flag given with no value, must be refused rather than dropped: dropping it
+// saves a broader rule than asked for, and a bare selector saved a blanket
+// rule for every tool (issues #180, #137).
+func TestRunAllowDenyRefusesAmbiguousSelectors(t *testing.T) {
+	newHome(t)
+	c := client.New()
+	ctx := context.Background()
+
+	run := func(args ...string) (int, error, string) {
+		var code int
+		var err error
+		out := captureOutput(t, func() { code, err = Run(ctx, c, cliutil.Parse(args)) })
+		return code, err, out
+	}
+
+	orig := nowMillis
+	nowMillis = func() int64 { return 1234567890 }
+	t.Cleanup(func() { nowMillis = orig })
+	if code, err, out := run("create", "Selectors"); code != 0 || err != nil {
+		t.Fatalf("create = (%d, %v), want (0, nil): %s", code, err, out)
+	}
+	id := "policy-1234567890"
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"deny --command and --path", []string{"deny", id, "--command", "rm", "--path", "/etc/passwd"},
+			"(got --command, --path)"},
+		{"allow --path and --url", []string{"allow", id, "--url", "https://example.com", "--path", "/tmp/x"},
+			"(got --path, --url)"},
+		{"deny with every selector", []string{"deny", id, "--command", "rm", "--path", "/a", "--filename", "b", "--url", "c"},
+			"pass only one of --command, --path, --filename or --url (got --command, --path, --filename, --url)"},
+		{"deny --path with no value", []string{"deny", id, "--path"},
+			"policy deny: --path needs a value"},
+		{"allow --command followed by another flag", []string{"allow", id, "--command", "--permission", "EXECUTE"},
+			"policy allow: --command needs a value"},
+		{"deny --permission with no value", []string{"deny", id, "--path", "/etc/passwd", "--permission"},
+			"policy deny: --permission needs a value"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, err, out := run(tc.args...)
+			if code != 1 || err != nil {
+				t.Fatalf("%v = (%d, %v), want (1, nil): %s", tc.args, code, err, out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("output does not say %q:\n%s", tc.want, out)
+			}
+		})
+	}
+
+	pol, err := c.Policies.Get(ctx, id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := rulesCount(pol.Rules); n != 0 {
+		t.Errorf("a refused allow/deny still saved %d rule(s)", n)
+	}
+
+	// One selector, and none at all (a rule for every tool), still work.
+	for _, args := range [][]string{
+		{"deny", id, "--path", "/etc/passwd"},
+		{"deny", id, "--permission", "NETWORK"},
+	} {
+		if code, err, out := run(args...); code != 0 || err != nil {
+			t.Fatalf("%v = (%d, %v), want (0, nil): %s", args, code, err, out)
+		}
+	}
+}
+
 func TestPermScope(t *testing.T) {
 	t.Run("no permissions falls back to any", func(t *testing.T) {
 		got := permScope(client.PolicyRule{})

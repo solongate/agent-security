@@ -66,7 +66,7 @@ func RunUpdate(args []string) int {
 		markOK("Already on the newest version.")
 	}
 
-	script := filepath.Join(root, "scripts", "shell", "install.sh")
+	script := filepath.Join(root, "scripts", "install.sh")
 	if !install.Exists(script) {
 		fmt.Fprintln(os.Stderr, "         "+script+" is missing, so there is nothing to run.")
 		return 1
@@ -219,6 +219,17 @@ func noSourceToUpdateFrom() int {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "  This install did not come from a checkout, so there is nothing to pull.")
 	fmt.Fprintln(w)
+
+	if root, ok := install.NearbyCheckoutRoot(); ok {
+		fmt.Fprintln(w, "  You are already in a checkout, at "+root+", but this binary wasn't")
+		fmt.Fprintln(w, "  installed from it yet. Run the install script once; `update` will")
+		fmt.Fprintln(w, "  remember where it is:")
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "      cd "+root+" && ./scripts/install.sh")
+		fmt.Fprintln(w)
+		return 1
+	}
+
 	fmt.Fprintln(w, "  SolonGate is distributed over git and builds from source. Clone it and run")
 	fmt.Fprintln(w, "  the install script once; `update` will remember where it is:")
 	fmt.Fprintln(w)

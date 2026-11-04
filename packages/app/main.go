@@ -30,6 +30,14 @@ var cliSubcommands = map[string]bool{
 	"tui": true,
 }
 
+// run and sandbox launch agents against the guard, so they refresh the installed
+// guard binaries too. They stay out of cliSubcommands because scripts must be
+// able to call them without a terminal.
+var guardRunnerSubcommands = map[string]bool{"run": true, "sandbox": true}
+
+// installGoBinaries is a variable so tests can see when a refresh happens.
+var installGoBinaries = install.InstallGoBinaries
+
 var explainArgs = map[string]bool{"--explain": true, "explain": true}
 
 var cliInfoArgs = map[string]bool{
@@ -80,8 +88,8 @@ func run(args []string) int {
 		assertHumanTerminal(false)
 	}
 
-	if isHumanCLI {
-		install.InstallGoBinaries()
+	if isHumanCLI || guardRunnerSubcommands[sub] {
+		installGoBinaries()
 	}
 
 	if len(args) == 0 {

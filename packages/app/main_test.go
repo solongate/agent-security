@@ -144,3 +144,41 @@ func TestExplainRequested(t *testing.T) {
 		}
 	}
 }
+
+// errRefreshed stops run() right after the guard refresh, before any command starts.
+var errRefreshed = errors.New("guard refresh requested")
+
+// run and sandbox launch agents against the installed guard, so they must refresh
+// it like the human commands do, and do it without asking for a terminal (#283).
+func TestAgentLaunchersRefreshGuardBinaries(t *testing.T) {
+	orig := installGoBinaries
+	t.Cleanup(func() { installGoBinaries = orig })
+	installGoBinaries = func() []string { panic(errRefreshed) }
+
+	refreshed := func(args ...string) (hit bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				if r != errRefreshed {
+					panic(r)
+				}
+				hit = true
+			}
+		}()
+		captureStdout(t, func() { run(args) })
+		return false
+	}
+
+	for _, args := range [][]string{
+		{"run", "--", "claude"},
+		{"run", "claude"},
+		{"sandbox", "001", "claude"},
+	} {
+		if !refreshed(args...) {
+			t.Errorf("`solongate %s` launched without refreshing the guard binaries", strings.Join(args, " "))
+		}
+	}
+
+	if refreshed("not-a-command") {
+		t.Error("an unknown command refreshed the guard binaries")
+	}
+}

@@ -172,6 +172,9 @@ have made it this far.
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/sammist2"><img src="https://avatars.githubusercontent.com/u/235929898?v=4?s=100" width="100px;" alt="samuel akinade"/><br /><sub><b>samuel akinade</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=sammist2" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/j-ai-cmd"><img src="https://avatars.githubusercontent.com/u/297267163?v=4?s=100" width="100px;" alt="j-ai-cmd"/><br /><sub><b>j-ai-cmd</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=j-ai-cmd" title="Code">💻</a></td>
     </tr>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/arifrhm"><img src="https://avatars.githubusercontent.com/u/96586737?v=4?s=100" width="100px;" alt="Arif Rahman"/><br /><sub><b>Arif Rahman</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=arifrhm" title="Code">💻</a></td>
+    </tr>
   </tbody>
 </table>
 

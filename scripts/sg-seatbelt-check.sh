@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 the SolonGate contributors
 
-# For macOS 
-# Checks that the Seatbelt repository generates confines anything and asking solongate run.
+# Checks that the macOS Seatbelt profile actually confines a process launched
+# via solongate run.
 set -u
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

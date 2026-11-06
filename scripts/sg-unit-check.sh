@@ -9,7 +9,7 @@ set -eu
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
 
-for m in guard policy shared sandbox core cli tui app; do
+for m in guard policy shared sandbox core cli tui app crypto; do
   echo "== packages/$m =="
   (
     cd "packages/$m"

@@ -16,4 +16,4 @@
 
 # Release and CI machinery:
 /.github/workflows/   @codeyevsky
-/install.sh           @codeyevsky
+/scripts/install.sh   @codeyevsky

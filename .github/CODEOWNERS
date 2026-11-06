@@ -2,10 +2,16 @@
 *                      @codeyevsky @qarademir
 
 # packages:
+/packages/app/        @codeyevsky @qarademir
+/packages/cli/        @codeyevsky @qarademir
+/packages/core/       @codeyevsky @qarademir
+/packages/crypto/     @codeyevsky @qarademir
 /packages/guard/      @codeyevsky @qarademir
-/packages/policy/     @codeyevsky @qarademir
-/packages/shared/     @codeyevsky @qarademir
 /packages/hooks/      @codeyevsky @qarademir
+/packages/policy/     @codeyevsky @qarademir
+/packages/sandbox/    @codeyevsky @qarademir
+/packages/shared/     @codeyevsky @qarademir
+/packages/tui/        @codeyevsky @qarademir
 
 
 # Release and CI machinery:

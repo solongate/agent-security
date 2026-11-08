@@ -174,6 +174,7 @@ have made it this far.
     </tr>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/arifrhm"><img src="https://avatars.githubusercontent.com/u/96586737?v=4?s=100" width="100px;" alt="Arif Rahman"/><br /><sub><b>Arif Rahman</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=arifrhm" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/fcy222fcy"><img src="https://avatars.githubusercontent.com/u/209215589?v=4?s=100" width="100px;" alt="fchengyan"/><br /><sub><b>fchengyan</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=fcy222fcy" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

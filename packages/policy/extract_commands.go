@@ -85,8 +85,18 @@ func NormalizeArgs(args map[string]interface{}) map[string]interface{} {
 	return copied
 }
 
+// dequote strips matched quote pairs from both ends of t. A trailing quote is only taken
+// when it is the same character as the leading one, so a token like 'notes.txt" keeps its
+// quotes instead of losing both ends to independent trims (#346).
 func dequote(t string) string {
-	return strings.TrimRight(strings.TrimLeft(t, "\"'`"), "\"'`")
+	for len(t) >= 2 {
+		q := t[0]
+		if (q != '"' && q != '\'' && q != '`') || t[len(t)-1] != q {
+			break
+		}
+		t = t[1 : len(t)-1]
+	}
+	return t
 }
 
 func ExtractFilenames(args map[string]interface{}) []string {

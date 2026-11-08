@@ -145,6 +145,40 @@ func TestExtractURLsFromToolArgs(t *testing.T) {
 	}
 }
 
+func TestDequoteStripsMatchedQuotePairs(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"balanced double quotes", `"notes.txt"`, "notes.txt"},
+		{"balanced single quotes", "'notes.txt'", "notes.txt"},
+		{"balanced backticks", "`notes.txt`", "notes.txt"},
+		{"nested balanced pairs", `"'notes.txt'"`, "notes.txt"},
+		{"mismatched quotes are kept", `'notes.txt"`, `'notes.txt"`},
+		{"mismatched the other way", `"notes.txt'`, `"notes.txt'`},
+		{"a lone leading quote is kept", `"notes.txt`, `"notes.txt`},
+		{"a lone trailing quote is kept", "notes.txt\"", "notes.txt\""},
+		{"no quotes at all", "notes.txt", "notes.txt"},
+		{"an empty token", "", ""},
+		{"a single character", `x`, `x`},
+	}
+	for _, c := range cases {
+		if got := dequote(c.in); got != c.want {
+			t.Errorf("%s: dequote(%q)=%q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+func TestExtractFilenamesWithMismatchedQuotes(t *testing.T) {
+	// The old dequote stripped any quote character from each end independently, so a token
+	// like 'notes.txt" was silently reported as notes.txt even though the quotes never
+	// matched. A mismatched pair is left in place, and a token that still carries quote
+	// characters is not reported as a filename; a matched pair still comes off.
+	if got := ExtractFilenames(args("file_path", `'notes.txt"`)); len(got) != 0 {
+		t.Errorf("got %q, want no filename: the quotes do not match, so the token is kept as is", got)
+	}
+	if got := ExtractFilenames(args("file_path", `"notes.txt"`)); !sameList(got, []string{"notes.txt"}) {
+		t.Errorf("got %q, want notes.txt", got)
+	}
+}
+
 func TestExtractFilenamesFromToolArgs(t *testing.T) {
 	cases := []struct {
 		name string

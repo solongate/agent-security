@@ -367,6 +367,110 @@ func TestShieldProxyHandlerForwardsAndRedacts(t *testing.T) {
 	}
 }
 
+// shieldUpstreamSeen records the request a test upstream actually received.
+type shieldUpstreamSeen struct {
+	uri   string
+	query string
+}
+
+// shieldProxyUpstream returns a shield handler pointed at a live test server
+// whose URL carries prefix, so each case can assert on the request the upstream
+// really received instead of on shield's internals.
+func shieldProxyUpstream(t *testing.T, prefix string) (http.Handler, *shieldUpstreamSeen) {
+	t.Helper()
+	seen := &shieldUpstreamSeen{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen.uri = r.RequestURI
+		seen.query = r.URL.RawQuery
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	upstreamURL, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstreamURL.Path = prefix
+	return shieldProxyHandler(upstreamURL), seen
+}
+
+func TestShieldJoinPath(t *testing.T) {
+	cases := []struct {
+		name   string
+		prefix string
+		path   string
+		want   string
+	}{
+		{"no upstream prefix leaves the request path alone", "", "/v1/messages", "/v1/messages"},
+		{"an upstream of just a slash leaves the request path alone", "/", "/v1/messages", "/v1/messages"},
+		{"a one segment prefix is kept", "/llm", "/v1/messages", "/llm/v1/messages"},
+		{"a multi segment prefix is kept", "/gateway/anthropic", "/v1/messages", "/gateway/anthropic/v1/messages"},
+		{"a trailing slash on the prefix does not double up", "/llm/", "/v1/messages", "/llm/v1/messages"},
+		{"a request for the upstream root keeps the prefix", "/llm", "/", "/llm/"},
+		{"a path without a leading slash still joins once", "/llm", "v1/messages", "/llm/v1/messages"},
+		{"an empty request path keeps the bare prefix", "/llm", "", "/llm"},
+		{"a trailing slash on the request is preserved", "/llm", "/v1/messages/", "/llm/v1/messages/"},
+		{"dot segments in the request are not resolved", "/llm", "/v1/../x", "/llm/v1/../x"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := shieldJoinPath(c.prefix, c.path); got != c.want {
+				t.Errorf("shieldJoinPath(%q, %q) = %q, want %q", c.prefix, c.path, got, c.want)
+			}
+		})
+	}
+}
+
+func TestShieldProxyHandlerKeepsTheUpstreamPathPrefix(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	handler, seen := shieldProxyUpstream(t, "/gateway/anthropic")
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages?foo=bar", strings.NewReader(`{"messages":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if seen.uri != "/gateway/anthropic/v1/messages?foo=bar" {
+		t.Errorf("upstream saw %q, want /gateway/anthropic/v1/messages?foo=bar (the upstream path prefix was dropped)",
+			seen.uri)
+	}
+	if seen.query != "foo=bar" {
+		t.Errorf("upstream saw query %q, want foo=bar", seen.query)
+	}
+}
+
+func TestShieldProxyHandlerKeepsAnEscapedRequestPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	handler, seen := shieldProxyUpstream(t, "/gateway")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/files/a%2Fb", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	const want = "/gateway/v1/files/a%2Fb"
+	if seen.uri != want {
+		t.Errorf("upstream saw %q, want %q (percent-encoding must survive the join)", seen.uri, want)
+	}
+}
+
+func TestShieldProxyHandlerForwardsToTheUpstreamRootWithoutAPrefix(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, prefix := range []string{"", "/"} {
+		t.Run("upstream path "+prefix, func(t *testing.T) {
+			handler, seen := shieldProxyUpstream(t, prefix)
+			req := httptest.NewRequest(http.MethodGet, "/v1/messages", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if seen.uri != "/v1/messages" {
+				t.Errorf("upstream saw %q, want /v1/messages: a prefixless upstream must not rewrite the path", seen.uri)
+			}
+		})
+	}
+}
+
 func TestShieldProxyHandlerSkipsRedactionForNonJSONBodies(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	secret := "AKIA" + "IOSFODNN7EXAMPLE"

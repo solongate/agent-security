@@ -110,6 +110,22 @@ func shieldPickUpstream() *url.URL {
 	return u
 }
 
+// shieldJoinPath prefixes an incoming request path with the upstream URL's own
+// path, so a prefix configured on SOLONGATE_SHIELD_UPSTREAM or
+// ANTHROPIC_BASE_URL (for example https://gateway.example.com/anthropic) is
+// kept instead of being overwritten. The request path is only prefixed, never
+// cleaned: shield must not rewrite the path a client actually asked for.
+func shieldJoinPath(prefix, p string) string {
+	prefix = strings.TrimSuffix(prefix, "/")
+	if prefix == "" {
+		return p
+	}
+	if p != "" && !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return prefix + p
+}
+
 func shieldProxyHandler(upstream *url.URL) http.HandlerFunc {
 	client := &http.Client{Transport: &http.Transport{DisableCompression: true}}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -120,8 +136,11 @@ func shieldProxyHandler(upstream *url.URL) http.HandlerFunc {
 		}
 
 		target := *upstream
-		target.Path = r.URL.Path
-		target.RawPath = r.URL.RawPath
+		target.Path = shieldJoinPath(upstream.Path, r.URL.Path)
+		target.RawPath = ""
+		if r.URL.RawPath != "" {
+			target.RawPath = shieldJoinPath(upstream.EscapedPath(), r.URL.RawPath)
+		}
 		target.RawQuery = r.URL.RawQuery
 
 		upReq, err := http.NewRequest(r.Method, target.String(), bytes.NewReader(body))

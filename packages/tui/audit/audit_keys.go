@@ -275,7 +275,6 @@ func (p *Audit) doExport(kind string, pageRows []logRow) tea.Cmd {
 		}
 		dir := config.Dir()
 
-		file := filepath.Join(dir, "audit-export.jsonl")
 		var b strings.Builder
 		for _, r := range rows {
 			line, err := json.Marshal(r.export())
@@ -289,11 +288,20 @@ func (p *Audit) doExport(kind string, pageRows []logRow) tea.Cmd {
 			return fail(err)
 		}
 
-		if err := os.WriteFile(file, []byte(b.String()), 0o600); err != nil {
+		f, err := createExportFile(dir, time.Now())
+		if err != nil {
+			return fail(err)
+		}
+		file := f.Name()
+		_, err = f.WriteString(b.String())
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			_ = os.Remove(file)
 			return fail(err)
 		}
 
-		_ = os.Chmod(file, 0o600)
 		text := "✓ exported " + strconv.Itoa(len(rows)) + " rows → " + file
 		level := "ok"
 		if truncatedAt > len(rows) {
@@ -303,4 +311,27 @@ func (p *Audit) doExport(kind string, pageRows []logRow) tea.Cmd {
 		}
 		return auditNoteResult{gen: gen, note: auditNote{text: text, level: level}}
 	}
+}
+
+// maxExportAttempts bounds the search for a free export name, so a directory
+// that refuses every name cannot spin the export forever.
+const maxExportAttempts = 100
+
+// createExportFile opens a new, timestamped export file in dir. Exports used to
+// share one fixed name, so each one silently replaced the last; O_EXCL keeps
+// that from happening even when two exports land in the same second.
+func createExportFile(dir string, now time.Time) (*os.File, error) {
+	base := "audit-export-" + now.Format("20060102-150405")
+	for n := 1; n <= maxExportAttempts; n++ {
+		name := base + ".jsonl"
+		if n > 1 {
+			name = base + "-" + strconv.Itoa(n) + ".jsonl"
+		}
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		return f, err
+	}
+	return nil, errors.New("no free export file name for " + base + " in " + dir)
 }

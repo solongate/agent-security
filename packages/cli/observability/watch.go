@@ -42,12 +42,44 @@ const (
 
 var whitespaceRun = regexp.MustCompile(`\s+`)
 
+func watchUsage() string {
+	return cliutil.Usage("solongate watch", "live-tail tool calls", []cliutil.UsageRow{
+		cliutil.Row("watch", "stream new calls as they happen (Ctrl+C to stop)"),
+		cliutil.Row("watch --filter ALLOW|DENY", "only calls with that decision"),
+		cliutil.Row("watch --tool <substr>", "only tools whose name contains it"),
+		cliutil.Row("watch --local-only", "only this machine's audit log"),
+		cliutil.Row("watch --cloud-only", "only the cloud audit log"),
+		cliutil.Row("watch --json", "one JSON object per call"),
+	})
+}
+
 func RunWatch(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int, error) {
+	// Anything RunWatch does not refuse here starts a loop that only Ctrl+C
+	// ends, so a request for help, or a mistyped argument, must not reach it.
+	sub := p.Positional(0)
+	if sub == "help" || sub == "-h" || p.FlagBool("help") {
+		cliutil.Errln(watchUsage())
+		return 0, nil
+	}
+	if sub != "" {
+		return cliutil.UnknownSub("watch", sub, watchUsage())
+	}
+
 	jsonOut := p.FlagBool("json")
 	decisionFilter := strings.ToUpper(p.FlagStr("filter"))
+	switch decisionFilter {
+	case "", "ALLOW", "DENY":
+	case "DENIED":
+		decisionFilter = "DENY"
+	default:
+		return cliutil.UsageErr(`watch --filter: unknown decision "` + p.FlagStr("filter") + `", use ALLOW|DENY`)
+	}
 	toolFilter := strings.ToLower(p.FlagStr("tool"))
 	localOnly := p.FlagBool("local-only")
 	cloudOnly := p.FlagBool("cloud-only")
+	if localOnly && cloudOnly {
+		return cliutil.UsageErr("watch: --local-only and --cloud-only together leave nothing to watch, pick one")
+	}
 
 	keep := func(r watchRow) bool {
 		if decisionFilter != "" {

@@ -175,6 +175,8 @@ have made it this far.
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/arifrhm"><img src="https://avatars.githubusercontent.com/u/96586737?v=4?s=100" width="100px;" alt="Arif Rahman"/><br /><sub><b>Arif Rahman</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=arifrhm" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/fcy222fcy"><img src="https://avatars.githubusercontent.com/u/209215589?v=4?s=100" width="100px;" alt="fchengyan"/><br /><sub><b>fchengyan</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=fcy222fcy" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Sharawey74"><img src="https://avatars.githubusercontent.com/u/191920548?v=4?s=100" width="100px;" alt="Abdelrhman Mohamed"/><br /><sub><b>Abdelrhman Mohamed</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Sharawey74" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/sanskarprakashtambe02-afk"><img src="https://avatars.githubusercontent.com/u/267262791?v=4?s=100" width="100px;" alt="sanskarprakashtambe02-afk"/><br /><sub><b>sanskarprakashtambe02-afk</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=sanskarprakashtambe02-afk" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

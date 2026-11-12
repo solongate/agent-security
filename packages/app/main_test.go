@@ -182,3 +182,15 @@ func TestAgentLaunchersRefreshGuardBinaries(t *testing.T) {
 		t.Error("an unknown command refreshed the guard binaries")
 	}
 }
+
+func TestPrintWelcome(t *testing.T) {
+	output := captureStdout(t, printWelcome)
+
+	if !strings.Contains(output, "solongate doctor") {
+		t.Errorf("expected output to mention 'solongate doctor', got: %s", output)
+	}
+
+	if !strings.Contains(output, "~/.solongate/") {
+		t.Errorf("expected output to mention '~/.solongate/', got: %s", output)
+	}
+}

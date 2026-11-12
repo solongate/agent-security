@@ -2,7 +2,7 @@ module github.com/solongate/agent-security/packages/sandbox
 
 go 1.26.0
 
-require github.com/landlock-lsm/go-landlock v0.10.1
+require github.com/landlock-lsm/go-landlock v0.11.0
 
 require (
 	golang.org/x/sys v0.49.0 // indirect

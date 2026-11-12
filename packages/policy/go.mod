@@ -3,7 +3,7 @@ module github.com/solongate/agent-security/packages/policy
 go 1.26.0
 
 require (
-	github.com/open-policy-agent/opa v1.22.0
+	github.com/open-policy-agent/opa v1.22.2
 	github.com/solongate/agent-security/packages/shared v0.0.0
 )
 

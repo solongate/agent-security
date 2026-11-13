@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 var hhmmssShape = regexp.MustCompile(`^\d{2}:\d{2}:\d{2}$`)
@@ -67,6 +68,22 @@ func TestStreamLineDefaultsAgentToDash(t *testing.T) {
 	line := StreamLine(StreamRow{Decision: "ALLOW", Tool: "bash"}, false, false, 200)
 	if !strings.Contains(line, "-") {
 		t.Errorf("StreamLine() with no agent = %q, want it to contain the \"-\" placeholder", line)
+	}
+}
+
+func TestStreamLineSelectedUsesThemeSelect(t *testing.T) {
+	withThemeSnapshot(t)
+	profile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(profile) })
+
+	Theme.Select = lipgloss.Color("#ff0000")
+	const redBG = "48;2;255;0;0"
+	if line := StreamLine(StreamRow{Decision: "ALLOW", Tool: "bash"}, true, false, 200); !strings.Contains(line, redBG) {
+		t.Errorf("selected StreamLine() = %q, want the Theme.Select background %s", line, redBG)
+	}
+	if line := StreamLine(StreamRow{Decision: "ALLOW", Tool: "bash"}, false, false, 200); strings.Contains(line, redBG) {
+		t.Errorf("unselected StreamLine() = %q, want no Theme.Select background", line)
 	}
 }
 

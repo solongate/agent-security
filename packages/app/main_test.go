@@ -194,3 +194,107 @@ func TestPrintWelcome(t *testing.T) {
 		t.Errorf("expected output to mention '~/.solongate/', got: %s", output)
 	}
 }
+
+// version and help answer before any gate or guard refresh, so they work from
+// scripts and agents alike.
+func TestRunVersionAndHelpShortCircuit(t *testing.T) {
+	orig := installGoBinaries
+	t.Cleanup(func() { installGoBinaries = orig })
+	installGoBinaries = func() []string { t.Fatal("version/help must not refresh the guard binaries"); return nil }
+
+	origVersion := buildVersion
+	t.Cleanup(func() { buildVersion = origVersion })
+	buildVersion = "v9.9.9-test"
+
+	for _, arg := range []string{"--version", "-v", "version"} {
+		var code int
+		out := captureStdout(t, func() { code = run([]string{arg}) })
+		if code != 0 {
+			t.Errorf("run(%q) = %d, want 0", arg, code)
+		}
+		if strings.TrimSpace(out) != "v9.9.9-test" {
+			t.Errorf("run(%q) printed %q, want the build version", arg, out)
+		}
+	}
+
+	for _, arg := range []string{"--help", "-h", "help"} {
+		var code int
+		out := captureStdout(t, func() { code = run([]string{arg}) })
+		if code != 0 {
+			t.Errorf("run(%q) = %d, want 0", arg, code)
+		}
+		if !strings.Contains(out, "sandbox <id> <agent>") {
+			t.Errorf("run(%q) did not print the help text; got:\n%s", arg, out)
+		}
+	}
+}
+
+// An unknown command is reported with exit 1, without asking for a terminal and
+// without touching the installed guard binaries.
+func TestRunUnknownCommand(t *testing.T) {
+	orig := installGoBinaries
+	t.Cleanup(func() { installGoBinaries = orig })
+	installGoBinaries = func() []string { t.Fatal("an unknown command must not refresh the guard binaries"); return nil }
+
+	var code int
+	out := captureStdout(t, func() { code = run([]string{"not-a-command"}) })
+	if code != 1 {
+		t.Errorf("run(unknown) = %d, want 1", code)
+	}
+	if !strings.Contains(out, "Unknown command: not-a-command") {
+		t.Errorf("expected the unknown command to be named, got:\n%s", out)
+	}
+	if !strings.Contains(out, "solongate --help") {
+		t.Errorf("expected a pointer to --help, got:\n%s", out)
+	}
+}
+
+// Every human-only subcommand must refuse a caller with no terminal, including
+// when --json is passed, which only relaxes the stdout check. The refusal comes
+// before the command starts, so nothing is changed on the machine.
+func TestCLISubcommandsAreHumanOnly(t *testing.T) {
+	if raw, ok := os.LookupEnv("SG_TEST_SUBCOMMAND_ARGS"); ok {
+		os.Exit(run(strings.Fields(raw)))
+	}
+
+	for sub := range cliSubcommands {
+		for _, args := range []string{sub, sub + " --json"} {
+			t.Run(args, func(t *testing.T) {
+				cmd := exec.Command(os.Args[0], "-test.run=^TestCLISubcommandsAreHumanOnly$")
+				cmd.Env = append(os.Environ(), "SG_TEST_SUBCOMMAND_ARGS="+args, "HOME="+t.TempDir())
+				var stderr bytes.Buffer
+				cmd.Stdin = strings.NewReader("")
+				cmd.Stdout = io.Discard
+				cmd.Stderr = &stderr
+
+				err := cmd.Run()
+				var exit *exec.ExitError
+				if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+					t.Fatalf("`solongate %s` ran without a terminal (err=%v); stderr:\n%s", args, err, stderr.String())
+				}
+				if !strings.Contains(stderr.String(), "SolonGate is human-only") {
+					t.Errorf("refused without saying why; stderr:\n%s", stderr.String())
+				}
+			})
+		}
+	}
+}
+
+// The gated set and the command table must agree: a gated name with no command
+// would be refused and then reported unknown, and run/sandbox must stay open to
+// scripts, so they must not be in the human-only set.
+func TestSubcommandTablesAreConsistent(t *testing.T) {
+	for sub := range cliSubcommands {
+		if _, ok := lookup(sub); !ok {
+			t.Errorf("%q is human-only but has no entry in the command table", sub)
+		}
+	}
+	for sub := range guardRunnerSubcommands {
+		if cliSubcommands[sub] {
+			t.Errorf("%q is a guard runner and must stay callable without a terminal", sub)
+		}
+		if _, ok := lookup(sub); !ok {
+			t.Errorf("%q is a guard runner but has no entry in the command table", sub)
+		}
+	}
+}

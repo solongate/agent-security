@@ -246,6 +246,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "Ipsita-Mondal-30",
+      "name": "Ipsita Mondal",
+      "avatar_url": "https://avatars.githubusercontent.com/u/174520366?v=4",
+      "profile": "https://github.com/Ipsita-Mondal-30",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "tausif-ahmed-guardian",
+      "name": "Tausif Ahmed",
+      "avatar_url": "https://avatars.githubusercontent.com/u/170601034?v=4",
+      "profile": "https://github.com/tausif-ahmed-guardian",
+      "contributions": [
+        "doc"
+      ]
     }
   ]
 }

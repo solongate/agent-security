@@ -25,7 +25,7 @@ var auditHelp = []tui.HelpGroup{
 		{"/", "free-text search"},
 		{"x", "delete ONLY the selected entry (press x twice)"},
 		{"X", "delete ALL matched logs of the source (press X twice)"},
-		{"e", "export this page → ~/.solongate/audit-export.jsonl"},
+		{"e", "export this page → ~/.solongate/audit-export-*.jsonl"},
 		{"E", "export ALL matched rows"},
 		{"c", "clear every filter (incl. session)"},
 	}},

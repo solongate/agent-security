@@ -6,6 +6,8 @@ package term
 import (
 	"fmt"
 	"os"
+
+	goisatty "github.com/mattn/go-isatty"
 )
 
 var (
@@ -34,14 +36,11 @@ func init() {
 		Blue1, Blue2, Blue3, Blue4, Blue5, Blue6 = "", "", "", "", "", ""
 		Green, Red, Cyan, Yellow, BgBlue = "", "", "", "", ""
 	}
+	BannerColors = []string{Blue1, Blue2, Blue3, Blue4, Blue5, Blue6}
 }
 
 func isatty(f *os.File) bool {
-	info, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return goisatty.IsTerminal(f.Fd())
 }
 
 func Log(msg string) { fmt.Fprintln(os.Stderr, msg) }
@@ -57,7 +56,7 @@ var BannerFull = []string{
 	" ╚══════╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝",
 }
 
-var BannerColors = []string{Blue1, Blue2, Blue3, Blue4, Blue5, Blue6}
+var BannerColors []string
 
 func PrintBanner(subtitle string) {
 	Log("")

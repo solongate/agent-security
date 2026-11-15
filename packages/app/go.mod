@@ -1,6 +1,6 @@
 module github.com/solongate/agent-security/packages/app
 
-go 1.26.0
+go 1.26.11
 
 // DO NOT `go mod tidy` yet. Bubble Tea, bubbles and lipgloss are required here
 // for the TUI slice and nothing imports them until it lands, so tidy would

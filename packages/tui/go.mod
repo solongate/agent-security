@@ -1,6 +1,6 @@
 module github.com/solongate/agent-security/packages/tui
 
-go 1.26.0
+go 1.26.11
 
 require (
 	github.com/atotto/clipboard v0.1.4

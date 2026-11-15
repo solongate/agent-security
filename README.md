@@ -19,7 +19,8 @@
   <tr>
     <td align="center">
       <sub><b>Stats Badges</b></sub><br>
-      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a>
+      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a><br><br>
+      <a href="https://github.com/26medias/awesome-ai-repos"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome AI Repos" height="20"></a>
     </td>
   </tr>
   <tr>
@@ -41,7 +42,7 @@
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=reliability_rating" alt="Reliability Rating" height="20"></a>
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=sqale_rating" alt="Maintainability Rating" height="20"></a><br>
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=alert_status" alt="Quality Gate" height="20"></a>
-      <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=coverage" alt="Coverage" height="20"></a>
+      <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=coverage" alt="Coverage" height="20"></a><br>
       <a href="https://www.codefactor.io/repository/github/solongate/agent-security"><img src="https://www.codefactor.io/repository/github/solongate/agent-security/badge" alt="CodeFactor" height="20"></a>
       <a href="https://app.codacy.com/gh/solongate/agent-security/dashboard"><img src="https://app.codacy.com/project/badge/Grade/7334e68e088c4d98ad851a86c6336298" alt="Codacy Grade" height="20"></a>
       <a href="https://snyk.io/test/github/solongate/agent-security"><img src="https://snyk.io/test/github/solongate/agent-security/badge.svg" alt="Snyk Security" height="20"></a>

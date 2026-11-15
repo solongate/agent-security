@@ -18,7 +18,7 @@
   </tr>
   <tr>
     <td align="center">
-      <sub><b>Star History Badges</b></sub><br>
+      <sub><b>Stats Badges</b></sub><br>
       <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a>
     </td>
   </tr>

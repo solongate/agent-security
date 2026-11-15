@@ -19,12 +19,8 @@
   <tr>
     <td align="center">
       <sub><b>Stats Badges</b></sub><br>
-      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a><br><br>
-      <a href="https://github.com/solongate/agent-security/stargazers"><img src="https://img.shields.io/github/stars/solongate/agent-security?style=for-the-badge&labelColor=0d1117&color=3ba9ee" alt="GitHub stars" height="28"></a>
-      <a href="https://github.com/solongate/agent-security/forks"><img src="https://img.shields.io/github/forks/solongate/agent-security?style=for-the-badge&labelColor=0d1117&color=3ba9ee" alt="GitHub forks" height="28"></a>
-      <a href="https://github.com/solongate/agent-security/graphs/contributors"><img src="https://img.shields.io/github/contributors/solongate/agent-security?style=for-the-badge&labelColor=0d1117&color=3ba9ee" alt="GitHub contributors" height="28"></a>
-      <a href="https://github.com/solongate/agent-security/commits/main"><img src="https://img.shields.io/github/commit-activity/m/solongate/agent-security?style=for-the-badge&labelColor=0d1117&color=3ba9ee" alt="Commit activity" height="28"></a>
-      <a href="https://github.com/solongate/agent-security/releases"><img src="https://img.shields.io/github/downloads/solongate/agent-security/total?style=for-the-badge&labelColor=0d1117&color=3ba9ee" alt="Release downloads" height="28"></a>
+      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a>
+      <a href="https://deepwiki.com/solongate/agent-security"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" height="28"></a>
     </td>
   </tr>
   <tr>

@@ -41,6 +41,26 @@ func TestWindowsDescribeReportsIcacls(t *testing.T) {
 	}
 }
 
+// icacls is the one point every deny and cleanup ACL call goes through, so its
+// error format is locked in here rather than only through Launch.
+func TestWindowsIcaclsWrapsFailureAndReturnsNilOnSuccess(t *testing.T) {
+	missing := t.TempDir() + `\sg-definitely-missing`
+	err := icacls(missing, "/deny", `*S-1-1-0:(F)`)
+	if err == nil {
+		t.Fatal("icacls on a missing path returned nil, want an error")
+	}
+	if !strings.HasPrefix(err.Error(), "icacls: ") {
+		t.Errorf("icacls error = %q, want prefix %q", err.Error(), "icacls: ")
+	}
+	if strings.TrimPrefix(err.Error(), "icacls: ") == "" {
+		t.Errorf("icacls error = %q, want the captured command output after the prefix", err.Error())
+	}
+
+	if err := icacls(t.TempDir()); err != nil {
+		t.Errorf("icacls on an existing directory = %v, want nil", err)
+	}
+}
+
 func TestSystemBinaryFallsBackToBareNameWhenMissing(t *testing.T) {
 	t.Setenv("SystemRoot", `C:\sg-definitely-not-a-real-root`)
 	got := systemBinary("icacls")

@@ -18,8 +18,9 @@
   </tr>
   <tr>
     <td align="center">
-      <sub><b>Community</b></sub><br>
-      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="40"></a>
+      <sub><b>Star History Badges</b></sub><br>
+      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a>
+      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=trending&theme=dark" alt="GitHub Trending Repository of the Day" height="56"></a>
     </td>
   </tr>
   <tr>

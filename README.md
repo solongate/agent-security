@@ -19,8 +19,8 @@
   <tr>
     <td align="center">
       <sub><b>Stats Badges</b></sub><br>
-      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a><br><br>
-      <a href="https://github.com/26medias/awesome-ai-repos"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome AI Repos" height="20"></a>
+      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a>
+      <a href="https://github.com/26medias/awesome-ai-repos"><img src="https://awesome.re/mentioned-badge.svg" alt="Mentioned in Awesome AI Repos" height="36"></a>
     </td>
   </tr>
   <tr>

@@ -190,3 +190,7 @@ have made it this far.
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=solongate/agent-security&type=Date&theme=dark)](https://www.star-history.com/#solongate/agent-security&Date)

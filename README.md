@@ -20,6 +20,9 @@
     <td align="center">
       <sub><b>Stats Badges</b></sub><br>
       <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a>
+      <a href="https://ossinsight.io/analyze/solongate/agent-security"><img src="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=1390650682&image_size=auto" alt="OSS Insight activity trends" height="56"></a><br><br>
+      <a href="https://goreportcard.com/report/github.com/solongate/agent-security"><img src="https://goreportcard.com/badge/github.com/solongate/agent-security" alt="Go Report Card" height="20"></a>
+      <a href="https://pkg.go.dev/github.com/solongate/agent-security/packages/core"><img src="https://pkg.go.dev/badge/github.com/solongate/agent-security/packages/core.svg" alt="Go Reference" height="20"></a>
     </td>
   </tr>
   <tr>

@@ -20,7 +20,6 @@
     <td align="center">
       <sub><b>Stats Badges</b></sub><br>
       <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="56"></a>
-      <a href="https://deepwiki.com/solongate/agent-security"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" height="28"></a>
     </td>
   </tr>
   <tr>

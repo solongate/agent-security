@@ -1,6 +1,6 @@
 module github.com/solongate/agent-security/packages/core
 
-go 1.25.0
+go 1.26.11
 
 require (
 	github.com/mattn/go-isatty v0.0.24

@@ -110,6 +110,39 @@ func TestReadStoreRefusesATamperedFile(t *testing.T) {
 	}
 }
 
+func TestReadStoreReportsAMalformedSignatureAsTampering(t *testing.T) {
+	newHome(t)
+	policy := &PolicySet{ID: "local", Name: "local"}
+	if err := writeStore(stored{Policy: policy, envelope: true}); err != nil {
+		t.Fatalf("writeStore: %v", err)
+	}
+
+	raw, err := os.ReadFile(PolicyPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["_sig"] = "not base64!"
+	corrupted, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(PolicyPath(), corrupted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = readStore()
+	if err == nil {
+		t.Fatal("a file with a corrupted signature was accepted without complaint")
+	}
+	if strings.Contains(err.Error(), "not valid JSON") || !strings.Contains(err.Error(), "failed signature verification") {
+		t.Errorf("valid JSON with a corrupted signature should be reported as a signature failure, got: %v", err)
+	}
+}
+
 func TestToLayersWithNoSecurityIsEverythingOff(t *testing.T) {
 	l := toLayers(nil)
 	if l.RateLimit.Mode != LayerOff {

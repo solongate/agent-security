@@ -6,6 +6,7 @@ package crypto
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -147,6 +148,21 @@ func TestVerifyDocumentDetectsTamper(t *testing.T) {
 	}
 	if valid {
 		t.Fatal("expected the tampered document to fail verification")
+	}
+}
+
+func TestVerifyDocumentReportsMalformedSignature(t *testing.T) {
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"_sig":"not base64!","policy":"default"}`)
+	_, signed, valid, err := VerifyDocument(raw, kp.Public)
+	if !errors.Is(err, ErrMalformedSignature) {
+		t.Fatalf("expected ErrMalformedSignature, got %v", err)
+	}
+	if !signed || valid {
+		t.Fatalf("expected signed=true valid=false for a malformed signature, got signed=%v valid=%v", signed, valid)
 	}
 }
 

@@ -15,6 +15,11 @@ const (
 	sigPubField = "_sig_pub"
 )
 
+// ErrMalformedSignature is returned by VerifyDocument when the document is
+// valid JSON but its _sig field is not valid base64. Callers can tell it apart
+// from a JSON syntax error and report it as tampering.
+var ErrMalformedSignature = errors.New("crypto: malformed signature encoding")
+
 // Sign returns the Ed25519 signature of payload under priv.
 func Sign(priv ed25519.PrivateKey, payload []byte) []byte {
 	return ed25519.Sign(priv, payload)
@@ -66,7 +71,7 @@ func VerifyDocument(raw []byte, trusted ed25519.PublicKey) (payload map[string]a
 	}
 	sig, err := base64.StdEncoding.DecodeString(sigStr)
 	if err != nil {
-		return nil, true, false, errors.New("crypto: malformed signature encoding")
+		return nil, true, false, ErrMalformedSignature
 	}
 
 	clean := stripSigFields(doc)

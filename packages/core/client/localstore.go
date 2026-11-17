@@ -99,7 +99,9 @@ func readStore() (stored, error) {
 		return stored{}, fmt.Errorf("cannot load the machine signing key: %w", err)
 	}
 	_, signed, valid, err := pcrypto.VerifyDocument(b, kp.Public)
-	if err != nil {
+	// A malformed signature comes back as signed && !valid and is reported
+	// as tampering below, not as a JSON syntax error.
+	if err != nil && !errors.Is(err, pcrypto.ErrMalformedSignature) {
 		return stored{}, fmt.Errorf("%s is not valid JSON: %w", PolicyPath(), err)
 	}
 	if signed && !valid {

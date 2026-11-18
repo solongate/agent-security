@@ -50,6 +50,33 @@ func TestEvaluatePolicyDenylistAllowsNonMatchingCommand(t *testing.T) {
 	}
 }
 
+func TestEvaluatePolicyDenylistBlocksReferencedScriptWithInterpreterPath(t *testing.T) {
+	dir := t.TempDir()
+	// Scripts are only scanned, never executed.
+	if err := os.WriteFile(filepath.Join(dir, "deploy.sh"), []byte("echo /policy-repro/protected.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		rules string
+	}{
+		{"command", `[{"id":"deny-marker","effect":"DENY","toolPattern":"Bash","enabled":true,
+			"commandConstraints":{"denied":["*echo /policy-repro/protected.txt*"]}}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pol := &shared.Policy{Mode: "denylist", Rules: json.RawMessage(tc.rules)}
+			for _, interpreter := range []string{"bash", "/bin/bash", "./bash", "../bin/bash", "/bin/bash -e"} {
+				t.Run(interpreter, func(t *testing.T) {
+					got := EvaluatePolicy(pol, args("command", interpreter+" deploy.sh"), "Bash", dir)
+					if !strings.Contains(got, "deny-marker") {
+						t.Errorf("expected referenced script to match deny-marker, got %q", got)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestEvaluatePolicyDisabledRuleIsIgnored(t *testing.T) {
 	pol := &shared.Policy{
 		Mode: "denylist",

@@ -50,6 +50,47 @@ func TestEvaluatePolicyDenylistAllowsNonMatchingCommand(t *testing.T) {
 	}
 }
 
+func TestEvaluatePolicyDenylistBlocksReferencedScriptWithInterpreterPath(t *testing.T) {
+	dir := t.TempDir()
+	// Scripts are only scanned, never executed.
+	if err := os.WriteFile(filepath.Join(dir, "deploy.sh"), []byte("echo /policy-repro/protected.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"safe.sh", "a.sh", "b.sh", "c.sh"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("echo hello\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		rules string
+	}{
+		{"command", `[{"id":"deny-marker","effect":"DENY","toolPattern":"Bash","enabled":true,
+			"commandConstraints":{"denied":["*echo /policy-repro/protected.txt*"]}}]`},
+		{"path", `[{"id":"deny-marker","effect":"DENY","toolPattern":"Bash","enabled":true,
+			"pathConstraints":{"denied":["/policy-repro/protected.txt"]}}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pol := &shared.Policy{Mode: "denylist", Rules: json.RawMessage(tc.rules)}
+			for _, interpreter := range []string{
+				"bash", "/bin/bash", "./bash", "../bin/bash", "/bin/bash -e",
+				"echo /bin/bash a.sh ./node b.sh /usr/bin/python3 c.sh; /bin/bash",
+				"echo '; /bin/bash a.sh; ./node b.sh; python3 c.sh'; /bin/bash",
+			} {
+				t.Run(interpreter, func(t *testing.T) {
+					got := EvaluatePolicy(pol, args("command", interpreter+" deploy.sh"), "Bash", dir)
+					if !strings.Contains(got, "deny-marker") {
+						t.Errorf("expected referenced script to match deny-marker, got %q", got)
+					}
+					if got := EvaluatePolicy(pol, args("command", interpreter+" safe.sh"), "Bash", dir); got != "" {
+						t.Errorf("expected safe script to be allowed, got %q", got)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestEvaluatePolicyDisabledRuleIsIgnored(t *testing.T) {
 	pol := &shared.Policy{
 		Mode: "denylist",

@@ -71,12 +71,20 @@ func TestReadReferencedFilesReadsInterpreterTarget(t *testing.T) {
 	if err := os.WriteFile(script, []byte("echo hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := ReadReferencedFiles(args("command", "bash deploy.sh"), dir)
-	if len(got) != 1 || got[0].Name != "deploy.sh" {
-		t.Fatalf("expected deploy.sh to be read, got %+v", got)
-	}
-	if got[0].Content != "echo hello" {
-		t.Errorf("unexpected content: %q", got[0].Content)
+	for _, interpreter := range []string{
+		"bash", "/bin/bash", "./bash", "../bin/bash",
+		"node", "/usr/bin/node", "./node", "/usr/bin/python3 -u",
+		"source", ".",
+	} {
+		t.Run(interpreter, func(t *testing.T) {
+			got := ReadReferencedFiles(args("command", interpreter+" deploy.sh"), dir)
+			if len(got) != 1 || got[0].Name != "deploy.sh" {
+				t.Fatalf("expected deploy.sh to be read, got %+v", got)
+			}
+			if got[0].Content != "echo hello" {
+				t.Errorf("unexpected content: %q", got[0].Content)
+			}
+		})
 	}
 }
 

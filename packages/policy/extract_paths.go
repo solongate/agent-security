@@ -11,11 +11,11 @@ import (
 	"strings"
 
 	"github.com/solongate/agent-security/packages/shared"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 var (
 	GlobTokenSplit = regexp.MustCompile("[\\s'\"|<>;&()]+")
-	reRefTokSplit  = regexp.MustCompile(`[\s'"();|&<>]+`)
 
 	GlobChars = regexp.MustCompile(`[*?\[]`)
 
@@ -95,25 +95,43 @@ func ReadReferencedFiles(args map[string]interface{}, cwd string) []refFile {
 		if !ok {
 			continue
 		}
-		var toks []string
-		for _, t := range reRefTokSplit.Split(v, -1) {
-			if t != "" {
-				toks = append(toks, t)
+		// Parse command positions: ordinary arguments, comments, and quoted
+		// command-like text must not consume the bounded file-reading budget.
+		// Keep complete statements before a syntax error, without falling back
+		// to treating arbitrary words in malformed input as commands.
+		for stmt, err := range syntax.NewParser().StmtsSeq(strings.NewReader(v)) {
+			if err != nil {
+				break
 			}
-		}
-		for i := 0; i < len(toks)-1; i++ {
-			if !reInterpreter.MatchString(filepath.Base(toks[i])) {
-				continue
-			}
-
-			j := i + 1
-			for j < len(toks) && strings.HasPrefix(toks[j], "-") {
-				j++
-			}
-			if j < len(toks) && !seen[toks[j]] {
-				seen[toks[j]] = true
-				cands = append(cands, toks[j])
-			}
+			syntax.Walk(stmt, func(node syntax.Node) bool {
+				call, ok := node.(*syntax.CallExpr)
+				if !ok || len(call.Args) < 2 {
+					return true
+				}
+				words := referencedInvocation(call.Args)
+				if len(words) < 2 {
+					return true
+				}
+				name, ok := referencedLiteral(words[0].Parts, false)
+				if !ok || !reInterpreter.MatchString(filepath.Base(name)) {
+					return true
+				}
+				for _, word := range words[1:] {
+					target, ok := referencedLiteral(word.Parts, false)
+					if !ok {
+						break
+					}
+					if strings.HasPrefix(target, "-") {
+						continue
+					}
+					if target != "" && !seen[target] {
+						seen[target] = true
+						cands = append(cands, target)
+					}
+					break
+				}
+				return true
+			})
 		}
 	}
 	base := cwd
@@ -146,6 +164,99 @@ func ReadReferencedFiles(args map[string]interface{}, cwd string) []refFile {
 		n++
 	}
 	return out
+}
+
+// Known execution wrappers have their own command operand. Only skip options
+// with known arity, so an option's value cannot masquerade as an interpreter.
+var referencedWrappers = map[string]map[string]bool{
+	"command": {"-p": false},
+	"exec":    {"-c": false, "-l": false, "-a": true},
+	"nohup":   {},
+	"env":     {"-i": false, "--ignore-environment": false, "-u": true, "--unset": true},
+	"sudo": {
+		"-E": false, "-H": false, "-n": false, "-S": false, "-k": false,
+		"--non-interactive": false, "--preserve-env": false,
+		"-u": true, "--user": true, "-g": true, "--group": true,
+	},
+}
+
+func referencedInvocation(words []*syntax.Word) []*syntax.Word {
+	for len(words) > 0 {
+		name, ok := referencedLiteral(words[0].Parts, false)
+		options, wrapper := referencedWrappers[filepath.Base(name)]
+		if !ok || !wrapper {
+			return words
+		}
+		i, flags := 1, true
+		for i < len(words) {
+			arg, ok := referencedLiteral(words[i].Parts, false)
+			if !ok {
+				return nil
+			}
+			if key, _, assigned := strings.Cut(arg, "="); filepath.Base(name) == "env" && assigned && syntax.ValidName(key) {
+				i++
+				continue
+			}
+			if !flags || !strings.HasPrefix(arg, "-") {
+				break
+			}
+			i++
+			if arg == "--" {
+				flags = false
+				continue
+			}
+			option, _, inline := strings.Cut(arg, "=")
+			value, known := options[option]
+			if !known || (inline && !strings.HasPrefix(option, "--")) {
+				return nil
+			}
+			if value && !inline {
+				i++
+			}
+		}
+		if i >= len(words) {
+			return nil
+		}
+		words = words[i:]
+	}
+	return nil
+}
+
+// referencedLiteral removes shell quoting without evaluating substitutions or
+// reading the agent's environment. Dynamic words cannot identify a static file.
+func referencedLiteral(parts []syntax.WordPart, doubleQuoted bool) (string, bool) {
+	var out strings.Builder
+	for _, part := range parts {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			for i := 0; i < len(p.Value); i++ {
+				if p.Value[i] == '\\' && i+1 < len(p.Value) {
+					next := p.Value[i+1]
+					if !doubleQuoted || strings.ContainsRune("$`\"\\\n", rune(next)) {
+						i++
+						if next == '\n' {
+							continue
+						}
+					}
+				}
+				out.WriteByte(p.Value[i])
+			}
+		case *syntax.SglQuoted:
+			if p.Dollar {
+				return "", false
+			}
+			out.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			value, ok := referencedLiteral(p.Parts, true)
+			if !ok || p.Dollar {
+				return "", false
+			}
+			out.WriteString(value)
+		default:
+			return "", false
+		}
+	}
+	return out.String(), true
 }
 
 const (

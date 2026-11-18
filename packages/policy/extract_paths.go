@@ -102,7 +102,7 @@ func ReadReferencedFiles(args map[string]interface{}, cwd string) []refFile {
 			}
 		}
 		for i := 0; i < len(toks)-1; i++ {
-			if !reInterpreter.MatchString(toks[i]) {
+			if !reInterpreter.MatchString(filepath.Base(toks[i])) {
 				continue
 			}
 

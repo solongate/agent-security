@@ -56,6 +56,9 @@ func TestEvaluatePolicyDenylistBlocksReferencedScriptWithInterpreterPath(t *test
 	if err := os.WriteFile(filepath.Join(dir, "deploy.sh"), []byte("echo /policy-repro/protected.txt\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "safe.sh"), []byte("echo hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		name  string
 		rules string
@@ -72,6 +75,9 @@ func TestEvaluatePolicyDenylistBlocksReferencedScriptWithInterpreterPath(t *test
 					got := EvaluatePolicy(pol, args("command", interpreter+" deploy.sh"), "Bash", dir)
 					if !strings.Contains(got, "deny-marker") {
 						t.Errorf("expected referenced script to match deny-marker, got %q", got)
+					}
+					if got := EvaluatePolicy(pol, args("command", interpreter+" safe.sh"), "Bash", dir); got != "" {
+						t.Errorf("expected safe script to be allowed, got %q", got)
 					}
 				})
 			}

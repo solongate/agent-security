@@ -62,6 +62,8 @@ func TestEvaluatePolicyDenylistBlocksReferencedScriptWithInterpreterPath(t *test
 	}{
 		{"command", `[{"id":"deny-marker","effect":"DENY","toolPattern":"Bash","enabled":true,
 			"commandConstraints":{"denied":["*echo /policy-repro/protected.txt*"]}}]`},
+		{"path", `[{"id":"deny-marker","effect":"DENY","toolPattern":"Bash","enabled":true,
+			"pathConstraints":{"denied":["/policy-repro/protected.txt"]}}]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pol := &shared.Policy{Mode: "denylist", Rules: json.RawMessage(tc.rules)}

@@ -119,6 +119,33 @@ func TestLoadTUIConfigHonorsExplicitFalseNotifications(t *testing.T) {
 	}
 }
 
+func TestLoadTUIConfigPollMsValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		json string
+		want int
+	}{
+		{"zero falls back to default", `{"pollMs":0}`, 0},
+		{"negative falls back to default", `{"pollMs":-1}`, 0},
+		{"minimum positive is kept", `{"pollMs":1}`, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			if err := os.MkdirAll(Dir(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(TUIConfigPath(), []byte(tc.json), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg := LoadTUIConfig()
+			if cfg.PollMs != tc.want {
+				t.Errorf("PollMs = %d, want %d", cfg.PollMs, tc.want)
+			}
+		})
+	}
+}
+
 func TestMarkSetupDoneWritesTimestamp(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	MarkSetupDone()

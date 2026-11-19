@@ -7,6 +7,7 @@ package sandbox
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -38,6 +39,33 @@ func TestWindowsDescribeReportsIcacls(t *testing.T) {
 	mech, _ := Describe()
 	if mech != "icacls deny (per run)" {
 		t.Errorf("Describe() mechanism = %q, want icacls deny (per run)", mech)
+	}
+}
+
+// icacls is the one point every deny and cleanup ACL call goes through, so its
+// error format is locked in here rather than only through Launch.
+func TestWindowsIcaclsWrapsFailureAndReturnsNilOnSuccess(t *testing.T) {
+	missing := t.TempDir() + `\sg-definitely-missing`
+	cmd := exec.Command(systemBinary("icacls"), missing, "/deny", `*S-1-1-0:(F)`)
+	captured, commandErr := cmd.CombinedOutput()
+	if commandErr == nil {
+		t.Fatalf("icacls on a missing path succeeded, want a failure (output %q)", captured)
+	}
+	wantOutput := strings.TrimSpace(string(captured))
+	if wantOutput == "" {
+		t.Fatal("icacls on a missing path produced no diagnostic output")
+	}
+
+	err := icacls(missing, "/deny", `*S-1-1-0:(F)`)
+	if err == nil {
+		t.Fatal("icacls on a missing path returned nil, want an error")
+	}
+	if !strings.HasPrefix(err.Error(), "icacls: ") || !strings.Contains(err.Error(), wantOutput) {
+		t.Errorf("icacls error = %q, want prefix %q and captured command output %q", err.Error(), "icacls: ", wantOutput)
+	}
+
+	if err := icacls(t.TempDir()); err != nil {
+		t.Errorf("icacls on an existing directory = %v, want nil", err)
 	}
 }
 

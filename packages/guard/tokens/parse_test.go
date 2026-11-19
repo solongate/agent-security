@@ -215,7 +215,22 @@ func TestReadAntigravity(t *testing.T) {
 }
 
 func TestReadAntigravityRejectsTraversal(t *testing.T) {
-	for _, id := range []string{"../etc/passwd", "../../secret", "a/b", `a\b`, "a..b"} {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Plant a readable database outside the conversations directory so a
+	// traversal ID that slipped through would return rows, not a missing-file
+	// nil. The helper's path join resolves "../../../secrets" to $HOME.
+	outsideID := "../../../secrets"
+	newAntigravitySQLiteDB(t, home, outsideID, [][]byte{buildAntigravityBlob(1000, 200, 500, 50, 1700000000)})
+	if _, err := os.Stat(filepath.Join(home, "secrets.db")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{
+		outsideID, "../etc/passwd", "../../secret", "a/b", `a\b`, "a..b",
+		"%2e%2e%2fsecrets", "..%2fsecrets", "%2e%2e/secrets",
+	} {
 		if got := readAntigravity(id); got != nil {
 			t.Errorf("readAntigravity(%q) = %v, want nil", id, got)
 		}

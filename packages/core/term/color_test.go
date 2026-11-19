@@ -45,15 +45,15 @@ func TestIsattyRegularFileIsNotATerminal(t *testing.T) {
 	}
 }
 
-func TestIsattyDevNullIsACharacterDevice(t *testing.T) {
+func TestIsattyDevNullIsNotATerminal(t *testing.T) {
 	f, err := os.Open("/dev/null")
 	if err != nil {
 		t.Skip("no /dev/null on this system")
 	}
 	defer f.Close()
 
-	if !isatty(f) {
-		t.Error("/dev/null is a character device, isatty should report it as one")
+	if isatty(f) {
+		t.Error("/dev/null is a character device but not a terminal, isatty should report false")
 	}
 }
 
@@ -66,6 +66,18 @@ func TestIsattyClosedFileReturnsFalse(t *testing.T) {
 
 	if isatty(f) {
 		t.Error("Stat on a closed file errors, isatty should report false")
+	}
+}
+
+func TestBannerColorsFollowInit(t *testing.T) {
+	want := []string{Blue1, Blue2, Blue3, Blue4, Blue5, Blue6}
+	if len(BannerColors) != len(want) {
+		t.Fatalf("BannerColors has %d entries, want %d", len(BannerColors), len(want))
+	}
+	for i, c := range BannerColors {
+		if c != want[i] {
+			t.Errorf("BannerColors[%d] = %q, want %q", i, c, want[i])
+		}
 	}
 }
 

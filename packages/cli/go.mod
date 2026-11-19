@@ -1,6 +1,6 @@
 module github.com/solongate/agent-security/packages/cli
 
-go 1.26.0
+go 1.26.11
 
 require (
 	github.com/solongate/agent-security/packages/core v0.0.0
@@ -12,6 +12,7 @@ require (
 
 require (
 	github.com/landlock-lsm/go-landlock v0.10.1 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.77 // indirect
 )
 

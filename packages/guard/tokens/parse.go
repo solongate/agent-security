@@ -247,8 +247,9 @@ func readAntigravity(conversationID string) []tokenTurn {
 		return nil
 	}
 	// Reject IDs that could escape the conversations directory: no path
-	// separators, no traversal segments, no absolute-path tricks.
-	if strings.ContainsAny(conversationID, `/\`) || strings.Contains(conversationID, "..") {
+	// separators, no traversal segments, no absolute-path tricks, and no
+	// percent escapes, which SQLite decodes when opening a file: URI.
+	if strings.ContainsAny(conversationID, `/\%`) || strings.Contains(conversationID, "..") {
 		return nil
 	}
 	home, err := os.UserHomeDir()

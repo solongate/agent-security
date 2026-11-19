@@ -191,6 +191,11 @@ have made it this far.
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/Ipsita-Mondal-30"><img src="https://avatars.githubusercontent.com/u/174520366?v=4?s=100" width="100px;" alt="Ipsita Mondal"/><br /><sub><b>Ipsita Mondal</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Ipsita-Mondal-30" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/tausif-ahmed-guardian"><img src="https://avatars.githubusercontent.com/u/170601034?v=4?s=100" width="100px;" alt="Tausif Ahmed"/><br /><sub><b>Tausif Ahmed</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=tausif-ahmed-guardian" title="Documentation">📖</a></td>
     </tr>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/prascli"><img src="https://avatars.githubusercontent.com/u/11029197?v=4?s=100" width="100px;" alt="Indra Prasetya"/><br /><sub><b>Indra Prasetya</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=prascli" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Kiddo4993"><img src="https://avatars.githubusercontent.com/u/233211146?v=4?s=100" width="100px;" alt="Dylan Duan"/><br /><sub><b>Dylan Duan</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Kiddo4993" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/jay23606"><img src="https://avatars.githubusercontent.com/u/4602056?v=4?s=100" width="100px;" alt="Jay"/><br /><sub><b>Jay</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=jay23606" title="Code">💻</a></td>
+    </tr>
   </tbody>
 </table>
 

@@ -151,6 +151,28 @@ func TestLocalLogCheckNoFileYet(t *testing.T) {
 	}
 }
 
+func TestLocalLogCheckReportsOffWhenDisabled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.MkdirAll(config.Dir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"security":{"localLogs":{"enabled":false,"path":"` + dir + `"}}}`
+	if err := os.WriteFile(filepath.Join(config.Dir(), "policy.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// An earlier log in the folder must not make a switched-off log look on.
+	if err := os.WriteFile(filepath.Join(dir, "solongate-audit.jsonl"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	checks := localLogCheck()
+	want := []Check{{Name: "local logs", OK: StateWarn, Detail: "off"}}
+	if len(checks) != 1 || checks[0] != want[0] {
+		t.Errorf("localLogCheck() = %+v, want %+v", checks, want)
+	}
+}
+
 func TestLocalLogCheckWithRecentFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

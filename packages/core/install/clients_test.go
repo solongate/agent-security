@@ -241,7 +241,8 @@ func TestRemoveClaudeRegistration(t *testing.T) {
 		t.Errorf("removeClaudeRegistration() with invalid JSON = %v, want errUnparseableSettings", err)
 	}
 
-	if err := os.WriteFile(p.SettingsPath, []byte(`{"hooks":{"a":1},"other":2}`), 0o644); err != nil {
+	ours := `{"type":"command","command":"/bin/sh \"/home/u/.solongate/hooks/sg-run.sh\" guard claude-code \"Claude Code\""}`
+	if err := os.WriteFile(p.SettingsPath, []byte(`{"hooks":{"PreToolUse":[{"matcher":"","hooks":[`+ours+`]}]},"other":2}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := removeClaudeRegistration(p); err != nil {
@@ -252,10 +253,184 @@ func TestRemoveClaudeRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(b), "hooks") {
-		t.Errorf("settings still contain hooks after removal: %s", b)
+		t.Errorf("settings still contain hooks after removing the only registered ones: %s", b)
 	}
 	if !strings.Contains(string(b), "other") {
 		t.Errorf("settings lost the unrelated \"other\" key: %s", b)
+	}
+}
+
+// foreignClaudeSettings is a settings.json that already carries hooks from
+// other tools, plus a SolonGate handler sharing a group with one of them.
+const foreignClaudeSettings = `{
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/local/bin/lint-bash", "timeout": 5}]},
+      {"matcher": "", "hooks": [
+        {"type": "command", "command": "/usr/local/bin/notify"},
+        {"type": "command", "command": "/bin/sh \"/old/.solongate/hooks/sg-run.sh\" guard claude-code \"Claude Code\""}
+      ]}
+    ],
+    "Notification": [{"hooks": [{"type": "command", "command": "say done && echo <ok>"}]}]
+  }
+}`
+
+func readClaudeHooks(t *testing.T, content []byte) map[string][]hookGroup {
+	t.Helper()
+	var s struct {
+		Hooks map[string][]hookGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal(content, &s); err != nil {
+		t.Fatalf("settings are not valid JSON: %v, content: %s", err, content)
+	}
+	return s.Hooks
+}
+
+func claudeCommands(groups []hookGroup) (ours, foreign []string) {
+	for _, g := range groups {
+		for _, h := range g.Hooks {
+			if strings.Contains(h.Command, ".solongate") {
+				ours = append(ours, h.Command)
+			} else {
+				foreign = append(foreign, h.Command)
+			}
+		}
+	}
+	return ours, foreign
+}
+
+func TestPlanClaudeKeepsUnrelatedHooks(t *testing.T) {
+	p := clientTestPaths(t.TempDir())
+	if err := os.MkdirAll(p.ClaudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.SettingsPath, []byte(foreignClaudeSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := planClaude(p)
+	if err != nil {
+		t.Fatalf("planClaude() error: %v", err)
+	}
+	hooks := readClaudeHooks(t, reg.content)
+
+	pre := hooks["PreToolUse"]
+	if len(pre) != 3 {
+		t.Fatalf("PreToolUse = %+v, want the two existing groups plus ours", pre)
+	}
+	if pre[0].Matcher == nil || *pre[0].Matcher != "Bash" || len(pre[0].Hooks) != 1 ||
+		pre[0].Hooks[0].Command != "/usr/local/bin/lint-bash" || pre[0].Hooks[0].Timeout != 5 {
+		t.Errorf("unrelated Bash group changed: %+v", pre[0])
+	}
+	if len(pre[1].Hooks) != 1 || pre[1].Hooks[0].Command != "/usr/local/bin/notify" {
+		t.Errorf("shared group = %+v, want only the unrelated notify handler left in it", pre[1])
+	}
+	ours, _ := claudeCommands(pre)
+	if len(ours) != 1 || ours[0] != claudeHookCommand(p, guardKind) {
+		t.Errorf("PreToolUse SolonGate handlers = %q, want only the current guard command", ours)
+	}
+
+	for _, ev := range []string{"PostToolUse", "Stop"} {
+		if ours, foreign := claudeCommands(hooks[ev]); len(ours) != 1 || len(foreign) != 0 {
+			t.Errorf("%s = %+v, want exactly one SolonGate handler", ev, hooks[ev])
+		}
+	}
+
+	if _, foreign := claudeCommands(hooks["Notification"]); len(foreign) != 1 || foreign[0] != "say done && echo <ok>" {
+		t.Errorf("Notification = %+v, want the unrelated handler kept verbatim", hooks["Notification"])
+	}
+	if !strings.Contains(string(reg.content), `"model": "opus"`) {
+		t.Errorf("unrelated top-level key lost: %s", reg.content)
+	}
+}
+
+func TestPlanClaudeIsIdempotent(t *testing.T) {
+	p := clientTestPaths(t.TempDir())
+	if err := os.MkdirAll(p.ClaudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.SettingsPath, []byte(foreignClaudeSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := planClaude(p)
+	if err != nil {
+		t.Fatalf("planClaude() error: %v", err)
+	}
+	if err := first.commit(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := planClaude(p)
+	if err != nil {
+		t.Fatalf("second planClaude() error: %v", err)
+	}
+	if string(second.content) != string(first.content) {
+		t.Errorf("reinstalling changed settings.json:\nfirst:  %s\nsecond: %s", first.content, second.content)
+	}
+}
+
+func TestRemoveClaudeRegistrationKeepsUnrelatedHooks(t *testing.T) {
+	p := clientTestPaths(t.TempDir())
+	if err := os.MkdirAll(p.ClaudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.SettingsPath, []byte(foreignClaudeSettings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := planClaude(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := removeClaudeRegistration(p); err != nil {
+		t.Fatalf("removeClaudeRegistration() error: %v", err)
+	}
+	b, err := os.ReadFile(p.SettingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), ".solongate") {
+		t.Errorf("a SolonGate handler survived removal: %s", b)
+	}
+	hooks := readClaudeHooks(t, b)
+	for _, ev := range []string{"PostToolUse", "Stop"} {
+		if _, ok := hooks[ev]; ok {
+			t.Errorf("%s should be gone once its only handler was ours: %s", ev, b)
+		}
+	}
+	if _, foreign := claudeCommands(hooks["PreToolUse"]); len(foreign) != 2 {
+		t.Errorf("PreToolUse = %+v, want both unrelated handlers kept", hooks["PreToolUse"])
+	}
+	if _, foreign := claudeCommands(hooks["Notification"]); len(foreign) != 1 {
+		t.Errorf("Notification = %+v, want the unrelated handler kept", hooks["Notification"])
+	}
+	if !strings.Contains(string(b), `"model": "opus"`) {
+		t.Errorf("unrelated top-level key lost: %s", b)
+	}
+}
+
+func TestRemoveClaudeRegistrationLeavesForeignOnlySettingsUntouched(t *testing.T) {
+	p := clientTestPaths(t.TempDir())
+	if err := os.MkdirAll(p.ClaudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/usr/local/bin/lint-bash"}]}]}}`
+	if err := os.WriteFile(p.SettingsPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeClaudeRegistration(p); err != nil {
+		t.Fatalf("removeClaudeRegistration() error: %v", err)
+	}
+	b, err := os.ReadFile(p.SettingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != body {
+		t.Errorf("settings with no SolonGate hooks were rewritten:\ngot:  %s\nwant: %s", b, body)
 	}
 }
 

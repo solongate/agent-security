@@ -87,7 +87,9 @@ func LoadTUIConfig() TUIConfig {
 		cfg.Notifications = *raw.Notifications
 	}
 	cfg.Accent = raw.Accent
-	if raw.PollMs != nil {
+	// A non-positive poll interval would busy-loop or never poll; ignore it
+	// and keep the default (unset) value instead.
+	if raw.PollMs != nil && *raw.PollMs > 0 {
 		cfg.PollMs = *raw.PollMs
 	}
 	cfg.SetupDoneAt = raw.SetupDoneAt

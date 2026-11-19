@@ -103,7 +103,7 @@ func StreamLine(e StreamRow, selected, date bool, width int) string {
 	}
 	segs = append(segs, Sg(e.Detail, Theme.Dim))
 	if selected {
-		segs = onBG(lipgloss.Color(HexSelectBG), segs)
+		segs = onBG(Theme.Select, segs)
 	}
 	return RenderRow(width, segs...)
 }

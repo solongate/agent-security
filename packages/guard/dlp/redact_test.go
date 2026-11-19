@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/solongate/agent-security/packages/shared"
 )
@@ -219,6 +220,88 @@ func TestDlpRedactCopySentinels(t *testing.T) {
 	f.Close()
 	if got := dlpRedactCopy(big, dlpAll()); got != redactSkip {
 		t.Errorf("a file over the ceiling gave %q, want %q", got, redactSkip)
+	}
+}
+
+func TestSweepRedactedWithNoDirectoryIsANoop(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	SweepRedacted() // must not panic or create the directory
+
+	if _, err := os.Stat(redactedDir()); !os.IsNotExist(err) {
+		t.Errorf("the sweep created the redacted-copy directory, err=%v", err)
+	}
+}
+
+func TestSweepRedactedRemovesOnlyExpiredCopies(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := redactedDir()
+	if err := os.MkdirAll(dir, shared.DirMode); err != nil {
+		t.Fatal(err)
+	}
+
+	stale := filepath.Join(dir, "stale-config.env")
+	fresh := filepath.Join(dir, "fresh-config.env")
+	for _, p := range []string{stale, fresh} {
+		if err := os.WriteFile(p, []byte("KEY=[REDACTED:x]"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-redactedTTL - time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only files are ever written here, so anything else is left alone even
+	// when it is old.
+	sub := filepath.Join(dir, "not-a-copy")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(sub, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	SweepRedacted()
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("a copy older than the TTL survived the sweep, err=%v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("a copy younger than the TTL was removed: %v", err)
+	}
+	if _, err := os.Stat(sub); err != nil {
+		t.Errorf("a directory inside the redacted-copy directory was removed: %v", err)
+	}
+}
+
+func TestSweepRedactedKeepsACopyThatWasJustRewritten(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	secret := "AKIA" + "IOSFODNN7EXAMPLE"
+	src := filepath.Join(home, "config.env")
+	if err := os.WriteFile(src, []byte("KEY="+secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	first := dlpRedactCopy(src, dlpAll())
+	if first == redactSkip || first == redactClean || first == redactFailed {
+		t.Fatalf("a file holding a secret produced %q instead of a copy", first)
+	}
+	old := time.Now().Add(-redactedTTL - time.Hour)
+	if err := os.Chtimes(first, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reading the same file again rewrites the same copy, which must renew its
+	// age so the sweep does not pull it out from under the call it was made for.
+	if again := dlpRedactCopy(src, dlpAll()); again != first {
+		t.Fatalf("a second read of the same file gave %q, want %q", again, first)
+	}
+	SweepRedacted()
+
+	if _, err := os.Stat(first); err != nil {
+		t.Errorf("the copy the current call points at was swept: %v", err)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -245,16 +246,29 @@ func readAntigravity(conversationID string) []tokenTurn {
 	if conversationID == "" {
 		return nil
 	}
+	// Reject IDs that could escape the conversations directory: no path
+	// separators, no traversal segments, no absolute-path tricks, and no
+	// percent escapes, which SQLite decodes when opening a file: URI.
+	if strings.ContainsAny(conversationID, `/\%`) || strings.Contains(conversationID, "..") {
+		return nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
 	}
-	dbPath := filepath.Join(home, ".gemini", "antigravity-cli", "conversations", conversationID+".db")
-	if _, err := os.Stat(dbPath); err != nil {
+	baseDir := filepath.Join(home, ".gemini", "antigravity-cli", "conversations")
+	dbPath := filepath.Join(baseDir, conversationID+".db")
+	// Containment check: the resolved path must stay inside baseDir.
+	cleanPath := filepath.Clean(dbPath)
+	rel, err := filepath.Rel(baseDir, cleanPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil
+	}
+	if _, err := os.Stat(cleanPath); err != nil {
 		return nil
 	}
 
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+	db, err := sql.Open("sqlite", "file:"+cleanPath+"?mode=ro")
 	if err != nil {
 		return nil
 	}

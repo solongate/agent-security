@@ -188,6 +188,7 @@ func main() {
 	})
 	writeEvalRecord(shared.ProjectFlagDir(), rec)
 	sweepLegacyScratch()
+	dlp.SweepRedacted()
 
 	if policyReason != "" {
 		record(sec, hasSecurity, c, agentType, agentName, policyReason, started)

@@ -151,6 +151,46 @@ func TestWriteLocalLogFallsBackWhenTheCustomDirCannotBeCreated(t *testing.T) {
 	}
 }
 
+func TestWriteLocalLogWritesNothingWhenDisabled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	custom := filepath.Join(t.TempDir(), "my-logs")
+
+	sec := &shared.Security{LocalLogs: &shared.LocalLogs{Enabled: false, Path: custom}}
+	WriteLocalLog(sec, map[string]interface{}{"tool": "Bash"})
+
+	for _, path := range []string{
+		filepath.Join(custom, "solongate-audit.jsonl"),
+		filepath.Join(shared.SGDir(), "local-logs", "solongate-audit.jsonl"),
+	} {
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("local logs are off, but %s was written", path)
+		}
+	}
+}
+
+func TestLocalLogsOff(t *testing.T) {
+	cases := []struct {
+		name string
+		sec  *shared.Security
+		want bool
+	}{
+		{"no security block", nil, false},
+		{"no localLogs block", &shared.Security{}, false},
+		{"enabled with a path", &shared.Security{LocalLogs: &shared.LocalLogs{Enabled: true, Path: "/var/log/sg"}}, false},
+		{"disabled with a path", &shared.Security{LocalLogs: &shared.LocalLogs{Enabled: false, Path: "/var/log/sg"}}, true},
+		{"disabled with a relative path", &shared.Security{LocalLogs: &shared.LocalLogs{Enabled: false, Path: "logs"}}, true},
+		{"disabled with no path means the default folder", &shared.Security{LocalLogs: &shared.LocalLogs{Enabled: false, Path: "  "}}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := localLogsOff(tc.sec); got != tc.want {
+				t.Errorf("localLogsOff() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWriteLocalLogSilentlyDropsUnmarshalableEntries(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

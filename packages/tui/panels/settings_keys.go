@@ -193,7 +193,7 @@ func (p *Settings) submitInput() tea.Cmd {
 	switch which {
 	case "path":
 		enabled := p.haveLocal && p.local.Enabled && v != ""
-		label := "path cleared (local logs off)"
+		label := "path cleared (logging to the default folder)"
 		if v != "" {
 			label = "path saved"
 			if !enabled {

@@ -4,6 +4,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,58 @@ func TestSetAccentAppliesColor(t *testing.T) {
 	if Theme.Accent != want || Theme.AccentBright != want {
 		t.Errorf("setAccent(\"red\") Accent/AccentBright = %v/%v, want %v", Theme.Accent, Theme.AccentBright, want)
 	}
+	if want := SelectColor("red"); Theme.Select != want {
+		t.Errorf("setAccent(\"red\") Select = %v, want %v", Theme.Select, want)
+	}
+}
+
+func TestSelectColor(t *testing.T) {
+	cases := []struct {
+		name   string
+		accent string
+		want   lipgloss.Color
+	}{
+		{"no accent keeps the stock color", "", lipgloss.Color(HexSelectBG)},
+		{"unknown name keeps the stock color", "mauve", lipgloss.Color(HexSelectBG)},
+		{"malformed hex keeps the stock color", "#12345", lipgloss.Color(HexSelectBG)},
+		{"non-hex digits keep the stock color", "#gggggg", lipgloss.Color(HexSelectBG)},
+		{"named red", "red", lipgloss.Color("#321126")},
+		{"named green", "green", lipgloss.Color("#093a26")},
+		{"named whiteBright", "whiteBright", lipgloss.Color("#3c4459")},
+		{"named black", "black", lipgloss.Color("#091126")},
+		{"long hex", "#ff00aa", lipgloss.Color("#3c1148")},
+		{"short hex expands", "#f0a", lipgloss.Color("#3c1148")},
+		{"hex is case-insensitive", "#FF00AA", lipgloss.Color("#3c1148")},
+		{"whitespace trimmed", "  red  ", lipgloss.Color("#321126")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := SelectColor(tc.accent); got != tc.want {
+				t.Errorf("SelectColor(%q) = %v, want %v", tc.accent, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSelectColorFollowsEveryANSIAccent(t *testing.T) {
+	seen := map[lipgloss.Color]string{}
+	for index, rgb := range ansiRGB {
+		accent := fmt.Sprintf("#%02x%02x%02x", rgb[0], rgb[1], rgb[2])
+		got := SelectColor(accent)
+		if got == lipgloss.Color(HexSelectBG) {
+			t.Errorf("SelectColor for ANSI %s = the stock color, want one derived from the accent", index)
+		}
+		if other, dup := seen[got]; dup {
+			t.Errorf("ANSI %s and %s both select as %v, want distinct colors", index, other, got)
+		}
+		seen[got] = index
+	}
+	for name, index := range ansiNames {
+		rgb := ansiRGB[index]
+		if got, want := SelectColor(name), SelectColor(fmt.Sprintf("#%02x%02x%02x", rgb[0], rgb[1], rgb[2])); got != want {
+			t.Errorf("SelectColor(%q) = %v, want %v, the same as its ANSI %s value", name, got, want, index)
+		}
+	}
 }
 
 func TestFlattenNoopsWithColor(t *testing.T) {
@@ -102,7 +155,7 @@ func TestFlattenClearsThemeUnderNoColor(t *testing.T) {
 	t.Setenv("CLICOLOR", "")
 	flatten()
 	var none lipgloss.Color
-	if Theme.Accent != none || Theme.OK != none || Theme.Warn != none || Theme.Bad != none || Theme.Dim != none || Theme.White != none {
+	if Theme.Accent != none || Theme.OK != none || Theme.Warn != none || Theme.Bad != none || Theme.Dim != none || Theme.White != none || Theme.Select != none {
 		t.Errorf("flatten() under NO_COLOR left colors set: %+v", Theme)
 	}
 }

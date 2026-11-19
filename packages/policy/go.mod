@@ -1,6 +1,6 @@
 module github.com/solongate/agent-security/packages/policy
 
-go 1.26.0
+go 1.26.11
 
 require (
 	github.com/open-policy-agent/opa v1.22.0

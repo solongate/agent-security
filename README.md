@@ -18,6 +18,13 @@
   </tr>
   <tr>
     <td align="center">
+      <sub><b>Stats Badges</b></sub><br>
+      <a href="https://www.star-history.com/solongate/agent-security"><img src="https://api.star-history.com/badge?repo=solongate/agent-security&type=rank&theme=dark" alt="Star History Rank" height="34"></a>
+      <a href="https://github.com/26medias/awesome-ai-repos"><img src="assets/general/awesome-mentioned-badge.svg" alt="Mentioned in Awesome AI Repos" height="34" align="top"></a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
       <sub><b>Security Badges</b></sub><br>
       <a href="https://www.bestpractices.dev/projects/15333"><img src="https://www.bestpractices.dev/badge_static/passing" alt="OpenSSF Best Practices Passing" height="20"></a>
       <a href="https://www.bestpractices.dev/projects/15333"><img src="https://www.bestpractices.dev/badge_static/silver" alt="OpenSSF Best Practices Silver" height="20"></a>
@@ -35,7 +42,10 @@
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=reliability_rating" alt="Reliability Rating" height="20"></a>
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=sqale_rating" alt="Maintainability Rating" height="20"></a><br>
       <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=alert_status" alt="Quality Gate" height="20"></a>
-      <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=coverage" alt="Coverage" height="20"></a>
+      <a href="https://sonarcloud.io/summary/new_code?id=solongate_agent-security"><img src="https://sonarcloud.io/api/project_badges/measure?project=solongate_agent-security&metric=coverage" alt="Coverage" height="20"></a><br>
+      <a href="https://www.codefactor.io/repository/github/solongate/agent-security"><img src="https://www.codefactor.io/repository/github/solongate/agent-security/badge" alt="CodeFactor" height="20"></a>
+      <a href="https://app.codacy.com/gh/solongate/agent-security/dashboard"><img src="https://app.codacy.com/project/badge/Grade/7334e68e088c4d98ad851a86c6336298" alt="Codacy Grade" height="20"></a>
+      <a href="https://snyk.io/test/github/solongate/agent-security"><img src="https://snyk.io/test/github/solongate/agent-security/badge.svg" alt="Snyk Security" height="20"></a>
     </td>
   </tr>
 </table>
@@ -177,6 +187,14 @@ have made it this far.
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/fcy222fcy"><img src="https://avatars.githubusercontent.com/u/209215589?v=4?s=100" width="100px;" alt="fchengyan"/><br /><sub><b>fchengyan</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=fcy222fcy" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/Sharawey74"><img src="https://avatars.githubusercontent.com/u/191920548?v=4?s=100" width="100px;" alt="Abdelrhman Mohamed"/><br /><sub><b>Abdelrhman Mohamed</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Sharawey74" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/sanskarprakashtambe02-afk"><img src="https://avatars.githubusercontent.com/u/267262791?v=4?s=100" width="100px;" alt="Sanskar Prakash Tambe"/><br /><sub><b>Sanskar Prakash Tambe</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=sanskarprakashtambe02-afk" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/SAY-5"><img src="https://avatars.githubusercontent.com/u/240962040?v=4?s=100" width="100px;" alt="Sai Asish Y"/><br /><sub><b>Sai Asish Y</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=SAY-5" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Ipsita-Mondal-30"><img src="https://avatars.githubusercontent.com/u/174520366?v=4?s=100" width="100px;" alt="Ipsita Mondal"/><br /><sub><b>Ipsita Mondal</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Ipsita-Mondal-30" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/tausif-ahmed-guardian"><img src="https://avatars.githubusercontent.com/u/170601034?v=4?s=100" width="100px;" alt="Tausif Ahmed"/><br /><sub><b>Tausif Ahmed</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=tausif-ahmed-guardian" title="Documentation">📖</a></td>
+    </tr>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/prascli"><img src="https://avatars.githubusercontent.com/u/11029197?v=4?s=100" width="100px;" alt="Indra Prasetya"/><br /><sub><b>Indra Prasetya</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=prascli" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Kiddo4993"><img src="https://avatars.githubusercontent.com/u/233211146?v=4?s=100" width="100px;" alt="Dylan Duan"/><br /><sub><b>Dylan Duan</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=Kiddo4993" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/jay23606"><img src="https://avatars.githubusercontent.com/u/4602056?v=4?s=100" width="100px;" alt="Jay"/><br /><sub><b>Jay</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=jay23606" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

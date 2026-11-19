@@ -104,7 +104,7 @@ for it on every commit in a pull request and rejects any that are missing it.
 
 Go modules (`go.sum` per package) are the only way a dependency enters this
 repository; nothing is vendored by hand.
-[Dependabot](.github/dependabot.yaml) opens a weekly pull request per
+[Dependabot](dependabot.yaml) opens a weekly pull request per
 ecosystem/module, grouped so a bump arrives as one review rather than several
 duplicates. There is no conformance suite backing these any more (see
 `ci.yaml`), so a bump is reviewed by hand, not merged on a green tick alone.
@@ -123,7 +123,7 @@ existing policy means, say so in the title, since somebody's live setup will
 behave differently.
 
 Every pull request is reviewed by a maintainer listed in
-[CODEOWNERS](.github/CODEOWNERS) before it merges. A review checks: CI is
+[CODEOWNERS](CODEOWNERS) before it merges. A review checks: CI is
 fully green, the change follows the code style and dependency rules above,
 a change to the decision path (`packages/guard`, `packages/policy`,
 `packages/shared`, `packages/hooks`) carries the justification that section
@@ -152,7 +152,7 @@ over a patent claim.
 
 ## Maintainers
 
-[CODEOWNERS](.github/CODEOWNERS) lists who reviews what; currently that's
+[CODEOWNERS](CODEOWNERS) lists who reviews what; currently that's
 @codeyevsky and @qarademir for the whole repository, called out separately
 for the decision path (`packages/guard`, `packages/policy`, `packages/shared`,
 `packages/hooks`) and for release/CI machinery (`.github/workflows`,

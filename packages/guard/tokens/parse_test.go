@@ -214,6 +214,14 @@ func TestReadAntigravity(t *testing.T) {
 	}
 }
 
+func TestReadAntigravityRejectsTraversal(t *testing.T) {
+	for _, id := range []string{"../etc/passwd", "../../secret", "a/b", `a\b`, "a..b"} {
+		if got := readAntigravity(id); got != nil {
+			t.Errorf("readAntigravity(%q) = %v, want nil", id, got)
+		}
+	}
+}
+
 func TestReadAntigravityNotFound(t *testing.T) {
 	if got := readAntigravity(""); got != nil {
 		t.Errorf("readAntigravity(\"\") = %v, want nil", got)

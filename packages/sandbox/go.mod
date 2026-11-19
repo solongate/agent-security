@@ -1,6 +1,6 @@
 module github.com/solongate/agent-security/packages/sandbox
 
-go 1.26.0
+go 1.26.11
 
 require github.com/landlock-lsm/go-landlock v0.10.1
 

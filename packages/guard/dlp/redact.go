@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/solongate/agent-security/packages/policy"
 	"github.com/solongate/agent-security/packages/shared"
@@ -304,7 +305,7 @@ func dlpRedactCopy(abs string, dlp *shared.DLPConfig) string {
 		return redactClean
 	}
 
-	dir := filepath.Join(shared.SGDir(), ".redacted")
+	dir := redactedDir()
 	if err := os.MkdirAll(dir, shared.DirMode); err != nil {
 		return redactFailed
 	}
@@ -320,6 +321,40 @@ func dlpRedactCopy(abs string, dlp *shared.DLPConfig) string {
 		return redactFailed
 	}
 	return tmp
+}
+
+// redactedTTL is how long a redacted copy outlives the call that made it. The
+// rewritten call reads the copy as soon as the client runs it, but a client can
+// hold that call behind a permission prompt first, so the margin is a day, not
+// seconds.
+const redactedTTL = 24 * time.Hour
+
+func redactedDir() string {
+	return filepath.Join(shared.SGDir(), ".redacted")
+}
+
+// SweepRedacted removes redacted copies older than redactedTTL. The directory
+// is one per machine and every distinct file that ever tripped redact mode adds
+// a copy to it, so without this it grows for the life of the machine and keeps
+// whatever the redaction left of each file long after the read that needed it.
+// A copy that is read again is rewritten in place, which renews its age.
+func SweepRedacted() {
+	dir := redactedDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-redactedTTL)
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, e.Name()))
+	}
 }
 
 func dlpExpandGlob(absGlob string) []string {

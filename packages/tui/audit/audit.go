@@ -218,7 +218,7 @@ func (p *Audit) current(rows []logRow) (logRow, bool) {
 	if len(rows) == 0 {
 		return logRow{}, false
 	}
-	return rows[tui.MinInt(p.sel, len(rows)-1)], true
+	return rows[min(p.sel, len(rows)-1)], true
 }
 
 func (p *Audit) logsLoading() bool { return p.busy && p.editing == "" }

@@ -40,17 +40,3 @@ func JoinColumns(cols [][]string, widths []int, height int) []string {
 	}
 	return out
 }
-
-func MaxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func MinInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

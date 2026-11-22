@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -26,10 +27,23 @@ func shieldLog(format string, a ...interface{}) {
 	fmt.Fprintf(os.Stderr, "[SolonGate shield] "+format+"\n", a...)
 }
 
+// shieldProgramName returns the invoked program name for the usage message,
+// so a renamed or symlinked binary prints a usage line that matches the
+// command the user actually ran. It falls back to the canonical binary
+// name when argv[0] is empty.
+func shieldProgramName() string {
+	if len(os.Args) > 0 {
+		if name := filepath.Base(os.Args[0]); name != "" && name != "." {
+			return name
+		}
+	}
+	return "solongate-guard"
+}
+
 func Run(args []string) int {
 	cmdArgs := shieldCommandArgs(args)
 	if len(cmdArgs) == 0 {
-		shieldLog("usage: solongate-guard shield -- <command> [args...]")
+		shieldLog("usage: %s shield -- <command> [args...]", shieldProgramName())
 		return 1
 	}
 

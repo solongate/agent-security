@@ -92,7 +92,7 @@ type RateLimit struct {
 }
 
 func NewRateLimit(d tui.Deps) *RateLimit {
-	return &RateLimit{deps: d, cols: 60, rows: 12, loading: true, insLoad: true, tok: nextToken()}
+	return &RateLimit{deps: d, cols: 60, rows: 12, loading: true, insLoad: true, tok: tui.NextToken()}
 }
 
 var _ tui.Panel = (*RateLimit)(nil)

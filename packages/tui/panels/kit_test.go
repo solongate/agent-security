@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/solongate/agent-security/packages/core/client"
+	"github.com/solongate/agent-security/packages/tui"
 )
 
 func writeTUIConfig(t *testing.T, accent string) {
@@ -297,9 +298,9 @@ func TestErrText(t *testing.T) {
 }
 
 func TestNextTokenIsMonotonic(t *testing.T) {
-	a := nextToken()
-	b := nextToken()
+	a := tui.NextToken()
+	b := tui.NextToken()
 	if b != a+1 {
-		t.Errorf("nextToken() not monotonic: a=%d b=%d", a, b)
+		t.Errorf("tui.NextToken() not monotonic: a=%d b=%d", a, b)
 	}
 }

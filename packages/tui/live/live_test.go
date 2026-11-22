@@ -31,7 +31,7 @@ func TestNewLiveDefaults(t *testing.T) {
 
 	b := newLive(tui.Deps{})
 	if a.tok == b.tok {
-		t.Error("two Live instances should receive distinct tokens from nextToken()")
+		t.Error("two Live instances should receive distinct tokens from tui.NextToken()")
 	}
 }
 

@@ -130,7 +130,7 @@ func NewSettings(d tui.Deps) *Settings {
 		rows:   12,
 		hidden: map[string]bool{},
 		input:  ti,
-		tok:    nextToken(),
+		tok:    tui.NextToken(),
 	}
 }
 

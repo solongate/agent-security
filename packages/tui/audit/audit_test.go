@@ -46,10 +46,10 @@ func newTestAudit(t *testing.T) *Audit {
 }
 
 func TestNextToken(t *testing.T) {
-	first := nextToken()
-	second := nextToken()
+	first := tui.NextToken()
+	second := tui.NextToken()
 	if second != first+1 {
-		t.Errorf("nextToken() sequence = %d, %d; want consecutive integers", first, second)
+		t.Errorf("tui.NextToken() sequence = %d, %d; want consecutive integers", first, second)
 	}
 }
 

@@ -15,10 +15,6 @@ import (
 
 func init() { tui.Register(tui.SectionAudit, func(d tui.Deps) tui.Panel { return newAudit(d) }) }
 
-var tokens int
-
-func nextToken() int { tokens++; return tokens }
-
 const (
 	auditPage      = 500
 	auditKeyColumn = 19
@@ -175,7 +171,7 @@ func newAudit(d tui.Deps) *Audit {
 	in := textinput.New()
 	in.Prompt = ""
 	in.CharLimit = 200
-	return &Audit{deps: d, tok: nextToken(), view: "logs", input: in}
+	return &Audit{deps: d, tok: tui.NextToken(), view: "logs", input: in}
 }
 
 func (p *Audit) Init(ctx tui.PanelContext) tea.Cmd {

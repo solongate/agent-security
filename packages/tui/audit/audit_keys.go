@@ -54,11 +54,11 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx tui.PanelContext) tea.Cmd {
 		case tea.KeyLeft, tea.KeyEsc:
 			p.view = "logs"
 		case tea.KeyUp:
-			p.detailScroll = tui.MaxInt(0, p.detailScroll-1)
+			p.detailScroll = max(0, p.detailScroll-1)
 		case tea.KeyDown:
 			p.detailScroll++
 		case tea.KeyPgUp:
-			p.detailScroll = tui.MaxInt(0, p.detailScroll-10)
+			p.detailScroll = max(0, p.detailScroll-10)
 		case tea.KeyPgDown:
 			p.detailScroll += 10
 		}
@@ -78,13 +78,13 @@ func (p *Audit) onKey(k tea.KeyMsg, ctx tui.PanelContext) tea.Cmd {
 	pages := p.pages(total)
 	switch {
 	case k.Type == tea.KeyUp:
-		p.sel = tui.MaxInt(0, p.sel-1)
+		p.sel = max(0, p.sel-1)
 	case k.Type == tea.KeyDown:
-		p.sel = tui.MinInt(len(rows)-1, p.sel+1)
+		p.sel = min(len(rows)-1, p.sel+1)
 	case k.Type == tea.KeyPgUp:
-		p.sel = tui.MaxInt(0, p.sel-10)
+		p.sel = max(0, p.sel-10)
 	case k.Type == tea.KeyPgDown:
-		p.sel = tui.MinInt(len(rows)-1, p.sel+10)
+		p.sel = min(len(rows)-1, p.sel+10)
 	case k.Type == tea.KeyEnter:
 		if _, ok := p.current(rows); ok {
 			p.detailScroll = 0

@@ -134,10 +134,7 @@ func RedactText(text string, cfg *shared.DLPConfig) string {
 	if cfg == nil || text == "" {
 		return text
 	}
-	enabled := make(map[string]bool, len(cfg.Patterns))
-	for _, n := range cfg.Patterns {
-		enabled[n] = true
-	}
+	enabled := enabledPatternSet(cfg)
 
 	spans := []redactSpan{{text: text}}
 

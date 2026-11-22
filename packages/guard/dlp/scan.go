@@ -7,14 +7,21 @@ import (
 	"github.com/solongate/agent-security/packages/shared"
 )
 
-func ScanText(text string, cfg *shared.DLPConfig) []string {
-	if cfg == nil || text == "" || (len(cfg.Patterns) == 0 && len(cfg.Custom) == 0) {
-		return nil
-	}
+// enabledPatternSet returns the set of pattern names enabled by cfg, shared
+// by ScanText and RedactText so the two stay in sync.
+func enabledPatternSet(cfg *shared.DLPConfig) map[string]bool {
 	enabled := make(map[string]bool, len(cfg.Patterns))
 	for _, n := range cfg.Patterns {
 		enabled[n] = true
 	}
+	return enabled
+}
+
+func ScanText(text string, cfg *shared.DLPConfig) []string {
+	if cfg == nil || text == "" || (len(cfg.Patterns) == 0 && len(cfg.Custom) == 0) {
+		return nil
+	}
+	enabled := enabledPatternSet(cfg)
 	var hits []string
 	for i := 0; i < shared.DLPPatternCount(); i++ {
 		name, re := shared.DLPPatternAt(i)

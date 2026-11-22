@@ -134,6 +134,17 @@ func TestLoadRedactCfg(t *testing.T) {
 	}
 }
 
+func TestEnabledPatternSet(t *testing.T) {
+	cfg := &shared.DLPConfig{Patterns: []string{"a", "b", "a"}}
+	got := enabledPatternSet(cfg)
+	if len(got) != 2 || !got["a"] || !got["b"] {
+		t.Errorf("enabledPatternSet(%v) = %v, want {a b}", cfg.Patterns, got)
+	}
+	if got := enabledPatternSet(&shared.DLPConfig{}); len(got) != 0 {
+		t.Errorf("enabledPatternSet(empty) = %v, want empty", got)
+	}
+}
+
 func TestLoadScanCfg(t *testing.T) {
 	redact := &shared.DLPConfig{Patterns: []string{"redact"}}
 	block := &shared.DLPConfig{Patterns: []string{"block"}}

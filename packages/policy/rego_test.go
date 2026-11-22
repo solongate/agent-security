@@ -160,3 +160,22 @@ func TestJSTruthyMatchesJavaScript(t *testing.T) {
 		}
 	}
 }
+
+func TestJSToStringMap(t *testing.T) {
+	got := JSToString(map[string]interface{}{
+		"action": "read",
+		"count":  2.0,
+		"nested": map[string]interface{}{"key": "value"},
+	})
+	want := `{"action":"read","count":2,"nested":{"key":"value"}}`
+	if got != want {
+		t.Errorf("JSToString(map)=%q, want %q", got, want)
+	}
+	if strings.Contains(got, "map[") {
+		t.Errorf("JSToString(map)=%q, still renders Go map syntax", got)
+	}
+	// A map nested inside an array renders the same way, not as map[k:v].
+	if got := JSToString([]interface{}{map[string]interface{}{"k": "v"}}); got != `{"k":"v"}` {
+		t.Errorf("JSToString([map])=%q, want %q", got, `{"k":"v"}`)
+	}
+}

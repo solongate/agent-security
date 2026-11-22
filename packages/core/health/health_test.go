@@ -83,7 +83,12 @@ func TestPlural(t *testing.T) {
 	}
 }
 
-func TestRoundHalfUp(t *testing.T) {
+// TestRoundInt covers the single rounding helper that replaced roundHalfUp
+// and fixed0 (#314). The old helpers disagreed on negatives (roundHalfUp(-2.5)
+// was -2, fixed0(-1.5) was "-2"); roundInt uses math.Round, halves away from
+// zero, matching the old fixed0. No call site passes a negative value, so
+// displayed output is unchanged.
+func TestRoundInt(t *testing.T) {
 	cases := []struct {
 		v    float64
 		want int64
@@ -92,29 +97,13 @@ func TestRoundHalfUp(t *testing.T) {
 		{2.4, 2},
 		{2.5, 3},
 		{2.9, 3},
-		{-2.5, -2},
+		{1.5, 2},
+		{-1.5, -2},
+		{-2.5, -3},
 	}
 	for _, tc := range cases {
-		if got := roundHalfUp(tc.v); got != tc.want {
-			t.Errorf("roundHalfUp(%v) = %d, want %d", tc.v, got, tc.want)
-		}
-	}
-}
-
-func TestFixed0(t *testing.T) {
-	cases := []struct {
-		v    float64
-		want string
-	}{
-		{0, "0"},
-		{1.4, "1"},
-		{1.5, "2"},
-		{2.5, "3"},
-		{-1.5, "-2"},
-	}
-	for _, tc := range cases {
-		if got := fixed0(tc.v); got != tc.want {
-			t.Errorf("fixed0(%v) = %q, want %q", tc.v, got, tc.want)
+		if got := roundInt(tc.v); got != tc.want {
+			t.Errorf("roundInt(%v) = %d, want %d", tc.v, got, tc.want)
 		}
 	}
 }

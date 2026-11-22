@@ -349,14 +349,16 @@ func localLogCheck() []Check {
 			Detail: "nothing recorded yet · " + file}}
 	}
 	ageMin := float64(time.Since(st.ModTime())) / float64(time.Minute)
-	when := strconv.FormatInt(roundHalfUp(ageMin), 10) + "m ago"
+	when := strconv.FormatInt(roundInt(ageMin), 10) + "m ago"
 	if ageMin < 1 {
 		when = "just now"
 	}
 	return []Check{{Name: "local logs", OK: StateOK,
-		Detail: "on · " + fixed0(float64(st.Size())/1024) + "KB · last write " + when}}
+		Detail: "on · " + strconv.FormatInt(roundInt(float64(st.Size())/1024), 10) + "KB · last write " + when}}
 }
 
-func roundHalfUp(v float64) int64 { return int64(math.Floor(v + 0.5)) }
-
-func fixed0(v float64) string { return strconv.FormatInt(int64(math.Round(v)), 10) }
+// roundInt rounds v to the nearest integer, halves away from zero. It replaces
+// roundHalfUp and fixed0, which duplicated the same rounding for display (#314).
+// Both call sites pass non-negative values (an age in minutes and a file size in
+// KB), where the old helpers agreed, so displayed output is unchanged.
+func roundInt(v float64) int64 { return int64(math.Round(v)) }

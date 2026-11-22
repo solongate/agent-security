@@ -6,18 +6,48 @@ package auditcmd
 import (
 	"bytes"
 	"encoding/json"
+	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
-	"unicode/utf16"
 
 	"github.com/solongate/agent-security/packages/guard/dlp"
 	"github.com/solongate/agent-security/packages/guard/guardcore"
 	"github.com/solongate/agent-security/packages/policy"
 	"github.com/solongate/agent-security/packages/shared"
 )
+
+// truncateArgValue caps every string inside v at 8000 runes, recursing into
+// nested objects and arrays, so a large array or nested object cannot bypass
+// the audit-log size cap that top-level strings already get. Non-string
+// scalars pass through unchanged, and the input is never mutated.
+func truncateArgValue(v interface{}) interface{} {
+	switch t := v.(type) {
+	case string:
+		r := []rune(t)
+		if len(r) > 8000 {
+			return string(r[:8000]) + "…"
+		}
+		return t
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(t))
+		for k, val := range t {
+			out[k] = truncateArgValue(val)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(t))
+		for i, val := range t {
+			out[i] = truncateArgValue(val)
+		}
+		return out
+	default:
+		return v
+	}
+}
 
 func Run(args []string, redactsOutput func(agentID string) bool) (code int) {
 	defer func() {
@@ -254,15 +284,7 @@ func Run(args []string, redactsOutput func(agentID string) bool) (code int) {
 
 	argsSummary := map[string]interface{}{}
 	for k, v := range toolInputMap {
-		if s, ok := v.(string); ok {
-			r := []rune(s)
-			if len(r) > 8000 {
-				s = string(r[:8000]) + "…"
-			}
-			argsSummary[k] = s
-		} else {
-			argsSummary[k] = v
-		}
+		argsSummary[k] = truncateArgValue(v)
 	}
 
 	if !redactsOutput(agentID) {
@@ -445,19 +467,7 @@ func compactJSON(raw []byte) string {
 }
 
 func callFingerprint(s string) string {
-	var h uint32 = 0x811c9dc5
-	for _, u := range utf16.Encode([]rune(s)) {
-		h ^= uint32(u)
-		h = h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)
-	}
-	const hexDigits = "0123456789abcdef"
-	if h == 0 {
-		return "0"
-	}
-	var out []byte
-	for h > 0 {
-		out = append([]byte{hexDigits[h&0xf]}, out...)
-		h >>= 4
-	}
-	return string(out)
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return strconv.FormatUint(uint64(h.Sum32()), 16)
 }

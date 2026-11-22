@@ -98,11 +98,11 @@ func (p *Live) onKey(k tea.KeyMsg, ctx tui.PanelContext) tea.Cmd {
 			p.mode = "stream"
 			p.inspect = nil
 		case tea.KeyUp:
-			p.inspectScroll = tui.MaxInt(0, p.inspectScroll-1)
+			p.inspectScroll = max(0, p.inspectScroll-1)
 		case tea.KeyDown:
 			p.inspectScroll++
 		case tea.KeyPgUp:
-			p.inspectScroll = tui.MaxInt(0, p.inspectScroll-10)
+			p.inspectScroll = max(0, p.inspectScroll-10)
 		case tea.KeyPgDown:
 			p.inspectScroll += 10
 		}
@@ -115,11 +115,11 @@ func (p *Live) onKey(k tea.KeyMsg, ctx tui.PanelContext) tea.Cmd {
 		}
 		switch k.Type {
 		case tea.KeyUp:
-			p.layersScroll = tui.MaxInt(0, p.layersScroll-1)
+			p.layersScroll = max(0, p.layersScroll-1)
 		case tea.KeyDown:
 			p.layersScroll++
 		case tea.KeyPgUp:
-			p.layersScroll = tui.MaxInt(0, p.layersScroll-10)
+			p.layersScroll = max(0, p.layersScroll-10)
 		case tea.KeyPgDown:
 			p.layersScroll += 10
 		}
@@ -128,7 +128,7 @@ func (p *Live) onKey(k tea.KeyMsg, ctx tui.PanelContext) tea.Cmd {
 	}
 
 	visible := p.visibleDesc()
-	streamBody := tui.MaxInt(3, p.streamRows(ctx)-1)
+	streamBody := max(3, p.streamRows(ctx)-1)
 	toggleSignal := func(s string) {
 		if p.signal == s {
 			p.signal = "none"
@@ -160,13 +160,13 @@ func (p *Live) onKey(k tea.KeyMsg, ctx tui.PanelContext) tea.Cmd {
 	case str == "e":
 		p.export(visible, now)
 	case k.Type == tea.KeyDown:
-		p.sel = tui.MinInt(len(visible)-1, p.sel+1)
+		p.sel = min(len(visible)-1, p.sel+1)
 	case k.Type == tea.KeyUp:
-		p.sel = tui.MaxInt(0, p.sel-1)
+		p.sel = max(0, p.sel-1)
 	case k.Type == tea.KeyPgDown:
-		p.sel = tui.MinInt(len(visible)-1, p.sel+streamBody)
+		p.sel = min(len(visible)-1, p.sel+streamBody)
 	case k.Type == tea.KeyPgUp:
-		p.sel = tui.MaxInt(0, p.sel-streamBody)
+		p.sel = max(0, p.sel-streamBody)
 	}
 	return nil
 }
@@ -198,7 +198,7 @@ func (p *Live) selected(visible []streamItem) (streamItem, bool) {
 	if len(visible) == 0 {
 		return streamItem{}, false
 	}
-	i := tui.MinInt(tui.MaxInt(0, p.sel), len(visible)-1)
+	i := min(max(0, p.sel), len(visible)-1)
 	return visible[i], true
 }
 

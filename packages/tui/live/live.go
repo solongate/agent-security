@@ -251,7 +251,7 @@ func (p *Live) bannerRows(now int64) int {
 }
 
 func (p *Live) streamRows(ctx tui.PanelContext) int {
-	return tui.MaxInt(4, ctx.Rows-5-(1+p.chartHeight(ctx))-p.colHeight(ctx)-p.bannerRows(ctx.Now.UnixMilli()))
+	return max(4, ctx.Rows-5-(1+p.chartHeight(ctx))-p.colHeight(ctx)-p.bannerRows(ctx.Now.UnixMilli()))
 }
 
 func (p *Live) Hint(ctx tui.PanelContext) string {

@@ -35,6 +35,33 @@ func TestRawFields(t *testing.T) {
 	}
 }
 
+func TestFirstTruthyRaw(t *testing.T) {
+	f := map[string]json.RawMessage{
+		"empty": json.RawMessage(`""`),
+		"text":  json.RawMessage(`"hi"`),
+		"bad":   json.RawMessage(`{not json`),
+	}
+	cases := []struct {
+		name string
+		keys []string
+		want string
+		ok   bool
+	}{
+		{"first truthy key wins", []string{"text"}, `"hi"`, true},
+		{"falsy and malformed keys fall through", []string{"empty", "bad", "text"}, `"hi"`, true},
+		{"nothing matches", []string{"missing", "empty"}, "", false},
+		{"no keys at all", nil, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := firstTruthyRaw(f, c.keys...)
+			if ok != c.ok || string(got) != c.want {
+				t.Errorf("firstTruthyRaw(%v) = %q, %v; want %q, %v", c.keys, got, ok, c.want, c.ok)
+			}
+		})
+	}
+}
+
 func TestJsOrRaw(t *testing.T) {
 	f := map[string]json.RawMessage{
 		"empty":    json.RawMessage(`""`),

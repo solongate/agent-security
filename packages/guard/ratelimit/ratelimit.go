@@ -53,9 +53,22 @@ func Check(agent string, limits *shared.RateLimit) string {
 	if limits == nil {
 		return ""
 	}
-	dir := shared.SGDir()
+	return check(filepath.Join(shared.SGDir(), ".ratelimit-"+shared.AgentKey(agent)+".v2.log"), limits)
+}
 
-	file := filepath.Join(dir, ".ratelimit-"+shared.AgentKey(agent)+".v2.log")
+// Observe records a call in the detect-mode log and reports whether it went
+// over one of the limits. It keeps its own log, apart from Check's, and uses
+// the same append-then-count scheme, so concurrent calls never drop each
+// other's records.
+func Observe(agent string, limits *shared.RateLimit) bool {
+	if limits == nil {
+		return false
+	}
+	return check(filepath.Join(shared.SGDir(), ".ratelimit-observe-"+shared.AgentKey(agent)+".v2.log"), limits) != ""
+}
+
+func check(file string, limits *shared.RateLimit) string {
+	dir := filepath.Dir(file)
 	now := time.Now().UnixMilli()
 
 	if err := os.MkdirAll(dir, shared.DirMode); err != nil {

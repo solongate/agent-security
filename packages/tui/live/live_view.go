@@ -145,7 +145,7 @@ func (p *Live) viewHelp(ctx tui.PanelContext, width int, now int64) []string {
 
 func (p *Live) viewInspect(ctx tui.PanelContext, width int, now int64) []string {
 	e := *p.inspect
-	bodyW := tui.MaxInt(20, ctx.Cols-4)
+	bodyW := max(20, ctx.Cols-4)
 
 	why := tui.WhyBlock(e.Decision, e.Reason, e.Rule, e.DLPNames, e.Burst, bodyW)
 	whyN, whyFG := len(why), tui.WhyColor(e.Decision, e.Burst, e.DLPNames)
@@ -157,9 +157,9 @@ func (p *Live) viewInspect(ctx tui.PanelContext, width int, now int64) []string 
 		argsText = e.Detail
 	}
 	content = append(content, tui.WrapLines(argsText, bodyW)...)
-	bodyRows := tui.MaxInt(4, ctx.Rows-6)
-	maxScroll := tui.MaxInt(0, len(content)-bodyRows)
-	off := tui.MinInt(p.inspectScroll, maxScroll)
+	bodyRows := max(4, ctx.Rows-6)
+	maxScroll := max(0, len(content)-bodyRows)
+	off := min(p.inspectScroll, maxScroll)
 
 	head := []tui.Seg{
 		{Text: " ENTRY ", Fg: tui.Theme.White, Bg: lipgloss.Color(tui.HexPanelBG), Bold: true},
@@ -246,7 +246,7 @@ func (p *Live) viewInspect(ctx tui.PanelContext, width int, now int64) []string 
 func (p *Live) viewLayers(ctx tui.PanelContext, width int, now int64, spin string) []string {
 	rl := p.insights.Layers.RateLimit
 	dl := p.insights.Layers.DLP
-	barW := tui.MaxInt(10, tui.MinInt(40, width-30))
+	barW := max(10, min(40, width-30))
 
 	var body []string
 	push := func(s string) { body = append(body, s) }
@@ -334,7 +334,7 @@ func (p *Live) viewLayers(ctx tui.PanelContext, width int, now int64, spin strin
 	} else {
 		kv("builtin", tui.Plain("none enabled"))
 	}
-	for _, line := range tui.WrapLines(strings.Join(builtin, " · "), tui.MaxInt(20, width-18)) {
+	for _, line := range tui.WrapLines(strings.Join(builtin, " · "), max(20, width-18)) {
 		if line == "" {
 			continue
 		}
@@ -354,7 +354,7 @@ func (p *Live) viewLayers(ctx tui.PanelContext, width int, now int64, spin strin
 			push(tui.RenderRow(width,
 				tui.Sg("                ", tui.Theme.Dim),
 				tui.Sg(tui.PadEnd(tui.Truncate(name, 24), 25), tui.Theme.Accent),
-				tui.Sg(tui.Truncate(c.Re, tui.MaxInt(10, width-44)), tui.Theme.Dim)))
+				tui.Sg(tui.Truncate(c.Re, max(10, width-44)), tui.Theme.Dim)))
 		}
 	} else {
 		kv("custom", tui.Plain("none"))
@@ -405,9 +405,9 @@ func (p *Live) viewLayers(ctx tui.PanelContext, width int, now int64, spin strin
 		kv("local eval", tui.Sg("no local ring in cwd", tui.Theme.Dim))
 	}
 
-	bodyRows := tui.MaxInt(4, ctx.Rows-4)
-	maxScroll := tui.MaxInt(0, len(body)-bodyRows)
-	off := tui.MinInt(p.layersScroll, maxScroll)
+	bodyRows := max(4, ctx.Rows-4)
+	maxScroll := max(0, len(body)-bodyRows)
+	off := min(p.layersScroll, maxScroll)
 
 	extra := ""
 	if !p.insightsLoaded {
@@ -452,7 +452,7 @@ func (p *Live) viewMain(ctx tui.PanelContext, width int, now int64, spin string)
 	streamRows := p.streamRows(ctx)
 	leftW := width * 55 / 100
 	rightW := width - leftW - 2
-	colW := tui.MaxInt(20, (width-3)/2)
+	colW := max(20, (width-3)/2)
 
 	rl := p.insights.Layers.RateLimit
 	dl := p.insights.Layers.DLP
@@ -549,7 +549,7 @@ func (p *Live) viewMain(ctx tui.PanelContext, width int, now int64, spin string)
 	trace := make([]int, len(p.pulse))
 	evalHot := make([]bool, len(p.pulse))
 	for i, v := range p.pulse {
-		trace[i] = tui.MaxInt(1, v)
+		trace[i] = max(1, v)
 		evalHot[i] = float64(v) > evalHotAt
 	}
 	left := append([]string{tui.PaneTitle("TRAFFIC",
@@ -573,7 +573,7 @@ func (p *Live) viewMain(ctx tui.PanelContext, width int, now int64, spin string)
 		if minuteNow > rl.PerMinute {
 			color = tui.Theme.Bad
 		}
-		layersCol = append(layersCol, hbar("load/min", minuteNow, rl.PerMinute, tui.MaxInt(6, colW-16), color, colW))
+		layersCol = append(layersCol, hbar("load/min", minuteNow, rl.PerMinute, max(6, colW-16), color, colW))
 	}
 	builtinN, customN := 0, 0
 	if dl != nil {
@@ -633,10 +633,10 @@ func (p *Live) viewMain(ctx tui.PanelContext, width int, now int64, spin string)
 		[]int{colW, colW}, colH)...)
 
 	visible := p.visibleDesc()
-	sel := tui.MinInt(tui.MaxInt(0, p.sel), tui.MaxInt(0, len(visible)-1))
-	streamBody := tui.MaxInt(3, streamRows-1)
-	maxScroll := tui.MaxInt(0, len(visible)-streamBody)
-	scroll := tui.MinInt(tui.MaxInt(0, sel-(streamBody-1)/2), maxScroll)
+	sel := min(max(0, p.sel), max(0, len(visible)-1))
+	streamBody := max(3, streamRows-1)
+	maxScroll := max(0, len(visible)-streamBody)
+	scroll := min(max(0, sel-(streamBody-1)/2), maxScroll)
 
 	extra := strconv.Itoa(sel+1) + "/" + strconv.Itoa(len(visible))
 	if p.signal != "none" {

@@ -5,10 +5,12 @@ package security
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/solongate/agent-security/packages/cli/cliutil"
 	"github.com/solongate/agent-security/packages/core/client"
+	"github.com/solongate/agent-security/packages/shared"
 )
 
 func dlpUsage() string {
@@ -129,6 +131,13 @@ func RunDLP(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int, e
 		name, re := p.FlagStr("name"), p.FlagStr("re")
 		if name == "" || re == "" {
 			return cliutil.UsageErr("Usage: dlp add-custom --name <name> --re <regex>")
+		}
+		// The matcher compiles custom values with shared.GlobToRegexp, not
+		// regexp.Compile, and silently skips values it cannot compile, so
+		// validate with the same function here: an uncompilable value must
+		// fail at the command line, not sit stored and never match.
+		if _, err := shared.GlobToRegexp(re); err != nil {
+			return cliutil.UsageErr(fmt.Sprintf("invalid --re pattern %q: %v", re, err))
 		}
 		next := layers
 		next.DLP.Custom = append(withoutCustom(layers.DLP.Custom, name), client.CustomPattern{Name: name, Re: re})

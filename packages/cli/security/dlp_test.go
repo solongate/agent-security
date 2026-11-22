@@ -194,6 +194,50 @@ func TestRunDLPShow(t *testing.T) {
 	})
 }
 
+func TestRunDLPAddCustomRejectsUncompilablePattern(t *testing.T) {
+	newHome(t)
+	c := client.New()
+	ctx := context.Background()
+
+	run := func(args ...string) (int, error, string) {
+		var code int
+		var err error
+		out := captureOutput(t, func() { code, err = RunDLP(ctx, c, cliutil.Parse(args)) })
+		return code, err, out
+	}
+
+	// A whitespace-only pattern passes the empty-string check but
+	// GlobToRegexp rejects it, so it must fail here instead of being stored
+	// and silently never matching.
+	code, err, out := run("add-custom", "--name", "blank", "--re", "   ")
+	if code != 1 || err != nil {
+		t.Fatalf("RunDLP(add-custom --re \"   \") = (%d, %v), want (1, nil): %s", code, err, out)
+	}
+	if !strings.Contains(out, "invalid --re pattern") || !strings.Contains(out, `"   "`) {
+		t.Errorf("rejection output=%q, want it to name the invalid pattern", out)
+	}
+	layers, lerr := c.Settings.GetSecurityLayers(ctx)
+	if lerr != nil {
+		t.Fatalf("GetSecurityLayers: %v", lerr)
+	}
+	if len(layers.Layers.DLP.Custom) != 0 {
+		t.Errorf("DLP.Custom = %v, want nothing stored after a rejected add-custom", layers.Layers.DLP.Custom)
+	}
+
+	// A valid glob is still accepted.
+	code, err, _ = run("add-custom", "--name", "ticket-id", "--re", `TCK-*`)
+	if code != 0 || err != nil {
+		t.Fatalf("RunDLP(add-custom --re \"TCK-*\") = (%d, %v), want (0, nil)", code, err)
+	}
+	layers, lerr = c.Settings.GetSecurityLayers(ctx)
+	if lerr != nil {
+		t.Fatalf("GetSecurityLayers: %v", lerr)
+	}
+	if len(layers.Layers.DLP.Custom) != 1 || layers.Layers.DLP.Custom[0].Name != "ticket-id" {
+		t.Errorf("DLP.Custom = %v, want the ticket-id pattern stored", layers.Layers.DLP.Custom)
+	}
+}
+
 func TestRunDLPMode(t *testing.T) {
 	newHome(t)
 	c := client.New()

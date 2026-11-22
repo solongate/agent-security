@@ -73,10 +73,10 @@ func (p *Audit) viewHelp(ctx tui.PanelContext) []string {
 	lines = append(lines, tui.RenderRow(ctx.Cols,
 		tui.Sgb("AUDIT, all keys ", tui.Theme.AccentBright), tui.Sg(note, tui.Theme.Dim)), "")
 
-	half := tui.MaxInt(20, (ctx.Cols-2)/2)
+	half := max(20, (ctx.Cols-2)/2)
 	left := tui.HelpBlock(auditHelp[:1], auditKeyColumn, half)
 	right := tui.HelpBlock(auditHelp[1:], auditKeyColumn, half)
-	rows := tui.MaxInt(len(left), len(right))
+	rows := max(len(left), len(right))
 	return append(lines, tui.JoinColumns([][]string{left, right}, []int{half, half}, rows)...)
 }
 
@@ -128,7 +128,7 @@ func (p *Audit) viewEntry(ctx tui.PanelContext) []string {
 	if !ok {
 		return p.viewLogs(ctx)
 	}
-	bodyW := tui.MaxInt(20, ctx.Cols-4)
+	bodyW := max(20, ctx.Cols-4)
 	width := ctx.Cols - 2
 
 	why := tui.WhyBlock(e.decision, e.reason, e.rule, e.dlp, e.burst, bodyW)
@@ -142,9 +142,9 @@ func (p *Audit) viewEntry(ctx tui.PanelContext) []string {
 	}
 	content = append(content, tui.WrapLines(argsText, bodyW)...)
 
-	bodyRows := tui.MaxInt(4, ctx.Rows-6-boolInt(p.frozen))
-	maxScroll := tui.MaxInt(0, len(content)-bodyRows)
-	off := tui.MinInt(p.detailScroll, maxScroll)
+	bodyRows := max(4, ctx.Rows-6-boolInt(p.frozen))
+	maxScroll := max(0, len(content)-bodyRows)
+	off := min(p.detailScroll, maxScroll)
 
 	head := []tui.Seg{
 		{Text: " ENTRY ", Fg: tui.Theme.White, Bg: lipgloss.Color(tui.HexPanelBG), Bold: true},
@@ -222,10 +222,10 @@ func (p *Audit) viewLogs(ctx tui.PanelContext) []string {
 
 	headerRows := 6 + boolInt(p.editing != "") +
 		boolInt(p.note != nil) + boolInt(p.frozen)
-	listRows := tui.MaxInt(4, ctx.Rows-headerRows)
-	sel := tui.MinInt(p.sel, tui.MaxInt(0, len(rows)-1))
-	start := tui.MinInt(tui.MaxInt(0, sel-(listRows-1)/2), tui.MaxInt(0, len(rows)-listRows))
-	end := tui.MinInt(start+listRows, len(rows))
+	listRows := max(4, ctx.Rows-headerRows)
+	sel := min(p.sel, max(0, len(rows)-1))
+	start := min(max(0, sel-(listRows-1)/2), max(0, len(rows)-listRows))
+	end := min(start+listRows, len(rows))
 
 	head := []tui.Seg{tui.Sgb("LOGS", tui.Theme.AccentBright), tui.Sg(" ", tui.Theme.Dim)}
 	head = append(head, chip("dec", orAll(auditDecisions[p.di]), p.di != 0)...)
@@ -256,7 +256,7 @@ func (p *Audit) viewLogs(ctx tui.PanelContext) []string {
 		body = append(body, tui.RenderRow(width, tui.Sg(p.editing+": ", tui.Theme.Warn))+p.input.View())
 	}
 
-	counts := strconv.Itoa(total) + " matched · page " + strconv.Itoa(tui.MinInt(p.page+1, pages)) +
+	counts := strconv.Itoa(total) + " matched · page " + strconv.Itoa(min(p.page+1, pages)) +
 		"/" + strconv.Itoa(pages) + " · " + strconv.Itoa(auditPage) + "/page · "
 	if len(rows) > 0 {
 		counts += strconv.Itoa(sel + 1)

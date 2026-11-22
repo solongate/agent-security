@@ -82,35 +82,3 @@ func TestJoinColumnsLineWiderThanWidthIsNotTruncated(t *testing.T) {
 		t.Errorf("JoinColumns() with a line wider than its column width = %q, want it left unpadded/untruncated", out[0])
 	}
 }
-
-func TestMaxInt(t *testing.T) {
-	cases := []struct {
-		a, b, want int
-	}{
-		{1, 2, 2},
-		{2, 1, 2},
-		{-1, -2, -1},
-		{3, 3, 3},
-	}
-	for _, tc := range cases {
-		if got := MaxInt(tc.a, tc.b); got != tc.want {
-			t.Errorf("MaxInt(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
-		}
-	}
-}
-
-func TestMinInt(t *testing.T) {
-	cases := []struct {
-		a, b, want int
-	}{
-		{1, 2, 1},
-		{2, 1, 1},
-		{-1, -2, -2},
-		{3, 3, 3},
-	}
-	for _, tc := range cases {
-		if got := MinInt(tc.a, tc.b); got != tc.want {
-			t.Errorf("MinInt(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
-		}
-	}
-}

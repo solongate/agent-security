@@ -26,7 +26,21 @@ func resolveLocalLogDir(raw string) string {
 	return dir
 }
 
+// localLogsOff reports whether the user switched the local audit log off. It
+// reads the block the way the client writes it and the TUI reads it back: a
+// block with no path stands for the default folder, which is always on, so
+// only a configured path can carry enabled=false.
+func localLogsOff(sec *shared.Security) bool {
+	if sec == nil || sec.LocalLogs == nil {
+		return false
+	}
+	return !sec.LocalLogs.Enabled && strings.TrimSpace(sec.LocalLogs.Path) != ""
+}
+
 func WriteLocalLog(sec *shared.Security, entry map[string]interface{}) {
+	if localLogsOff(sec) {
+		return
+	}
 	dir := ""
 	if sec != nil && sec.LocalLogs != nil {
 		dir = resolveLocalLogDir(sec.LocalLogs.Path)

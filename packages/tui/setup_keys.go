@@ -38,6 +38,14 @@ func (m *setupModel) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch k.String() {
 	case "ctrl+c", "q":
+		if m.step == stepFinished {
+			// The wizard is done: quitting here is finishing, not
+			// abandoning (issue #143). Persist completion the same
+			// way the enter/space path does, so setup is not offered
+			// again on the next launch.
+			config.MarkSetupDone()
+			return m, tea.Quit
+		}
 		m.abandoned = true
 		return m, tea.Quit
 

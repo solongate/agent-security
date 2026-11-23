@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/solongate/agent-security/packages/core/config"
 )
 
 func TestSetupOnKeyAskingPathEscCancels(t *testing.T) {
@@ -196,5 +197,24 @@ func TestSetupOnKeyUnhandledKeyIsNoop(t *testing.T) {
 	_, cmd := m.onKey(runeKey("z"))
 	if cmd != nil {
 		t.Error("onKey(\"z\") returned a non-nil cmd, want nil")
+	}
+}
+
+func TestSetupOnKeyCtrlCOrQAtFinishedMarksSetupDoneAndQuits(t *testing.T) {
+	for _, k := range []tea.KeyMsg{{Type: tea.KeyCtrlC}, runeKey("q")} {
+		newHome(t)
+		m := newSetup(Deps{})
+		m.step = stepFinished
+
+		_, cmd := m.onKey(k)
+		if m.abandoned {
+			t.Errorf("onKey(%v) at stepFinished set abandoned, want false", k)
+		}
+		if !isQuitCmd(t, cmd) {
+			t.Errorf("onKey(%v) at stepFinished did not return tea.Quit", k)
+		}
+		if cfg := config.LoadTUIConfig(); cfg.SetupDoneAt == "" {
+			t.Errorf("onKey(%v) at stepFinished left SetupDoneAt empty, want it set", k)
+		}
 	}
 }

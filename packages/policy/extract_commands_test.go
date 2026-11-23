@@ -114,6 +114,18 @@ func TestExtractCommandsSplitsAndNormalizes(t *testing.T) {
 			[]string{"# set it", "rm -rf /tmp/x"}},
 		{"heredoc bodies do not change quote state", args("command", "cat <<EOF\ndon't\nEOF\nrm -rf /tmp/x"),
 			[]string{"cat <<EOF", "don't", "EOF", "rm -rf /tmp/x"}},
+		{"heredoc body assignments do not leak", args("command", "X=rm\ncat <<EOF\nX=echo\nEOF\n$X -rf /tmp/x"),
+			[]string{"cat <<EOF", "EOF", "rm -rf /tmp/x"}},
+		{"heredoc body assignments resolve within the body", args("command", "cat <<EOF | sh\nY=rm\n$Y -rf /tmp/x\nEOF"),
+			[]string{"cat <<EOF", "sh", "rm -rf /tmp/x", "EOF"}},
+		{"mixed-quote heredoc terminator does not change quote state", args("command", "cat <<\"E'F\"\nbody\nEF\nE'F\nrm -rf /tmp/x"),
+			[]string{"cat <<E'F", "body", "EF", "E'F", "rm -rf /tmp/x"}},
+		{"ordinary backslash in double-quoted heredoc delimiter is preserved", args("command", "cat <<\"E\\q\"\nEq\ndon't\nE\\q\nrm -rf /tmp/x"),
+			[]string{"cat <<E\\q", "Eq", "don't", "E\\q", "rm -rf /tmp/x"}},
+		{"empty single-quoted heredoc delimiter", args("command", "cat <<''\ndon't\n\nrm -rf /tmp/x"),
+			[]string{"cat <<", "don't", "rm -rf /tmp/x"}},
+		{"empty double-quoted heredoc delimiter", args("command", "cat <<\"\"\ndon't\n\nrm -rf /tmp/x"),
+			[]string{"cat <<", "don't", "rm -rf /tmp/x"}},
 		{"tab-stripped heredoc terminator", args("command", "cat <<-EOF\ncan't\n\tEOF\nrm -rf /tmp/x"),
 			[]string{"cat <<-EOF", "can't", "EOF", "rm -rf /tmp/x"}},
 		{"multiple heredocs follow declaration order", args("command", "cat <<A <<B\none\nA\ntwo's\nB\nrm -rf /tmp/x"),
@@ -295,12 +307,19 @@ func TestEvaluatorsBlockCommandsHiddenByHeredocAndArithmeticParsing(t *testing.T
 		t.Fatal("expected test policy rules to parse")
 	}
 
-	for _, command := range []string{
-		"cat <<EOF | sh\nr\\\nm -rf /tmp/x\nEOF",
-		"echo $((1<<2))\nr\\\nm -rf /tmp/x",
+	for _, tc := range []struct {
+		name    string
+		command string
+	}{
+		{"heredoc continuation", "cat <<EOF | sh\nr\\\nm -rf /tmp/x\nEOF"},
+		{"arithmetic shift", "echo $((1<<2))\nr\\\nm -rf /tmp/x"},
+		{"heredoc body assignment does not leak", "X=rm\ncat <<EOF\nX=echo\nEOF\n$X -rf /tmp/x"},
+		{"mixed-quote heredoc terminator", "cat <<\"E'F\"\nbody\nEF\nE'F\nrm -rf /tmp/x"},
+		{"ordinary backslash in double-quoted heredoc delimiter", "cat <<\"E\\q\"\nEq\ndon't\nE\\q\nrm -rf /tmp/x"},
+		{"empty quoted heredoc delimiter", "cat <<''\ndon't\n\nrm -rf /tmp/x"},
 	} {
-		t.Run(command, func(t *testing.T) {
-			toolArgs := args("command", command)
+		t.Run(tc.name, func(t *testing.T) {
+			toolArgs := args("command", tc.command)
 			if got := EvaluatePolicy(pol, toolArgs, "Bash", "/tmp"); got == "" {
 				t.Error("EvaluatePolicy allowed a command matching the DENY rule")
 			}

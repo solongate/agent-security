@@ -36,17 +36,47 @@ type heredocSpec struct {
 	stripTabs bool
 }
 
+type shellScopeRange struct {
+	start int
+	end   int
+	id    int
+}
+
+type markedShellCommand struct {
+	text   string
+	scopes []shellScopeRange
+}
+
+type shellStatement struct {
+	text    string
+	scopeID int
+}
+
 func NormalizeShellCommand(cmd string) string {
 	if cmd == "" {
 		return cmd
 	}
 	// Preserve multi-line arguments while exposing actual shell statement boundaries.
-	cmd = markStatementNewlines(cmd)
+	marked := markStatementNewlines(cmd)
 	vars := map[string]string{}
+	var bodyVars map[string]string
+	currentScope := 0
 	var out []string
-	for _, part := range reStmtSplit.Split(cmd, -1) {
+	for _, statement := range splitShellStatements(marked) {
+		part := statement.text
 		if strings.TrimSpace(part) == "" {
 			continue
+		}
+		activeVars := vars
+		if statement.scopeID != 0 {
+			if statement.scopeID != currentScope {
+				bodyVars = cloneStringMap(vars)
+				currentScope = statement.scopeID
+			}
+			activeVars = bodyVars
+		} else {
+			currentScope = 0
+			bodyVars = nil
 		}
 		if idx := reVarAssign.FindStringSubmatchIndex(part); idx != nil {
 			name := part[idx[2]:idx[3]]
@@ -58,17 +88,17 @@ func NormalizeShellCommand(cmd string) string {
 					break
 				}
 			}
-			vars[name] = val
+			activeVars[name] = val
 			continue
 		}
 		part = replaceSubmatch(reVarBrace, part, func(g []string) string {
-			if v, ok := vars[g[1]]; ok {
+			if v, ok := activeVars[g[1]]; ok {
 				return v
 			}
 			return "${" + g[1] + "}"
 		})
 		part = replaceSubmatch(reVarBare, part, func(g []string) string {
-			if v, ok := vars[g[1]]; ok {
+			if v, ok := activeVars[g[1]]; ok {
 				return v
 			}
 			return "$" + g[1]
@@ -80,22 +110,58 @@ func NormalizeShellCommand(cmd string) string {
 	return strings.Join(out, "; ")
 }
 
-func markStatementNewlines(cmd string) string {
+func cloneStringMap(src map[string]string) map[string]string {
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func splitShellStatements(marked markedShellCommand) []shellStatement {
+	var statements []shellStatement
+	start := 0
+	for _, separator := range reStmtSplit.FindAllStringIndex(marked.text, -1) {
+		statements = append(statements, shellStatement{
+			text:    marked.text[start:separator[0]],
+			scopeID: shellScopeAt(marked, start, separator[0]),
+		})
+		start = separator[1]
+	}
+	statements = append(statements, shellStatement{
+		text:    marked.text[start:],
+		scopeID: shellScopeAt(marked, start, len(marked.text)),
+	})
+	return statements
+}
+
+func shellScopeAt(marked markedShellCommand, start, end int) int {
+	for start < end && (marked.text[start] == ' ' || marked.text[start] >= '\t' && marked.text[start] <= '\r') {
+		start++
+	}
+	for _, scope := range marked.scopes {
+		if start >= scope.start && start < scope.end {
+			return scope.id
+		}
+	}
+	return 0
+}
+
+func markStatementNewlines(cmd string) markedShellCommand {
 	var b strings.Builder
 	b.Grow(len(cmd))
 	inSingle, inDouble, inComment := false, false, false
 	arithmeticDepth := 0
 	var heredocs []heredocSpec
+	var scopes []shellScopeRange
+	nextScopeID := 1
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
 		if inComment {
 			if c == '\n' {
 				b.WriteByte(';')
 				inComment = false
-				if len(heredocs) != 0 {
-					i = copyHeredocBody(cmd, &b, i+1, heredocs[0])
-					heredocs = heredocs[1:]
-				}
+				consumePendingHeredoc(cmd, &b, &i, &heredocs, &scopes, &nextScopeID)
 				continue
 			}
 			b.WriteByte(c)
@@ -136,7 +202,7 @@ func markStatementNewlines(cmd string) string {
 			if stripTabs {
 				start++
 			}
-			if delimiter := readHeredocDelimiter(cmd, start); delimiter != "" {
+			if delimiter, quoted := readHeredocDelimiter(cmd, start); delimiter != "" || quoted {
 				heredocs = append(heredocs, heredocSpec{delimiter: delimiter, stripTabs: stripTabs})
 			}
 		}
@@ -154,20 +220,28 @@ func markStatementNewlines(cmd string) string {
 		}
 		if c == '\n' && !inSingle && !inDouble {
 			b.WriteByte(';')
-			if len(heredocs) != 0 {
-				i = copyHeredocBody(cmd, &b, i+1, heredocs[0])
-				heredocs = heredocs[1:]
-			}
+			consumePendingHeredoc(cmd, &b, &i, &heredocs, &scopes, &nextScopeID)
 			continue
 		}
 		b.WriteByte(c)
 	}
-	return b.String()
+	return markedShellCommand{text: b.String(), scopes: scopes}
+}
+
+func consumePendingHeredoc(cmd string, b *strings.Builder, newlineIndex *int, heredocs *[]heredocSpec, scopes *[]shellScopeRange, nextScopeID *int) {
+	for len(*heredocs) != 0 {
+		scopeStart := b.Len()
+		*newlineIndex = copyHeredocBody(cmd, b, *newlineIndex+1, (*heredocs)[0])
+		*heredocs = (*heredocs)[1:]
+		if scopeStart != b.Len() {
+			*scopes = append(*scopes, shellScopeRange{start: scopeStart, end: b.Len(), id: *nextScopeID})
+			(*nextScopeID)++
+		}
+	}
 }
 
 func copyHeredocBody(cmd string, b *strings.Builder, start int, h heredocSpec) int {
 	for start < len(cmd) {
-		logicalStart := start
 		var logicalLine strings.Builder
 		lineEnd := start
 		for {
@@ -194,7 +268,11 @@ func copyHeredocBody(cmd string, b *strings.Builder, start int, h heredocSpec) i
 			line = strings.TrimLeft(line, "\t")
 		}
 		if line == h.delimiter {
-			return logicalStart - 1
+			// Keep the terminator visible to policy checks, but consume it here so
+			// quote and comment characters in the delimiter cannot affect parsing.
+			b.WriteString(logicalLine.String())
+			b.WriteByte(';')
+			return lineEnd
 		}
 		// Heredoc data stays visible without affecting shell quote state.
 		b.WriteString(logicalLine.String())
@@ -207,16 +285,45 @@ func copyHeredocBody(cmd string, b *strings.Builder, start int, h heredocSpec) i
 	return len(cmd)
 }
 
-func readHeredocDelimiter(cmd string, start int) string {
+func readHeredocDelimiter(cmd string, start int) (string, bool) {
 	for start < len(cmd) && (cmd[start] == ' ' || cmd[start] == '\t') {
 		start++
 	}
 	var b strings.Builder
 	var quote byte
+	quoted := false
 	for i := start; i < len(cmd); i++ {
 		c := cmd[i]
 		if quote == 0 && (c == ' ' || c >= '\t' && c <= '\r' || strings.ContainsRune(";&|()<>", rune(c))) {
 			break
+		}
+		if quote == '\'' {
+			if c == '\'' {
+				quote = 0
+			} else {
+				b.WriteByte(c)
+			}
+			continue
+		}
+		if quote == '"' {
+			if c == '"' {
+				quote = 0
+				continue
+			}
+			if c == '\\' && i+1 < len(cmd) {
+				next := cmd[i+1]
+				if strings.ContainsRune("$`\"\\", rune(next)) {
+					i++
+					b.WriteByte(next)
+					continue
+				}
+				if next == '\n' {
+					i++
+					continue
+				}
+			}
+			b.WriteByte(c)
+			continue
 		}
 		if c == '\\' {
 			if i+1 < len(cmd) {
@@ -226,16 +333,13 @@ func readHeredocDelimiter(cmd string, start int) string {
 			continue
 		}
 		if c == '\'' || c == '"' {
-			if quote == 0 {
-				quote = c
-			} else if quote == c {
-				quote = 0
-			}
+			quoted = true
+			quote = c
 			continue
 		}
 		b.WriteByte(c)
 	}
-	return b.String()
+	return b.String(), quoted
 }
 
 func isShellWordBoundary(c byte) bool {

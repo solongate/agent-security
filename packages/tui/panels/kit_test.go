@@ -71,6 +71,7 @@ func TestModeStyle(t *testing.T) {
 		{"on", stOK},
 		{"detect", stWarn},
 		{"idle", stWarn},
+		{"redact", stBad},
 		{"", stDim},
 		{"unknown", stDim},
 	}

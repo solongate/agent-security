@@ -198,6 +198,7 @@ have made it this far.
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/mateuscmtropical"><img src="https://avatars.githubusercontent.com/u/88845521?v=4?s=100" width="100px;" alt="MateusSilva"/><br /><sub><b>MateusSilva</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=mateuscmtropical" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/aryankalantri"><img src="https://avatars.githubusercontent.com/u/184456664?v=4?s=100" width="100px;" alt="aryankalantri"/><br /><sub><b>aryankalantri</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=aryankalantri" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/aloneangel45"><img src="https://avatars.githubusercontent.com/u/63845775?v=4?s=100" width="100px;" alt="Aloneangel20"/><br /><sub><b>Aloneangel20</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=aloneangel45" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/leninworld"><img src="https://avatars.githubusercontent.com/u/2639584?v=4?s=100" width="100px;" alt="Lenin Mookiah"/><br /><sub><b>Lenin Mookiah</b></sub></a><br /><a href="https://github.com/solongate/agent-security/commits?author=leninworld" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

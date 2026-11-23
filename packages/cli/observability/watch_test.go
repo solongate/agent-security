@@ -35,6 +35,25 @@ func TestPrintWatchRowJSON(t *testing.T) {
 	}
 }
 
+func TestNewCloudEntriesShrinksAfterDedup(t *testing.T) {
+	seen := make(map[string]bool, seenLimit+1)
+	for i := 0; i <= seenLimit; i++ {
+		seen["old-"+strconv.Itoa(i)] = true
+	}
+	entries := []client.AuditEntry{{ID: "old-1"}, {ID: "new"}, {ID: "old-2"}}
+
+	fresh, next := newCloudEntries(seen, entries)
+	if len(fresh) != 1 {
+		t.Fatalf("len(fresh) = %d, want 1", len(fresh))
+	}
+	if fresh[0].ID != "new" {
+		t.Errorf("fresh[0].ID = %q, want new", fresh[0].ID)
+	}
+	if len(next) != 3 || !next["old-1"] || !next["new"] || !next["old-2"] {
+		t.Errorf("next = %v, want exactly the three batch IDs", next)
+	}
+}
+
 func TestPrintWatchRowText(t *testing.T) {
 	cases := []struct {
 		name     string

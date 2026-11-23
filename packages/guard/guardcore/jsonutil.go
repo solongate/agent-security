@@ -20,7 +20,10 @@ func RawFields(b json.RawMessage) map[string]json.RawMessage {
 	return m
 }
 
-func JsOrRaw(f map[string]json.RawMessage, keys ...string) json.RawMessage {
+// firstTruthyRaw returns the raw value of the first key in keys whose value
+// parses as JSON and is truthy in the JS sense (see policy.JSTruthy).
+// Missing, empty, malformed, and falsy values are skipped.
+func firstTruthyRaw(f map[string]json.RawMessage, keys ...string) (json.RawMessage, bool) {
 	for _, k := range keys {
 		v, ok := f[k]
 		if !ok || len(v) == 0 {
@@ -31,26 +34,28 @@ func JsOrRaw(f map[string]json.RawMessage, keys ...string) json.RawMessage {
 			continue
 		}
 		if policy.JSTruthy(probe) {
-			return v
+			return v, true
 		}
 	}
-	return nil
+	return nil, false
+}
+
+func JsOrRaw(f map[string]json.RawMessage, keys ...string) json.RawMessage {
+	v, ok := firstTruthyRaw(f, keys...)
+	if !ok {
+		return nil
+	}
+	return v
 }
 
 func JsOrString(f map[string]json.RawMessage, keys ...string) string {
-	for _, k := range keys {
-		v, ok := f[k]
-		if !ok || len(v) == 0 {
-			continue
-		}
-		var probe interface{}
-		if json.Unmarshal(v, &probe) != nil {
-			continue
-		}
-		if !policy.JSTruthy(probe) {
-			continue
-		}
-		return policy.JSToString(probe)
+	v, ok := firstTruthyRaw(f, keys...)
+	if !ok {
+		return ""
 	}
-	return ""
+	var probe interface{}
+	if json.Unmarshal(v, &probe) != nil {
+		return ""
+	}
+	return policy.JSToString(probe)
 }

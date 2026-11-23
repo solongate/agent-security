@@ -193,7 +193,23 @@ done
 if [ "$go_bin" = go ]; then
 	cache="$HOME/go/pkg/mod/golang.org"
 	if [ -d "$cache" ]; then
-		found=$(find "$cache" -maxdepth 1 -type d -name 'toolchain@*' 2>/dev/null | sort -r | while read -r d; do
+		# `sort -V` is GNU-only (absent on macOS), so rank toolchains by
+		# zero-padding each numeric version component and letting a plain
+		# sort compare the keys: go1.9 < go1.10 < go1.21, which a
+		# lexicographic sort gets wrong (it picks go1.9 over go1.21).
+		found=$(find "$cache" -maxdepth 1 -type d -name 'toolchain@*' 2>/dev/null | awk '
+			{
+				key = "00000000000000000000"
+				if (match($0, /go[0-9][0-9.]*/)) {
+					ver = substr($0, RSTART + 2, RLENGTH - 2)
+					n = split(ver, part, ".")
+					key = ""
+					for (i = 1; i <= 4; i++) {
+						key = key sprintf("%05d", (i <= n ? part[i] + 0 : 0))
+					}
+				}
+				print key "\t" $0
+			}' | sort -r | cut -f2- | while read -r d; do
 			[ -x "$d/bin/go" ] && { printf '%s\n' "$d/bin/go"; break; }
 		done)
 		[ -n "$found" ] && go_bin=$found

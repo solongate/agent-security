@@ -79,6 +79,24 @@ func TestWorkspaceRootRejectsSymlinkToHomeDirectory(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRootRejectsParentOfHomeDirectory(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory in this environment: %v", err)
+	}
+	parent := filepath.Dir(filepath.Clean(home))
+	if parent == volumeRoot() || parent == filepath.Clean(home) {
+		t.Skip("home directory has no parent directory to test")
+	}
+	err = checkWorkspaceRoot(parent)
+	if err == nil {
+		t.Fatalf("parent of home directory %q was accepted as a workspace root", parent)
+	}
+	if !strings.Contains(err.Error(), "home directory") {
+		t.Fatalf("unexpected error for parent-of-home workspace: %v", err)
+	}
+}
+
 func TestWorkspaceRootAcceptsProjectDirectory(t *testing.T) {
 	dir := t.TempDir()
 	if err := checkWorkspaceRoot(dir); err != nil {

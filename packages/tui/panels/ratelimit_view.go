@@ -237,7 +237,7 @@ func parseWhen(s string) time.Time {
 func whenLabel(s string) string {
 	t := parseWhen(s)
 	if t.IsZero() {
-		return ", "
+		return "-"
 	}
 	return t.Local().Format("Jan 2 15:04")
 }

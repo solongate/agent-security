@@ -42,11 +42,11 @@ var (
 
 	dlpReaderCmd = regexp.MustCompile(`\b(cat|less|more|head|tail|bat|nl|od|xxd|hexdump|strings|grep|egrep|fgrep|rg|ag|cut|awk|gawk|sed|tr|sort|uniq|paste|join|comm|column|fold|tac|rev|pr|expand|unexpand|base64|base32|dd|mapfile|readarray)\b`)
 
-	// File extensions commonly used for local files so bare filenames like
-	// localfile.txt are not mistaken for scheme-less DNS hostnames.
+	// Non-URL file extensions so bare filenames like localfile.txt are not
+	// mistaken for scheme-less DNS hostnames when no path or port is present.
 	dlpLocalFileExts = map[string]bool{
 		"txt": true, "env": true, "json": true, "yaml": true, "yml": true,
-		"toml": true, "log": true, "md": true, "csv": true, "xml": true,
+		"toml": true, "log": true, "csv": true, "xml": true,
 		"sql": true, "key": true, "pem": true, "crt": true, "p12": true,
 		"pfx": true, "pub": true, "go": true, "py": true, "js": true,
 		"ts": true, "jsx": true, "tsx": true, "mjs": true, "cjs": true,
@@ -55,7 +55,7 @@ var (
 		"ps1": true, "bat": true, "cmd": true, "bak": true, "old": true,
 		"tmp": true, "swp": true, "lock": true, "cfg": true, "conf": true,
 		"ini": true, "tar": true, "gz": true, "bz2": true, "xz": true,
-		"zip": true, "rar": true, "7z": true, "bin": true, "dat": true,
+		"rar": true, "7z": true, "bin": true, "dat": true,
 		"exe": true, "dll": true, "so": true, "dylib": true, "pdf": true,
 		"doc": true, "docx": true, "xls": true, "xlsx": true, "png": true,
 		"jpg": true, "jpeg": true, "gif": true, "svg": true, "ico": true,
@@ -63,17 +63,83 @@ var (
 		"err": true, "example": true, "sample": true, "dist": true,
 	}
 
-	dlpLocalOperandFlags = map[string]bool{
+	dlpCurlOperandFlags = map[string]bool{
 		"-T": true, "--upload-file": true,
 		"-d": true, "--data": true, "--data-raw": true, "--data-binary": true, "--data-urlencode": true,
-		"-F": true, "--form": true,
-		"--post-file": true, "--body-file": true,
-		"-o": true, "--output": true, "-b": true, "-c": true,
-		"-e": true, "-H": true, "--header": true, "-A": true, "-u": true, "--user": true,
-		"-X": true, "--request": true,
+		"-F": true, "--form": true, "-o": true, "--output": true,
+		"-b": true, "-c": true, "-e": true, "-H": true, "--header": true,
+		"-A": true, "-u": true, "--user": true, "-X": true, "--request": true,
+	}
+
+	dlpWgetOperandFlags = map[string]bool{
+		"--post-file": true, "--body-file": true, "--post-data": true,
+		"-O": true, "--output-document": true, "-o": true, "--output-file": true,
+		"-a": true, "--append-output": true, "--header": true,
+		"-U": true, "--user-agent": true, "--user": true, "--password": true,
+		"--http-user": true, "--http-password": true,
+		"-i": true, "--input-file": true, "-P": true, "--directory-prefix": true,
+	}
+
+	dlpNetcatOperandFlags = map[string]bool{
+		"-p": true, "-s": true, "-w": true, "-x": true, "-X": true, "-T": true,
+	}
+
+	dlpShellOperandTokens = map[string]bool{
 		"cat": true, "<": true, ">": true, ">>": true,
 	}
 )
+
+func trimShellQuotes(tok string) string {
+	for len(tok) >= 2 {
+		q := tok[0]
+		if (q != '\'' && q != '"' && q != '`') || tok[len(tok)-1] != q {
+			break
+		}
+		tok = tok[1 : len(tok)-1]
+	}
+	return tok
+}
+
+func consumesNextOperand(cmdName, raw string) bool {
+	if eq := strings.IndexByte(raw, '='); eq >= 0 {
+		return false
+	}
+	name := raw
+	if strings.HasPrefix(name, "--") || !strings.HasPrefix(name, "-") {
+		name = strings.ToLower(name)
+	}
+	if dlpShellOperandTokens[name] {
+		return true
+	}
+	switch cmdName {
+	case "curl":
+		return dlpCurlOperandFlags[name]
+	case "wget":
+		return dlpWgetOperandFlags[name]
+	case "nc", "netcat":
+		return dlpNetcatOperandFlags[name]
+	default:
+		return dlpCurlOperandFlags[name] || dlpWgetOperandFlags[name]
+	}
+}
+
+func parseTransferCommand(raw string) string {
+	switch strings.ToLower(filepath.Base(trimShellQuotes(raw))) {
+	case "curl", "wget", "scp", "rsync", "sftp", "ftp", "nc", "netcat":
+		return strings.ToLower(filepath.Base(trimShellQuotes(raw)))
+	default:
+		return ""
+	}
+}
+
+func primaryTransferCommand(toks []string) string {
+	for _, raw := range toks {
+		if cmd := parseTransferCommand(raw); cmd != "" {
+			return cmd
+		}
+	}
+	return ""
+}
 
 func hasRemoteTarget(c, lc string) bool {
 	if dlpHTTPAnywhere.MatchString(lc) || dlpUserHostTarget.MatchString(c) || dlpHostPathTarget.MatchString(c) {
@@ -83,29 +149,30 @@ func hasRemoteTarget(c, lc string) bool {
 	if len(toks) < 2 {
 		return false
 	}
-	positionalOnly := dlpPositionalCmd.MatchString(lc) && !dlpNetcatCmd.MatchString(lc) && !strings.Contains(lc, "curl") && !strings.Contains(lc, "wget") && !strings.Contains(lc, "ftp")
-	isNetcat := dlpNetcatCmd.MatchString(lc)
+	cmdName := primaryTransferCommand(toks)
+	positionalOnly := cmdName == "scp" || cmdName == "rsync" || cmdName == "sftp"
+	isHTTP := cmdName == "curl" || cmdName == "wget"
+	isNetcat := cmdName == "nc" || cmdName == "netcat"
+
 	skipNext := false
 	for i, raw := range toks {
 		if skipNext {
 			skipNext = false
 			continue
 		}
-		flagName := raw
-		if eq := strings.IndexByte(flagName, '='); eq >= 0 {
-			flagName = flagName[:eq]
-		}
-		if strings.HasPrefix(flagName, "--") || !strings.HasPrefix(flagName, "-") {
-			flagName = strings.ToLower(flagName)
-		}
-		if dlpLocalOperandFlags[flagName] {
-			if !strings.Contains(raw, "=") {
-				skipNext = true
-			}
+		rawTok := trimShellQuotes(raw)
+		if consumesNextOperand(cmdName, rawTok) {
+			skipNext = true
 			continue
 		}
-		tok := strings.TrimPrefix(raw, "--url=")
-		if tok == raw && strings.HasPrefix(raw, "-") {
+		if nextCmd := parseTransferCommand(rawTok); nextCmd != "" {
+			cmdName = nextCmd
+			positionalOnly = cmdName == "scp" || cmdName == "rsync" || cmdName == "sftp"
+			isHTTP = cmdName == "curl" || cmdName == "wget"
+			isNetcat = cmdName == "nc" || cmdName == "netcat"
+		}
+		tok := trimShellQuotes(strings.TrimPrefix(rawTok, "--url="))
+		if tok == rawTok && strings.HasPrefix(rawTok, "-") {
 			continue
 		}
 		if i == 0 {
@@ -117,10 +184,10 @@ func hasRemoteTarget(c, lc string) bool {
 		if positionalOnly {
 			continue
 		}
-		if isRemoteURLOrHostToken(tok) {
+		if isRemoteURLOrHostToken(tok, isHTTP) {
 			return true
 		}
-		if isNetcat && i+1 < len(toks) && isValidHostLabel(tok) && isValidPort(toks[i+1]) {
+		if isNetcat && i+1 < len(toks) && isValidHostLabel(tok) && isValidPort(trimShellQuotes(toks[i+1])) {
 			return true
 		}
 	}
@@ -138,13 +205,13 @@ func isSSHRemoteToken(tok string, positionalCmd bool) bool {
 	}
 	if positionalCmd && !strings.ContainsAny(tok, "/\\") {
 		if at := strings.IndexByte(tok, '@'); at > 0 && at < len(tok)-1 {
-			return isPlausibleRemoteHost(tok[at+1:], false)
+			return isPlausibleRemoteHost(tok[at+1:], false, false, false)
 		}
 	}
 	return false
 }
 
-func isRemoteURLOrHostToken(tok string) bool {
+func isRemoteURLOrHostToken(tok string, allowSingleLabelPath bool) bool {
 	if tok == "" {
 		return false
 	}
@@ -154,7 +221,7 @@ func isRemoteURLOrHostToken(tok string) bool {
 	}
 	if strings.HasPrefix(tok, "//") {
 		u, err := url.Parse(tok)
-		return err == nil && isPlausibleRemoteHost(u.Hostname(), u.Port() != "")
+		return err == nil && isPlausibleRemoteHost(u.Hostname(), u.Port() != "", u.Path != "", false)
 	}
 	if strings.HasPrefix(tok, "/") || strings.HasPrefix(tok, "./") || strings.HasPrefix(tok, "../") ||
 		strings.HasPrefix(tok, "~/") || strings.HasPrefix(tok, "@") || strings.HasPrefix(tok, "{") ||
@@ -175,17 +242,17 @@ func isRemoteURLOrHostToken(tok string) bool {
 	if err != nil {
 		return false
 	}
-	return isPlausibleRemoteHost(u.Hostname(), u.Port() != "")
+	return isPlausibleRemoteHost(u.Hostname(), u.Port() != "", u.Path != "", allowSingleLabelPath)
 }
 
-func isPlausibleRemoteHost(host string, hasPort bool) bool {
+func isPlausibleRemoteHost(host string, hasPort, hasPath, allowSingleLabelPath bool) bool {
 	if host == "" || len(host) > 253 {
 		return false
 	}
 	if net.ParseIP(host) != nil || strings.EqualFold(host, "localhost") {
 		return true
 	}
-	if hasPort && isValidHostLabel(host) {
+	if (hasPort || (allowSingleLabelPath && hasPath)) && isValidHostLabel(host) {
 		return true
 	}
 	labels := strings.Split(host, ".")
@@ -198,7 +265,7 @@ func isPlausibleRemoteHost(host string, hasPort bool) bool {
 		}
 	}
 	tld := strings.ToLower(labels[len(labels)-1])
-	if dlpLocalFileExts[tld] {
+	if !hasPath && !hasPort && dlpLocalFileExts[tld] {
 		return false
 	}
 	return (len(tld) >= 2 && isAllASCIIAlpha(tld)) || (strings.HasPrefix(tld, "xn--") && len(tld) > 4)

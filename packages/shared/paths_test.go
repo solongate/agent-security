@@ -83,6 +83,30 @@ func TestProjectKeyIsStableAndDistinct(t *testing.T) {
 	}
 }
 
+// TestProjectKeyMatchesFNV1a pins the names ProjectKey produces, so a
+// change to the hash cannot silently rename existing project directories.
+// The ASCII values are the ones the old hand-rolled loop produced. A
+// non-ASCII path hashes differently than it did: the old loop fed the hash
+// UTF-16 units, while standard FNV-1a runs over the directory's bytes.
+func TestProjectKeyMatchesFNV1a(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", "811c9dc5"},
+		{"/home/user/project-a", "c78eeed"},
+		{"/home/user/project-b", "978ea34"},
+		{"/tmp/x", "ff28930c"},
+		{"a", "e40c292c"},
+		{"/home/user/Ünïcode", "635b7886"},
+	}
+	for _, tc := range cases {
+		if got := ProjectKey(tc.in); got != tc.want {
+			t.Errorf("ProjectKey(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestSGDirUsesHomeDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

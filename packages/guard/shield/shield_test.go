@@ -523,3 +523,64 @@ func TestShieldRunChildReportsSignalDeathsAbove128(t *testing.T) {
 		t.Errorf("a process that killed itself with SIGTERM should report %d, got %d", 128+15, got)
 	}
 }
+func TestShieldProgramName(t *testing.T) {
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+
+	cases := []struct {
+		name  string
+		argv0 string
+		want  string
+	}{
+		{"full path keeps only the base name", "/usr/local/bin/solongate-guard", "solongate-guard"},
+		{"renamed binary keeps its own name", "/tmp/renamed-guard", "renamed-guard"},
+		{"bare name passes through", "my-guard", "my-guard"},
+		{"empty argv0 falls back to the canonical name", "", "solongate-guard"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			os.Args = []string{c.argv0}
+			if got := shieldProgramName(); got != c.want {
+				t.Errorf("shieldProgramName() with argv[0] %q = %q, want %q", c.argv0, got, c.want)
+			}
+		})
+	}
+
+	t.Run("no argv at all falls back to the canonical name", func(t *testing.T) {
+		os.Args = nil
+		if got := shieldProgramName(); got != "solongate-guard" {
+			t.Errorf("shieldProgramName() with no argv = %q, want %q", got, "solongate-guard")
+		}
+	})
+}
+
+func TestShieldUsageUsesInvokedProgramName(t *testing.T) {
+	oldArgs := os.Args
+	oldStderr := os.Stderr
+	t.Cleanup(func() { os.Args = oldArgs; os.Stderr = oldStderr })
+
+	os.Args = []string{"/tmp/renamed-guard"}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+
+	code := Run(nil)
+
+	_ = w.Close()
+	os.Stderr = oldStderr
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 1 {
+		t.Errorf("Run(nil) = %d, want 1", code)
+	}
+	if !strings.Contains(string(out), "usage: renamed-guard shield -- <command> [args...]") {
+		t.Errorf("usage output = %q, want it to name the invoked binary", string(out))
+	}
+	if strings.Contains(string(out), "solongate-guard") {
+		t.Errorf("usage output = %q, want no hardcoded binary name", string(out))
+	}
+}

@@ -298,3 +298,29 @@ func TestSubcommandTablesAreConsistent(t *testing.T) {
 		}
 	}
 }
+
+// hasFlag feeds hasJSON in run(), which decides whether assertHumanTerminal
+// lets a command run without an interactive stdout, so a regression here
+// silently changes which commands are allowed to run non-interactively.
+func TestHasFlag(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		flag string
+		want bool
+	}{
+		{"exact match", []string{"run", "--json"}, "--json", true},
+		{"flag=value match", []string{"run", "--json=true"}, "--json", true},
+		{"empty value still counts", []string{"run", "--json="}, "--json", true},
+		{"flag later in the args", []string{"run", "--yaml", "--json"}, "--json", true},
+		{"a longer flag sharing the name is not a match", []string{"run", "--jsonx"}, "--json", false},
+		{"a hyphenated flag sharing the name is not a match", []string{"run", "--json-file"}, "--json", false},
+		{"no match", []string{"run", "--yaml"}, "--json", false},
+		{"no args", nil, "--json", false},
+	}
+	for _, c := range cases {
+		if got := hasFlag(c.args, c.flag); got != c.want {
+			t.Errorf("%s: hasFlag(%q, %q)=%v, want %v", c.name, c.args, c.flag, got, c.want)
+		}
+	}
+}

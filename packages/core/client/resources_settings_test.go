@@ -7,6 +7,8 @@ import (
 	"context"
 	"os"
 	"testing"
+
+	"github.com/solongate/agent-security/packages/core/config"
 )
 
 func TestGetSecurityLayersReturnsPatternsAndCurrentLayers(t *testing.T) {
@@ -320,6 +322,26 @@ func TestSetLocalLogsRoundTripAndClear(t *testing.T) {
 	}
 	if cleared.Path != DefaultLogDir() || !cleared.Enabled {
 		t.Errorf("clearing the path should fall back to the default: %+v", cleared)
+	}
+}
+
+func TestSetLocalLogsDisabledIsWhatConfigReports(t *testing.T) {
+	newHome(t)
+	s := Settings{&Client{}}
+	custom := t.TempDir()
+
+	if _, err := s.SetLocalLogs(context.Background(), LocalLogsConfig{Enabled: false, Path: custom}); err != nil {
+		t.Fatalf("SetLocalLogs: %v", err)
+	}
+	if got := config.LocalLogsSetting(); got.Enabled {
+		t.Errorf("config.LocalLogsSetting() = %+v after disabling local logs, want Enabled false", got)
+	}
+
+	if _, err := s.SetLocalLogs(context.Background(), LocalLogsConfig{Enabled: true, Path: custom}); err != nil {
+		t.Fatalf("SetLocalLogs: %v", err)
+	}
+	if got := config.LocalLogsSetting(); !got.Enabled {
+		t.Errorf("config.LocalLogsSetting() = %+v after enabling local logs, want Enabled true", got)
 	}
 }
 

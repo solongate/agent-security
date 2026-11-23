@@ -31,7 +31,7 @@ func LocalLogsSetting() LocalLogSetting {
 		return def
 	}
 	type localLogsBlock struct {
-		Enabled *bool  `json:"enabled"`
+		Enabled bool   `json:"enabled"`
 		Path    string `json:"path"`
 	}
 	type securityBlock struct {
@@ -57,13 +57,20 @@ func LocalLogsSetting() LocalLogSetting {
 	}
 
 	raw := strings.TrimSpace(sec.LocalLogs.Path)
+	if raw == "" {
+		return def
+	}
+	// A block with no path stands for the default folder and is always on;
+	// with a path, enabled is the switch the guard obeys before every write.
+	enabled := sec.LocalLogs.Enabled
 	dir := trailingSep.ReplaceAllString(raw, "")
 	if dir == "" {
+		def.Enabled = enabled
 		return def
 	}
 
 	if !filepath.IsAbs(dir) {
-		return LocalLogSetting{Enabled: true, ConfiguredPath: raw, UsableHere: false, File: DefaultLocalLogFile()}
+		return LocalLogSetting{Enabled: enabled, ConfiguredPath: raw, UsableHere: false, File: DefaultLocalLogFile()}
 	}
 	file := filepath.Join(dir, "solongate-audit.jsonl")
 	usable := exists(file) || exists(dir)
@@ -71,7 +78,7 @@ func LocalLogsSetting() LocalLogSetting {
 	if !usable {
 		resolved = DefaultLocalLogFile()
 	}
-	return LocalLogSetting{Enabled: true, ConfiguredPath: raw, UsableHere: usable, File: resolved}
+	return LocalLogSetting{Enabled: enabled, ConfiguredPath: raw, UsableHere: usable, File: resolved}
 }
 
 func LocalLogFile() string { return LocalLogsSetting().File }

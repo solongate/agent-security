@@ -102,6 +102,16 @@ func JSToString(v interface{}) string {
 			parts = append(parts, JSToString(item))
 		}
 		return strings.Join(parts, ",")
+	case map[string]interface{}:
+		// Render as JSON, not Go's map[k:v] syntax: this feeds rule
+		// descriptions and argument-constraint strings, where policy
+		// authors should see the value they wrote, not Go internals.
+		// encoding/json sorts map keys, so the output is deterministic.
+		b, err := json.Marshal(t)
+		if err != nil {
+			return fmt.Sprintf("%v", t)
+		}
+		return string(b)
 	default:
 		return fmt.Sprintf("%v", t)
 	}

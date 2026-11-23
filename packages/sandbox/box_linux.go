@@ -14,15 +14,12 @@ import (
 	"syscall"
 )
 
-func DefaultBoxRuntime() []string {
-	return []string{
-
-		"/usr", "/bin", "/lib", "/lib64", "/sbin",
-
-		"/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/localtime",
-		"/etc/ssl", "/etc/ca-certificates",
-	}
-}
+// DefaultBoxRuntime returns the same default read paths as the Landlock mode
+// (DefaultRuntimeRead). The box list used to be a separate copy and had
+// drifted: it omitted /opt, /etc/pki, the ld.so cache and config paths,
+// /proc/self and /sys/devices/system/cpu, so dynamically linked binaries
+// could fail inside the box while the Landlock mode allowed them (issue #348).
+func DefaultBoxRuntime() []string { return defaultRuntimeReadPaths() }
 
 func BoxAvailable() error {
 	if _, err := exec.LookPath("bwrap"); err != nil {

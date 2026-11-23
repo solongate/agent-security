@@ -40,7 +40,11 @@ type Report struct {
 
 var ErrUnsupported = errors.New("no OS-level confinement is implemented for this platform")
 
-func DefaultRuntimeRead() []string {
+// defaultRuntimeReadPaths is the single list of system paths a confined agent
+// may read. Both the Landlock mode (DefaultRuntimeRead) and the bubblewrap box
+// mode (DefaultBoxRuntime, Linux) return it, so the two modes cannot drift
+// apart again (issue #348).
+func defaultRuntimeReadPaths() []string {
 	return []string{
 
 		"/usr", "/bin", "/lib", "/lib64", "/sbin", "/opt",
@@ -52,6 +56,8 @@ func DefaultRuntimeRead() []string {
 		"/proc/self", "/sys/devices/system/cpu",
 	}
 }
+
+func DefaultRuntimeRead() []string { return defaultRuntimeReadPaths() }
 
 func DefaultRuntimeWrite(home string) []string { return nil }
 

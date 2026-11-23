@@ -526,3 +526,33 @@ func readLastTokenUsageEntry(t *testing.T) map[string]interface{} {
 	}
 	return entry
 }
+
+func TestRunOpencodeSanitizesCounts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	withStdin(t, `{"opencode": true, "tokens": true, "session_id": "s1", "turn_key": "k1", "input": 10.6, "output": -5, "cache_read": 1, "cache_write": 2, "reasoning": 3, "total": 0, "at": 1700000000000}`)
+
+	if got := Run(nil); got != 0 {
+		t.Fatalf("Run() = %d, want 0", got)
+	}
+	entry := readLastTokenUsageEntry(t)
+	if entry["input"] != 11.0 || entry["output"] != 0.0 {
+		t.Errorf("entry input/output = %v/%v, want 11/0", entry["input"], entry["output"])
+	}
+	if entry["total"] != 14.0 {
+		t.Errorf("entry total = %v, want 14 (sum fallback when total is 0)", entry["total"])
+	}
+}
+
+func TestRunOpencodeWithNoTokensIsANoop(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	withStdin(t, `{"opencode": true, "tokens": true, "session_id": "s1", "turn_key": "k1", "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "reasoning": 0, "total": 0, "at": 1700000000000}`)
+
+	if got := Run(nil); got != 0 {
+		t.Fatalf("Run() = %d, want 0", got)
+	}
+	if _, err := os.Stat(filepath.Join(shared.SGDir(), "local-logs")); !os.IsNotExist(err) {
+		t.Error("a zero-token opencode call created log output")
+	}
+}

@@ -83,6 +83,7 @@ func readClaudeCode(transcriptPath string) []tokenTurn {
 }
 
 func readCodex(transcriptPath, sessionID string) []tokenTurn {
+	seen := map[string]bool{}
 	var out []tokenTurn
 	for _, line := range tailLines(transcriptPath) {
 		if line == "" || line[0] != '{' {
@@ -139,10 +140,15 @@ func readCodex(transcriptPath, sessionID string) []tokenTurn {
 		if sid == "" {
 			sid = "codex"
 		}
+		key := sid + ":" + id
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 
 		out = append(out, tokenTurn{
 
-			TurnKey: sid + ":" + id,
+			TurnKey: key,
 
 			Input:      tokNumF(last.InputTokens),
 			Output:     tokNumF(last.OutputTokens),

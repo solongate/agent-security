@@ -83,7 +83,7 @@ type DLP struct {
 func NewDLP(d tui.Deps) *DLP {
 	ti := textinput.New()
 	ti.Prompt = ""
-	return &DLP{deps: d, cols: 60, rows: 12, loading: true, editIdx: -1, input: ti, tok: nextToken()}
+	return &DLP{deps: d, cols: 60, rows: 12, loading: true, editIdx: -1, input: ti, tok: tui.NextToken()}
 }
 
 var _ tui.Panel = (*DLP)(nil)

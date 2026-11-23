@@ -25,10 +25,6 @@ type genTag struct {
 
 func (g genTag) Generation() int { return g.gen }
 
-var tokens int
-
-func nextToken() int { tokens++; return tokens }
-
 var (
 	accentColor = lipgloss.Color(accentFromConfig())
 	okColor     = lipgloss.Color("2")

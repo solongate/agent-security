@@ -18,10 +18,6 @@ import (
 
 func init() { tui.Register(tui.SectionLive, func(d tui.Deps) tui.Panel { return newLive(d) }) }
 
-var tokens int
-
-func nextToken() int { tokens++; return tokens }
-
 type streamItem struct {
 	ID         string `json:"id"`
 	At         int64  `json:"at"`
@@ -134,7 +130,7 @@ func newLive(d tui.Deps) *Live {
 	in.CharLimit = 200
 	return &Live{
 		deps:       d,
-		tok:        nextToken(),
+		tok:        tui.NextToken(),
 		signal:     "none",
 		mode:       "stream",
 		input:      in,

@@ -169,7 +169,7 @@ func NewPolicies(d tui.Deps) *Policies {
 	return &Policies{
 		deps: d, cols: 60, rows: 12,
 		listLoading: true, activeLoad: true,
-		mode: client.ModeDenylist, input: ti, tok: nextToken(),
+		mode: client.ModeDenylist, input: ti, tok: tui.NextToken(),
 		dlpPanel: NewDLP(d), ratePanel: NewRateLimit(d),
 	}
 }

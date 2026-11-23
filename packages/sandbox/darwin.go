@@ -59,11 +59,19 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 }
 
 func Preview(p Plan) []string {
-	_, got := seatbeltProfile(p.Deny)
-	if len(got) == len(p.Deny) {
+	var missing []string
+	for _, d := range p.Deny {
+		if d == "" {
+			continue
+		}
+		if _, err := os.Stat(d); err != nil {
+			missing = append(missing, d)
+		}
+	}
+	if len(missing) == 0 {
 		return nil
 	}
-	return []string{"one or more paths do not exist and were not written into the profile"}
+	return []string{"one or more deny paths do not exist and were not written into the profile: " + strings.Join(missing, " ")}
 }
 
 func Describe() (string, []string) {

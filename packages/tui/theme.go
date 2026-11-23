@@ -6,6 +6,8 @@ package tui
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -41,6 +43,7 @@ type Palette struct {
 	Bad          lipgloss.Color
 	Dim          lipgloss.Color
 	White        lipgloss.Color
+	Select       lipgloss.Color
 }
 
 var Theme = Palette{
@@ -51,6 +54,7 @@ var Theme = Palette{
 	Bad:          lipgloss.Color("1"),
 	Dim:          lipgloss.Color("8"),
 	White:        lipgloss.Color("7"),
+	Select:       lipgloss.Color(HexSelectBG),
 }
 
 func setAccent(accent string) {
@@ -60,6 +64,7 @@ func setAccent(accent string) {
 	c := colorOf(accent, "7")
 	Theme.Accent = c
 	Theme.AccentBright = c
+	Theme.Select = SelectColor(accent)
 }
 
 func noColor() bool {
@@ -78,6 +83,7 @@ func flatten() {
 	Theme.Accent, Theme.AccentBright = none, none
 	Theme.OK, Theme.Warn, Theme.Bad = none, none, none
 	Theme.Dim, Theme.White = none, none
+	Theme.Select = none
 }
 
 const (
@@ -94,6 +100,61 @@ const (
 	HexBadFG     = "#ff6b6b"
 	HexEventTick = "#4f8f6b"
 )
+
+// xterm's defaults stand in for the terminal's real palette, which can't be
+// queried portably; the selection only has to land near the accent.
+var ansiRGB = map[string][3]uint8{
+	"0": {0x00, 0x00, 0x00}, "1": {0xcd, 0x00, 0x00}, "2": {0x00, 0xcd, 0x00}, "3": {0xcd, 0xcd, 0x00},
+	"4": {0x00, 0x00, 0xee}, "5": {0xcd, 0x00, 0xcd}, "6": {0x00, 0xcd, 0xcd}, "7": {0xe5, 0xe5, 0xe5},
+	"8": {0x7f, 0x7f, 0x7f}, "9": {0xff, 0x00, 0x00}, "10": {0x00, 0xff, 0x00}, "11": {0xff, 0xff, 0x00},
+	"12": {0x5c, 0x5c, 0xff}, "13": {0xff, 0x00, 0xff}, "14": {0x00, 0xff, 0xff}, "15": {0xff, 0xff, 0xff},
+}
+
+// Mostly HexFooterBG, so the row's foreground colors stay readable on any
+// accent from black to whiteBright.
+const selectAccentShare = 0.2
+
+// SelectColor is the selected-row background for a tui-config.json accent:
+// the accent mixed into the darkest surface of the palette. With no accent,
+// or one it can't read, it is the stock HexSelectBG.
+func SelectColor(accent string) lipgloss.Color {
+	rgb, ok := accentRGB(accent)
+	if !ok {
+		return lipgloss.Color(HexSelectBG)
+	}
+	base, _ := hexRGB(HexFooterBG)
+	var mixed [3]uint8
+	for i := range mixed {
+		mixed[i] = uint8(math.Round(selectAccentShare*float64(rgb[i]) + (1-selectAccentShare)*float64(base[i])))
+	}
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", mixed[0], mixed[1], mixed[2]))
+}
+
+func accentRGB(accent string) ([3]uint8, bool) {
+	a := strings.TrimSpace(accent)
+	if strings.HasPrefix(a, "#") {
+		return hexRGB(a)
+	}
+	if v, ok := ansiNames[a]; ok {
+		return ansiRGB[v], true
+	}
+	return [3]uint8{}, false
+}
+
+func hexRGB(s string) ([3]uint8, bool) {
+	h := strings.TrimPrefix(s, "#")
+	if len(h) == 3 {
+		h = string([]byte{h[0], h[0], h[1], h[1], h[2], h[2]})
+	}
+	if len(h) != 6 {
+		return [3]uint8{}, false
+	}
+	v, err := strconv.ParseUint(h, 16, 32)
+	if err != nil {
+		return [3]uint8{}, false
+	}
+	return [3]uint8{uint8(v >> 16), uint8(v >> 8), uint8(v)}, true
+}
 
 func DecisionColor(decision string) lipgloss.Color {
 	switch strings.ToUpper(strings.TrimSpace(decision)) {

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/solongate/agent-security/packages/core/config"
+	"github.com/solongate/agent-security/packages/tui"
 )
 
 var Version = "dev"
@@ -35,7 +36,7 @@ var (
 	badColor    = lipgloss.Color("1")
 	dimColor    = lipgloss.Color("8")
 
-	selColor = lipgloss.Color("#1c2f63")
+	selColor = tui.SelectColor(config.LoadTUIConfig().Accent)
 )
 
 var (

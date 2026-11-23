@@ -468,6 +468,105 @@ func TestDoDeleteAllClearsTheWholeLog(t *testing.T) {
 	}
 }
 
+// onlyExportFile returns the one export file in the config dir, failing the
+// test when there is none or more than one.
+func onlyExportFile(t *testing.T) string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(config.Dir(), "audit-export-*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("export files = %v, want exactly one", files)
+	}
+	return files[0]
+}
+
+func TestDoExportKeepsEarlierExports(t *testing.T) {
+	p := newTestAudit(t)
+
+	first := p.doExport("page", []logRow{{id: "1", at: 100, tool: "Bash", decision: "ALLOW"}})().(auditNoteResult)
+	second := p.doExport("page", []logRow{{id: "2", at: 200, tool: "Write", decision: "DENY"}})().(auditNoteResult)
+	for _, res := range []auditNoteResult{first, second} {
+		if !strings.HasPrefix(res.note.text, "✓") {
+			t.Fatalf("note = %q, want a successful export", res.note.text)
+		}
+	}
+
+	files, err := filepath.Glob(filepath.Join(config.Dir(), "audit-export-*.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("export files = %v, want one per export", files)
+	}
+	var tools []string
+	for _, f := range files {
+		if !strings.Contains(first.note.text, f) && !strings.Contains(second.note.text, f) {
+			t.Errorf("no note names the export file %s", f)
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var row auditExport
+		if err := json.Unmarshal([]byte(strings.TrimSpace(string(b))), &row); err != nil {
+			t.Fatalf("unmarshal %s: %v", f, err)
+		}
+		tools = append(tools, row.Tool)
+	}
+	if strings.Join(tools, ",") != "Bash,Write" && strings.Join(tools, ",") != "Write,Bash" {
+		t.Errorf("exported tools = %v, want the first export's Bash kept beside the second's Write", tools)
+	}
+}
+
+func TestCreateExportFileNeverReusesAName(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 1, 2, 15, 30, 0, 0, time.Local)
+
+	var names []string
+	for i := 0; i < 3; i++ {
+		f, err := createExportFile(dir, now)
+		if err != nil {
+			t.Fatalf("createExportFile #%d: %v", i+1, err)
+		}
+		names = append(names, filepath.Base(f.Name()))
+		f.Close()
+	}
+	want := []string{
+		"audit-export-20260102-153000.jsonl",
+		"audit-export-20260102-153000-2.jsonl",
+		"audit-export-20260102-153000-3.jsonl",
+	}
+	if strings.Join(names, " ") != strings.Join(want, " ") {
+		t.Errorf("names = %v, want %v", names, want)
+	}
+
+	st, err := os.Stat(filepath.Join(dir, want[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := st.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("export file mode = %o, want no group or other access", perm)
+	}
+}
+
+func TestCreateExportFileGivesUpWhenEveryNameIsTaken(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 1, 2, 15, 30, 0, 0, time.Local)
+	for i := 0; i < maxExportAttempts; i++ {
+		f, err := createExportFile(dir, now)
+		if err != nil {
+			t.Fatalf("createExportFile #%d: %v", i+1, err)
+		}
+		f.Close()
+	}
+	if f, err := createExportFile(dir, now); err == nil {
+		f.Close()
+		t.Fatal("createExportFile found a name after every candidate was taken")
+	}
+}
+
 func TestDoExportPageWritesTheGivenRows(t *testing.T) {
 	p := newTestAudit(t)
 	rows := []logRow{
@@ -485,7 +584,7 @@ func TestDoExportPageWritesTheGivenRows(t *testing.T) {
 		t.Errorf("note = %q, want it to mention 2 rows", res.note.text)
 	}
 
-	file := filepath.Join(config.Dir(), "audit-export.jsonl")
+	file := onlyExportFile(t)
 	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatalf("export file not written: %v", err)
@@ -516,7 +615,7 @@ func TestDoExportAllQueriesAndSortsNewestFirst(t *testing.T) {
 		t.Errorf("note = %q, want it to mention 2 rows", res.note.text)
 	}
 
-	file := filepath.Join(config.Dir(), "audit-export.jsonl")
+	file := onlyExportFile(t)
 	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
@@ -578,7 +677,7 @@ func TestDoExportAllExportsEveryMatchingRowPastTheClientPageLimit(t *testing.T) 
 		t.Errorf("note = %q, want it to report all %d rows", res.note.text, entries)
 	}
 
-	file := filepath.Join(config.Dir(), "audit-export.jsonl")
+	file := onlyExportFile(t)
 	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatalf("export file not written: %v", err)

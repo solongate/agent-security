@@ -367,3 +367,15 @@ func TestRateLimitCursorHelpers(t *testing.T) {
 		}
 	}
 }
+
+func TestWhenLabel(t *testing.T) {
+	if got := whenLabel(""); got != "-" {
+		t.Errorf("whenLabel(%q) = %q, want %q", "", got, "-")
+	}
+	if got := whenLabel("not-a-time"); got != "-" {
+		t.Errorf("whenLabel(%q) = %q, want %q", "not-a-time", got, "-")
+	}
+	if got := whenLabel("2026-11-20T10:30:00"); got == "-" || got == "" || got == ", " {
+		t.Errorf("whenLabel(%q) = %q, want a formatted time", "2026-11-20T10:30:00", got)
+	}
+}

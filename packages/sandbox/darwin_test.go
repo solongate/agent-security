@@ -6,6 +6,7 @@
 package sandbox
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -52,5 +53,41 @@ func TestDarwinPreviewDenyListNamesMissingPaths(t *testing.T) {
 func TestDarwinPreviewDenyListOkWhenAllExist(t *testing.T) {
 	if got := Preview(Plan{Deny: []string{t.TempDir(), t.TempDir()}}); got != nil {
 		t.Errorf("Preview with all deny paths present = %v, want nil", got)
+	}
+}
+
+func TestDarwinPreviewWorkspaceReportsMissingPaths(t *testing.T) {
+	ws := t.TempDir()
+	read := t.TempDir()
+	missing := filepath.Join(ws, "does-not-exist")
+	got := Preview(Plan{Workspace: ws, RuntimeRead: []string{read, missing}})
+	if len(got) == 0 {
+		t.Fatal("expected a note about the missing RuntimeRead path")
+	}
+	if !strings.Contains(got[0], missing) {
+		t.Errorf("note %q does not name the missing path %q", got[0], missing)
+	}
+}
+
+func TestDarwinPreviewWorkspaceIgnoresDenyList(t *testing.T) {
+	ws := t.TempDir()
+	if got := Preview(Plan{Workspace: ws, Deny: []string{"/this/path/does/not/exist"}}); got != nil {
+		t.Errorf("Preview in workspace mode = %v, want nil (the deny list is not consulted when workspace-confined)", got)
+	}
+}
+
+func TestDarwinPreviewWorkspaceOkWhenEverythingExists(t *testing.T) {
+	ws := t.TempDir()
+	read := t.TempDir()
+	write := t.TempDir()
+	if got := Preview(Plan{Workspace: ws, RuntimeRead: []string{read}, RuntimeWrite: []string{write}}); got != nil {
+		t.Errorf("Preview with all paths present = %v, want nil", got)
+	}
+}
+
+func TestDarwinPreviewWorkspaceReportsProfileError(t *testing.T) {
+	got := Preview(Plan{Workspace: "relative/path"})
+	if len(got) == 0 {
+		t.Error("expected a note when the workspace profile cannot be built")
 	}
 }

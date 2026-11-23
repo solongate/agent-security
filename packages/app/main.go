@@ -239,22 +239,14 @@ func printHelp() {
 	const w = 46
 	head := func(t string) { fmt.Printf("\n  %s%s%s\n", term.Bold, t, term.Reset) }
 
-	cmd := func(syntax string, desc ...string) {
-		d := ""
-		if len(desc) > 0 {
-			d = desc[0]
-		}
-		if d == "" {
-			fmt.Printf("    %s%s%s\n", term.Cyan, syntax, term.Reset)
-			return
-		}
+	cmd := func(syntax, desc string) {
 		if len(syntax) <= w {
 			fmt.Printf("    %s%s%s%s%s%s%s\n",
-				term.Cyan, syntax, term.Reset, strings.Repeat(" ", w-len(syntax)), term.Dim, d, term.Reset)
+				term.Cyan, syntax, term.Reset, strings.Repeat(" ", w-len(syntax)), term.Dim, desc, term.Reset)
 			return
 		}
 		fmt.Printf("    %s%s%s\n", term.Cyan, syntax, term.Reset)
-		fmt.Printf("    %s%s%s%s\n", strings.Repeat(" ", w), term.Dim, d, term.Reset)
+		fmt.Printf("    %s%s%s%s\n", strings.Repeat(" ", w), term.Dim, desc, term.Reset)
 	}
 
 	fmt.Println("")

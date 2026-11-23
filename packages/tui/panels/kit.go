@@ -79,6 +79,8 @@ func modeStyle(m string) lipgloss.Style {
 		return stOK
 	case "detect", "idle":
 		return stWarn
+	case "redact":
+		return stBad
 	}
 	return stDim
 }

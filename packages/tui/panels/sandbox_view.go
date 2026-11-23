@@ -100,7 +100,7 @@ func (p *Sandbox) view() string {
 			l.put(sbPad("net", 5), stDim)
 		} else {
 
-			l.put(sbPad(", ", 5), stWarn)
+			l.put(sbPad("off", 5), stWarn)
 		}
 		l.put(truncate(b.Dir, sbWidth(p.cols-16)), stOK)
 		out = append(out, l.String())

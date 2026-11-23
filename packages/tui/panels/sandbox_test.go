@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -163,5 +164,29 @@ func TestSandboxUpdateKeyMsgDispatch(t *testing.T) {
 	pp := next.(*Sandbox)
 	if pp.sel != 1 {
 		t.Errorf("sel = %d, want 1 after a down key reaches key()", pp.sel)
+	}
+}
+
+func TestSandboxOfflineBoxShowsOffNotComma(t *testing.T) {
+	p := NewSandbox(tui.Deps{})
+	p.cols = 80
+	p.rows = 24
+	p.loaded = true
+	p.boxes = []shared.Sandbox{{ID: "001", Dir: "/tmp/x", Network: false}}
+	out := p.view()
+	row := ""
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "001") && strings.Contains(line, "/tmp/x") {
+			row = line
+		}
+	}
+	if row == "" {
+		t.Fatalf("offline box row not found in view:\n%s", out)
+	}
+	if strings.Contains(row, ", ") {
+		t.Errorf("offline box row contains a bare comma placeholder: %q", row)
+	}
+	if !strings.Contains(row, "off  /tmp/x") {
+		t.Errorf("offline box row should show \"off\" in the network column: %q", row)
 	}
 }

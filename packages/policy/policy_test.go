@@ -260,3 +260,74 @@ func TestFallbackEvaluateSkipsARuleWithoutAnEnabledField(t *testing.T) {
 		t.Errorf("a rule with no enabled field blocked in the fallback, got %q", got)
 	}
 }
+
+// sortRulesByPriority has no dedicated coverage: the only indirect exercise
+// is TestFallbackEvaluateHigherPriorityDenyWinsFirst, which sorts through
+// FallbackEvaluate and never isolates ties, negative priorities, or the
+// zero-defaults-to-100 behavior (#341).
+func TestSortRulesByPriority(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []PolicyRule
+		want []string
+	}{
+		{
+			name: "ascending priorities",
+			in: []PolicyRule{
+				{ID: "p30", Priority: 30},
+				{ID: "p10", Priority: 10},
+				{ID: "p20", Priority: 20},
+			},
+			want: []string{"p10", "p20", "p30"},
+		},
+		{
+			name: "equal priorities keep input order",
+			in: []PolicyRule{
+				{ID: "first", Priority: 5},
+				{ID: "second", Priority: 5},
+				{ID: "third", Priority: 5},
+			},
+			want: []string{"first", "second", "third"},
+		},
+		{
+			name: "negative priorities sort before positive ones",
+			in: []PolicyRule{
+				{ID: "p10", Priority: 10},
+				{ID: "neg", Priority: -1},
+				{ID: "p5", Priority: 5},
+			},
+			want: []string{"neg", "p5", "p10"},
+		},
+		{
+			name: "zero priority defaults to 100",
+			in: []PolicyRule{
+				{ID: "unset", Priority: 0},
+				{ID: "p50", Priority: 50},
+				{ID: "p150", Priority: 150},
+			},
+			want: []string{"p50", "unset", "p150"},
+		},
+		{
+			name: "zero ties with explicit 100 and stays stable",
+			in: []PolicyRule{
+				{ID: "unset", Priority: 0},
+				{ID: "p100", Priority: 100},
+				{ID: "p200", Priority: 200},
+			},
+			want: []string{"unset", "p100", "p200"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rules := append([]PolicyRule(nil), tc.in...)
+			sortRulesByPriority(rules)
+			got := make([]string, len(rules))
+			for i, r := range rules {
+				got[i] = r.ID
+			}
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("sortRulesByPriority(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}

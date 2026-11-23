@@ -53,6 +53,26 @@ func watchUsage() string {
 	})
 }
 
+func newCloudEntries(seen map[string]bool, entries []client.AuditEntry) (fresh []client.AuditEntry, next map[string]bool) {
+	for _, e := range entries {
+		if seen[e.ID] {
+			continue
+		}
+		seen[e.ID] = true
+		fresh = append(fresh, e)
+	}
+	if len(seen) <= seenLimit {
+		return fresh, seen
+	}
+
+	// The API returns the newest entries, so older IDs cannot re-enter the next window.
+	next = make(map[string]bool, len(entries))
+	for _, e := range entries {
+		next[e.ID] = true
+	}
+	return fresh, next
+}
+
 func RunWatch(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int, error) {
 	// Anything RunWatch does not refuse here starts a loop that only Ctrl+C
 	// ends, so a request for help, or a mistyped argument, must not reach it.
@@ -132,15 +152,10 @@ func RunWatch(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int,
 
 			return
 		}
-		if len(seen) > seenLimit {
-			seen = map[string]bool{}
-		}
+		entries, nextSeen := newCloudEntries(seen, res.Entries)
+		seen = nextSeen
 		var rows []watchRow
-		for _, e := range res.Entries {
-			if seen[e.ID] {
-				continue
-			}
-			seen[e.ID] = true
+		for _, e := range entries {
 			at, _ := parseTimestamp(e.CreatedAt)
 			rows = append(rows, watchRow{
 				At:         at,

@@ -6,6 +6,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -56,12 +57,29 @@ func (s StatsClient) Get(ctx context.Context) (Stats, error) {
 }
 
 func (s StatsClient) Timeseries(ctx context.Context, period, granularity string) (Timeseries, error) {
+	// "" is the default (one day, hourly buckets); "24h" is what the CLI
+	// passes for its default period. Anything outside the allow lists
+	// used to fall through silently and behave like the default, so a
+	// typo such as "7day" was ignored without any indication.
+	switch period {
+	case "", "24h", "7d", "30d", "all":
+	default:
+		return Timeseries{}, fmt.Errorf("invalid period %q: want one of 24h, 7d, 30d, all", period)
+	}
+	switch granularity {
+	case "", "1h", "1d":
+	default:
+		return Timeseries{}, fmt.Errorf("invalid granularity %q: want one of 1h, 1d", granularity)
+	}
+
 	bucketMS := msHour
 	if granularity == "1d" {
 		bucketMS = msDay
 	}
 	span := msDay
 	switch period {
+	case "24h":
+		// One day, the same as the default.
 	case "7d":
 		span = 7 * msDay
 	case "30d":

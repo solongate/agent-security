@@ -126,6 +126,49 @@ func TestTimeseriesGranularityLabelAndAverage(t *testing.T) {
 	}
 }
 
+func TestTimeseriesRejectsInvalidPeriodAndGranularity(t *testing.T) {
+	newHome(t)
+	writeLogLines(t, `{"ts":"`+tsAgo(time.Minute)+`","tool":"Bash","decision":"ALLOW"}`)
+	s := StatsClient{&Client{}}
+
+	// Every value the code recognised before the fix (including the
+	// empty default and the CLI's "24h" default period) still works.
+	valid := []struct{ period, granularity string }{
+		{"", ""},
+		{"24h", ""},
+		{"7d", ""},
+		{"30d", ""},
+		{"all", ""},
+		{"", "1h"},
+		{"", "1d"},
+		{"7d", "1d"},
+	}
+	for _, v := range valid {
+		if _, err := s.Timeseries(context.Background(), v.period, v.granularity); err != nil {
+			t.Errorf("Timeseries(%q, %q): unexpected error: %v", v.period, v.granularity, err)
+		}
+	}
+
+	// Typos and unsupported values used to fall through silently and
+	// behave like the default; now they must error.
+	invalid := []struct{ period, granularity string }{
+		{"7day", ""},
+		{"2d", ""},
+		{"24H", ""},
+		{"1w", ""},
+		{"", "day"},
+		{"", "daily"},
+		{"", "1D"},
+		{"", "15m"},
+		{"7day", "daily"},
+	}
+	for _, v := range invalid {
+		if _, err := s.Timeseries(context.Background(), v.period, v.granularity); err == nil {
+			t.Errorf("Timeseries(%q, %q): got no error, want an invalid-value error", v.period, v.granularity)
+		}
+	}
+}
+
 func TestDriftComparesCurrentAndPreviousWindows(t *testing.T) {
 	newHome(t)
 	writeLogLines(t,

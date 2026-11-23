@@ -59,6 +59,26 @@ func Launch(p Plan, argv []string, env []string) (Report, error) {
 }
 
 func Preview(p Plan) []string {
+	if p.Allowlist() {
+		if _, err := seatbeltWorkspaceProfile(p); err != nil {
+			return []string{"could not build the workspace profile: " + err.Error()}
+		}
+		paths := append([]string{p.Workspace}, p.RuntimeRead...)
+		paths = append(paths, p.RuntimeWrite...)
+		var missing []string
+		for _, d := range paths {
+			if d == "" {
+				continue
+			}
+			if _, err := os.Stat(d); err != nil {
+				missing = append(missing, d)
+			}
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		return []string{"one or more paths do not exist and were not written into the profile: " + strings.Join(missing, " ")}
+	}
 	_, got := seatbeltProfile(p.Deny)
 	if len(got) == len(p.Deny) {
 		return nil

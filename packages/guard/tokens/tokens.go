@@ -253,21 +253,35 @@ func Run(args []string) int {
 		if !boolField(data, "tokens") {
 			return 0
 		}
+		// Route the opencode turn through the same sanitization the
+		// transcript readers use (issue #108): tokNumF clamps NaN,
+		// infinities and negatives to zero and rounds fractions, and
+		// a turn with no tokens at all is not recorded.
+		turn := tokenTurn{
+			TurnKey:    strField(data, "turn_key"),
+			Input:      tokNumF(numField(data, "input")),
+			Output:     tokNumF(numField(data, "output")),
+			CacheRead:  tokNumF(numField(data, "cache_read")),
+			CacheWrite: tokNumF(numField(data, "cache_write")),
+			Reasoning:  tokNumF(numField(data, "reasoning")),
+			Total:      tokNumF(numField(data, "total")),
+			At:         int64(numField(data, "at")),
+		}
+		if turn.Total == 0 {
+			turn.Total = turn.Input + turn.Output + turn.CacheRead + turn.CacheWrite
+		}
+		if turn.Total <= 0 {
+			return 0
+		}
+		if turn.At <= 0 {
+			turn.At = time.Now().UnixMilli()
+		}
 		writeTokenUsage(tokenUsageParams{
 			SessionID: strField(data, "session_id"),
 			AgentID:   agentID,
 			AgentName: "OpenCode",
 			Source:    "opencode",
-			Turns: []tokenTurn{{
-				TurnKey:    strField(data, "turn_key"),
-				Input:      int(numField(data, "input")),
-				Output:     int(numField(data, "output")),
-				CacheRead:  int(numField(data, "cache_read")),
-				CacheWrite: int(numField(data, "cache_write")),
-				Reasoning:  int(numField(data, "reasoning")),
-				Total:      int(numField(data, "total")),
-				At:         int64(numField(data, "at")),
-			}},
+			Turns:     []tokenTurn{turn},
 		})
 		return 0
 	}

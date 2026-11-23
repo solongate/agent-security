@@ -248,3 +248,19 @@ func TestReadAntigravityNotFound(t *testing.T) {
 		t.Errorf("readAntigravity(missing db) = %v, want nil", got)
 	}
 }
+
+func TestReadCodexDeduplicatesRepeatedEntries(t *testing.T) {
+	line := `{"type":"event_msg","ordinal":1,"timestamp":"2024-01-01T00:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":30,"input_tokens":10,"output_tokens":20}}}}`
+	path := filepath.Join(t.TempDir(), "codex.jsonl")
+	if err := os.WriteFile(path, []byte(line+"\n"+line+"\n"+line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readCodex(path, "sess1")
+	if len(got) != 1 {
+		t.Fatalf("readCodex() = %v, want 1 turn after dedup", got)
+	}
+	if got[0].TurnKey != "sess1:o:1" || got[0].Total != 30 {
+		t.Errorf("turn = %+v, want TurnKey sess1:o:1 total 30", got[0])
+	}
+}

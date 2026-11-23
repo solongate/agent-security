@@ -35,6 +35,27 @@ func TestDarwinPreviewDenyList(t *testing.T) {
 	}
 }
 
+func TestDarwinPreviewDenyListNamesMissingPaths(t *testing.T) {
+	present := t.TempDir()
+	missing := "/this/path/does/not/exist"
+	got := Preview(Plan{Deny: []string{present, missing}})
+	if len(got) == 0 {
+		t.Fatal("expected a note about the missing deny path")
+	}
+	if !strings.Contains(got[0], missing) {
+		t.Errorf("note %q does not name the missing path %q", got[0], missing)
+	}
+	if strings.Contains(got[0], present) {
+		t.Errorf("note %q names the existing path %q", got[0], present)
+	}
+}
+
+func TestDarwinPreviewDenyListOkWhenAllExist(t *testing.T) {
+	if got := Preview(Plan{Deny: []string{t.TempDir(), t.TempDir()}}); got != nil {
+		t.Errorf("Preview with all deny paths present = %v, want nil", got)
+	}
+}
+
 func TestDarwinPreviewWorkspaceReportsMissingPaths(t *testing.T) {
 	ws := t.TempDir()
 	read := t.TempDir()

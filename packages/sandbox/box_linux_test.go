@@ -18,6 +18,26 @@ func TestDefaultBoxRuntimeIsNonEmpty(t *testing.T) {
 	}
 }
 
+// TestDefaultBoxRuntimeMatchesDefaultRuntimeRead pins the two modes to the
+// same default read path set, so the lists cannot drift apart again
+// (issue #348).
+func TestDefaultBoxRuntimeMatchesDefaultRuntimeRead(t *testing.T) {
+	want := DefaultRuntimeRead()
+	got := DefaultBoxRuntime()
+	if len(got) != len(want) {
+		t.Fatalf("DefaultBoxRuntime() lists %d paths, DefaultRuntimeRead() lists %d: box=%v read=%v", len(got), len(want), got, want)
+	}
+	seen := map[string]bool{}
+	for _, p := range got {
+		seen[p] = true
+	}
+	for _, p := range want {
+		if !seen[p] {
+			t.Errorf("DefaultBoxRuntime() is missing %q from DefaultRuntimeRead()", p)
+		}
+	}
+}
+
 func TestBoxAvailableMatchesBwrapPresence(t *testing.T) {
 	_, lookErr := exec.LookPath("bwrap")
 	err := BoxAvailable()

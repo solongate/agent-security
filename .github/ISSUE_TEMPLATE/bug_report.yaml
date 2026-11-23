@@ -35,7 +35,6 @@ body:
         - Codex
         - OpenCode
         - Antigravity
-        - An MCP server behind `solongate -- <command>`
         - Something else (say which below)
     validations:
       required: true

@@ -83,6 +83,8 @@ func claudeHooksValue(p Paths) map[string][]hookGroup {
 	}
 }
 
+var claudeEvents = []string{"PreToolUse", "PostToolUse", "Stop"}
+
 func planClaude(p Paths) (registration, error) {
 	raw, err := readIfPresent(p.SettingsPath)
 	if err != nil {
@@ -93,10 +95,27 @@ func planClaude(p Paths) (registration, error) {
 		obj = newJSONObject()
 	}
 
-	hooks := newJSONObject()
+	// settings.json's hooks are shared with whatever else the user runs from
+	// Claude Code, so only our own handlers are replaced; everything else in
+	// the hooks object is carried over as it was.
+	hooks, ok := parseJSONObject(obj.get("hooks"))
+	if !ok {
+		hooks = newJSONObject()
+	}
+	if _, err := stripOurHooks(hooks); err != nil {
+		return registration{}, err
+	}
 	values := claudeHooksValue(p)
-	for _, ev := range []string{"PreToolUse", "PostToolUse", "Stop"} {
-		if err := hooks.setValue(ev, values[ev]); err != nil {
+	for _, ev := range claudeEvents {
+		groups, _ := decodeArray(hooks.get(ev))
+		for _, g := range values[ev] {
+			encoded, err := marshalJS(g)
+			if err != nil {
+				return registration{}, err
+			}
+			groups = append(groups, encoded)
+		}
+		if err := hooks.setValue(ev, groups); err != nil {
 			return registration{}, err
 		}
 	}
@@ -131,12 +150,115 @@ func removeClaudeRegistration(p Paths) error {
 	if !ok {
 		return errUnparseableSettings
 	}
-	obj.delete("hooks")
+	hooks, ok := parseJSONObject(obj.get("hooks"))
+	if !ok {
+		return nil
+	}
+	changed, err := stripOurHooks(hooks)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	if len(hooks.keys) == 0 {
+		obj.delete("hooks")
+	} else {
+		encoded, err := hooks.encode()
+		if err != nil {
+			return err
+		}
+		obj.set("hooks", encoded)
+	}
 	content, err := obj.encodeFile()
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(p.SettingsPath, content, 0o644)
+}
+
+// stripOurHooks removes every SolonGate handler from a Claude Code hooks
+// object, in every event rather than only the ones we register today, so a
+// handler left behind by an older install does not outlive an upgrade or an
+// uninstall. A group that held nothing but our handlers is dropped, and so is
+// an event that held nothing but such groups; anything else is left as written.
+func stripOurHooks(hooks *jsonObject) (bool, error) {
+	changed := false
+	for _, ev := range append([]string(nil), hooks.keys...) {
+		groups, ok := decodeArray(hooks.get(ev))
+		if !ok {
+			continue
+		}
+		kept := make([]json.RawMessage, 0, len(groups))
+		removed := false
+		for _, g := range groups {
+			out, stripped, err := withoutOurHandlers(g)
+			if err != nil {
+				return false, err
+			}
+			removed = removed || stripped
+			if out != nil {
+				kept = append(kept, out)
+			}
+		}
+		if !removed {
+			continue
+		}
+		changed = true
+		if len(kept) == 0 {
+			hooks.delete(ev)
+			continue
+		}
+		if err := hooks.setValue(ev, kept); err != nil {
+			return false, err
+		}
+	}
+	return changed, nil
+}
+
+// withoutOurHandlers drops SolonGate's handlers from one hook group and
+// reports whether it found any. A group the user shares with us keeps its own
+// handlers, its matcher and any other field; a group left with no handlers at
+// all comes back nil, for the caller to drop.
+func withoutOurHandlers(group json.RawMessage) (json.RawMessage, bool, error) {
+	obj, ok := parseJSONObject(group)
+	if !ok {
+		return group, false, nil
+	}
+	handlers, ok := decodeArray(obj.get("hooks"))
+	if !ok {
+		return group, false, nil
+	}
+	kept := make([]json.RawMessage, 0, len(handlers))
+	for _, h := range handlers {
+		if !isOurHandler(h) {
+			kept = append(kept, h)
+		}
+	}
+	if len(kept) == len(handlers) {
+		return group, false, nil
+	}
+	if len(kept) == 0 {
+		return nil, true, nil
+	}
+	if err := obj.setValue("hooks", kept); err != nil {
+		return nil, false, err
+	}
+	encoded, err := obj.encode()
+	if err != nil {
+		return nil, false, err
+	}
+	return encoded, true, nil
+}
+
+func isOurHandler(raw json.RawMessage) bool {
+	var h struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(raw, &h) != nil {
+		return false
+	}
+	return strings.Contains(h.Command, ".solongate")
 }
 
 var errUnparseableSettings = errors.New(

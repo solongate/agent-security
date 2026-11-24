@@ -109,6 +109,44 @@ func TestLocalLogsSettingTrimsTrailingSeparators(t *testing.T) {
 	}
 }
 
+func TestLocalLogsSettingReportsTheConfiguredEnabledFlag(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+
+	writePolicy(t, `{"security":{"localLogs":{"enabled":false,"path":"`+dir+`"}}}`)
+	got := LocalLogsSetting()
+	if got.Enabled {
+		t.Errorf("LocalLogsSetting() = %+v, want Enabled false as configured", got)
+	}
+	if got.File != filepath.Join(dir, "solongate-audit.jsonl") || !got.UsableHere {
+		t.Errorf("LocalLogsSetting() = %+v, want the configured folder still resolved while off", got)
+	}
+
+	writePolicy(t, `{"security":{"localLogs":{"enabled":true,"path":"`+dir+`"}}}`)
+	if got := LocalLogsSetting(); !got.Enabled {
+		t.Errorf("LocalLogsSetting() = %+v, want Enabled true as configured", got)
+	}
+}
+
+func TestLocalLogsSettingDisabledRelativePathStaysOff(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	writePolicy(t, `{"security":{"localLogs":{"enabled":false,"path":"relative/dir"}}}`)
+	got := LocalLogsSetting()
+	if got.Enabled || got.UsableHere {
+		t.Errorf("LocalLogsSetting() = %+v, want off and not usable here", got)
+	}
+}
+
+func TestLocalLogsSettingWithoutAPathIsOnWhateverEnabledSays(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	writePolicy(t, `{"security":{"localLogs":{"enabled":false,"path":""}}}`)
+	got := LocalLogsSetting()
+	want := LocalLogSetting{Enabled: true, UsableHere: true, File: DefaultLocalLogFile()}
+	if got != want {
+		t.Errorf("LocalLogsSetting() = %+v, want the default %+v, matching what the guard does", got, want)
+	}
+}
+
 func TestLocalLogFileDelegatesToSetting(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	if got, want := LocalLogFile(), DefaultLocalLogFile(); got != want {

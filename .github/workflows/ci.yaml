@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with:
           go-version-file: ${{ matrix.module }}/go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
@@ -83,7 +83,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with:
           go-version-file: packages/guard/go.mod
           cache-dependency-path: packages/guard/go.sum
@@ -115,7 +115,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with:
           go-version-file: packages/guard/go.mod
           cache-dependency-path: packages/guard/go.sum
@@ -147,7 +147,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with:
           go-version-file: packages/app/go.mod
           cache-dependency-path: packages/app/go.sum
@@ -166,7 +166,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         with:
           go-version-file: packages/guard/go.mod
           cache-dependency-path: packages/guard/go.sum
@@ -210,7 +210,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5
         if: env.HAS_SONAR_TOKEN == 'true'
         with:
           go-version-file: packages/guard/go.mod
@@ -224,7 +224,7 @@ jobs:
 
       - name: SonarQube Cloud scan
         if: env.HAS_SONAR_TOKEN == 'true'
-        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304
+        uses: SonarSource/sonarqube-scan-action@59202af334b4ba7b5db01b701b8e79f8b3bef0f4
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 

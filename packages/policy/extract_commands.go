@@ -31,17 +31,52 @@ var commandFields = map[string]bool{
 	"command": true, "cmd": true, "function": true, "script": true, "shell": true, "code": true,
 }
 
+type heredocSpec struct {
+	delimiter string
+	stripTabs bool
+}
+
+type shellScopeRange struct {
+	start int
+	end   int
+	id    int
+}
+
+type markedShellCommand struct {
+	text   string
+	scopes []shellScopeRange
+}
+
+type shellStatement struct {
+	text    string
+	scopeID int
+}
+
 func NormalizeShellCommand(cmd string) string {
 	if cmd == "" {
 		return cmd
 	}
 	// Preserve multi-line arguments while exposing actual shell statement boundaries.
-	cmd = markStatementNewlines(cmd)
+	marked := markStatementNewlines(cmd)
 	vars := map[string]string{}
+	var bodyVars map[string]string
+	currentScope := 0
 	var out []string
-	for _, part := range reStmtSplit.Split(cmd, -1) {
+	for _, statement := range splitShellStatements(marked) {
+		part := statement.text
 		if strings.TrimSpace(part) == "" {
 			continue
+		}
+		activeVars := vars
+		if statement.scopeID != 0 {
+			if statement.scopeID != currentScope {
+				bodyVars = cloneStringMap(vars)
+				currentScope = statement.scopeID
+			}
+			activeVars = bodyVars
+		} else {
+			currentScope = 0
+			bodyVars = nil
 		}
 		if idx := reVarAssign.FindStringSubmatchIndex(part); idx != nil {
 			name := part[idx[2]:idx[3]]
@@ -53,17 +88,17 @@ func NormalizeShellCommand(cmd string) string {
 					break
 				}
 			}
-			vars[name] = val
+			activeVars[name] = val
 			continue
 		}
 		part = replaceSubmatch(reVarBrace, part, func(g []string) string {
-			if v, ok := vars[g[1]]; ok {
+			if v, ok := activeVars[g[1]]; ok {
 				return v
 			}
 			return "${" + g[1] + "}"
 		})
 		part = replaceSubmatch(reVarBare, part, func(g []string) string {
-			if v, ok := vars[g[1]]; ok {
+			if v, ok := activeVars[g[1]]; ok {
 				return v
 			}
 			return "$" + g[1]
@@ -75,16 +110,58 @@ func NormalizeShellCommand(cmd string) string {
 	return strings.Join(out, "; ")
 }
 
-func markStatementNewlines(cmd string) string {
+func cloneStringMap(src map[string]string) map[string]string {
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func splitShellStatements(marked markedShellCommand) []shellStatement {
+	var statements []shellStatement
+	start := 0
+	for _, separator := range reStmtSplit.FindAllStringIndex(marked.text, -1) {
+		statements = append(statements, shellStatement{
+			text:    marked.text[start:separator[0]],
+			scopeID: shellScopeAt(marked, start, separator[0]),
+		})
+		start = separator[1]
+	}
+	statements = append(statements, shellStatement{
+		text:    marked.text[start:],
+		scopeID: shellScopeAt(marked, start, len(marked.text)),
+	})
+	return statements
+}
+
+func shellScopeAt(marked markedShellCommand, start, end int) int {
+	for start < end && (marked.text[start] == ' ' || marked.text[start] >= '\t' && marked.text[start] <= '\r') {
+		start++
+	}
+	for _, scope := range marked.scopes {
+		if start >= scope.start && start < scope.end {
+			return scope.id
+		}
+	}
+	return 0
+}
+
+func markStatementNewlines(cmd string) markedShellCommand {
 	var b strings.Builder
 	b.Grow(len(cmd))
 	inSingle, inDouble, inComment := false, false, false
+	arithmeticDepth := 0
+	var heredocs []heredocSpec
+	var scopes []shellScopeRange
+	nextScopeID := 1
 	for i := 0; i < len(cmd); i++ {
 		c := cmd[i]
 		if inComment {
 			if c == '\n' {
 				b.WriteByte(';')
 				inComment = false
+				consumePendingHeredoc(cmd, &b, &i, &heredocs, &scopes, &nextScopeID)
 				continue
 			}
 			b.WriteByte(c)
@@ -104,7 +181,34 @@ func markStatementNewlines(cmd string) string {
 			b.WriteByte(cmd[i])
 			continue
 		}
+		if !inSingle && !inDouble && i+1 < len(cmd) {
+			if c == '(' && cmd[i+1] == '(' {
+				arithmeticDepth++
+				b.WriteString("((")
+				i++
+				continue
+			}
+			if c == ')' && cmd[i+1] == ')' && arithmeticDepth > 0 {
+				arithmeticDepth--
+				b.WriteString("))")
+				i++
+				continue
+			}
+		}
+		if c == '<' && arithmeticDepth == 0 && !inSingle && !inDouble && i+1 < len(cmd) && cmd[i+1] == '<' &&
+			(i == 0 || cmd[i-1] != '<') && (i+2 >= len(cmd) || cmd[i+2] != '<') {
+			start := i + 2
+			stripTabs := start < len(cmd) && cmd[start] == '-'
+			if stripTabs {
+				start++
+			}
+			if delimiter, quoted := readHeredocDelimiter(cmd, start); delimiter != "" || quoted {
+				heredocs = append(heredocs, heredocSpec{delimiter: delimiter, stripTabs: stripTabs})
+			}
+		}
 		if c == '#' && !inSingle && !inDouble && (i == 0 || isShellWordBoundary(cmd[i-1])) {
+			// Separate comments so an assignment before one remains independently resolvable.
+			b.WriteByte(';')
 			inComment = true
 			b.WriteByte(c)
 			continue
@@ -116,15 +220,130 @@ func markStatementNewlines(cmd string) string {
 		}
 		if c == '\n' && !inSingle && !inDouble {
 			b.WriteByte(';')
+			consumePendingHeredoc(cmd, &b, &i, &heredocs, &scopes, &nextScopeID)
 			continue
 		}
 		b.WriteByte(c)
 	}
-	return b.String()
+	return markedShellCommand{text: b.String(), scopes: scopes}
+}
+
+func consumePendingHeredoc(cmd string, b *strings.Builder, newlineIndex *int, heredocs *[]heredocSpec, scopes *[]shellScopeRange, nextScopeID *int) {
+	for len(*heredocs) != 0 {
+		scopeStart := b.Len()
+		*newlineIndex = copyHeredocBody(cmd, b, *newlineIndex+1, (*heredocs)[0])
+		*heredocs = (*heredocs)[1:]
+		if scopeStart != b.Len() {
+			*scopes = append(*scopes, shellScopeRange{start: scopeStart, end: b.Len(), id: *nextScopeID})
+			(*nextScopeID)++
+		}
+	}
+}
+
+func copyHeredocBody(cmd string, b *strings.Builder, start int, h heredocSpec) int {
+	for start < len(cmd) {
+		var logicalLine strings.Builder
+		lineEnd := start
+		for {
+			lineEnd = start + strings.IndexByte(cmd[start:], '\n')
+			if lineEnd < start {
+				lineEnd = len(cmd)
+			}
+			contentEnd := lineEnd
+			if contentEnd > start && cmd[contentEnd-1] == '\r' {
+				contentEnd--
+			}
+			trailing := contentEnd - start - len(strings.TrimRight(cmd[start:contentEnd], `\`))
+			if lineEnd < len(cmd) && trailing%2 == 1 {
+				// A heredoc body may be fed to a shell, which joins continuations itself, so conservatively join them here.
+				logicalLine.WriteString(cmd[start : contentEnd-1])
+				start = lineEnd + 1
+				continue
+			}
+			logicalLine.WriteString(cmd[start:lineEnd])
+			break
+		}
+		line := strings.TrimSuffix(logicalLine.String(), "\r")
+		if h.stripTabs {
+			line = strings.TrimLeft(line, "\t")
+		}
+		if line == h.delimiter {
+			// Keep the terminator visible to policy checks, but consume it here so
+			// quote and comment characters in the delimiter cannot affect parsing.
+			b.WriteString(logicalLine.String())
+			b.WriteByte(';')
+			return lineEnd
+		}
+		// Heredoc data stays visible without affecting shell quote state.
+		b.WriteString(logicalLine.String())
+		if lineEnd == len(cmd) {
+			return len(cmd)
+		}
+		b.WriteByte(';')
+		start = lineEnd + 1
+	}
+	return len(cmd)
+}
+
+func readHeredocDelimiter(cmd string, start int) (string, bool) {
+	for start < len(cmd) && (cmd[start] == ' ' || cmd[start] == '\t') {
+		start++
+	}
+	var b strings.Builder
+	var quote byte
+	quoted := false
+	for i := start; i < len(cmd); i++ {
+		c := cmd[i]
+		if quote == 0 && (c == ' ' || c >= '\t' && c <= '\r' || strings.ContainsRune(";&|()<>", rune(c))) {
+			break
+		}
+		if quote == '\'' {
+			if c == '\'' {
+				quote = 0
+			} else {
+				b.WriteByte(c)
+			}
+			continue
+		}
+		if quote == '"' {
+			if c == '"' {
+				quote = 0
+				continue
+			}
+			if c == '\\' && i+1 < len(cmd) {
+				next := cmd[i+1]
+				if strings.ContainsRune("$`\"\\", rune(next)) {
+					i++
+					b.WriteByte(next)
+					continue
+				}
+				if next == '\n' {
+					i++
+					continue
+				}
+			}
+			b.WriteByte(c)
+			continue
+		}
+		if c == '\\' {
+			if i+1 < len(cmd) {
+				i++
+				b.WriteByte(cmd[i])
+			}
+			continue
+		}
+		if c == '\'' || c == '"' {
+			quoted = true
+			quote = c
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String(), quoted
 }
 
 func isShellWordBoundary(c byte) bool {
-	return c == ' ' || c >= '\t' && c <= '\r' || c == ';' || c == '&' || c == '|'
+	return c == ' ' || c >= '\t' && c <= '\r' || c == ';' || c == '&' || c == '|' || c == '(' || c == ')'
 }
 
 func NormalizeArgs(args map[string]interface{}) map[string]interface{} {
@@ -212,19 +431,51 @@ func ExtractURLs(args map[string]interface{}) []string {
 			add(s)
 			continue
 		}
-		if strings.Contains(s, " ") {
-			for _, tok := range reWhitespace.Split(s, -1) {
-				// A quoted URL can be followed directly by a shell operator: 'https://x';
-				if t := strings.TrimRight(tok, ";&|"); dequote(t) != t {
-					tok = dequote(t)
-				}
-				if HTTPPrefix.MatchString(tok) {
-					add(tok)
+		for _, tok := range reWhitespace.Split(s, -1) {
+			for _, piece := range splitShellOperatorToken(tok) {
+				piece = dequote(piece)
+				if HTTPPrefix.MatchString(piece) {
+					add(piece)
 				}
 			}
 		}
 	}
 	return urls
+}
+
+func splitShellOperatorToken(token string) []string {
+	var pieces []string
+	start := 0
+	inSingle, inDouble, escaped := false, false, false
+	for i := 0; i < len(token); i++ {
+		c := token[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' && !inSingle {
+			escaped = true
+			continue
+		}
+		if c == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if c == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if !inSingle && !inDouble && strings.ContainsRune(";&|()<>", rune(c)) {
+			if start < i {
+				pieces = append(pieces, token[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(token) {
+		pieces = append(pieces, token[start:])
+	}
+	return pieces
 }
 
 func ExtractPipelines(args map[string]interface{}) []string {

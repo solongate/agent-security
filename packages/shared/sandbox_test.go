@@ -24,6 +24,8 @@ func TestSandboxMarkerRoundTrips(t *testing.T) {
 func TestSandboxModeReadsTheWeakerModeWhenItCannotTell(t *testing.T) {
 	cases := []struct{ env, want string }{
 		{"", ""},
+		// A present marker with an empty mode does not imply run mode.
+		{":1.0.0", ""},
 		{"run:1.0.0", SandboxModeRun},
 		{"box:1.0.0", SandboxModeBox},
 

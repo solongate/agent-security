@@ -5,6 +5,7 @@ go 1.26.11
 require (
 	github.com/open-policy-agent/opa v1.22.0
 	github.com/solongate/agent-security/packages/shared v0.0.0
+	mvdan.cc/sh/v3 v3.14.1
 )
 
 require (

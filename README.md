@@ -104,6 +104,15 @@ and the agent says so rather than quietly working around it.
 | **Protected paths** | A path the OS itself refuses the agent, rather than a rule matched against the words in a tool call. |
 | **Sandbox** | The agent's whole root is a new, minimal filesystem holding only the project; everything else is not refused, it is not there. |
 
+For execution tools, policy inspection also reads statically named scripts invoked
+through recognized interpreters, including absolute and relative interpreter paths,
+`source`, and `.`. Shell syntax identifies command positions so ordinary arguments,
+comments, and quoted command-like text do not consume the scan budget. Common
+execution wrappers such as `env`, `sudo`, and `command` are recognized with known
+options. Inspection reads at most three regular files of up to 64 KiB each; missing
+or oversized files are skipped. Dynamic words, unsupported wrapper options, and
+unparseable shell syntax are outside this static referenced-file inspection.
+
 ## The CLI
 
 ```

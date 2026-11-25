@@ -71,12 +71,20 @@ func TestReadReferencedFilesReadsInterpreterTarget(t *testing.T) {
 	if err := os.WriteFile(script, []byte("echo hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := ReadReferencedFiles(args("command", "bash deploy.sh"), dir)
-	if len(got) != 1 || got[0].Name != "deploy.sh" {
-		t.Fatalf("expected deploy.sh to be read, got %+v", got)
-	}
-	if got[0].Content != "echo hello" {
-		t.Errorf("unexpected content: %q", got[0].Content)
+	for _, interpreter := range []string{
+		"bash", "/bin/bash", "./bash", "../bin/bash",
+		"node", "/usr/bin/node", "./node", "/usr/bin/python3 -u",
+		"source", ".",
+	} {
+		t.Run(interpreter, func(t *testing.T) {
+			got := ReadReferencedFiles(args("command", interpreter+" deploy.sh"), dir)
+			if len(got) != 1 || got[0].Name != "deploy.sh" {
+				t.Fatalf("expected deploy.sh to be read, got %+v", got)
+			}
+			if got[0].Content != "echo hello" {
+				t.Errorf("unexpected content: %q", got[0].Content)
+			}
+		})
 	}
 }
 
@@ -94,9 +102,90 @@ func TestReadReferencedFilesSkipsFlagsAfterInterpreter(t *testing.T) {
 
 func TestReadReferencedFilesIgnoresMissingOrOversizedFiles(t *testing.T) {
 	dir := t.TempDir()
-	got := ReadReferencedFiles(args("command", "bash does-not-exist.sh"), dir)
-	if len(got) != 0 {
-		t.Errorf("a nonexistent referenced file was reported as read: %+v", got)
+	if err := os.WriteFile(filepath.Join(dir, "oversized.sh"), make([]byte, 65537), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"does-not-exist.sh", "oversized.sh"} {
+		t.Run(name, func(t *testing.T) {
+			if got := ReadReferencedFiles(args("command", "/bin/bash "+name), dir); len(got) != 0 {
+				t.Errorf("an unreadable referenced file was reported as read: %+v", got)
+			}
+		})
+	}
+}
+
+func TestReadReferencedFilesArgumentsDoNotExhaustLimit(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.sh", "b.sh", "c.sh", "deploy.sh"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("echo hello"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, command := range []string{
+		"echo /bin/bash a.sh ./node b.sh /usr/bin/python3 c.sh; /bin/bash deploy.sh",
+		"echo bash a.sh node b.sh python3 c.sh && ./bash deploy.sh",
+		"echo '; /bin/bash a.sh; ./node b.sh; python3 c.sh'; /bin/bash deploy.sh",
+		"echo \"; /bin/bash a.sh; ./node b.sh; python3 c.sh\"; /bin/bash deploy.sh",
+		"echo ignored # /bin/bash a.sh; ./node b.sh; python3 c.sh\n/bin/bash deploy.sh",
+		"echo ignored > /bin/bash a.sh > ./node b.sh > /usr/bin/python3 c.sh; /bin/bash deploy.sh",
+		"cat <<'EOF'\n/bin/bash a.sh; ./node b.sh; python3 c.sh\nEOF\n/bin/bash deploy.sh",
+		"sudo -u /bin/bash a.sh; sudo -u ./node b.sh; sudo -u python3 c.sh; /bin/bash deploy.sh",
+	} {
+		t.Run(command, func(t *testing.T) {
+			got := ReadReferencedFiles(args("command", command), dir)
+			if len(got) != 1 || got[0].Name != "deploy.sh" {
+				t.Fatalf("expected only the actual script to be read, got %+v", got)
+			}
+		})
+	}
+}
+
+func TestReadReferencedFilesCommandPositions(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "deploy script.sh"), []byte("echo hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		`'/bin/bash' 'deploy script.sh'`,
+		`"/bin/bash" "deploy script.sh"`,
+		`/bin/ba\sh deploy\ script.sh`,
+		`MODE=test /bin/bash 'deploy script.sh'`,
+		`env -i MODE=test /bin/bash 'deploy script.sh'`,
+		`sudo -u root /bin/bash 'deploy script.sh'`,
+		`sudo --user=root /bin/bash 'deploy script.sh'`,
+		`command -p /bin/bash 'deploy script.sh'`,
+		`exec -a shell /bin/bash 'deploy script.sh'`,
+		`nohup /bin/bash 'deploy script.sh'`,
+		`true && /bin/bash 'deploy script.sh'`,
+		`false || /bin/bash 'deploy script.sh'`,
+		`echo hello | /bin/bash 'deploy script.sh'`,
+		`(/bin/bash 'deploy script.sh')`,
+		`if true; then /bin/bash 'deploy script.sh'; fi`,
+		`>/dev/null /bin/bash 'deploy script.sh'`,
+		`echo "$(/bin/bash 'deploy script.sh')"`,
+		"true\n/bin/bash 'deploy script.sh'",
+	} {
+		t.Run(command, func(t *testing.T) {
+			got := ReadReferencedFiles(args("command", command), dir)
+			if len(got) != 1 || got[0].Name != "deploy script.sh" {
+				t.Fatalf("expected the script at the command position to be read, got %+v", got)
+			}
+		})
+	}
+}
+
+func TestReadReferencedFilesInvalidFilesDoNotExhaustLimit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "oversized.sh"), make([]byte, 65537), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "limit.sh"), make([]byte, 65536), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	command := "/bin/bash missing.sh; /bin/bash oversized.sh; /bin/bash missing-too.sh; /bin/bash limit.sh"
+	got := ReadReferencedFiles(args("command", command), dir)
+	if len(got) != 1 || got[0].Name != "limit.sh" || len(got[0].Content) != 65536 {
+		t.Fatalf("expected the size-limit script after invalid files to be read, got %d files", len(got))
 	}
 }
 

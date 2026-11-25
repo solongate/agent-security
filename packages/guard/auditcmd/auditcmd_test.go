@@ -188,6 +188,35 @@ func TestCallFingerprintIsStableAndDiscriminating(t *testing.T) {
 	}
 }
 
+// TestCallFingerprintMatchesFNV1a pins the values the old hand-rolled loop
+// produced, so the switch to hash/fnv stays output-preserving where the two
+// agree. ASCII inputs hash identically because the old loop fed the hash one
+// UTF-16 unit per rune and ASCII runes are one byte each; non-ASCII inputs
+// differ because the old loop hashed UTF-16 units while standard FNV-1a runs
+// over the string's bytes.
+func TestCallFingerprintMatchesFNV1a(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want string
+	}{
+		{"", "811c9dc5"},
+		{"abc", "1a47e90b"},
+		{"a very different string entirely", "c06ec8e8"},
+		{`{"tool":"read","path":"/tmp/x"}`, "d22f08c7"},
+	} {
+		if got := callFingerprint(tc.in); got != tc.want {
+			t.Errorf("callFingerprint(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	if got := callFingerprint("/home/user/Ünïcode"); got == "ef23038c" {
+		t.Errorf("callFingerprint hashed non-ASCII input as UTF-16 units, want the hash/fnv byte value, got %q", got)
+	}
+	if got, want := callFingerprint("/home/user/Ünïcode"), "635b7886"; got != want {
+		t.Errorf("callFingerprint(%q) = %q, want %q", "/home/user/Ünïcode", got, want)
+	}
+}
+
 // --- Run ---
 
 func withAuditIO(t *testing.T, stdin string) (stdoutCapture func() string) {

@@ -342,7 +342,11 @@ func clientChecks() []Check {
 }
 
 func localLogCheck() []Check {
-	file := config.LocalLogFile()
+	setting := config.LocalLogsSetting()
+	if !setting.Enabled {
+		return []Check{{Name: "local logs", OK: StateWarn, Detail: "off"}}
+	}
+	file := setting.File
 	st, err := os.Stat(file)
 	if err != nil {
 		return []Check{{Name: "local logs", OK: StateWarn,

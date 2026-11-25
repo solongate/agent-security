@@ -5,9 +5,14 @@ package auditcmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,31 +30,40 @@ func TestLoadRateLimitObserveCfg(t *testing.T) {
 	}
 }
 
+func rateLimitObserveFile(agentKey string) string {
+	return filepath.Join(shared.SGDir(), ".ratelimit-observe-"+shared.AgentKey(agentKey)+".v2.log")
+}
+
+// seedRateLimitStamps writes records in the log format of the ratelimit
+// package: a 13 digit millisecond stamp, a 10 character token and a newline.
 func seedRateLimitStamps(t *testing.T, agentKey string, stamps []int64) {
 	t.Helper()
-	file := filepath.Join(shared.SGDir(), ".ratelimit-observe-"+shared.AgentKey(agentKey)+".json")
+	file := rateLimitObserveFile(agentKey)
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	b, err := json.Marshal(stamps)
-	if err != nil {
-		t.Fatal(err)
+	var b strings.Builder
+	for _, s := range stamps {
+		fmt.Fprintf(&b, "%013d%s\n", s, "0123456789")
 	}
-	if err := os.WriteFile(file, b, 0o600); err != nil {
+	if err := os.WriteFile(file, []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func readRateLimitStamps(t *testing.T, agentKey string) []int64 {
 	t.Helper()
-	file := filepath.Join(shared.SGDir(), ".ratelimit-observe-"+shared.AgentKey(agentKey)+".json")
-	b, err := os.ReadFile(file)
+	b, err := os.ReadFile(rateLimitObserveFile(agentKey))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var stamps []int64
-	if err := json.Unmarshal(b, &stamps); err != nil {
-		t.Fatal(err)
+	for _, line := range strings.Split(strings.TrimSuffix(string(b), "\n"), "\n") {
+		v, err := strconv.ParseInt(line[:13], 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stamps = append(stamps, v)
 	}
 	return stamps
 }
@@ -61,8 +75,7 @@ func TestRateLimitObserveBurstNilLimitsIsANoop(t *testing.T) {
 	if got := rateLimitObserveBurst("agent1", nil); got {
 		t.Error("rateLimitObserveBurst(nil limits) = true, want false")
 	}
-	file := filepath.Join(shared.SGDir(), ".ratelimit-observe-"+shared.AgentKey("agent1")+".json")
-	if _, err := os.Stat(file); !os.IsNotExist(err) {
+	if _, err := os.Stat(rateLimitObserveFile("agent1")); !os.IsNotExist(err) {
 		t.Error("nil limits still wrote a rate-limit file")
 	}
 }
@@ -132,14 +145,35 @@ func TestRateLimitObserveBurstAgesOutOldTimestamps(t *testing.T) {
 		t.Error("a stale timestamp outside the 24h window still counted toward the burst")
 	}
 
-	after := readRateLimitStamps(t, agentKey)
-	for _, s := range after {
-		if s == stale {
-			t.Errorf("the stale timestamp %d survived into the persisted file: %v", stale, after)
-		}
+	if got := rateLimitObserveBurst(agentKey, &shared.RateLimit{PerDay: 2}); got {
+		t.Error("the stale timestamp counted toward the second call's burst")
 	}
-	if len(after) != 1 {
-		t.Errorf("stamps after call = %v, want exactly the freshly appended one", after)
+}
+
+func TestRateLimitObserveBurstKeepsEveryConcurrentCall(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	agentKey := "agent-concurrent"
+	const calls, limit = 40, 10
+
+	var wg sync.WaitGroup
+	var bursts atomic.Int32
+	for range calls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if rateLimitObserveBurst(agentKey, &shared.RateLimit{PerMinute: limit}) {
+				bursts.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := len(readRateLimitStamps(t, agentKey)); got != calls {
+		t.Errorf("records after %d concurrent calls = %d, want %d", calls, got, calls)
+	}
+	if got := bursts.Load(); got != calls-limit {
+		t.Errorf("bursts = %d, want %d: every call past the first %d is over the limit", got, calls-limit, limit)
 	}
 }
 

@@ -438,7 +438,7 @@ func TestSubmitInputPathEnabledWhenAlreadyOn(t *testing.T) {
 	}
 }
 
-func TestSubmitInputPathEmptyClearsAndDisables(t *testing.T) {
+func TestSubmitInputPathEmptyFallsBackToTheDefaultFolder(t *testing.T) {
 	p := newTestSettings(t)
 	p.haveLocal = true
 	p.local = client.LocalLogsConfig{Enabled: true, Path: "/old"}
@@ -446,7 +446,7 @@ func TestSubmitInputPathEmptyClearsAndDisables(t *testing.T) {
 	p.beginInput("/old")
 	p.input.SetValue("   ")
 	cmd := p.submitInput()
-	if p.msg.text != "path cleared (local logs off)…" {
+	if p.msg.text != "path cleared (logging to the default folder)…" {
 		t.Errorf("msg.text=%q", p.msg.text)
 	}
 	msg := cmd().(setRunMsg)

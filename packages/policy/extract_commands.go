@@ -35,9 +35,14 @@ func NormalizeShellCommand(cmd string) string {
 	if cmd == "" {
 		return cmd
 	}
+	// Preserve multi-line arguments while exposing actual shell statement boundaries.
+	cmd = markStatementNewlines(cmd)
 	vars := map[string]string{}
 	var out []string
 	for _, part := range reStmtSplit.Split(cmd, -1) {
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
 		if idx := reVarAssign.FindStringSubmatchIndex(part); idx != nil {
 			name := part[idx[2]:idx[3]]
 			val := ""
@@ -68,6 +73,58 @@ func NormalizeShellCommand(cmd string) string {
 		out = append(out, part)
 	}
 	return strings.Join(out, "; ")
+}
+
+func markStatementNewlines(cmd string) string {
+	var b strings.Builder
+	b.Grow(len(cmd))
+	inSingle, inDouble, inComment := false, false, false
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		if inComment {
+			if c == '\n' {
+				b.WriteByte(';')
+				inComment = false
+				continue
+			}
+			b.WriteByte(c)
+			continue
+		}
+		if c == '\\' && !inSingle && i+1 < len(cmd) {
+			if cmd[i+1] == '\n' {
+				i++
+				continue
+			}
+			if cmd[i+1] == '\r' && i+2 < len(cmd) && cmd[i+2] == '\n' {
+				i += 2
+				continue
+			}
+			b.WriteByte(c)
+			i++
+			b.WriteByte(cmd[i])
+			continue
+		}
+		if c == '#' && !inSingle && !inDouble && (i == 0 || isShellWordBoundary(cmd[i-1])) {
+			inComment = true
+			b.WriteByte(c)
+			continue
+		}
+		if c == '\'' && !inDouble {
+			inSingle = !inSingle
+		} else if c == '"' && !inSingle {
+			inDouble = !inDouble
+		}
+		if c == '\n' && !inSingle && !inDouble {
+			b.WriteByte(';')
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+func isShellWordBoundary(c byte) bool {
+	return c == ' ' || c >= '\t' && c <= '\r' || c == ';' || c == '&' || c == '|'
 }
 
 func NormalizeArgs(args map[string]interface{}) map[string]interface{} {
@@ -150,12 +207,17 @@ func ExtractURLs(args map[string]interface{}) []string {
 		}
 	}
 	for _, s := range ScanStrings(args) {
+		s = dequote(s)
 		if HTTPPrefix.MatchString(s) {
 			add(s)
 			continue
 		}
 		if strings.Contains(s, " ") {
 			for _, tok := range reWhitespace.Split(s, -1) {
+				// A quoted URL can be followed directly by a shell operator: 'https://x';
+				if t := strings.TrimRight(tok, ";&|"); dequote(t) != t {
+					tok = dequote(t)
+				}
 				if HTTPPrefix.MatchString(tok) {
 					add(tok)
 				}

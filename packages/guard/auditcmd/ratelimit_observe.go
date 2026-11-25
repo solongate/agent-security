@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/solongate/agent-security/packages/guard/ratelimit"
 	"github.com/solongate/agent-security/packages/shared"
 )
 
@@ -23,57 +24,7 @@ func loadRateLimitObserveCfg(sec *shared.Security) *shared.RateLimit {
 }
 
 func rateLimitObserveBurst(agentKey string, limits *shared.RateLimit) bool {
-	if limits == nil {
-		return false
-	}
-	file := filepath.Join(shared.SGDir(), ".ratelimit-observe-"+shared.AgentKey(agentKey)+".json")
-	now := time.Now().UnixMilli()
-
-	var stamps []int64
-	if b, err := os.ReadFile(file); err == nil {
-		_ = json.Unmarshal(b, &stamps)
-	}
-	filtered := stamps[:0]
-	for _, t := range stamps {
-		if now-t < 86400000 {
-			filtered = append(filtered, t)
-		}
-	}
-	stamps = filtered
-	if len(stamps) > 50000 {
-		stamps = stamps[len(stamps)-50000:]
-	}
-
-	windows := []struct {
-		ms  int64
-		lim int
-	}{
-		{86400000, limits.PerDay},
-		{3600000, limits.PerHour},
-		{60000, limits.PerMinute},
-	}
-	burst := false
-	for _, w := range windows {
-		if w.lim <= 0 {
-			continue
-		}
-		count := 0
-		for _, t := range stamps {
-			if now-t < w.ms {
-				count++
-			}
-		}
-		if count >= w.lim {
-			burst = true
-			break
-		}
-	}
-
-	stamps = append(stamps, now)
-	if b, err := json.Marshal(stamps); err == nil {
-		_ = os.WriteFile(file, b, shared.FileMode)
-	}
-	return burst
+	return ratelimit.Observe(agentKey, limits)
 }
 
 func readLastEvalMs(toolName, sessionID string) *float64 {

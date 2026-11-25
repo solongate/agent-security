@@ -373,3 +373,72 @@ func TestRunWatchReturnsOnContextCancellation(t *testing.T) {
 		t.Fatal("RunWatch did not return after context cancellation; it may be hanging")
 	}
 }
+
+// runWatchBriefly runs RunWatch with a deadline, so a case that wrongly falls
+// through to the polling loop fails with code 130 instead of hanging.
+func runWatchBriefly(t *testing.T, args []string, deadline time.Duration) (code int, stderr string) {
+	t.Helper()
+	newHome(t)
+	c := client.New()
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	var err error
+	stderr = captureFD(t, 2, func() {
+		code, err = RunWatch(ctx, c, cliutil.Parse(args))
+	})
+	if err != nil {
+		t.Fatalf("RunWatch(%v) returned error: %v", args, err)
+	}
+	return code, stderr
+}
+
+func TestRunWatchHelp(t *testing.T) {
+	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			code, out := runWatchBriefly(t, args, time.Second)
+			if code != 0 {
+				t.Errorf("code = %d, want 0", code)
+			}
+			for _, want := range []string{"solongate watch", "--filter", "--tool", "--local-only", "--cloud-only", "--json"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("usage does not mention %q:\n%s", want, out)
+				}
+			}
+			if strings.Contains(out, "watching guard stream") {
+				t.Errorf("help started the live tail:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestRunWatchRejectsBadUsage(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"list"}, "Unknown watch subcommand: "},
+		{[]string{"--filter", "blocked"}, `watch --filter: unknown decision "blocked", use ALLOW|DENY`},
+		{[]string{"--local-only", "--cloud-only"}, "--local-only and --cloud-only together"},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			code, out := runWatchBriefly(t, tc.args, time.Second)
+			if code != 1 {
+				t.Errorf("code = %d, want 1", code)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("output does not say %q:\n%s", tc.want, out)
+			}
+		})
+	}
+}
+
+func TestRunWatchAcceptsFilterInAnyCase(t *testing.T) {
+	for _, f := range []string{"deny", "Allow", "denied"} {
+		t.Run(f, func(t *testing.T) {
+			code, out := runWatchBriefly(t, []string{"--local-only", "--filter", f}, 50*time.Millisecond)
+			if code != 130 {
+				t.Errorf("code = %d, want 130 (the tail ran until the deadline)\n%s", code, out)
+			}
+		})
+	}
+}

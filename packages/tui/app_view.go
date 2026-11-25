@@ -200,7 +200,7 @@ func (a *App) navAndPanel(width int) []string {
 
 	nav := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(navColor).
-		Padding(0, 1).Width(14).Height(MaxInt(sectionCount, contentRows)).
+		Padding(0, 1).Width(14).Height(max(sectionCount, contentRows)).
 		Render(strings.Join(navLines, "\n"))
 	panel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).BorderForeground(panelColor).

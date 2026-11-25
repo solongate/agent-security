@@ -4,8 +4,10 @@
 package shared
 
 import (
+	"hash/fnv"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 )
@@ -50,22 +52,15 @@ func AgentKey(agent string) string {
 	return b.String()
 }
 
+// ProjectKey maps a project directory to the short name of its directory
+// under ~/.solongate/projects. It is the standard FNV-1a hash of the
+// directory, hex-encoded, so the same directory always maps to the same
+// name. The hash runs over the directory's bytes, so ASCII paths keep the
+// exact names the old hand-rolled loop gave them.
 func ProjectKey(dir string) string {
-	var h uint32 = 0x811c9dc5
-	for _, u := range utf16.Encode([]rune(dir)) {
-		h ^= uint32(u)
-		h = h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))
-	}
-	const hexDigits = "0123456789abcdef"
-	if h == 0 {
-		return "0"
-	}
-	var out []byte
-	for h > 0 {
-		out = append([]byte{hexDigits[h&0xf]}, out...)
-		h >>= 4
-	}
-	return string(out)
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(dir))
+	return strconv.FormatUint(uint64(h.Sum32()), 16)
 }
 
 func ProjectFlagDir() string {

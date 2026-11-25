@@ -6,12 +6,13 @@ package auditcmd
 import (
 	"bytes"
 	"encoding/json"
+	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
-	"unicode/utf16"
 
 	"github.com/solongate/agent-security/packages/guard/dlp"
 	"github.com/solongate/agent-security/packages/guard/guardcore"
@@ -445,19 +446,7 @@ func compactJSON(raw []byte) string {
 }
 
 func callFingerprint(s string) string {
-	var h uint32 = 0x811c9dc5
-	for _, u := range utf16.Encode([]rune(s)) {
-		h ^= uint32(u)
-		h = h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)
-	}
-	const hexDigits = "0123456789abcdef"
-	if h == 0 {
-		return "0"
-	}
-	var out []byte
-	for h > 0 {
-		out = append([]byte{hexDigits[h&0xf]}, out...)
-		h >>= 4
-	}
-	return string(out)
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return strconv.FormatUint(uint64(h.Sum32()), 16)
 }

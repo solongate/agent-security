@@ -24,11 +24,7 @@ func CheckHookRuntime() HookRuntime {
 	p := GlobalPaths()
 
 	if runtime.GOOS == "windows" {
-		bin := p.GuardBinaryPath()
-		if !Exists(bin) {
-			return HookRuntime{Detail: "guard binary missing, run `solongate repair`"}
-		}
-		return HookRuntime{OK: true, Detail: bin}
+		return checkGuardBinary(p.GuardBinaryPath())
 	}
 
 	launcher := filepath.Join(p.HooksDir, LauncherName)
@@ -44,6 +40,16 @@ func CheckHookRuntime() HookRuntime {
 	bin := strings.TrimSpace(string(out))
 	if bin == "" {
 		return HookRuntime{Detail: "launcher found no guard binary, run `solongate repair`"}
+	}
+	return HookRuntime{OK: true, Detail: bin}
+}
+
+func checkGuardBinary(bin string) HookRuntime {
+	if !Exists(bin) {
+		return HookRuntime{Detail: "guard binary missing, run `solongate repair`"}
+	}
+	if guardVersionAt(bin) == nil {
+		return HookRuntime{Detail: "guard binary failed self-check, run `solongate repair`"}
 	}
 	return HookRuntime{OK: true, Detail: bin}
 }

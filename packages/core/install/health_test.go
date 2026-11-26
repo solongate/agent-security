@@ -4,12 +4,39 @@
 package install
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+func writeTestGuardBinary(t *testing.T, path string, exitCode int, stdout string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		script := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" != \"--sg-version\" ]; then exit 2; fi\nprintf '%%s' %q\nexit %d\n", stdout, exitCode)
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "main.go")
+	code := fmt.Sprintf("package main\nimport (\n\t\"fmt\"\n\t\"os\"\n)\nfunc main() {\n\tif len(os.Args) < 2 || os.Args[1] != \"--sg-version\" {\n\t\tos.Exit(2)\n\t}\n\tfmt.Print(%q)\n\tos.Exit(%d)\n}\n", stdout, exitCode)
+	if err := os.WriteFile(src, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "build", "-o", path, src)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build fake guard binary: %v\n%s", err, out)
+	}
+}
 
 func TestCheckHookRuntimeLauncherMissing(t *testing.T) {
 	home := t.TempDir()
@@ -88,6 +115,164 @@ func TestCheckHookRuntimeLauncherEmptyOutput(t *testing.T) {
 	if rt.OK {
 		t.Error("CheckHookRuntime().OK = true with empty launcher output")
 	}
+}
+
+func TestCheckGuardBinary(t *testing.T) {
+	t.Run("missing binary", func(t *testing.T) {
+		rt := checkGuardBinary(filepath.Join(t.TempDir(), guardBinaryName()))
+		if rt.OK {
+			t.Error("checkGuardBinary().OK = true for missing binary")
+		}
+		if !strings.Contains(rt.Detail, "missing") || !strings.Contains(rt.Detail, "repair") {
+			t.Errorf("checkGuardBinary().Detail = %q, want missing + repair hint", rt.Detail)
+		}
+	})
+
+	t.Run("truncated binary", func(t *testing.T) {
+		bin := filepath.Join(t.TempDir(), guardBinaryName())
+		if err := os.WriteFile(bin, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rt := checkGuardBinary(bin)
+		if rt.OK {
+			t.Error("checkGuardBinary().OK = true for truncated binary")
+		}
+		if !strings.Contains(rt.Detail, "self-check") || !strings.Contains(rt.Detail, "repair") {
+			t.Errorf("checkGuardBinary().Detail = %q, want self-check + repair hint", rt.Detail)
+		}
+	})
+
+	t.Run("corrupt binary", func(t *testing.T) {
+		bin := filepath.Join(t.TempDir(), guardBinaryName())
+		if err := os.WriteFile(bin, []byte("not-a-valid-executable"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rt := checkGuardBinary(bin)
+		if rt.OK {
+			t.Error("checkGuardBinary().OK = true for corrupt binary")
+		}
+		if !strings.Contains(rt.Detail, "self-check") || !strings.Contains(rt.Detail, "repair") {
+			t.Errorf("checkGuardBinary().Detail = %q, want self-check + repair hint", rt.Detail)
+		}
+	})
+
+	t.Run("non-zero exit", func(t *testing.T) {
+		bin := filepath.Join(t.TempDir(), guardBinaryName())
+		writeTestGuardBinary(t, bin, 1, "113\n")
+		rt := checkGuardBinary(bin)
+		if rt.OK {
+			t.Error("checkGuardBinary().OK = true when binary exits non-zero")
+		}
+		if !strings.Contains(rt.Detail, "repair") {
+			t.Errorf("checkGuardBinary().Detail = %q, want repair hint", rt.Detail)
+		}
+	})
+
+	t.Run("empty output", func(t *testing.T) {
+		bin := filepath.Join(t.TempDir(), guardBinaryName())
+		writeTestGuardBinary(t, bin, 0, "")
+		rt := checkGuardBinary(bin)
+		if rt.OK {
+			t.Error("checkGuardBinary().OK = true when binary prints empty output")
+		}
+	})
+
+	t.Run("non-version output", func(t *testing.T) {
+		bin := filepath.Join(t.TempDir(), guardBinaryName())
+		writeTestGuardBinary(t, bin, 0, "unexpected\n")
+		rt := checkGuardBinary(bin)
+		if rt.OK {
+			t.Error("checkGuardBinary().OK = true when binary prints non-version output")
+		}
+	})
+
+	t.Run("healthy binary", func(t *testing.T) {
+		bin := filepath.Join(t.TempDir(), guardBinaryName())
+		writeTestGuardBinary(t, bin, 0, "113\n")
+		rt := checkGuardBinary(bin)
+		if !rt.OK {
+			t.Fatalf("checkGuardBinary().OK = false, want true; Detail=%q", rt.Detail)
+		}
+		if rt.Detail != bin {
+			t.Errorf("checkGuardBinary().Detail = %q, want %q", rt.Detail, bin)
+		}
+	})
+}
+
+func TestCheckHookRuntimeWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-specific CheckHookRuntime branch")
+	}
+
+	t.Run("missing binary", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+
+		rt := CheckHookRuntime()
+		if rt.OK {
+			t.Error("CheckHookRuntime().OK = true with no guard binary installed")
+		}
+		if !strings.Contains(rt.Detail, "repair") {
+			t.Errorf("CheckHookRuntime().Detail = %q, want repair hint", rt.Detail)
+		}
+	})
+
+	t.Run("truncated binary", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+
+		bin := GlobalPaths().GuardBinaryPath()
+		if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bin, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		rt := CheckHookRuntime()
+		if rt.OK {
+			t.Error("CheckHookRuntime().OK = true for a truncated guard binary")
+		}
+		if !strings.Contains(rt.Detail, "repair") {
+			t.Errorf("CheckHookRuntime().Detail = %q, want repair hint", rt.Detail)
+		}
+	})
+
+	t.Run("non-zero exit binary", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+
+		bin := GlobalPaths().GuardBinaryPath()
+		writeTestGuardBinary(t, bin, 1, "113\n")
+
+		rt := CheckHookRuntime()
+		if rt.OK {
+			t.Error("CheckHookRuntime().OK = true even though guard binary exited non-zero")
+		}
+		if !strings.Contains(rt.Detail, "repair") {
+			t.Errorf("CheckHookRuntime().Detail = %q, want repair hint", rt.Detail)
+		}
+	})
+
+	t.Run("healthy binary", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+
+		bin := GlobalPaths().GuardBinaryPath()
+		writeTestGuardBinary(t, bin, 0, "113\n")
+
+		rt := CheckHookRuntime()
+		if !rt.OK {
+			t.Fatalf("CheckHookRuntime().OK = false, want true; Detail=%q", rt.Detail)
+		}
+		if rt.Detail != bin {
+			t.Errorf("CheckHookRuntime().Detail = %q, want %q", rt.Detail, bin)
+		}
+	})
 }
 
 func TestBeatsSortedNewestFirst(t *testing.T) {

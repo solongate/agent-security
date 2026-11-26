@@ -498,6 +498,50 @@ func TestShieldProxyHandlerSkipsRedactionForNonJSONBodies(t *testing.T) {
 	}
 }
 
+func TestShieldProxyHandlerRedactsAMixedCaseJSONBodyBeyondSystemAndMessageObjects(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	secret := "AKIA" + "IOSFODNN7EXAMPLE"
+
+	var gotBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	upstreamURL, err := url.Parse(upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := shieldProxyHandler(upstreamURL)
+
+	reqBody := `{"tools":[{"name":"deploy","description":"uses ` + secret + `"}],` +
+		`"messages":["plain string ` + secret + `"]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "Application/JSON")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(gotBody, &parsed); err != nil {
+		t.Fatalf("the body the upstream received is not valid JSON: %v (%s)", err, gotBody)
+	}
+	tools, _ := parsed["tools"].([]interface{})
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool to reach the upstream, got %d", len(tools))
+	}
+	if d, _ := tools[0].(map[string]interface{})["description"].(string); strings.Contains(d, secret) {
+		t.Errorf("the secret in a top-level field other than system reached the upstream unredacted: %q", d)
+	}
+	msgs, _ := parsed["messages"].([]interface{})
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message to reach the upstream, got %d", len(msgs))
+	}
+	if s, _ := msgs[0].(string); strings.Contains(s, secret) {
+		t.Errorf("the secret in a plain string message reached the upstream unredacted: %q", s)
+	}
+}
+
 func TestShieldRunChildReturnsTheExitCode(t *testing.T) {
 	cases := []struct {
 		name string

@@ -131,7 +131,7 @@ func shieldProxyHandler(upstream *url.URL) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := shieldLoadDLPConfig()
 		body, _ := io.ReadAll(r.Body)
-		if len(body) > 0 && strings.Contains(r.Header.Get("Content-Type"), "json") {
+		if len(body) > 0 && strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "json") {
 			body = shieldRedactBody(body, cfg)
 		}
 
@@ -224,12 +224,15 @@ func shieldRedactBody(body []byte, cfg *shared.DLPConfig) []byte {
 		}
 		return out
 	}
-	if sys, exists := obj["system"]; exists {
-		obj["system"] = shieldRedactDeep(sys, cfg)
+	for k, v := range obj {
+		if k != "messages" {
+			obj[k] = shieldRedactDeep(v, cfg)
+		}
 	}
 	for i, m := range msgs {
 		mm, ok := m.(map[string]interface{})
 		if !ok {
+			msgs[i] = shieldRedactDeep(m, cfg)
 			continue
 		}
 		if role, _ := mm["role"].(string); role != "assistant" {

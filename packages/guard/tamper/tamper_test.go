@@ -194,8 +194,12 @@ func TestReadHeredocDelimiter(t *testing.T) {
 
 		{"single quoted", "cat <<'EOF'\n", 6, "EOF", true},
 		{"double quoted", "cat <<\"EOF\"\n", 6, "EOF", true},
+		{"backslash escaped", "cat <<\\EOF\n", 6, "EOF", true},
+		{"tab stripping single quoted", "cat <<-'EOF'\n", 6, "EOF", true},
+		{"partially quoted", "cat <<E'O'F | bash\n", 6, "EOF", true},
 		{"terminated by a pipe", "cat <<EOF|wc\n", 6, "EOF", false},
 		{"terminated by a semicolon", "cat <<EOF;\n", 6, "EOF", false},
+		{"terminated by a redirect", "cat <<EOF>out\n", 6, "EOF", false},
 
 		{"nothing after it", "cat <<", 6, "", false},
 	}
@@ -462,6 +466,63 @@ func TestTamperCheckBlocksChangingIntoTheBareInstallDirectory(t *testing.T) {
 	for _, cmd := range cmds {
 		if Check("Bash", map[string]interface{}{"command": cmd}) == "" {
 			t.Errorf("Check allowed changing into the bare install directory: %s", cmd)
+		}
+	}
+}
+
+// Issue #217: quoted heredocs piped or fed into an interpreter execute their
+// bodies, so skipping them as inert data smuggled CLI invocations past Check.
+func TestTamperCheckQuotedHeredocCLIInvocation(t *testing.T) {
+	blocked := []struct{ name, cmd string }{
+		{"single-quoted piped to bash", "cat <<'EOF' | bash\nsolongate policy mode off\nEOF\n"},
+		{"double-quoted piped to sh", "cat <<\"EOF\" | sh\nsolongate policy mode off\nEOF\n"},
+		{"backslash-escaped piped to zsh", "cat <<\\EOF | zsh\nsolongate policy mode off\nEOF\n"},
+		{"partially-quoted piped to bash", "cat <<'E'OF | bash\nsolongate policy mode off\nEOF\n"},
+		{"tab-stripped piped to bash", "cat <<-'EOF' | bash\n\tsolongate policy mode off\n\tEOF\n"},
+		{"stderr pipe to bash", "cat <<'EOF' |& bash\nsolongate policy mode off\nEOF\n"},
+		{"fd redirect piped to bash", "cat <<'EOF' 2>&1 | bash\nsolongate policy mode off\nEOF\n"},
+		{"multi-stage pipeline to env bash", "cat <<'EOF' | tee /tmp/s.sh | /usr/bin/env bash -s\nsolongate policy mode off\nEOF\n"},
+		{"piped to sudo sh", "cat <<'EOF' | sudo sh\nsolongate policy mode off\nEOF\n"},
+		{"piped to env -i bash", "cat <<'EOF' | env -i bash\nsolongate policy mode off\nEOF\n"},
+		{"piped to xargs sh", "cat <<'EOF' | xargs -I{} sh -c '{}'\nsolongate policy mode off\nEOF\n"},
+		{"direct stdin to bash", "bash <<'EOF'\nsolongate policy mode off\nEOF\n"},
+		{"direct stdin tab-stripped to sh", "sh <<-'EOF'\n\tsolongate policy mode off\n\tEOF\n"},
+		{"redirection before shell", "<<'EOF' sh\nsolongate policy mode off\nEOF\n"},
+		{"piped to python3 subprocess", "cat <<'EOF' | python3\nimport subprocess\nsubprocess.run([\"solongate\", \"policy\", \"mode\", \"off\"])\nEOF\n"},
+		{"direct stdin to python3", "python3 <<'EOF'\nimport os\nos.system(\"solongate policy mode off\")\nEOF\n"},
+		{"piped to node", "cat <<'EOF' | node\nrequire('child_process').execSync('solongate policy mode off')\nEOF\n"},
+		{"chained on header line", "cat <<'EOF' > notes.txt && solongate policy mode off\nhello\nEOF\n"},
+		{"after tab-indented terminator", "cat <<-'EOF' > notes.txt\n\thello\n\tEOF\nsolongate policy mode off\n"},
+		{"bash -c command substitution", "bash -c \"$(cat <<'EOF'\nsolongate policy mode off\nEOF\n)\""},
+		{"eval command substitution", "eval \"$(cat <<'EOF'\nsolongate policy mode off\nEOF\n)\""},
+		{"multiple heredocs on one line", "cat <<'A' > /dev/null && cat <<'B' | bash\nhello\nA\nsolongate policy mode off\nB\n"},
+		{"CRLF line endings", "cat <<'EOF' | bash\r\nsolongate policy mode off\r\nEOF\r\n"},
+	}
+	for _, c := range blocked {
+		if !commandInvokesCLI(c.cmd) || Check("Bash", map[string]interface{}{"command": c.cmd}) == "" {
+			t.Errorf("%s: allowed quoted-heredoc CLI invocation", c.name)
+		}
+	}
+
+	allowed := []struct{ name, cmd string }{
+		{"single-quoted to file", "cat <<'EOF' > notes.txt\nsolongate policy mode off\nEOF\n"},
+		{"double-quoted to file", "cat <<\"EOF\" > docs/guide.md\nsolongate status\nEOF\n"},
+		{"backslash-escaped to file", "cat <<\\EOF > docs/guide.md\nsolongate status\nEOF\n"},
+		{"tab-stripped to file", "cat <<-'EOF' > notes.txt\n\tsolongate policy mode off\n\tEOF\n"},
+		{"piped to wc", "cat <<'EOF' | wc -l\nsolongate policy mode off\nEOF\n"},
+		{"piped to sudo tee", "cat <<'EOF' | sudo tee notes.txt\nsolongate policy mode off\nEOF\n"},
+		{"piped to grep mentioning bash", "cat <<'EOF' | grep bash\nsolongate policy mode off\nEOF\n"},
+		{"piped to bash without CLI", "cat <<'EOF' | bash\necho hello world\nls -la\nEOF\n"},
+		{"piped to bash echoing solongate", "cat <<'EOF' | bash\necho solongate policy mode off\nEOF\n"},
+		{"piped to python3 prose only", "cat <<'EOF' | python3\nprint(\"checking solongate docs\")\nEOF\n"},
+		{"direct stdin benign bash", "bash <<'EOF'\ngo test ./...\nEOF\n"},
+		{"git commit heredoc message", "git commit -m \"$(cat <<'EOF'\nfix: solongate policy mode off\nEOF\n)\""},
+		{"shell in separate OR branch", "cat <<'EOF' > notes.txt || bash -c \"echo failed\"\nsolongate policy mode off\nEOF\n"},
+		{"multiple heredocs first inert second safe", "cat <<'A' > /dev/null && cat <<'B' | bash\nsolongate policy mode off\nA\necho safe\nB\n"},
+	}
+	for _, c := range allowed {
+		if commandInvokesCLI(c.cmd) || Check("Bash", map[string]interface{}{"command": c.cmd}) != "" {
+			t.Errorf("%s: falsely flagged benign heredoc", c.name)
 		}
 	}
 }

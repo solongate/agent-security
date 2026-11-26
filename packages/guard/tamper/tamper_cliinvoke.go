@@ -23,7 +23,7 @@ var cliWrappers = map[string]bool{
 	"setsid": true, "xargs": true, "watch": true, "timeout": true, "builtin": true,
 
 	"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true,
-	"fish": true, "csh": true, "tcsh": true, "ash": true, "busybox": true,
+	"fish": true, "csh": true, "tcsh": true, "ash": true, "busybox": true, "eval": true,
 
 	"script": true, "unbuffer": true, "expect": true, "socat": true,
 	"flock": true, "chroot": true, "su": true, "runuser": true,
@@ -48,6 +48,10 @@ var (
 	reCLINumberish = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?[a-z]*$`)
 
 	reCLIAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
+	reCLIShellInterp  = regexp.MustCompile(`^(?:ba|z|da|k|fi|c|tc|a)?sh$|^busybox$|^pwsh$|^powershell$|^cmd$|^eval$|^source$|^\.$`)
+	reCLIScriptInterp = regexp.MustCompile(`^(?:python|pypy|node|nodejs|deno|bun|perl|ruby|php|lua|luajit|tclsh|wish|rscript|osascript)[0-9.]*$`)
+	reCLIScriptString = regexp.MustCompile(`"([^"\n\\]*(?:\\.[^"\n\\]*)*)"|'([^'\n\\]*(?:\\.[^'\n\\]*)*)'|` + "`([^`]+)`")
 )
 
 func commandInvokesCLI(cmd string) bool { return commandInvokesCLIDepth(cmd, 0) }
@@ -66,6 +70,7 @@ func splitCLICommands(cmd string) [][]string {
 	fields := []string{}
 	tok := strings.Builder{}
 	quote := byte(0)
+	inCmdSub := false
 
 	endToken := func() {
 		if tok.Len() > 0 {
@@ -100,22 +105,46 @@ func splitCLICommands(cmd string) [][]string {
 		case ch == '\'' || ch == '"':
 			quote = ch
 		case ch == '$' && i+1 < len(cmd) && (cmd[i+1] == '(' || cmd[i+1] == '{'):
+			inCmdSub = len(fields) == 0 && tok.Len() == 0
 			i++
 			endCommand()
 
+		// Inspect the heredoc's own pipeline before skipping a quoted body:
+		// a quoted heredoc piped or fed into an interpreter still executes.
 		case ch == '<' && i+1 < len(cmd) && cmd[i+1] == '<' && (i+2 >= len(cmd) || cmd[i+2] != '<'):
+			endToken()
 			delim, quoted, after := readHeredocDelimiter(cmd, i+2)
-			if !quoted {
+			nl := strings.IndexByte(cmd[after:], '\n')
+			if !quoted || nl < 0 || inCmdSub {
+				i = after - 1
+				continue
+			}
+			rest := cmd[after : after+nl]
+			mode := heredocExecMode(fields, rest)
+			if mode == 1 {
 				i = after - 1
 				continue
 			}
 			endCommand()
-			i = skipHeredocBody(cmd, after, delim) - 1
+			out = append(out, splitCLICommands(rest)...)
+			next := skipHeredocBody(cmd, after, delim)
+			if mode == 2 {
+				for _, m := range reCLIScriptString.FindAllStringSubmatch(cmd[after+nl+1:next], -1) {
+					if s := m[1] + m[2] + m[3]; s != "" {
+						out = append(out, splitCLICommands(s)...)
+					}
+				}
+			}
+			i = next - 1
 		case strings.IndexByte("|&;\n\r`", ch) >= 0:
+			inCmdSub = false
 			endCommand()
 		case ch == ' ' || ch == '\t':
 			endToken()
 		default:
+			if ch == ')' {
+				inCmdSub = false
+			}
 			tok.WriteByte(ch)
 		}
 	}
@@ -208,23 +237,88 @@ func readHeredocDelimiter(cmd string, i int) (delim string, quoted bool, after i
 	if i >= len(cmd) {
 		return "", false, i
 	}
-	if q := cmd[i]; q == '\'' || q == '"' {
-		i++
-		start := i
-		for i < len(cmd) && cmd[i] != q {
+	var b strings.Builder
+	for i < len(cmd) && !strings.ContainsRune(" \t\n\r;|&<>()", rune(cmd[i])) {
+		if q := cmd[i]; q == '\'' || q == '"' {
+			quoted = true
+			for i++; i < len(cmd) && cmd[i] != q; i++ {
+				b.WriteByte(cmd[i])
+			}
+		} else if cmd[i] == '\\' && i+1 < len(cmd) && cmd[i+1] != '\n' && cmd[i+1] != '\r' {
+			quoted = true
 			i++
+			b.WriteByte(cmd[i])
+		} else {
+			b.WriteByte(cmd[i])
 		}
-		delim = cmd[start:i]
 		if i < len(cmd) {
 			i++
 		}
-		return delim, true, i
 	}
-	start := i
-	for i < len(cmd) && !strings.ContainsRune(" \t\n\r;|&", rune(cmd[i])) {
-		i++
+	return b.String(), quoted, i
+}
+
+// heredocExecMode reports how the pipeline owning a quoted heredoc handles its
+// body: 0 (inert data), 1 (shell interpreter), or 2 (script interpreter).
+func heredocExecMode(head []string, rest string) int {
+	cut, q := len(rest), byte(0)
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if q != 0 {
+			if c == q {
+				q = 0
+			}
+			continue
+		}
+		if c == '\'' || c == '"' {
+			q = c
+		} else if c == ';' || (c == '|' && i+1 < len(rest) && rest[i+1] == '|') ||
+			(c == '&' && !(i > 0 && (rest[i-1] == '>' || rest[i-1] == '<' || rest[i-1] == '|')) && !(i+1 < len(rest) && rest[i+1] == '>')) {
+			cut = i
+			break
+		}
 	}
-	return cmd[start:i], false, i
+	mode := commandHeredocMode(head)
+	for _, stage := range splitCLICommands(rest[:cut]) {
+		if m := commandHeredocMode(stage); m > mode {
+			mode = m
+		}
+	}
+	return mode
+}
+
+func commandHeredocMode(fields []string) int {
+	wrapped := false
+	for i := 0; i < len(fields); i++ {
+		tok := strings.Trim(fields[i], "(){}\"'")
+		if tok == "" || reCLIAssignment.MatchString(tok) {
+			wrapped = wrapped || tok != ""
+			continue
+		}
+		if wrapped && (strings.HasPrefix(tok, "-") || reCLINumberish.MatchString(tok)) {
+			if cliFlagTakesValue[strings.ToLower(tok)] && i+1 < len(fields) && commandHeredocMode(fields[i+1:i+2]) == 0 && !cliWrappers[cliBaseName(fields[i+1])] {
+				i++
+			}
+			continue
+		}
+		base := cliBaseName(tok)
+		switch {
+		case reCLIShellInterp.MatchString(base):
+			return 1
+		case reCLIScriptInterp.MatchString(base):
+			return 2
+		case cliWrappers[base]:
+			wrapped = true
+		default:
+			return 0
+		}
+	}
+	return 0
+}
+
+func cliBaseName(raw string) string {
+	tok := strings.Trim(raw, "(){}\"'")
+	return strings.TrimSuffix(strings.ToLower(path.Base(strings.ReplaceAll(tok, "\\", "/"))), ".exe")
 }
 
 func skipHeredocBody(cmd string, i int, delim string) int {

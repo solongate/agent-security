@@ -56,6 +56,16 @@ func TestParseFlagValueStartingWithDashDashBecomesBool(t *testing.T) {
 	}
 }
 
+func TestParseBooleanFlagBeforeSubcommand(t *testing.T) {
+	p := Parse([]string{"--json", "list"})
+	if got := p.Positional(0); got != "list" {
+		t.Errorf("Positional(0) = %q, want %q: --json is a boolean flag and must not swallow the subcommand", got, "list")
+	}
+	if got := p.FlagBool("json"); !got {
+		t.Errorf("FlagBool(json) = %v, want true", got)
+	}
+}
+
 func TestParseMixedOrder(t *testing.T) {
 	p := Parse([]string{"pos1", "--flag1", "v1", "pos2", "--flag2=v2", "pos3"})
 	if got := p.Rest(0); got != "pos1 pos2 pos3" {

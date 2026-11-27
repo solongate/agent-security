@@ -14,6 +14,18 @@ type ParsedArgs struct {
 	flags       map[string]any
 }
 
+// boolOnlyFlags are flags this CLI never gives a value: a bare token right
+// after one of them is a positional (often a subcommand), not the flag's
+// value, even though syntactically it looks the same as "--name value".
+var boolOnlyFlags = map[string]bool{
+	"json":       true,
+	"help":       true,
+	"off":        true,
+	"clear":      true,
+	"local-only": true,
+	"cloud-only": true,
+}
+
 func Parse(argv []string) ParsedArgs {
 	p := ParsedArgs{flags: map[string]any{}}
 	for i := 0; i < len(argv); i++ {
@@ -27,7 +39,7 @@ func Parse(argv []string) ParsedArgs {
 			p.flags[body[:eq]] = body[eq+1:]
 			continue
 		}
-		if i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "--") {
+		if !boolOnlyFlags[body] && i+1 < len(argv) && !strings.HasPrefix(argv[i+1], "--") {
 			p.flags[body] = argv[i+1]
 			i++
 			continue

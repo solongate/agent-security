@@ -62,6 +62,13 @@ func CollectChecks(ctx context.Context, c *client.Client) []Check {
 	return checks
 }
 
+// checkLock and userHomeDir are variables so unprivileged tests can simulate
+// immutable OS locks and home-directory lookup failures deterministically.
+var (
+	checkLock   = config.CheckLock
+	userHomeDir = os.UserHomeDir
+)
+
 func protectedCheck(ctx context.Context, c *client.Client) []Check {
 	paths, err := c.Settings.ProtectedPaths(ctx)
 	if err != nil || len(paths) == 0 {
@@ -71,7 +78,7 @@ func protectedCheck(ctx context.Context, c *client.Client) []Check {
 	weakest := ""
 	locked := 0
 	for _, p := range paths {
-		l := config.CheckLock(p)
+		l := checkLock(p)
 		if l.Immutable {
 			locked++
 			continue
@@ -98,7 +105,7 @@ func protectedCheck(ctx context.Context, c *client.Client) []Check {
 				"keys it added are being ignored by this build"})
 	}
 
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := userHomeDir(); err == nil {
 		for _, name := range []string{"acc" + "ounts.json", "clou" + "d-guard.json"} {
 			stale := filepath.Join(home, ".solongate", name)
 			if _, err := os.Stat(stale); err != nil {

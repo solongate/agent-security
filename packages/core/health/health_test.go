@@ -852,13 +852,19 @@ func TestClientChecksOpencodeStates(t *testing.T) {
 }
 
 func TestClientChecksAntigravityStates(t *testing.T) {
+	ours := `{"solongate-guard": {"PreToolUse": [{"matcher": "", "hooks": [` +
+		`{"type": "command", "command": "/home/u/.solongate/hooks/guard antigravity Antigravity"}]}]}}`
 	cases := []struct {
-		name            string
-		createHooksFile bool
-		wantOK          CheckState
+		name      string
+		hooksFile string
+		wantOK    CheckState
 	}{
-		{"detected but hooks missing", false, StateFail},
-		{"detected and hooks registered", true, StateOK},
+		{"detected but hooks missing", "", StateFail},
+		// Removing the guard deletes our group and leaves the file behind,
+		// and the user may keep hooks of their own in it.
+		{"hooks file left after removal", "{}\n", StateFail},
+		{"hooks file with only foreign hooks", `{"mine": {"PreToolUse": []}}`, StateFail},
+		{"detected and hooks registered", ours, StateOK},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -871,8 +877,8 @@ func TestClientChecksAntigravityStates(t *testing.T) {
 			if err := os.MkdirAll(antigravityDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if tc.createHooksFile {
-				if err := os.WriteFile(filepath.Join(antigravityDir, "hooks.json"), []byte("{}"), 0o644); err != nil {
+			if tc.hooksFile != "" {
+				if err := os.WriteFile(filepath.Join(antigravityDir, "hooks.json"), []byte(tc.hooksFile), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}

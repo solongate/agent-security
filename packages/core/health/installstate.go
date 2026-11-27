@@ -8,15 +8,13 @@ import (
 )
 
 type clientPaths struct {
-	antigravityDir       string
-	antigravityHooksPath string
+	antigravityDir string
 }
 
 func globalPaths() clientPaths {
 	p := install.GlobalPaths()
 	return clientPaths{
-		antigravityDir:       p.AntigravityDir,
-		antigravityHooksPath: p.AntigravityHooksPath,
+		antigravityDir: p.AntigravityDir,
 	}
 }
 
@@ -27,6 +25,8 @@ func installedGuardVersion() *int    { return install.InstalledGuardVersion() }
 func codexDetected() bool            { return install.CodexDetected() }
 func opencodeDetected() bool         { return install.OpencodeDetected() }
 func isOpencodeGuardInstalled() bool { return install.OpencodeGuardInstalled() }
+
+func isAntigravityGuardInstalled() bool { return install.AntigravityGuardInstalled() }
 
 type codexStatus struct {
 	registered bool

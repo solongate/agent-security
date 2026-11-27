@@ -282,6 +282,21 @@ func antigravityRegisteredCommand(p Paths) string {
 	return ""
 }
 
+// AntigravityGuardInstalled reports whether hooks.json still holds our group.
+// The file existing proves nothing: it can carry hooks of the user's own, and
+// removing the guard deletes only our group and leaves the file in place.
+func AntigravityGuardInstalled() bool {
+	b, err := os.ReadFile(GlobalPaths().AntigravityHooksPath)
+	if err != nil {
+		return false
+	}
+	obj, ok := parseJSONObject(b)
+	if !ok {
+		return false
+	}
+	return strings.Contains(string(obj.get(antigravityGroup)), ".solongate")
+}
+
 func installOpencodePlugin(p Paths, plugin []byte) error {
 	if err := os.MkdirAll(p.OpencodePluginDir, 0o755); err != nil {
 		return err

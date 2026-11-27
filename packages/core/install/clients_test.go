@@ -422,6 +422,45 @@ func TestAntigravityRegisteredCommand(t *testing.T) {
 	}
 }
 
+func TestAntigravityGuardInstalled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	p := GlobalPaths()
+	if AntigravityGuardInstalled() {
+		t.Error("AntigravityGuardInstalled() = true with no hooks file")
+	}
+
+	if err := os.MkdirAll(p.AntigravityDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.AntigravityHooksPath, []byte(`{"other":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if AntigravityGuardInstalled() {
+		t.Error("AntigravityGuardInstalled() = true for a hooks file holding only the user's own entries")
+	}
+
+	reg, err := planAntigravity(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.AntigravityHooksPath, reg.content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !AntigravityGuardInstalled() {
+		t.Error("AntigravityGuardInstalled() = false after planAntigravity was committed")
+	}
+
+	if err := removeAntigravityRegistration(p); err != nil {
+		t.Fatal(err)
+	}
+	if !Exists(p.AntigravityHooksPath) {
+		t.Fatal("removeAntigravityRegistration deleted the whole file, the user's entries with it")
+	}
+	if AntigravityGuardInstalled() {
+		t.Error("AntigravityGuardInstalled() = true after our group was removed")
+	}
+}
+
 func TestInstallAndRemoveOpencodePlugin(t *testing.T) {
 	p := clientTestPaths(t.TempDir())
 

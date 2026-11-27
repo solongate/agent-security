@@ -442,3 +442,68 @@ func TestRunWatchAcceptsFilterInAnyCase(t *testing.T) {
 		})
 	}
 }
+
+// c.Audit and the local tail read the same audit log, so with no source flag a
+// new call must come out once, not once per source.
+func TestRunWatchPrintsEachCallOnce(t *testing.T) {
+	home := newHome(t)
+	savedLocal, savedCloud, savedPrimed := localPollEvery, cloudPollEvery, watchPrimed
+	primed := make(chan struct{})
+	localPollEvery, cloudPollEvery = 20*time.Millisecond, 40*time.Millisecond
+	watchPrimed = func() { close(primed) }
+	t.Cleanup(func() { localPollEvery, cloudPollEvery, watchPrimed = savedLocal, savedCloud, savedPrimed })
+
+	dir := filepath.Join(home, ".solongate", "local-logs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "solongate-audit.jsonl")
+	stamp := func(d time.Duration) string {
+		return time.Now().Add(d).UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+	old := `{"ts":"` + stamp(-time.Hour) + `","tool":"Read","decision":"ALLOW"}` + "\n"
+	if err := os.WriteFile(file, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	appended := make(chan error, 1)
+	go func() {
+		// Add the new call only once the initial poll has taken the old one
+		// as history, so it is the one call watch has to print.
+		select {
+		case <-primed:
+		case <-ctx.Done():
+			appended <- ctx.Err()
+			return
+		}
+		next := old + `{"ts":"` + stamp(0) + `","tool":"Bash","decision":"DENY"}` + "\n"
+		appended <- os.WriteFile(file, []byte(next), 0o644)
+	}()
+
+	out := captureFD(t, 1, func() {
+		_, _ = RunWatch(ctx, client.New(), cliutil.Parse([]string{"--json"}))
+	})
+	if err := <-appended; err != nil {
+		t.Fatal(err)
+	}
+
+	var rows []watchRow
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		var r watchRow
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			t.Fatalf("not a JSON row: %q", line)
+		}
+		rows = append(rows, r)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("watch printed %d rows for one new call, want 1:\n%s", len(rows), out)
+	}
+	if rows[0].Tool != "Bash" || rows[0].Source != "local" {
+		t.Errorf("row = %+v, want the new Bash call from the local log", rows[0])
+	}
+}

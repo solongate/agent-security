@@ -5,9 +5,13 @@ package health
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +28,13 @@ func newClient(t *testing.T) (*client.Client, context.Context, string) {
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	return client.New(), context.Background(), home
+}
+
+func newIsolatedClient(t *testing.T) (*client.Client, context.Context, string) {
+	t.Helper()
+	c, ctx, home := newClient(t)
+	t.Setenv("USERPROFILE", home)
+	return c, ctx, home
 }
 
 func writeEvalRecord(t *testing.T, home, project, jsonLine string) {
@@ -416,10 +427,68 @@ func TestPolicyChecksCorruptPolicyFile(t *testing.T) {
 	}
 }
 
+func overrideLockInspection(t *testing.T, statuses map[string]config.Lock) {
+	t.Helper()
+	original := checkLock
+	checkLock = func(path string) config.Lock {
+		return statuses[path]
+	}
+	t.Cleanup(func() {
+		checkLock = original
+	})
+}
+
+func checksNamed(checks []Check, name string) []Check {
+	var matches []Check
+	for _, check := range checks {
+		if check.Name == name {
+			matches = append(matches, check)
+		}
+	}
+	return matches
+}
+
+func writeLegacyCredential(t *testing.T, home, name string) string {
+	t.Helper()
+	path := filepath.Join(home, ".solongate", name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q): %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q): %v", path, err)
+	}
+	return path
+}
+
+func writeGuardVersionStub(t *testing.T, body string, mode os.FileMode) {
+	t.Helper()
+	path := install.GlobalPaths().GuardBinaryPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProtectedCheckNoProtectedPaths(t *testing.T) {
 	c, ctx, _ := newClient(t)
 	if got := protectedCheck(ctx, c); got != nil {
 		t.Errorf("protectedCheck() = %+v, want nil when nothing is protected", got)
+	}
+}
+
+func TestProtectedCheckReturnsNoChecksWhenPolicyStoreIsCorrupt(t *testing.T) {
+	c, ctx, _ := newIsolatedClient(t)
+	if err := os.MkdirAll(filepath.Dir(client.PolicyPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(client.PolicyPath(), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := protectedCheck(ctx, c); got != nil {
+		t.Errorf("protectedCheck() with a corrupt policy store = %+v, want no checks", got)
 	}
 }
 
@@ -484,9 +553,235 @@ func TestProtectedCheckChmodOnlyLock(t *testing.T) {
 	}
 }
 
-func TestProtectedCheckStaleCredential(t *testing.T) {
-	c, ctx, home := newClient(t)
+func TestProtectedCheckImmutableAndMixedLockStates(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(home string) ([]string, map[string]config.Lock, Check)
+	}{
+		{
+			name: "single immutable path uses singular grammar",
+			setup: func(home string) ([]string, map[string]config.Lock, Check) {
+				path := filepath.Join(home, "protected.txt")
+				return []string{path}, map[string]config.Lock{
+						path: {Path: path, How: "chattr +i", Immutable: true},
+					}, Check{
+						Name:   "protected paths",
+						OK:     StateOK,
+						Detail: "1 path · all locked against write and delete",
+					}
+			},
+		},
+		{
+			name: "multiple immutable paths use plural grammar",
+			setup: func(home string) ([]string, map[string]config.Lock, Check) {
+				paths := []string{
+					filepath.Join(home, "protected-a.txt"),
+					filepath.Join(home, "protected-b.txt"),
+				}
+				return paths, map[string]config.Lock{
+						paths[0]: {Path: paths[0], How: "chattr +i", Immutable: true},
+						paths[1]: {Path: paths[1], How: "chattr +i", Immutable: true},
+					}, Check{
+						Name:   "protected paths",
+						OK:     StateOK,
+						Detail: "2 paths · all locked against write and delete",
+					}
+			},
+		},
+		{
+			name: "mixed lock states report locked count and first non-immutable path",
+			setup: func(home string) ([]string, map[string]config.Lock, Check) {
+				immutablePath := filepath.Join(home, "immutable.txt")
+				unlockedPath := filepath.Join(home, "unlocked.txt")
+				chmodOnlyPath := filepath.Join(home, "chmod-only.txt")
+				paths := []string{immutablePath, unlockedPath, chmodOnlyPath}
+				return paths, map[string]config.Lock{
+						immutablePath: {Path: immutablePath, How: "chattr +i", Immutable: true},
+						unlockedPath:  {Path: unlockedPath},
+						chmodOnlyPath: {Path: chmodOnlyPath, How: "chmod 0400"},
+					}, Check{
+						Name:   "protected paths",
+						OK:     StateWarn,
+						Detail: "1 of 3 fully locked · " + unlockedPath + " · not locked",
+					}
+			},
+		},
+	}
 
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, ctx, home := newIsolatedClient(t)
+			paths, locks, want := tc.setup(home)
+			if err := c.Settings.SetProtectedPaths(ctx, paths); err != nil {
+				t.Fatalf("SetProtectedPaths: %v", err)
+			}
+			overrideLockInspection(t, locks)
+
+			if matches := checksNamed(protectedCheck(ctx, c), "protected paths"); len(matches) != 1 || matches[0] != want {
+				t.Errorf("protected paths checks = %+v, want [%+v]", matches, want)
+			}
+		})
+	}
+}
+
+func TestProtectedCheckWarnsWhenProtectedPathIsMissing(t *testing.T) {
+	c, ctx, home := newIsolatedClient(t)
+	missingPath := filepath.Join(home, "missing.txt")
+	if err := c.Settings.SetProtectedPaths(ctx, []string{missingPath}); err != nil {
+		t.Fatalf("SetProtectedPaths: %v", err)
+	}
+
+	want := Check{
+		Name:   "protected paths",
+		OK:     StateWarn,
+		Detail: "0 of 1 fully locked · " + missingPath + " · not locked · no such path",
+	}
+	if matches := checksNamed(protectedCheck(ctx, c), "protected paths"); len(matches) != 1 || matches[0] != want {
+		t.Errorf("protected paths checks = %+v, want [%+v]", matches, want)
+	}
+}
+
+func TestProtectedCheckPolicyFormatVersion(t *testing.T) {
+	cases := []struct {
+		name      string
+		configure func(t *testing.T, c *client.Client, ctx context.Context, path string)
+		wantCheck *Check
+	}{
+		{
+			name: "newer schema version emits policy format warning",
+			configure: func(t *testing.T, _ *client.Client, _ context.Context, path string) {
+				document := map[string]any{
+					"_v": 2,
+					"security": map[string]any{
+						"protectedPaths": []string{path},
+					},
+				}
+				body, err := json.Marshal(document)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Dir(client.PolicyPath()), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(client.PolicyPath(), body, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantCheck: &Check{
+				Name:   "policy format",
+				OK:     StateWarn,
+				Detail: "written by a newer SolonGate (v2) · keys it added are being ignored by this build",
+			},
+		},
+		{
+			name: "current schema version emits no policy format warning",
+			configure: func(t *testing.T, c *client.Client, ctx context.Context, path string) {
+				if err := c.Settings.SetProtectedPaths(ctx, []string{path}); err != nil {
+					t.Fatalf("SetProtectedPaths: %v", err)
+				}
+			},
+			wantCheck: nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, ctx, home := newIsolatedClient(t)
+			path := filepath.Join(home, "protected.txt")
+			tc.configure(t, c, ctx, path)
+			overrideLockInspection(t, map[string]config.Lock{
+				path: {Path: path, How: "chattr +i", Immutable: true},
+			})
+
+			matches := checksNamed(protectedCheck(ctx, c), "policy format")
+			if tc.wantCheck == nil {
+				if len(matches) != 0 {
+					t.Errorf("policy format checks = %+v, want none for the current format", matches)
+				}
+				return
+			}
+			if len(matches) != 1 || matches[0] != *tc.wantCheck {
+				t.Errorf("policy format checks = %+v, want [%+v]", matches, *tc.wantCheck)
+			}
+		})
+	}
+}
+
+func TestProtectedCheckStaleCredential(t *testing.T) {
+	cases := []struct {
+		name  string
+		files []string
+	}{
+		{
+			name:  "no legacy credentials emits no stale credential check",
+			files: nil,
+		},
+		{
+			name:  "only accounts.json emits one warning",
+			files: []string{"accounts.json"},
+		},
+		{
+			name:  "only cloud-guard.json emits one warning",
+			files: []string{"cloud-guard.json"},
+		},
+		{
+			name:  "both legacy files emit separate warnings",
+			files: []string{"accounts.json", "cloud-guard.json"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, ctx, home := newIsolatedClient(t)
+
+			protected := filepath.Join(home, "protected.txt")
+			if err := os.WriteFile(protected, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Settings.SetProtectedPaths(ctx, []string{protected}); err != nil {
+				t.Fatalf("SetProtectedPaths: %v", err)
+			}
+
+			var wantPaths []string
+			for _, name := range tc.files {
+				wantPaths = append(wantPaths, writeLegacyCredential(t, home, name))
+			}
+
+			checks := protectedCheck(ctx, c)
+			if protectedPaths := checksNamed(checks, "protected paths"); len(protectedPaths) != 1 {
+				t.Errorf("protected paths checks = %+v, want the unrelated checks to remain", protectedPaths)
+			}
+
+			staleChecks := checksNamed(checks, "stale credential")
+			if len(staleChecks) != len(wantPaths) {
+				t.Fatalf("stale credential checks = %+v, want %d check(s)", staleChecks, len(wantPaths))
+			}
+			if len(staleChecks) == 2 && staleChecks[0].Detail == staleChecks[1].Detail {
+				t.Errorf("stale credential details are identical: %q", staleChecks[0].Detail)
+			}
+			for _, wantPath := range wantPaths {
+				found := false
+				for _, check := range staleChecks {
+					if check.OK != StateWarn {
+						t.Errorf("OK = %v, want StateWarn", check.OK)
+					}
+					if !strings.Contains(check.Detail, "`solongate repair`") {
+						t.Errorf("Detail = %q, want repair guidance", check.Detail)
+					}
+					if strings.Contains(check.Detail, wantPath) {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("stale credential checks = %+v, want one naming %q", staleChecks, wantPath)
+				}
+			}
+		})
+	}
+}
+
+func TestProtectedCheckSkipsStaleCredentialsWhenHomeLookupFails(t *testing.T) {
+	c, ctx, home := newIsolatedClient(t)
 	protected := filepath.Join(home, "protected.txt")
 	if err := os.WriteFile(protected, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -494,28 +789,21 @@ func TestProtectedCheckStaleCredential(t *testing.T) {
 	if err := c.Settings.SetProtectedPaths(ctx, []string{protected}); err != nil {
 		t.Fatalf("SetProtectedPaths: %v", err)
 	}
+	writeLegacyCredential(t, home, "accounts.json")
 
-	sgDir := filepath.Join(home, ".solongate")
-	if err := os.MkdirAll(sgDir, 0o755); err != nil {
-		t.Fatal(err)
+	oldUserHomeDir := userHomeDir
+	userHomeDir = func() (string, error) {
+		return "", errors.New("home unavailable")
 	}
-	stale := filepath.Join(sgDir, "accounts.json")
-	if err := os.WriteFile(stale, []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() { userHomeDir = oldUserHomeDir })
 
 	checks := protectedCheck(ctx, c)
-	var found *Check
-	for i := range checks {
-		if checks[i].Name == "stale credential" {
-			found = &checks[i]
-		}
+	// Issue #129 tracks surfacing an explicit check when resolving the home directory fails.
+	if staleChecks := checksNamed(checks, "stale credential"); len(staleChecks) != 0 {
+		t.Errorf("stale credential checks = %+v, want fail-open behavior with none", staleChecks)
 	}
-	if found == nil {
-		t.Fatal("expected a stale credential check for a leftover accounts.json")
-	}
-	if found.OK != StateWarn || !strings.Contains(found.Detail, stale) {
-		t.Errorf("stale credential check = %+v", found)
+	if protectedPaths := checksNamed(checks, "protected paths"); len(protectedPaths) != 1 {
+		t.Errorf("protected paths checks = %+v, want the unrelated checks to remain", protectedPaths)
 	}
 }
 
@@ -624,6 +912,169 @@ func TestGuardHookCheck(t *testing.T) {
 			}
 			if !strings.Contains(got.Detail, tc.wantDetailContains) {
 				t.Errorf("Detail = %q, want containing %q", got.Detail, tc.wantDetailContains)
+			}
+		})
+	}
+}
+
+func TestGuardHookCheckInstalledLocalVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("guard version stubs are executable shell scripts on supported Unix platforms")
+	}
+
+	cases := []struct {
+		name              string
+		latest            int
+		upstreamInstalled *int
+		localVersion      int
+		want              Check
+	}{
+		{
+			name:              "equal to latest",
+			latest:            5,
+			upstreamInstalled: intPtr(4),
+			localVersion:      5,
+			want: Check{
+				Name:   "guard hook",
+				OK:     StateOK,
+				Detail: "v5 (latest) · 1 device(s)",
+			},
+		},
+		{
+			name:              "newer than latest",
+			latest:            5,
+			upstreamInstalled: intPtr(5),
+			localVersion:      7,
+			want: Check{
+				Name:   "guard hook",
+				OK:     StateOK,
+				Detail: "v7 (latest) · 1 device(s)",
+			},
+		},
+		{
+			name:              "outdated overrides optimistic upstream status",
+			latest:            5,
+			upstreamInstalled: intPtr(5),
+			localVersion:      3,
+			want: Check{
+				Name:   "guard hook",
+				OK:     StateWarn,
+				Detail: "v3 → v5 available · run `solongate update` in your terminal",
+			},
+		},
+		{
+			name:              "local version with unknown latest stays fail-open",
+			latest:            0,
+			upstreamInstalled: nil,
+			localVersion:      9,
+			// Issue #129 tracks requiring a published latest version here.
+			want: Check{
+				Name:   "guard hook",
+				OK:     StateOK,
+				Detail: "v9 (latest) · 1 device(s)",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, ctx, _ := newIsolatedClient(t)
+			writeGuardVersionStub(t, "echo "+strconv.Itoa(tc.localVersion), 0o755)
+
+			old := client.GuardVersions
+			client.GuardVersions = func() (int, *int) {
+				return tc.latest, tc.upstreamInstalled
+			}
+			t.Cleanup(func() { client.GuardVersions = old })
+
+			checks := guardHookCheck(ctx, c)
+			if len(checks) != 1 {
+				t.Fatalf("guardHookCheck() = %+v, want exactly one check", checks)
+			}
+			if got := checks[0]; got != tc.want {
+				t.Errorf("guardHookCheck() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGuardHookCheckLocalVersionProbeFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("guard permission stubs require Unix file modes")
+	}
+
+	outdatedFallback := Check{
+		Name:   "guard hook",
+		OK:     StateWarn,
+		Detail: "v4 → v5 available · run `solongate update` in your terminal",
+	}
+
+	cases := []struct {
+		name              string
+		body              string
+		mode              os.FileMode
+		upstreamInstalled *int
+		want              Check
+	}{
+		{
+			name:              "non-zero exit status",
+			body:              "exit 1",
+			mode:              0o755,
+			upstreamInstalled: intPtr(4),
+			want:              outdatedFallback,
+		},
+		{
+			name:              "non-numeric output",
+			body:              "echo not-a-number",
+			mode:              0o755,
+			upstreamInstalled: intPtr(4),
+			want:              outdatedFallback,
+		},
+		{
+			name:              "not executable",
+			body:              "echo 99",
+			mode:              0o644,
+			upstreamInstalled: intPtr(4),
+			want:              outdatedFallback,
+		},
+		{
+			name:              "neither readable nor executable",
+			body:              "echo 99",
+			mode:              0o000,
+			upstreamInstalled: intPtr(4),
+			want:              outdatedFallback,
+		},
+		{
+			name:              "unreadable binary with optimistic upstream status stays fail-open",
+			body:              "echo 3",
+			mode:              0o000,
+			upstreamInstalled: intPtr(5),
+			// Issue #129 tracks reporting an unhealthy/unknown state when probing the local guard binary fails.
+			want: Check{
+				Name:   "guard hook",
+				OK:     StateOK,
+				Detail: "v5 (latest) · 1 device(s)",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, ctx, _ := newIsolatedClient(t)
+			writeGuardVersionStub(t, tc.body, tc.mode)
+
+			old := client.GuardVersions
+			client.GuardVersions = func() (int, *int) {
+				return 5, tc.upstreamInstalled
+			}
+			t.Cleanup(func() { client.GuardVersions = old })
+
+			checks := guardHookCheck(ctx, c)
+			if len(checks) != 1 {
+				t.Fatalf("guardHookCheck() = %+v, want exactly one fallback check", checks)
+			}
+			if got := checks[0]; got != tc.want {
+				t.Errorf("guardHookCheck() = %+v, want %+v", got, tc.want)
 			}
 		})
 	}

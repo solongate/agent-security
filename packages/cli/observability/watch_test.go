@@ -447,9 +447,11 @@ func TestRunWatchAcceptsFilterInAnyCase(t *testing.T) {
 // new call must come out once, not once per source.
 func TestRunWatchPrintsEachCallOnce(t *testing.T) {
 	home := newHome(t)
-	savedLocal, savedCloud := localPollEvery, cloudPollEvery
+	savedLocal, savedCloud, savedPrimed := localPollEvery, cloudPollEvery, watchPrimed
+	primed := make(chan struct{})
 	localPollEvery, cloudPollEvery = 20*time.Millisecond, 40*time.Millisecond
-	t.Cleanup(func() { localPollEvery, cloudPollEvery = savedLocal, savedCloud })
+	watchPrimed = func() { close(primed) }
+	t.Cleanup(func() { localPollEvery, cloudPollEvery, watchPrimed = savedLocal, savedCloud, savedPrimed })
 
 	dir := filepath.Join(home, ".solongate", "local-logs")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -468,15 +470,16 @@ func TestRunWatchPrintsEachCallOnce(t *testing.T) {
 	defer cancel()
 	appended := make(chan error, 1)
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0o644)
-		if err != nil {
-			appended <- err
+		// Add the new call only once the initial poll has taken the old one
+		// as history, so it is the one call watch has to print.
+		select {
+		case <-primed:
+		case <-ctx.Done():
+			appended <- ctx.Err()
 			return
 		}
-		_, err = f.WriteString(`{"ts":"` + stamp(0) + `","tool":"Bash","decision":"DENY"}` + "\n")
-		f.Close()
-		appended <- err
+		next := old + `{"ts":"` + stamp(0) + `","tool":"Bash","decision":"DENY"}` + "\n"
+		appended <- os.WriteFile(file, []byte(next), 0o644)
 	}()
 
 	out := captureFD(t, 1, func() {

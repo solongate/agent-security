@@ -38,10 +38,13 @@ const (
 	seenLimit = 4096
 )
 
-// The poll intervals are variables only so a test can run the tail quickly.
+// The poll intervals are variables only so a test can run the tail quickly,
+// and watchPrimed lets a test wait until the initial poll has read the
+// existing history.
 var (
 	localPollEvery = 2 * time.Second
 	cloudPollEvery = 4 * time.Second
+	watchPrimed    = func() {}
 )
 
 var whitespaceRun = regexp.MustCompile(`\s+`)
@@ -172,6 +175,7 @@ func RunWatch(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int,
 	pollLocal()
 	pollCloud()
 	first = false
+	watchPrimed()
 
 	localTick := time.NewTicker(localPollEvery)
 	defer localTick.Stop()

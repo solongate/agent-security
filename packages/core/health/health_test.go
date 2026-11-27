@@ -5,6 +5,7 @@ package health
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +16,7 @@ import (
 	"github.com/solongate/agent-security/packages/core/client"
 	"github.com/solongate/agent-security/packages/core/config"
 	"github.com/solongate/agent-security/packages/core/install"
+	pcrypto "github.com/solongate/agent-security/packages/crypto"
 )
 
 func newClient(t *testing.T) (*client.Client, context.Context, string) {
@@ -484,16 +486,10 @@ func TestProtectedCheckChmodOnlyLock(t *testing.T) {
 	}
 }
 
-func TestProtectedCheckStaleCredential(t *testing.T) {
+// The stale credential and policy format rows have nothing to do with
+// protected paths, so they must show up on a machine that has none.
+func TestCollectChecksLeftoversWithoutProtectedPaths(t *testing.T) {
 	c, ctx, home := newClient(t)
-
-	protected := filepath.Join(home, "protected.txt")
-	if err := os.WriteFile(protected, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Settings.SetProtectedPaths(ctx, []string{protected}); err != nil {
-		t.Fatalf("SetProtectedPaths: %v", err)
-	}
 
 	sgDir := filepath.Join(home, ".solongate")
 	if err := os.MkdirAll(sgDir, 0o755); err != nil {
@@ -504,18 +500,39 @@ func TestProtectedCheckStaleCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	checks := protectedCheck(ctx, c)
-	var found *Check
-	for i := range checks {
-		if checks[i].Name == "stale credential" {
-			found = &checks[i]
-		}
+	kp, err := pcrypto.LoadOrCreateKeyPair(filepath.Join(sgDir, "crypto"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if found == nil {
-		t.Fatal("expected a stale credential check for a leftover accounts.json")
+	doc, err := pcrypto.SignDocument(kp, map[string]any{"policy": nil, "_v": 2})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if found.OK != StateWarn || !strings.Contains(found.Detail, stale) {
-		t.Errorf("stale credential check = %+v", found)
+	body, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(client.PolicyPath(), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if paths, err := c.Settings.ProtectedPaths(ctx); err != nil || len(paths) != 0 {
+		t.Fatalf("ProtectedPaths() = %v, %v, want none", paths, err)
+	}
+
+	found := map[string]Check{}
+	for _, ch := range CollectChecks(ctx, c) {
+		found[ch.Name] = ch
+	}
+	if got, ok := found["stale credential"]; !ok {
+		t.Error("expected a stale credential check for a leftover accounts.json")
+	} else if got.OK != StateWarn || !strings.Contains(got.Detail, stale) {
+		t.Errorf("stale credential check = %+v", got)
+	}
+	if got, ok := found["policy format"]; !ok {
+		t.Error("expected a policy format check for a file written by a newer build")
+	} else if got.OK != StateWarn || !strings.Contains(got.Detail, "v2") {
+		t.Errorf("policy format check = %+v", got)
 	}
 }
 

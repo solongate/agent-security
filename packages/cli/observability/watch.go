@@ -34,10 +34,14 @@ type watchRow struct {
 
 const (
 	watchTailBytes = 131072
-	localPollEvery = 2 * time.Second
-	cloudPollEvery = 4 * time.Second
 
 	seenLimit = 4096
+)
+
+// The poll intervals are variables only so a test can run the tail quickly.
+var (
+	localPollEvery = 2 * time.Second
+	cloudPollEvery = 4 * time.Second
 )
 
 var whitespaceRun = regexp.MustCompile(`\s+`)
@@ -123,8 +127,11 @@ func RunWatch(ctx context.Context, c *client.Client, p cliutil.ParsedArgs) (int,
 		}
 	}
 
+	// c.Audit reads the same local audit log pollLocal tails, so running both
+	// by default printed every call twice, once as LOC and once as CLD. The
+	// second source only runs when it was asked for by name.
 	pollCloud := func() {
-		if localOnly {
+		if !cloudOnly {
 			return
 		}
 		res, err := c.Audit.List(ctx, client.AuditQuery{Limit: 50})

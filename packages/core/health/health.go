@@ -307,7 +307,7 @@ func clientChecks() []Check {
 
 	p := globalPaths()
 	if pathExists(p.antigravityDir) {
-		if pathExists(p.antigravityHooksPath) {
+		if isAntigravityGuardInstalled() {
 			checks = append(checks, Check{Name: "Antigravity hooks", OK: StateOK, Detail: registered})
 		} else {
 			checks = append(checks, Check{Name: "Antigravity hooks", OK: StateFail, Detail: missing})

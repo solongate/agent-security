@@ -47,7 +47,7 @@ func Repair() Report {
 
 		runtime(),
 		reportLine("Claude hooks", ClaudeGuardInstalled(), "guard registered", "guard NOT registered"),
-		reportLine("Antigravity hooks", Exists(p.AntigravityHooksPath), "guard registered", "guard NOT registered"),
+		reportLine("Antigravity hooks", AntigravityGuardInstalled(), "guard registered", "guard NOT registered"),
 		reportLine("Codex hooks", CodexGuardInstalled(), "guard registered", "guard NOT registered"),
 		reportLine("OpenCode hooks", OpencodeGuardInstalled(), "guard registered", "guard NOT registered"),
 	}
@@ -65,7 +65,7 @@ func Repair() Report {
 		{Label: "guard binary", OK: true, Detail: "present (v" + version + ")"},
 		runtime(),
 		reportLine("Claude hooks", ClaudeGuardInstalled(), "guard registered", "NOT registered"),
-		reportLine("Antigravity hooks", Exists(p.AntigravityHooksPath), "guard registered", "NOT registered"),
+		reportLine("Antigravity hooks", AntigravityGuardInstalled(), "guard registered", "NOT registered"),
 		reportLine("Codex hooks", CodexGuardInstalled(), "guard registered", "NOT registered"),
 		reportLine("OpenCode hooks", OpencodeGuardInstalled(), "guard registered", "NOT registered"),
 	}

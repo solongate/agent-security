@@ -282,6 +282,14 @@ func antigravityRegisteredCommand(p Paths) string {
 	return ""
 }
 
+// AntigravityGuardInstalled reports whether hooks.json still registers our
+// guard: a PreToolUse hook in our group that runs the solongate command. The
+// file existing proves nothing: it can carry hooks of the user's own, and
+// removing the guard deletes only our group and leaves the file in place.
+func AntigravityGuardInstalled() bool {
+	return antigravityRegisteredCommand(GlobalPaths()) != ""
+}
+
 func installOpencodePlugin(p Paths, plugin []byte) error {
 	if err := os.MkdirAll(p.OpencodePluginDir, 0o755); err != nil {
 		return err

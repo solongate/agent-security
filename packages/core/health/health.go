@@ -59,7 +59,33 @@ func CollectChecks(ctx context.Context, c *client.Client) []Check {
 	checks = append(checks, clientChecks()...)
 	checks = append(checks, localLogCheck()...)
 	checks = append(checks, protectedCheck(ctx, c)...)
+	checks = append(checks, leftoverChecks()...)
 	return checks
+}
+
+// leftoverChecks reports what an older or newer build left behind. It stays
+// out of protectedCheck on purpose: that one returns nothing on a machine with
+// no protected paths, and these warnings matter on every machine.
+func leftoverChecks() []Check {
+	var out []Check
+	if v, newer := client.NewerThanThisBuild(); newer {
+		out = append(out, Check{Name: "policy format", OK: StateWarn,
+			Detail: "written by a newer SolonGate (v" + strconv.Itoa(v) + ") · " +
+				"keys it added are being ignored by this build"})
+	}
+
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, name := range []string{"acc" + "ounts.json", "clou" + "d-guard.json"} {
+			stale := filepath.Join(home, ".solongate", name)
+			if _, err := os.Stat(stale); err != nil {
+				continue
+			}
+			out = append(out, Check{Name: "stale credential", OK: StateWarn,
+				Detail: stale + " holds an API key from when this product had accounts · " +
+					"`solongate repair` deletes it; revoke the key at whatever issued it"})
+		}
+	}
+	return out
 }
 
 func protectedCheck(ctx context.Context, c *client.Client) []Check {
@@ -90,24 +116,6 @@ func protectedCheck(ctx context.Context, c *client.Client) []Check {
 		out = append(out, Check{Name: "protected paths", OK: StateWarn,
 			Detail: strconv.Itoa(locked) + " of " + strconv.Itoa(len(paths)) +
 				" fully locked · " + weakest})
-	}
-
-	if v, newer := client.NewerThanThisBuild(); newer {
-		out = append(out, Check{Name: "policy format", OK: StateWarn,
-			Detail: "written by a newer SolonGate (v" + strconv.Itoa(v) + ") · " +
-				"keys it added are being ignored by this build"})
-	}
-
-	if home, err := os.UserHomeDir(); err == nil {
-		for _, name := range []string{"acc" + "ounts.json", "clou" + "d-guard.json"} {
-			stale := filepath.Join(home, ".solongate", name)
-			if _, err := os.Stat(stale); err != nil {
-				continue
-			}
-			out = append(out, Check{Name: "stale credential", OK: StateWarn,
-				Detail: stale + " holds an API key from when this product had accounts · " +
-					"`solongate repair` deletes it; revoke the key at whatever issued it"})
-		}
 	}
 
 	required, _ := c.Settings.RequireSandbox(ctx)

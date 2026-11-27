@@ -439,6 +439,16 @@ func TestAntigravityGuardInstalled(t *testing.T) {
 		t.Error("AntigravityGuardInstalled() = true for a hooks file holding only the user's own entries")
 	}
 
+	// Our group name with ".solongate" only in metadata, and no PreToolUse
+	// hook that runs the guard, registers nothing.
+	noGuard := `{"solongate-guard":{"note":"~/.solongate/bin","Stop":[{"matcher":"","hooks":[{"type":"command","command":"~/.solongate/bin/solongate-guard tokens"}]}]}}`
+	if err := os.WriteFile(p.AntigravityHooksPath, []byte(noGuard), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if AntigravityGuardInstalled() {
+		t.Error("AntigravityGuardInstalled() = true for our group without a PreToolUse guard hook")
+	}
+
 	reg, err := planAntigravity(p)
 	if err != nil {
 		t.Fatal(err)

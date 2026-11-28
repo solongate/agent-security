@@ -3,7 +3,66 @@
 
 package live
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+var appleScriptStringTests = []struct {
+	name string
+	in   string
+	want string
+}{
+	{name: "plain text", in: "plain text", want: `"plain text"`},
+	{name: "double quote", in: `"`, want: `"\""`},
+	{name: "backslash", in: `\`, want: `"\\"`},
+	{name: "backslash followed by quote", in: `\"`, want: `"\\\""`},
+	{name: "trailing backslash", in: `trailing\`, want: `"trailing\\"`},
+	// With quote-only escaping this ends the literal and AppleScript evaluates 2 + 2.
+	{name: "breakout payload", in: `\" & (2 + 2) --`, want: `"\\\" & (2 + 2) --"`},
+	{name: "empty", in: "", want: `""`},
+	{name: "newline", in: "\n", want: "\"\n\""},
+	{name: "carriage return", in: "\r", want: "\"\r\""},
+	{name: "CRLF", in: "a\r\nb", want: "\"a\r\nb\""},
+	{name: "curly quotes", in: "“’”", want: `"“’”"`},
+	{name: "non-ASCII", in: "café 世界", want: `"café 世界"`},
+}
+
+func TestAppleScriptString(t *testing.T) {
+	for _, tt := range appleScriptStringTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := appleScriptString(tt.in); got != tt.want {
+				t.Errorf("appleScriptString(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAppleScriptStringRoundTrip(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("osascript round-trip requires macOS")
+	}
+	if _, err := os.Stat("/usr/bin/osascript"); err != nil {
+		t.Skip("/usr/bin/osascript is not available")
+	}
+
+	for _, tt := range appleScriptStringTests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := exec.Command("/usr/bin/osascript", "-e", "return "+appleScriptString(tt.in)).Output()
+			if err != nil {
+				t.Errorf("osascript round-trip for %q failed: %v", tt.in, err)
+				return
+			}
+			got := strings.TrimSuffix(string(out), "\n")
+			if got != tt.in {
+				t.Errorf("osascript round-trip = %q, want %q", got, tt.in)
+			}
+		})
+	}
+}
 
 func TestWindowsPowerShellFallsBackWhenNotFound(t *testing.T) {
 	// On a non-Windows test runner (or any machine without that exact

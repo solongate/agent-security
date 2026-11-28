@@ -25,9 +25,8 @@ func desktopNotify(title, msg string) {
 			"Start-Sleep -Milliseconds 6500;$n.Dispose()"
 		cmd = exec.Command(windowsPowerShell(), "-NoProfile", "-NonInteractive", "-Command", ps)
 	case "darwin":
-		esc := func(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
 		cmd = exec.Command(unixBinary("osascript"), "-e",
-			`display notification "`+esc(msg)+`" with title "`+esc(title)+`"`)
+			`display notification `+appleScriptString(msg)+` with title `+appleScriptString(title))
 	default:
 		return
 	}
@@ -41,6 +40,12 @@ func desktopNotify(title, msg string) {
 }
 
 func bell() { _, _ = os.Stdout.WriteString("\a") }
+
+func appleScriptString(s string) string {
+	// Notification text can contain agent-controlled paths or commands; an
+	// unescaped backslash can end the literal and run injected AppleScript.
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
 
 func windowsPowerShell() string {
 	root := os.Getenv("SystemRoot")
